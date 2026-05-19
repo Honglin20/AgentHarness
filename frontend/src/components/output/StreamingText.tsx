@@ -12,28 +12,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-
-const STATUS_ICON: Record<NodeState["status"], string> = {
-  idle: "○",
-  running: "◉",
-  success: "✓",
-  failed: "✗",
-  retrying: "↻",
-};
-
-const STATUS_COLOR: Record<NodeState["status"], string> = {
-  idle: "text-muted-foreground",
-  running: "text-blue-500 animate-pulse",
-  success: "text-emerald-500",
-  failed: "text-red-500",
-  retrying: "text-amber-500",
-};
-
-function formatDuration(ms?: number): string {
-  if (ms == null) return "";
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
+import { STATUS_ICON, STATUS_COLOR, STATUS_PULSE, formatDuration } from "./status-config";
 
 function NodeSection({
   nodeId,
@@ -66,7 +45,7 @@ function NodeSection({
           <span className="text-xs text-muted-foreground transition-transform group-data-[state=closed]:-rotate-90">
             ▾
           </span>
-          <span className={cn("text-sm", STATUS_COLOR[status])}>
+          <span className={cn("text-sm", STATUS_COLOR[status], STATUS_PULSE[status] && "animate-pulse")}>
             {STATUS_ICON[status]}
           </span>
           <span className="text-sm font-medium text-app-text-primary">

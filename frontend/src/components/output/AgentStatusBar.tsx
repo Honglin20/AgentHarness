@@ -4,26 +4,9 @@ import { useWorkflowStore, type NodeState } from "@/stores/workflowStore";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-
-const STATUS_CONFIG: Record<
-  NodeState["status"],
-  { icon: string; colorClass: string; pulse: boolean }
-> = {
-  idle: { icon: "○", colorClass: "text-muted-foreground", pulse: false },
-  running: { icon: "◉", colorClass: "text-blue-500", pulse: true },
-  success: { icon: "✓", colorClass: "text-emerald-500", pulse: false },
-  failed: { icon: "✗", colorClass: "text-red-500", pulse: false },
-  retrying: { icon: "↻", colorClass: "text-amber-500", pulse: false },
-};
-
-function formatDuration(ms?: number): string {
-  if (ms == null) return "";
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
+import { STATUS_ICON, STATUS_COLOR, STATUS_PULSE, formatDuration } from "./status-config";
 
 function AgentPill({ node }: { node: NodeState }) {
-  const config = STATUS_CONFIG[node.status];
   const isRunning = node.status === "running";
 
   return (
@@ -36,11 +19,11 @@ function AgentPill({ node }: { node: NodeState }) {
     >
       <span
         className={cn(
-          config.colorClass,
-          config.pulse && "animate-pulse"
+          STATUS_COLOR[node.status],
+          STATUS_PULSE[node.status] && "animate-pulse"
         )}
       >
-        {config.icon}
+        {STATUS_ICON[node.status]}
       </span>
       <span>{node.name}</span>
       {node.durationMs != null && (
