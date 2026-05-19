@@ -10,12 +10,14 @@ import type {
   NodeFailedPayload,
   AgentTextDeltaPayload,
   ChatQuestionPayload,
+  ChartRenderPayload,
 } from "@/types/events";
 import { useWebSocket } from "./useWebSocket";
 import type { UseWebSocketReturn } from "./useWebSocket";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useChatStore } from "@/stores/chatStore";
 import { useOutputStore } from "@/stores/outputStore";
+import { useChartStore } from "@/stores/chartStore";
 
 // Cast through unknown — the switch on event.type guarantees the payload shape
 function dispatchEvent(event: WSEvent): void {
@@ -60,6 +62,12 @@ function dispatchEvent(event: WSEvent): void {
     case "chat.question": {
       const p = event.payload as unknown as ChatQuestionPayload;
       useChatStore.getState().addAgentQuestion(p.question_id, p.question);
+      break;
+    }
+
+    case "chart.render": {
+      const p = event.payload as unknown as ChartRenderPayload;
+      useChartStore.getState().addChart(p.chart);
       break;
     }
   }

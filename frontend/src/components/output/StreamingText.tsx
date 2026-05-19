@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { STATUS_ICON, STATUS_COLOR, STATUS_PULSE, formatDuration } from "./status-config";
+import ChartGroupCollection from "./ChartGroupCollection";
 
 function NodeSection({
   nodeId,
@@ -151,6 +152,7 @@ export default function StreamingText() {
   return (
     <ScrollArea className="flex-1">
       <div className="flex flex-col divide-y divide-app-border">
+        <ChartGroupCollection />
         {orderedIds.map((nodeId) => (
           <NodeSection
             key={nodeId}

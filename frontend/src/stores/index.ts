@@ -6,3 +6,6 @@ export type { ChatMessage, ChatState } from "./chatStore";
 
 export { useOutputStore } from "./outputStore";
 export type { OutputState } from "./outputStore";
+
+export { useChartStore } from "./chartStore";
+export type { ChartGroup, ChartState } from "./chartStore";
