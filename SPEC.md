@@ -10,8 +10,8 @@
 | Phase | 状态 | 最后更新 |
 |-------|------|---------|
 | Phase 1 | ✅ 已敲定 | 2026-05-19 |
-| Phase 2 | 🟡 待敲定 | — |
-| Phase 3 | ⬜ 未开始 | — |
+| Phase 2 | ✅ 已敲定 | 2026-05-20 |
+| Phase 3 | ✅ 已敲定 | 2026-05-20 |
 | Phase 4 | ⬜ 未开始 | — |
 
 ---
@@ -479,7 +479,7 @@ async def setup_default_mcp(registry: ToolRegistry, workdir: str = ".") -> list[
     return bridges
 ```
 
-### Phase 3 预留接口
+### AskHumanToolFactory（Phase 3 实现）
 
 ```python
 class AskHumanToolFactory(ToolFactory):
@@ -488,13 +488,36 @@ class AskHumanToolFactory(ToolFactory):
     name = "ask_human"
     description = (
         "Ask the user a question and wait for their response. "
-        "Use when you need clarification, confirmation, or input from the user."
+        "Use when you need clarification, confirmation, or input from the user. "
+        "The user's response will be returned to you as plain text."
     )
 
+    def __init__(self, event_bus=None): ...
+
     def create(self) -> PydanticAITool:
-        """Phase 2: stub。Phase 3: 实现 LangGraph interrupt + WebSocket 通知"""
-        raise NotImplementedError("ask_human requires WebSocket (Phase 3)")
+        """创建 ask_human Tool
+
+        Tool 函数签名:
+            async def ask_human(ctx: RunContext, question: str) -> str
+
+        参数:
+            question: 向用户提出的问题
+
+        行为:
+            1. 生成 question_id，创建 asyncio.Future
+            2. bus.emit("chat.question", {question_id, question, node_id, agent_name})
+            3. await future（超时 300s，返回 "User disconnected. Proceed with your best judgment."）
+            4. WebSocket handler 收到 chat.answer 时 resolve_question() 解除等待
+        """
+        ...
+
+
+def resolve_question(question_id: str, answer: str) -> None:
+    """由 WebSocket handler 调用，解析用户的回答并 set_result Future"""
+    ...
 ```
+
+注：tool 函数签名应为 async，因为需要 await Future。
 
 ### 设计决策
 
@@ -643,17 +666,216 @@ class Workflow:
 
 ## §WS — WebSocket 事件协议
 
-> Phase 3 敲定
+> Phase 3 敲定（2026-05-20）
 
-（待 Phase 2 完成后讨论）
+### 统一事件格式
+
+```json
+{
+  "type": "workflow.started",
+  "ts": 1716000000000,
+  "payload": { ... }
+}
+```
+
+### 事件类型
+
+| 事件类型 | 方向 | 触发时机 |
+|----------|------|---------|
+| `workflow.started` | S→C | run() 调用时，含完整 DAG 结构 |
+| `workflow.completed` | S→C | 所有节点完成 |
+| `node.started` | S→C | 节点开始执行 |
+| `node.completed` | S→C | 节点成功完成（含耗时） |
+| `node.failed` | S→C | 节点失败（含错误、是否重试） |
+| `agent.text_delta` | S→C | LLM 逐 token 流式输出 |
+| `agent.tool_call` | S→C | agent 调用工具 |
+| `agent.tool_result` | S→C | 工具返回结果 |
+| `chart.render` | S→C | chart 数据就绪，前端渲染 |
+| `chat.question` | S→C | agent 需要人类回答 |
+| `chat.answer` | C→S | 用户回答问题 |
+
+### 架构
+
+```
+LangGraph 节点函数 → bus.emit() → EventBus（asyncio.Queue per subscriber）
+  → WebSocket handler → websocket.send_json() → 前端 zustand store → React
+```
+
+### EventBus
+
+```python
+# server/event_bus.py — 进程级单例 pub/sub
+
+class EventBus:
+    async def subscribe(self) -> tuple[str, asyncio.Queue]: ...
+    async def unsubscribe(self, sub_id: str) -> None: ...
+    def emit(self, event_type: str, payload: dict) -> None:  # 同步，fire-and-forget
+
+def get_event_bus() -> EventBus:  # 单例
+    ...
+```
+
+### ask_human 工具
+
+> 采用 WebSocket Future 方案（方案 B），不用 LangGraph interrupt。
+
+```python
+# harness/tools/ask_human.py
+
+class AskHumanToolFactory(ToolFactory):
+    """agent 向用户提问并等待回答"""
+    name = "ask_human"
+    description = "Ask the user a question and wait for their response."
+
+    def __init__(self, event_bus=None): ...
+    def create(self) -> PydanticAITool:
+        # Tool 函数:
+        #   async def ask_human(ctx: RunContext, question: str) -> str
+        # 1. 生成 question_id，创建 asyncio.Future
+        # 2. bus.emit("chat.question", {question_id, question})
+        # 3. await future（超时 300s，返回 "User disconnected..."）
+```
+
+**数据流**：
+```
+agent 调 ask_human → emit chat.question → WS → 前端弹出输入框
+用户输入答案 → WS 发 chat.answer → resolve_question() → Future.set_result()
+→ agent 拿到答案，继续执行
+```
+
+### 设计决策
+
+- [x] ask_human 用 WebSocket Future，不用 LangGraph interrupt
+  - Why: Pydantic AI 的 tool loop 是封闭循环，interrupt 打断它与双引擎架构冲突
+  - How: 原生 async/await + Future，在 tool 层面自然解决
+- [x] chart 不是 Pydantic AI tool，是代码调用的纯函数（见 §Chart）
 
 ---
 
 ## §API — RESTful 接口
 
-> Phase 3 敲定
+> Phase 3 敲定（2026-05-20）
 
-（待 Phase 2 完成后讨论）
+| 方法 | 路径 | 用途 |
+|------|------|------|
+| `GET` | `/health` | 健康检查 |
+| `GET` | `/api/agents` | 列出可用 agent |
+| `GET` | `/api/agents/{name}` | 获取 agent 定义 |
+| `GET` | `/api/tools` | 列出已注册工具 |
+| `POST` | `/api/workflows` | 创建并启动工作流 |
+| `GET` | `/api/workflows/{id}` | 查询工作流状态 |
+| `POST` | `/api/workflows/{id}/cancel` | 取消运行中的工作流 |
+| `GET` | `/api/workflows/{id}/dag` | 获取 DAG 结构 |
+| `GET` | `/api/workflows/{id}/trace` | 获取执行 trace |
+| `POST` | `/api/charts` | chart HTTP 通道（子进程 / 外部脚本） |
+| `WS` | `/ws/workflows/{id}` | WebSocket 实时事件流 |
+
+### HARNESS_API_URL
+
+服务启动时自动设环境变量，子进程继承：
+
+```python
+# server/app.py lifespan
+host = os.environ.get("HARNESS_HOST", "localhost")
+port = os.environ.get("HARNESS_PORT", "8001")
+os.environ["HARNESS_API_URL"] = f"http://{host}:{port}"
+```
+
+---
+
+## §Chart — 图表渲染接口
+
+> Phase 3 敲定（2026-05-20）
+
+### 定位
+
+chart **不是** Pydantic AI tool，是代码直接调用的**纯函数**。agent 通过 bash 工具执行 Python 脚本时调用，或自定义节点代码中调用。
+
+### 接口
+
+```python
+# harness/tools/chart.py
+
+def render_chart(
+    data: list[dict[str, Any]],      # 行数据（DataFrame.to_dict("records")）
+    chart_type: str,                 # "line" | "bar" | "scatter" | "pareto"
+                                     # | "optimal_line" | "heatmap" | "box" | "table"
+    x: str | None = None,            # x 轴列名
+    y: str | None = None,            # y 轴列名
+    label: str = "default",          # 分组标签（同 label = 同折叠组）
+    title: str = "",                 # 标题（同 label + 同 title = 原地刷新）
+    hue: str | None = None,          # 颜色分组列
+    pareto_direction: str | None = None,  # "max" | "min"（仅 pareto）
+    optimal_line: str | None = None,      # "max" | "min"（仅 optimal_line）
+    node_id: str = "",               # 调用方 agent 名
+) -> str:
+    ...
+```
+
+### 双通道投递
+
+| 优先级 | 通道 | 触发条件 |
+|--------|------|---------|
+| 1 | EventBus | 同进程，直接 `get_event_bus().emit()` |
+| 2 | HTTP POST `/api/charts` | 子进程 / 外部脚本，地址从 `HARNESS_API_URL` 环境变量读取 |
+| 3 | no-op | 都没有，返回提示不报错 |
+
+### 用户使用方式
+
+```python
+import pandas as pd
+from harness.tools.chart import render_chart
+
+df = pd.DataFrame({"iter": [1,2,3], "score": [0.3, 0.5, 0.7]})
+render_chart(df.to_dict("records"), chart_type="line", x="iter", y="score", label="Training")
+```
+
+### 前端 chart 数据模型
+
+```
+chart.render 事件 → chartStore.addChart() →
+
+groups: {
+  "Training": {                        // key = label
+    label: "Training",
+    collapsed: false,
+    charts: {
+      "Score Graph": { chart_type, data, ... },  // key = title
+    },
+    table: { columns, rows } | null     // chart_type="table"
+  }
+}
+```
+
+**三条规则**：
+1. 同 label 不同 title → 同折叠组内并排
+2. 同 label + 同 title → 替换（实时刷新）
+3. chart_type="table" → 存为组表格（每组最多一个）
+
+### 支持的图表类型
+
+| chart_type | 前端组件 | 说明 |
+|------------|---------|------|
+| line | Recharts LineChart | 折线图 |
+| bar | Recharts BarChart | 柱状图 |
+| scatter | Recharts ScatterChart | 散点图 |
+| pareto | ScatterChart + 高亮 | 帕累托前沿（O(n²) 支配算法） |
+| optimal_line | ScatterChart + LineChart | 散点 + 累积最优线 |
+| heatmap | 自定义 SVG | 热力图 |
+| box | 自定义 SVG | 箱线图（分位数计算） |
+| table | shadcn Table | 可排序数据表格 |
+
+### 设计决策
+
+- [x] chart 是纯函数，不是 Pydantic AI tool
+  - Why: chart 的参数（DataFrame）由代码构造，LLM 无法生成；agent 通过代码调用，不是 tool 选择
+  - How: 移除 ToolFactory/async/RunContext，同步函数直接 emit
+- [x] 双通道投递解决跨进程问题
+  - Why: bash 工具用 subprocess，子进程拿不到父进程 EventBus 单例
+  - How: 优先 EventBus（快），其次 HTTP（兜底），服务器自动设 HARNESS_API_URL
+- [x] pandas.DataFrame 不直接作为参数类型
+  - Why: DataFrame 无法 JSON Schema 化（即使走 HTTP 通道也不行）
+  - How: 用户用 `df.to_dict("records")` 转换，服务端和 HTTP 通道都接受 list[dict]
 
 ---
 
