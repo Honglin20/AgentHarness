@@ -25,8 +25,17 @@ class MacroGraphBuilder:
         event_bus: Any | None = None,  # Optional EventBus for emitting events
     ):
         self.tool_registry = tool_registry or ToolRegistry()
-        self.micro_factory = MicroAgentFactory(tool_registry=self.tool_registry)
         self.event_bus = event_bus  # Store for use in node functions
+
+        # Register event-bus-dependent tools when event_bus is available
+        if event_bus and "chart" not in self.tool_registry.list_tools():
+            from harness.tools.chart import ChartToolFactory
+            self.tool_registry.register("chart", ChartToolFactory(event_bus=event_bus))
+        if event_bus and "ask_human" not in self.tool_registry.list_tools():
+            from harness.tools.ask_human import AskHumanToolFactory
+            self.tool_registry.register("ask_human", AskHumanToolFactory(event_bus=event_bus))
+
+        self.micro_factory = MicroAgentFactory(tool_registry=self.tool_registry)
 
     def build(self, workflow) -> StateGraph:
         """Build a LangGraph StateGraph from a Workflow definition."""

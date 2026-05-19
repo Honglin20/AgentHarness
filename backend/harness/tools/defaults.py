@@ -38,11 +38,21 @@ DEFAULT_MCP_SERVERS = [
 ]
 
 
-def default_tool_registry() -> ToolRegistry:
-    """创建默认工具注册表：sub_agent + bash 自建工具"""
+def default_tool_registry(event_bus=None) -> ToolRegistry:
+    """创建默认工具注册表：sub_agent + bash 自建工具
+
+    Args:
+        event_bus: Optional EventBus. When provided, registers event-bus-dependent
+            tools (ask_human, chart).
+    """
     registry = ToolRegistry()
     registry.register("sub_agent", SubAgentToolFactory(registry=registry))
     registry.register("bash", BashToolFactory())
+    if event_bus:
+        from harness.tools.ask_human import AskHumanToolFactory
+        from harness.tools.chart import ChartToolFactory
+        registry.register("ask_human", AskHumanToolFactory(event_bus=event_bus))
+        registry.register("chart", ChartToolFactory(event_bus=event_bus))
     return registry
 
 
