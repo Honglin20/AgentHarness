@@ -36,6 +36,14 @@
   }
 
   .dark {
+    /* Design tokens — dark mode */
+    --color-bg-primary: #09090B;
+    --color-bg-secondary: #18181B;
+    --color-border: #27272A;
+    --color-text-primary: #FAFAFA;
+    --color-text-secondary: #A1A1AA;
+    --color-accent: #60A5FA;
+
     --background: 240 10% 3.9%;
     --foreground: 0 0% 98%;
     --card: 240 10% 3.9%;

@@ -18,6 +18,7 @@ const config: Config = {
           secondary: "var(--color-text-secondary)",
         },
         "app-accent": "var(--color-accent)",
+        "app-border": "var(--color-border)",
 
         /* shadcn/ui CSS variable colors */
         border: "hsl(var(--border))",
