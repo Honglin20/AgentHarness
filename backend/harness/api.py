@@ -53,10 +53,62 @@ class Workflow:
         self._compiled = None
 
     def compile(self):
-        raise NotImplementedError
+        """Compile the workflow into a LangGraph StateGraph."""
+        from harness.engine.macro_graph import MacroGraphBuilder
+
+        builder = MacroGraphBuilder()
+        graph = builder.build(self)
+        self._compiled = graph.compile()
+        return self._compiled
 
     def run(self, inputs: dict) -> WorkflowResult:
-        raise NotImplementedError
+        """Run the workflow synchronously."""
+        if self._compiled is None:
+            self.compile()
+
+        initial_state = {
+            "inputs": inputs,
+            "outputs": {},
+            "errors": {},
+            "metadata": {},
+        }
+
+        final_state = self._compiled.invoke(initial_state)
+        return self._build_result(final_state)
 
     async def arun(self, inputs: dict) -> WorkflowResult:
-        raise NotImplementedError
+        """Run the workflow asynchronously."""
+        if self._compiled is None:
+            self.compile()
+
+        initial_state = {
+            "inputs": inputs,
+            "outputs": {},
+            "errors": {},
+            "metadata": {},
+        }
+
+        final_state = await self._compiled.ainvoke(initial_state)
+        return self._build_result(final_state)
+
+    def _build_result(self, final_state: dict) -> WorkflowResult:
+        """Construct WorkflowResult from final LangGraph state."""
+        outputs = final_state.get("outputs", {})
+        errors = final_state.get("errors", {})
+        metadata = final_state.get("metadata", {})
+
+        trace = []
+        for agent in self.agents:
+            agent_meta = metadata.get(agent.name, {})
+            duration_ms = agent_meta.get("duration_ms", 0) if isinstance(agent_meta, dict) else 0
+            status = "failed" if agent.name in errors else "success"
+            error_msg = errors.get(agent.name)
+
+            trace.append(NodeTrace(
+                agent_name=agent.name,
+                status=status,
+                duration_ms=duration_ms,
+                error=error_msg,
+            ))
+
+        return WorkflowResult(outputs=outputs, errors=errors, trace=trace)
