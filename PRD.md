@@ -51,7 +51,7 @@
 | 工具能力 | 拒绝手写基础工具 | **MCP → mcp_bridge 适配为 Pydantic AI Tool** | — |
 | 鲁棒性 | 自修复、评估 | **Pydantic AI retries + LangGraph conditional edge** | — |
 | 记忆机制 | 人类可干预 | **File-based Memory** | — |
-| 可观测性 | 报错定位、耗时、拓扑图 | **LangSmith / Langfuse** | — |
+| 可观测性 | 报错定位、耗时、拓扑图 | **Langfuse** | 开源可自部署、框架无关、数据主权 |
 | 前端 UI | Apple/OpenAI 风 | **Next.js + Tailwind + shadcn/ui + React Flow** | — |
 
 ### 为什么双引擎比纯 LangGraph 更省
@@ -174,7 +174,7 @@ harness_project/
 
 #### 5. 回溯与可观测
 - 每个节点的输入/输出/耗时/错误记录到 Trace
-- LangSmith / Langfuse 集成，可点开看完整 prompt 和报错
+- Langfuse 集成，可点开看完整 prompt 和报错
 - 节点失败模式自动归档（哪个节点、什么错误、第几次重试成功）
 
 ---
@@ -228,7 +228,7 @@ harness_project/
 | 4.3 | Memory — 文件级读写，`.workspace_state.md` | Memory 插件 + 单测 |
 | 4.4 | Eval 节点 — 基于 Pydantic AI 的独立验证 + 条件回退边 | Eval 逻辑 + 集成测试 |
 | 4.5 | 反思 Hook — 节点结束后自动总结/改进建议 | Reflection 插件 |
-| 4.6 | Trace 埋点 — LangSmith 全局接入 | 可观测性集成 |
+| 4.6 | Trace 埋点 — Langfuse 全局接入 | 可观测性集成 |
 | 4.7 | 端到端验证：带 Eval 打回的工作流完整跑通 | E2E 演示 |
 
 ---

@@ -28,7 +28,7 @@ def test_parse_minimal_frontmatter():
 def test_parse_extracts_description():
     md = FIXTURES / "full_agent.md"
     result = parse_agent_md(md)
-    assert result.description == "你是一个代码重构专家"
+    assert result.description == "你是一个代码重构专家。你的任务是："
 
 
 def test_parse_no_frontmatter_raises():

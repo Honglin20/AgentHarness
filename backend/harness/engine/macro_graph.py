@@ -68,6 +68,12 @@ class MacroGraphBuilder:
 
         return graph
 
+    def add_conditional_edge(self, from_node, condition_fn, targets):
+        raise NotImplementedError("Conditional edges are planned for Phase 2+")
+
+    def add_evaluator_edge(self, eval_node, pass_target, fail_target):
+        raise NotImplementedError("Evaluator edges are planned for Phase 4")
+
     def _make_node_func(self, agent_def, parsed, dep_map):
         """Create a LangGraph node function for an agent."""
         micro_factory = self.micro_factory
@@ -106,16 +112,15 @@ class MacroGraphBuilder:
                 if dep_name in outputs:
                     upstream_outputs[dep_name] = outputs[dep_name]
 
-            # Build the full prompt
-            full_prompt = micro_factory.build_node_prompt(
-                md_prompt=parsed.prompt,
+            # Build the context (user message) — system prompt is already set via md_prompt
+            context = micro_factory.build_node_prompt(
                 inputs=state.get("inputs", {}),
                 upstream_outputs=upstream_outputs,
             )
 
             # Run the Pydantic AI agent
             try:
-                result = pydantic_agent.run_sync(full_prompt)
+                result = pydantic_agent.run_sync(context)
                 duration_ms = int((time.time() - start_time) * 1000)
                 return {
                     "outputs": {agent_def.name: result.data},

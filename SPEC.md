@@ -9,7 +9,7 @@
 
 | Phase | 状态 | 最后更新 |
 |-------|------|---------|
-| Phase 1 | 🟡 待敲定 | — |
+| Phase 1 | ✅ 已敲定 | 2026-05-19 |
 | Phase 2 | ⬜ 未开始 | — |
 | Phase 3 | ⬜ 未开始 | — |
 | Phase 4 | ⬜ 未开始 | — |
@@ -18,7 +18,7 @@
 
 ## §Agent — Agent 定义接口
 
-> Phase 1 敲定
+> Phase 1 敲定（2026-05-19）
 
 ```python
 from pydantic import BaseModel
@@ -26,17 +26,17 @@ from typing import Type[BaseModel] | None
 
 class Agent:
     name: str                    # agent 唯一标识，对应 agents/<name>.md
-    after: list[str]             # 依赖的 agent 名称列表
-    tools: list[str] | None      # 工具列表，None 时从 MD 读取
+    after: list[str]             # 依赖的 agent 名称列表（仅 API 定义，MD 中不放）
+    tools: list[str] | None      # 运行时追加的工具，与 MD 中的 tools 合并
     model: str | None            # 模型，None 时用默认
     retries: int = 3             # Pydantic AI 重试次数
-    result_type: Type[BaseModel] | None  # 结构化输出类型，None 时返回纯文本
+    result_type: Type[BaseModel] | None  # 结构化输出类型，仅 API 指定
 
 # 用法
 agent = Agent("refactorer", after=["analyzer"], tools=["bash", "fs"])
 ```
 
-### Agent Markdown 格式（待确认）
+### Agent Markdown 格式
 
 ```markdown
 ---
@@ -54,17 +54,29 @@ retries: 3
 - 遵循项目代码规范
 ```
 
-**待讨论：**
-- [ ] YAML frontmatter 是否需要 `after` 字段，还是纯 API 定义？
-- [ ] `tools` 合并策略：MD 和 API 同时指定时如何处理？
-- [ ] 是否需要 `description` 字段用于 DAG 可视化？
-- [ ] `result_type` 如何在 MD 中声明？还是只在 API 中指定？
+### 设计决策
+
+- [x] YAML frontmatter 不放 `after` 字段 — 依赖关系是工作流拓扑属性，不属于单个 agent 自身，由 `Workflow` 统一管理
+  - Why: 同一 agent 被不同 workflow 复用时依赖会冲突；MD 之间会产生隐式耦合
+  - How: MD 只定义 agent 自身属性（name, tools, model, prompt），`after` 只在 API 中指定
+
+- [x] `tools` 合并策略：MD 为默认，API 可追加
+  - Why: MD 中的 tools 是 agent 的"能力自述"，API 是运行时按场景扩展，语义清晰不冲突
+  - How: `final_tools = md_tools + [t for t in api_tools if t not in md_tools]`
+
+- [x] 不单独设 `description` 字段 — 用 MD 的首行非 frontmatter 文本作为 description
+  - Why: 避免重复维护，MD 开头写一句总结本来就该有
+  - How: DAG 可视化时提取 MD 首行作为节点描述
+
+- [x] `result_type` 不在 MD 中声明，仅在 API 中指定
+  - Why: result_type 是 Pydantic model 类，本质是代码，不是自然语言能表达的
+  - How: MD 定义"agent 是什么"，API 定义"agent 返回什么结构"
 
 ---
 
 ## §Workflow — 工作流定义接口
 
-> Phase 1 敲定
+> Phase 1 敲定（2026-05-19）
 
 ```python
 from langgraph.graph import StateGraph
@@ -73,7 +85,7 @@ class Workflow:
     name: str
     agents: list[Agent]
 
-    def compile(self) -> StateGraph: ...     # 返回 LangGraph StateGraph
+    def compile(self) -> CompiledStateGraph: ...  # 返回编译后的 LangGraph 图
     def run(self, inputs: dict) -> WorkflowResult: ...
     async def arun(self, inputs: dict) -> WorkflowResult: ...
 
@@ -83,19 +95,46 @@ wf = Workflow("code_pipeline", agents=[
     Agent("refactorer", after=["analyzer"]),
     Agent("tester", after=["refactorer"]),
 ])
-result = wf.run({"codebase_path": "/path/to/project"})
+result = wf.run({"codebase_path": "/path/to/project", "task": "重构认证模块"})
 ```
 
-**待讨论：**
-- [ ] `inputs` 的结构是否需要 schema 验证？
-- [ ] 是否需要 `Workflow.add_agent()` 增量构建 API？
-- [ ] `WorkflowResult` 的结构：包含哪些字段（outputs, errors, traces）？
+### WorkflowResult 结构
+
+```python
+from typing import Any, Literal
+from pydantic import BaseModel
+
+class NodeTrace(BaseModel):
+    agent_name: str
+    status: Literal["success", "failed", "skipped"]
+    duration_ms: int
+    error: str | None = None
+
+class WorkflowResult(BaseModel):
+    outputs: dict[str, Any]       # {agent_name: result}
+    errors: dict[str, str]        # {agent_name: error_message}
+    trace: list[NodeTrace]        # 按执行顺序记录每个节点
+```
+
+### 设计决策
+
+- [x] `inputs` 不做 schema 验证 — Phase 1 用 `dict` 就够，schema 验证是增强不阻塞核心
+  - Why: 跑通优先，过早约束降低灵活性
+  - How: `inputs` 作为 `dict` 传入，需要时通过 metadata 扩展
+
+- [x] 不加 `Workflow.add_agent()` — 用构造函数一步到位
+  - Why: Phase 1 工作流是静态定义，无运行时动态增删场景（YAGNI）
+  - How: 需要时再加不过几行代码
+
+- [x] `WorkflowResult` 包含 outputs + errors + trace
+  - Why: outputs 是核心产出，errors 是失败定位，trace 是可观测性基础
+  - How: token_usage 等增强字段留给 Phase 4 Langfuse 集成，通过 metadata 扩展
 
 ---
 
 ## §Engine — 双引擎接口
 
-> Phase 1 敲定
+> Phase 1 敲定（2026-05-19）
 
 ### micro_agent.py — Pydantic AI 实例生成器
 
@@ -109,17 +148,30 @@ class MicroAgentFactory:
         self,
         name: str,
         prompt: str,                  # 从 MD 解析的 system prompt
-        tools: list[str],             # 工具名称列表
+        tools: list[str],             # 工具名称列表（MD 默认 + API 追加，已合并）
         model: str | None,
         retries: int,
         result_type: Type[BaseModel] | None,
     ) -> PydanticAgent: ...
 
-    def inject_context(
+    def build_node_prompt(
         self,
-        agent: PydanticAgent,
+        inputs: dict,                 # 工作流初始输入（贯穿所有节点）
         upstream_outputs: dict,       # {agent_name: structured_output}
-    ) -> str: ...                     # 返回拼接后的完整 prompt
+    ) -> str:
+        """生成上下文部分（user message），agent 自身指令通过 system_prompt 设置"""
+        parts = []
+
+        if inputs:
+            parts.append(f"## Task\n{json.dumps(inputs, indent=2, ensure_ascii=False)}")
+
+        for name, output in upstream_outputs.items():
+            if isinstance(output, BaseModel):
+                parts.append(f"## Output from {name}\n{output.model_dump_json(indent=2)}")
+            else:
+                parts.append(f"## Output from {name}\n{output}")
+
+        return "\n\n".join(parts)
 ```
 
 ### macro_graph.py — LangGraph 拓扑构建
@@ -136,20 +188,41 @@ class MacroGraphBuilder:
 ### State 定义
 
 ```python
-from typing import TypedDict
+from typing import TypedDict, Annotated
+from operator import add
 
 class HarnessState(TypedDict):
-    inputs: dict                     # 工作流初始输入
-    outputs: dict                    # {agent_name: result} — 上下文隐式传递的核心
-    errors: dict                     # {agent_name: error_info}
-    current_node: str | None
-    pending_human_input: dict | None  # HITL: 等待用户输入的节点
+    inputs: dict                                   # 工作流初始输入，贯穿所有节点
+    outputs: Annotated[dict, merge_dicts]          # {agent_name: result} — reducer 自动合并 fan-out
+    errors: Annotated[dict, merge_dicts]           # {agent_name: error_info}
+    metadata: Annotated[dict, merge_dicts]         # 可扩展插槽：token_usage, timestamps, 自定义标记等
 ```
 
-**待讨论：**
-- [ ] `inject_context` 的拼接策略：纯文本拼接 vs 结构化注入？
-- [ ] `HarnessState` 是否需要更多字段（如 token_usage, timestamps）？
-- [ ] 并发节点（Fan-out）的输出如何合并？
+### 三层上下文模型
+
+| 概念 | 谁定义 | 作用 | 注入方式 |
+|------|--------|------|---------|
+| `inputs` | 调用方（用户/程序） | 告诉整个工作流"做什么" | 自动注入每个节点的 prompt（## Task） |
+| `prompt` | agent 作者（MD 文件） | 告诉 agent "你是谁、怎么做" | 设为 Pydantic AI 的 system_prompt |
+| `upstream outputs` | 上游 agent 运行时产生 | 告诉下游"上一步产出了什么" | 自动注入到 user message（## Output from X） |
+
+节点 prompt = **system_prompt (md_prompt) + user message (inputs + upstream outputs)**
+
+### 设计决策
+
+- [x] `build_node_prompt` 自动注入，无模板语法 — agent 作者只需写 MD prompt，框架透明注入 inputs 和上游输出
+  - Why: MD 文件不应包含框架模板语法，保持纯自然语言；下游 agent 不应关心注入机制
+  - How: 框架自动拼接 md_prompt + inputs + upstream_outputs，agent 作者无感知
+
+- [x] `HarnessState` 精简 + `metadata` 扩展插槽 — 不预设 token_usage/timestamps 等，通过 metadata 按需扩展
+  - Why: 核心状态保持简单普适；扩展字段通过 metadata 动态添加，不需要改 state 定义
+  - How: Phase 4 Langfuse 集成时往 metadata 写 token_usage/timestamps，接口不变
+
+- [x] Fan-out 输出合并用 `Annotated[dict, add]` reducer — 多节点各自写 `{agent_name: result}`，LangGraph 自动合并
+  - Why: dict 按 key 天然无冲突，reducer 自动处理并发写入
+  - How: 每个节点输出 `{"agent_name": result}`，reducer 做 dict merge
+
+- [x] 砍掉 `current_node` 和 `pending_human_input` — 前者从 LangGraph 内部获取，后者留给 Phase 3 HITL
 
 ---
 

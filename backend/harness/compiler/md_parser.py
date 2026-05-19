@@ -33,19 +33,12 @@ def parse_agent_md(path: Path) -> ParsedAgent:
 
     prompt = post.content.strip()
 
-    # Extract description from first non-empty line of prompt,
-    # truncating at the first sentence-ending punctuation
+    # Extract description from first non-empty line of prompt
     description = None
     for line in prompt.splitlines():
         stripped = line.strip()
         if stripped:
-            # Split on first sentence-ending punctuation (。or .)
-            for i, ch in enumerate(stripped):
-                if ch in ("。", "."):
-                    description = stripped[:i].rstrip("，,！! ")
-                    break
-            else:
-                description = stripped.rstrip("。.！!，,")
+            description = stripped
             break
 
     return ParsedAgent(

@@ -42,16 +42,15 @@ class MicroAgentFactory:
 
     def build_node_prompt(
         self,
-        md_prompt: str,
         inputs: dict,
         upstream_outputs: dict,
     ) -> str:
-        """Build the complete prompt for a node.
+        """Build the context portion of a node's prompt.
 
-        Automatically injects inputs (## Task) and upstream outputs
-        (## Output from X). Agent authors do not write template syntax.
+        Generates ## Task (from inputs) and ## Output from X (from upstream).
+        This is passed as the user message; the agent's md_prompt is the system prompt.
         """
-        parts = [md_prompt]
+        parts = []
 
         if inputs:
             parts.append(f"## Task\n{json.dumps(inputs, indent=2, ensure_ascii=False)}")
