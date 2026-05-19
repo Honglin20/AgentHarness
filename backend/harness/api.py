@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Literal, Type
 
 from pydantic import BaseModel
+
+from harness.tools.mcp_bridge import McpBridge, McpServerConfig
+from harness.tools.registry import ToolRegistry
 
 
 class Agent:
@@ -46,20 +50,59 @@ class Workflow:
         name: str,
         agents: list[Agent],
         agents_dir: str = "agents",
+        mcp_servers: list[McpServerConfig] | None = None,
+        tool_registry: ToolRegistry | None = None,
     ):
         self.name = name
         self.agents = agents
         self.agents_dir = agents_dir
+        self.mcp_servers = mcp_servers or []
+        self.tool_registry = tool_registry or ToolRegistry()
         self._compiled = None
+        self._mcp_bridges: list[McpBridge] = []
+        self._tools_setup = False
 
     def compile(self):
-        """Compile the workflow into a LangGraph StateGraph."""
-        from harness.engine.macro_graph import MacroGraphBuilder
+        """Compile the workflow into a LangGraph StateGraph.
 
-        builder = MacroGraphBuilder()
+        Uses whatever tools are currently in the ToolRegistry.
+        Call await setup() first to connect MCP servers and register their tools.
+        """
+        from harness.engine.macro_graph import MacroGraphBuilder
+        from harness.tools.defaults import default_tool_registry
+
+        # Register self-built tools if registry is empty
+        if not self.tool_registry.list_tools():
+            self.tool_registry = default_tool_registry()
+
+        builder = MacroGraphBuilder(tool_registry=self.tool_registry)
         graph = builder.build(self)
         self._compiled = graph.compile()
         return self._compiled
+
+    async def setup(self):
+        """Connect MCP servers and register their tools, then compile.
+
+        This is the full setup: default self-built tools + MCP filesystem tools + compile.
+        """
+        from harness.tools.defaults import default_tool_registry, setup_default_mcp
+
+        if not self.tool_registry.list_tools():
+            self.tool_registry = default_tool_registry()
+
+        # Connect default MCP servers
+        bridges = await setup_default_mcp(self.tool_registry, workdir=self.agents_dir)
+
+        # Connect user-provided MCP servers
+        for config in self.mcp_servers:
+            bridge = McpBridge(config, registry=self.tool_registry)
+            await bridge.connect()
+            await bridge.register_tools()
+            bridges.append(bridge)
+
+        self._mcp_bridges = bridges
+        self._tools_setup = True
+        self.compile()
 
     def run(self, inputs: dict) -> WorkflowResult:
         """Run the workflow synchronously."""
@@ -112,3 +155,9 @@ class Workflow:
             ))
 
         return WorkflowResult(outputs=outputs, errors=errors, trace=trace)
+
+    async def cleanup(self):
+        """Disconnect MCP servers."""
+        for bridge in self._mcp_bridges:
+            await bridge.disconnect()
+        self._mcp_bridges = []
