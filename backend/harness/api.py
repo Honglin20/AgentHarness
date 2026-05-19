@@ -126,9 +126,12 @@ class Workflow:
         self.compile()
 
     async def cleanup(self):
-        """Disconnect MCP servers."""
+        """Disconnect MCP servers. Best-effort — never raises."""
         for bridge in self._mcp_bridges:
-            await bridge.disconnect()
+            try:
+                await bridge.disconnect()
+            except BaseException:
+                pass
         self._mcp_bridges = []
 
     async def _execute(self, inputs: dict) -> WorkflowResult:

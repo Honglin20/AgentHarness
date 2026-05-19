@@ -115,14 +115,20 @@ class McpBridge:
         return self._tool_names
 
     async def disconnect(self) -> None:
-        """关闭 MCP 连接"""
-        if self._session_cm:
-            await self._session_cm.__aexit__(None, None, None)
-            self._session_cm = None
-            self._session = None
-        if self._stdio_cm:
-            await self._stdio_cm.__aexit__(None, None, None)
-            self._stdio_cm = None
+        """关闭 MCP 连接。
+
+        Best-effort cleanup: anyio cancel scope may raise RuntimeError
+        when exiting from a different task (MCP SDK limitation with LangGraph).
+        """
+        for cm_attr in ("_session_cm", "_stdio_cm"):
+            cm = getattr(self, cm_attr, None)
+            if cm is not None:
+                try:
+                    await cm.__aexit__(None, None, None)
+                except (RuntimeError, Exception):
+                    pass  # Cancel scope cross-task — process cleanup is sufficient
+                setattr(self, cm_attr, None)
+        self._session = None
 
     @property
     def tools(self) -> list[str]:
