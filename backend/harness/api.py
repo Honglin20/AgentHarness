@@ -31,11 +31,18 @@ class Agent:
         self.result_type = result_type
 
 
+class TokenUsage(BaseModel):
+    input: int
+    output: int
+    total: int
+
+
 class NodeTrace(BaseModel):
     agent_name: str
     status: Literal["success", "failed", "skipped"]
     duration_ms: int
     error: str | None = None
+    token_usage: TokenUsage | None = None
 
 
 class WorkflowResult(BaseModel):
@@ -171,6 +178,11 @@ class Workflow:
             agent_meta = metadata.get(agent.name, {})
             duration_ms = agent_meta.get("duration_ms", 0) if isinstance(agent_meta, dict) else 0
 
+            token_usage = None
+            tu = agent_meta.get("token_usage") if isinstance(agent_meta, dict) else None
+            if isinstance(tu, dict):
+                token_usage = TokenUsage(**tu)
+
             if agent.name in errors:
                 status = "failed"
             elif agent.name in outputs:
@@ -183,6 +195,7 @@ class Workflow:
                 status=status,
                 duration_ms=duration_ms,
                 error=errors.get(agent.name),
+                token_usage=token_usage,
             ))
 
         return WorkflowResult(outputs=outputs, errors=errors, trace=trace)
