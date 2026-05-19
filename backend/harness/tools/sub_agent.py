@@ -38,7 +38,7 @@ class SubAgentToolFactory(ToolFactory):
         model = self.model
         max_depth = self.max_depth
 
-        def sub_agent(ctx: RunContext, task: str) -> str:
+        async def sub_agent(ctx: RunContext, task: str) -> str:
             if depth >= max_depth:
                 return "Error: maximum sub-agent depth reached"
 
@@ -47,7 +47,7 @@ class SubAgentToolFactory(ToolFactory):
             resolved_tools = registry.resolve(None, exclude=exclude)
 
             child_deps = AgentDeps(
-                workdir=ctx.deps.workdir if ctx.deps and hasattr(ctx.deps, "workdir") else ".",
+                workdir=ctx.deps.workdir,
                 agent_name="sub_agent",
                 depth=depth + 1,
             )
@@ -61,7 +61,7 @@ class SubAgentToolFactory(ToolFactory):
                 deps_type=AgentDeps,
             )
 
-            result = child.run_sync(task, deps=child_deps)
+            result = await child.run(task, deps=child_deps)
             return result.output
 
         return PydanticAITool(sub_agent, takes_ctx=True)

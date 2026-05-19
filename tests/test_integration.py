@@ -1,5 +1,4 @@
-import asyncio
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
 
 from harness.api import Agent, Workflow, WorkflowResult
@@ -33,7 +32,11 @@ def test_workflow_run_with_mocked_llm():
         mock_result.output = "mock output"
         mock_run.return_value = mock_result
 
-        result = wf.run({"task": "test"})
+        # Patch setup/cleanup to skip MCP
+        with patch.object(wf, "setup", new_callable=AsyncMock), \
+             patch.object(wf, "cleanup", new_callable=AsyncMock):
+            wf.compile()
+            result = wf.run({"task": "test"})
 
         assert isinstance(result, WorkflowResult)
         assert "analyzer" in result.outputs

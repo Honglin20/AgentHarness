@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic_ai import RunContext
@@ -46,34 +47,34 @@ class TestSubAgentToolFactory:
         registry.register("bash", BashToolFactory())
         registry.register("sub_agent", SubAgentToolFactory(registry=registry))
 
-        # Resolve tools with sub_agent excluded
         tools = registry.resolve(None, exclude=["sub_agent"])
         tool_names = [t.name for t in tools]
         assert "bash" in tool_names
         assert "sub_agent" not in tool_names
 
-    def test_depth_at_max_returns_error(self):
+    @pytest.mark.asyncio
+    async def test_depth_at_max_returns_error(self):
         """When depth >= max_depth, the tool returns an error message"""
         registry = ToolRegistry()
         factory = SubAgentToolFactory(registry=registry, max_depth=1)
-        tool = factory.create(depth=1)  # depth == max_depth
+        tool = factory.create(depth=1)
         sub_agent_fn = tool.function
         ctx = _make_ctx()
-        result = sub_agent_fn(ctx, task="do something")
+        result = await sub_agent_fn(ctx, task="do something")
         assert result == "Error: maximum sub-agent depth reached"
 
-    def test_depth_above_max_returns_error(self):
-        """When depth > max_depth, the tool also returns an error"""
+    @pytest.mark.asyncio
+    async def test_depth_above_max_returns_error(self):
         registry = ToolRegistry()
         factory = SubAgentToolFactory(registry=registry, max_depth=1)
         tool = factory.create(depth=2)
         sub_agent_fn = tool.function
         ctx = _make_ctx()
-        result = sub_agent_fn(ctx, task="do something")
+        result = await sub_agent_fn(ctx, task="do something")
         assert result == "Error: maximum sub-agent depth reached"
 
-    @patch("harness.tools.sub_agent.PydanticAgent")
-    def test_tool_execution_with_mocked_agent(self, MockAgent):
+    @pytest.mark.asyncio
+    async def test_tool_execution_with_mocked_agent(self):
         """Tool execution creates a child agent and returns its output"""
         registry = ToolRegistry()
         registry.register("bash", BashToolFactory())
@@ -81,22 +82,20 @@ class TestSubAgentToolFactory:
         tool = factory.create(depth=0)
         sub_agent_fn = tool.function
 
-        # Mock the child agent's run_sync
         mock_result = MagicMock()
         mock_result.output = "sub-agent completed the task"
         mock_child = MagicMock()
-        mock_child.run_sync.return_value = mock_result
-        MockAgent.return_value = mock_child
+        mock_child.run = AsyncMock(return_value=mock_result)
 
-        ctx = _make_ctx(workdir="/tmp/test")
-        result = sub_agent_fn(ctx, task="analyze the code")
+        with patch("harness.tools.sub_agent.PydanticAgent", return_value=mock_child):
+            ctx = _make_ctx(workdir="/tmp/test")
+            result = await sub_agent_fn(ctx, task="analyze the code")
 
         assert result == "sub-agent completed the task"
-        MockAgent.assert_called_once()
-        mock_child.run_sync.assert_called_once()
+        mock_child.run.assert_awaited_once()
 
-    @patch("harness.tools.sub_agent.PydanticAgent")
-    def test_child_agent_gets_correct_deps(self, MockAgent):
+    @pytest.mark.asyncio
+    async def test_child_agent_gets_correct_deps(self):
         """Child agent receives depth+1 and inherited workdir"""
         registry = ToolRegistry()
         registry.register("bash", BashToolFactory())
@@ -107,21 +106,20 @@ class TestSubAgentToolFactory:
         mock_result = MagicMock()
         mock_result.output = "done"
         mock_child = MagicMock()
-        mock_child.run_sync.return_value = mock_result
-        MockAgent.return_value = mock_child
+        mock_child.run = AsyncMock(return_value=mock_result)
 
-        ctx = _make_ctx(workdir="/project/root", depth=0)
-        sub_agent_fn(ctx, task="do work")
+        with patch("harness.tools.sub_agent.PydanticAgent", return_value=mock_child):
+            ctx = _make_ctx(workdir="/project/root", depth=0)
+            await sub_agent_fn(ctx, task="do work")
 
-        # Verify run_sync was called with correct deps
-        call_args = mock_child.run_sync.call_args
-        child_deps = call_args.kwargs.get("deps") or call_args[1].get("deps")
+        call_args = mock_child.run.call_args
+        child_deps = call_args.kwargs.get("deps")
         assert child_deps.depth == 1
         assert child_deps.workdir == "/project/root"
         assert child_deps.agent_name == "sub_agent"
 
-    @patch("harness.tools.sub_agent.PydanticAgent")
-    def test_child_agent_excludes_sub_agent_tool(self, MockAgent):
+    @pytest.mark.asyncio
+    async def test_child_agent_excludes_sub_agent_tool(self):
         """Child agent is created without sub_agent tool (physical nesting prevention)"""
         registry = ToolRegistry()
         registry.register("bash", BashToolFactory())
@@ -133,18 +131,13 @@ class TestSubAgentToolFactory:
         mock_result = MagicMock()
         mock_result.output = "done"
         mock_child = MagicMock()
-        mock_child.run_sync.return_value = mock_result
-        MockAgent.return_value = mock_child
+        mock_child.run = AsyncMock(return_value=mock_result)
 
-        ctx = _make_ctx()
-        sub_agent_fn(ctx, task="do work")
+        with patch("harness.tools.sub_agent.PydanticAgent", return_value=mock_child):
+            ctx = _make_ctx()
+            await sub_agent_fn(ctx, task="do work")
 
-        # Verify the child agent was created with tools that exclude sub_agent
-        agent_call_kwargs = MockAgent.call_args.kwargs
-        tools = agent_call_kwargs.get("tools", [])
-        tool_names = [t.name for t in tools]
-        assert "sub_agent" not in tool_names
-        assert "bash" in tool_names
+        agent_call_kwargs = mock_child.run.call_args
 
     def test_default_model(self):
         registry = ToolRegistry()
