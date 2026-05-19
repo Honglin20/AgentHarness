@@ -22,7 +22,6 @@ export interface WorkflowState {
   workflowId: string | null;
   workflowName: string | null;
   status: "idle" | "running" | "completed" | "failed" | "cancelled";
-  inputs: Record<string, unknown> | null;
 
   // Node states keyed by node_id
   nodes: Record<string, NodeState>;
@@ -46,7 +45,6 @@ const initialState = {
   workflowId: null as string | null,
   workflowName: null as string | null,
   status: "idle" as const,
-  inputs: null as Record<string, unknown> | null,
   nodes: {} as Record<string, NodeState>,
   dag: null as { nodes: string[]; edges: [string, string][] } | null,
 };
