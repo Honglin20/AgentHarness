@@ -42,11 +42,18 @@ export interface NodeStartedPayload {
   attempt: number;
 }
 
+export interface TokenUsage {
+  input: number;
+  output: number;
+  total: number;
+}
+
 export interface NodeCompletedPayload {
   node_id: string;
   agent_name: string;
   duration_ms: number;
   status: string;
+  token_usage?: TokenUsage;
 }
 
 export interface NodeFailedPayload {

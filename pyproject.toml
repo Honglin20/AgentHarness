@@ -7,7 +7,6 @@ dependencies = [
     "pydantic-ai>=0.0.36",
     "langgraph>=0.2.0",
     "python-frontmatter>=1.0",
-    "langsmith>=0.3.0",
 ]
 
 [project.optional-dependencies]

@@ -15,6 +15,7 @@ export interface NodeState {
   error?: string;
   attempt?: number;
   willRetry?: boolean;
+  tokenUsage?: { input: number; output: number; total: number };
 }
 
 export interface WorkflowState {
@@ -99,6 +100,7 @@ export const useWorkflowStore = create<WorkflowState>()((set) => ({
           name: payload.agent_name,
           status: "success",
           durationMs: payload.duration_ms,
+          tokenUsage: payload.token_usage,
         },
       },
     })),
