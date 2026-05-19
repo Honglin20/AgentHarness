@@ -1,4 +1,5 @@
-from unittest.mock import patch, MagicMock
+import asyncio
+from unittest.mock import patch, MagicMock, AsyncMock
 from pathlib import Path
 
 from harness.api import Agent, Workflow, WorkflowResult
@@ -27,10 +28,10 @@ def test_workflow_run_with_mocked_llm():
     ]
     wf = Workflow("test_wf", agents=agents, agents_dir=FIXTURES_DIR)
 
-    with patch("pydantic_ai.Agent.run_sync") as mock_run_sync:
+    with patch("pydantic_ai.Agent.run", new_callable=AsyncMock) as mock_run:
         mock_result = MagicMock()
         mock_result.output = "mock output"
-        mock_run_sync.return_value = mock_result
+        mock_run.return_value = mock_result
 
         result = wf.run({"task": "test"})
 

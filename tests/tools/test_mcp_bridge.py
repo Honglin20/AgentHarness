@@ -134,21 +134,18 @@ class TestMcpBridge:
         )
         list_result = ListToolsResult(tools=[fake_tool])
 
-        # Mock the session
+        # Mock the session directly (bypass connect)
         mock_session = AsyncMock()
         mock_session.initialize = AsyncMock()
         mock_session.list_tools = AsyncMock(return_value=list_result)
         mock_session.__aexit__ = AsyncMock()
 
-        # Patch _create_session to return our mock
-        with patch.object(bridge, "_create_session", return_value=mock_session):
-            await bridge.connect()
+        # Set internal state directly
+        bridge._session = mock_session
+        bridge._session_cm = AsyncMock()
+        bridge._stdio_cm = AsyncMock()
 
-        # connect also calls initialize on the session
-        mock_session.initialize.assert_awaited_once()
-        assert bridge._session is mock_session
-
-        # Now register tools
+        # Register tools
         registered = await bridge.register_tools()
         assert registered == ["gh_create_issue"]
         assert bridge.tools == ["gh_create_issue"]
@@ -160,12 +157,18 @@ class TestMcpBridge:
         cfg = McpServerConfig(command="node")
         bridge = McpBridge(cfg, registry)
 
-        mock_session = AsyncMock()
-        mock_session.__aexit__ = AsyncMock()
-        bridge._session = mock_session
+        mock_session_cm = AsyncMock()
+        mock_session_cm.__aexit__ = AsyncMock()
+        mock_stdio_cm = AsyncMock()
+        mock_stdio_cm.__aexit__ = AsyncMock()
+
+        bridge._session_cm = mock_session_cm
+        bridge._stdio_cm = mock_stdio_cm
+        bridge._session = MagicMock()
 
         await bridge.disconnect()
-        mock_session.__aexit__.assert_awaited_once_with(None, None, None)
+        mock_session_cm.__aexit__.assert_awaited_once_with(None, None, None)
+        mock_stdio_cm.__aexit__.assert_awaited_once_with(None, None, None)
         assert bridge._session is None
 
     @pytest.mark.asyncio

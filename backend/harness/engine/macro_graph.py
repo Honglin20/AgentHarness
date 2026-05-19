@@ -47,7 +47,7 @@ class MacroGraphBuilder:
         # Build the StateGraph
         graph = StateGraph(HarnessState)
 
-        # Add nodes
+        # Add nodes (async node functions)
         for agent_name in execution_order:
             agent_def = agent_map[agent_name]
             parsed = parsed_agents[agent_name]
@@ -81,7 +81,7 @@ class MacroGraphBuilder:
         raise NotImplementedError("Evaluator edges are planned for Phase 4")
 
     def _make_node_func(self, agent_def, parsed, dep_map):
-        """Create a LangGraph node function for an agent."""
+        """Create an async LangGraph node function for an agent."""
         micro_factory = self.micro_factory
 
         # Merge tools: both unspecified → load all; either specified → use specified + API append
@@ -101,7 +101,7 @@ class MacroGraphBuilder:
 
         upstream_names = dep_map[agent_def.name]
 
-        def node_func(state: HarnessState) -> dict:
+        async def node_func(state: HarnessState) -> dict:
             start_time = time.time()
 
             # Gather upstream outputs
@@ -131,9 +131,9 @@ class MacroGraphBuilder:
                 deps=deps,
             )
 
-            # Run the Pydantic AI agent
+            # Run the Pydantic AI agent (async)
             try:
-                result = pydantic_agent.run_sync(context, deps=deps)
+                result = await pydantic_agent.run(context, deps=deps)
                 duration_ms = int((time.time() - start_time) * 1000)
                 return {
                     "outputs": {agent_def.name: result.output},

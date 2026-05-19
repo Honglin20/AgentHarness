@@ -1,5 +1,5 @@
 """Phase 2 integration: ToolRegistry + sub_agent + default tools + Workflow"""
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 from harness.api import Agent, Workflow, WorkflowResult
 from harness.tools.registry import ToolRegistry
@@ -91,14 +91,12 @@ def test_workflow_run_with_tools_mocked():
     ]
     wf = Workflow("test_wf", agents=agents, agents_dir="tests/compiler/fixtures", tool_registry=registry)
 
-    with patch("pydantic_ai.Agent.run_sync") as mock_run_sync:
+    with patch("pydantic_ai.Agent.run", new_callable=AsyncMock) as mock_run:
         mock_result = MagicMock()
         mock_result.output = "分析完成"
-        mock_run_sync.return_value = mock_result
+        mock_run.return_value = mock_result
 
-        # Need to bypass compile()'s MCP setup
-        with patch("harness.tools.defaults.setup_default_mcp", return_value=[]):
-            result = wf.run({"task": "test"})
+        result = wf.run({"task": "test"})
 
         assert isinstance(result, WorkflowResult)
         assert "analyzer" in result.outputs

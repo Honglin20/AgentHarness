@@ -249,7 +249,7 @@ class HarnessState(TypedDict):
 | | `search_files` | MCP (server-filesystem) | 搜索文件内容 |
 | **Write/Edit** | `write_file` | MCP (server-filesystem) | 写入/创建文件 |
 | | `edit_file` | MCP (server-filesystem) | 精确编辑文件（搜索替换） |
-| **Execute** | `bash` | MCP (mcp-server-bash) | 执行 shell 命令 |
+| **Execute** | `bash` | 自建 (BashToolFactory) | 执行 shell 命令（MCP 无标准 bash server，自建为最小方案） |
 | **Agent** | `sub_agent` | 自建 (SubAgentToolFactory) | 委托子任务给临时 agent |
 | **UI** *(Phase 3)* | `ask_human` | 自建 (AskHumanToolFactory) | 向用户提问并等待回答 |
 
@@ -262,11 +262,7 @@ DEFAULT_MCP_SERVERS = [
         command="npx",
         args=["-y", "@modelcontextprotocol/server-filesystem", "."],
     ),
-    McpServerConfig(
-        name="",  # 默认工具不加前缀
-        command="npx",
-        args=["-y", "@anthropic/mcp-server-bash"],
-    ),
+    # bash 不通过 MCP，而是自建为 BashToolFactory（npm 上无标准 bash MCP server）
 ]
 ```
 
@@ -325,6 +321,38 @@ class ToolFactory:
 
 class ToolNotFoundError(Exception):
     pass
+```
+
+### BashToolFactory — 自建 Bash 工具
+
+> npm 上无标准 bash MCP server（`@anthropic/mcp-server-bash` 不存在），因此 bash 作为自建工具直接注册到 ToolRegistry。
+
+```python
+class BashToolFactory(ToolFactory):
+    """bash 工具 — 执行 shell 命令，自建为最小方案"""
+
+    name = "bash"
+    description = (
+        "Execute a bash command and return its output. "
+        "Use for running shell commands, scripts, and system operations. "
+        "Commands execute in the agent's working directory."
+    )
+
+    def create(self) -> PydanticAITool:
+        """创建 bash Tool
+
+        Tool 函数签名:
+            def bash(ctx: RunContext, command: str) -> str
+
+        参数:
+            command: 要执行的 shell 命令
+
+        行为:
+            1. 使用 subprocess.run 执行命令
+            2. 返回 stdout + stderr
+            3. 超时保护（默认 30s）
+        """
+        ...
 ```
 
 ### SubAgentTool — 子代理委托工具
@@ -432,9 +460,10 @@ class MicroAgentFactory:
 
 ```python
 def default_tool_registry() -> ToolRegistry:
-    """创建默认工具注册表：sub_agent 自建工具"""
+    """创建默认工具注册表：sub_agent + bash 自建工具"""
     registry = ToolRegistry()
     registry.register("sub_agent", SubAgentToolFactory(registry=registry))
+    registry.register("bash", BashToolFactory())
     return registry
 
 async def setup_default_mcp(registry: ToolRegistry, workdir: str = ".") -> list[McpBridge]:
@@ -469,9 +498,9 @@ class AskHumanToolFactory(ToolFactory):
 
 ### 设计决策
 
-- [x] 不自建 bash/fs — 通过 MCP Server 获取，mcp_bridge 是工具注册核心入口
-  - Why: 不重复造轮子，MCP 生态已有成熟的 bash/fs server
-  - How: 用户配置 MCP Server，McpBridge 连接并注册工具到 ToolRegistry
+- [x] bash 自建，fs 通过 MCP — bash MCP server 不存在于 npm，自建为最小方案；fs 通过 MCP server-filesystem 获取
+  - Why: npm 上 `@anthropic/mcp-server-bash` 返回 404，无法通过 MCP 获取 bash 工具；filesystem MCP server 可用
+  - How: BashToolFactory 自建并注册到 ToolRegistry；McpBridge 连接 server-filesystem 注册 fs 工具
 
 - [x] sub_agent 自建，最多一层，物理防嵌套
   - Why: agent 委托是核心能力，MCP 无法提供；嵌套会导致不可控的递归和成本

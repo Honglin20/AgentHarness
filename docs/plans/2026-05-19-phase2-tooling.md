@@ -15,8 +15,8 @@
 ## Key Design Decisions
 
 1. **默认加载全部工具** — `Agent(tools=None)` 和 MD 中不写 tools → 加载所有已注册工具
-2. **MCP 是工具核心入口** — bash/fs 不自建，通过 MCP Server 获取
-3. **默认 MCP Server 自动加载** — 无需声明即可用 bash、read_file 等
+2. **bash 自建，fs 通过 MCP** — npm 无标准 bash MCP server，bash 自建为 BashToolFactory；fs 通过 MCP server-filesystem 获取
+3. **默认 MCP Server 自动加载** — filesystem MCP 自动连接，无需声明即可用 read_file、write_file 等
 4. **sub_agent 物理防嵌套** — depth>=1 的 agent 不注册 sub_agent 工具
 5. **PydanticAITool 是内部格式** — 用户只写工具名，McpBridge/ToolFactory 负责转换
 
@@ -167,7 +167,106 @@ git commit -m "feat: add ToolRegistry, ToolFactory, AgentDeps"
 
 ---
 
-## Task 1: SubAgentTool
+## Task 2: BashToolFactory (self-built bash tool)
+
+**Files:**
+- Create: `backend/harness/tools/bash.py`
+- Create: `tests/tools/test_bash.py`
+
+**Step 1: Write the failing test**
+
+```python
+# tests/tools/test_bash.py
+import pytest
+from harness.tools.bash import BashToolFactory
+from harness.tools.registry import ToolRegistry
+
+
+def test_bash_factory_creates_tool():
+    factory = BashToolFactory()
+    tool = factory.create()
+    assert tool is not None
+    assert tool.name == "bash"
+
+
+def test_bash_factory_description():
+    factory = BashToolFactory()
+    assert "bash" in factory.description.lower() or "shell" in factory.description.lower()
+    assert "command" in factory.description.lower()
+
+
+def test_bash_registered_in_default_registry():
+    from harness.tools.defaults import default_tool_registry
+    registry = default_tool_registry()
+    assert "bash" in registry.list_tools()
+```
+
+**Step 2: Write implementation**
+
+```python
+# backend/harness/tools/bash.py
+from __future__ import annotations
+
+import subprocess
+
+from pydantic_ai import RunContext, Tool as PydanticAITool
+
+from harness.tools.deps import AgentDeps
+from harness.tools.registry import ToolFactory
+
+DEFAULT_TIMEOUT = 30
+
+
+class BashToolFactory(ToolFactory):
+    """bash 工具 — 执行 shell 命令"""
+
+    name = "bash"
+    description = (
+        "Execute a bash command and return its output. "
+        "Use for running shell commands, scripts, and system operations. "
+        "Commands execute in the agent's working directory."
+    )
+
+    def __init__(self, timeout: int = DEFAULT_TIMEOUT):
+        self.timeout = timeout
+
+    def create(self) -> PydanticAITool:
+        timeout = self.timeout
+
+        def bash(ctx: RunContext, command: str) -> str:
+            workdir = ctx.deps.workdir if ctx.deps and hasattr(ctx.deps, "workdir") else "."
+            try:
+                result = subprocess.run(
+                    command,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    cwd=workdir,
+                )
+                output = result.stdout
+                if result.stderr:
+                    output += f"\n[stderr]\n{result.stderr}"
+                if result.returncode != 0:
+                    output += f"\n[exit code: {result.returncode}]"
+                return output or "(no output)"
+            except subprocess.TimeoutExpired:
+                return f"Error: command timed out after {timeout}s"
+
+        return PydanticAITool(bash, takes_ctx=True)
+```
+
+**Step 3: Run tests, verify, commit**
+
+```bash
+pytest tests/tools/test_bash.py -v
+git add backend/harness/tools/bash.py tests/tools/test_bash.py
+git commit -m "feat: add BashToolFactory — self-built bash tool"
+```
+
+---
+
+## Task 3: SubAgentTool
 
 **Files:**
 - Create: `backend/harness/tools/sub_agent.py`
@@ -515,7 +614,7 @@ git commit -m "feat: add McpBridge for MCP Server → ToolRegistry integration"
 
 ---
 
-## Task 3: Default MCP Setup + MicroAgentFactory Update
+## Task 4: Default MCP Setup + MicroAgentFactory Update
 
 **Files:**
 - Create: `backend/harness/tools/defaults.py`
@@ -532,18 +631,20 @@ from harness.tools.registry import ToolRegistry
 
 
 def test_default_mcp_servers_defined():
-    assert len(DEFAULT_MCP_SERVERS) >= 2  # bash + fs
+    assert len(DEFAULT_MCP_SERVERS) >= 1  # filesystem only (bash is self-built)
 
 
-def test_default_tool_registry_has_sub_agent():
+def test_default_tool_registry_has_sub_agent_and_bash():
     registry = default_tool_registry()
     assert "sub_agent" in registry.list_tools()
+    assert "bash" in registry.list_tools()
 ```
 
 **Step 2: Write implementation**
 
 ```python
 # backend/harness/tools/defaults.py
+from harness.tools.bash import BashToolFactory
 from harness.tools.mcp_bridge import McpBridge, McpServerConfig
 from harness.tools.registry import ToolRegistry
 from harness.tools.sub_agent import SubAgentToolFactory
@@ -554,18 +655,15 @@ DEFAULT_MCP_SERVERS = [
         command="npx",
         args=["-y", "@modelcontextprotocol/server-filesystem", "."],
     ),
-    McpServerConfig(
-        name="",
-        command="npx",
-        args=["-y", "@anthropic/mcp-server-bash"],
-    ),
+    # bash 自建为 BashToolFactory，不通过 MCP
 ]
 
 
 def default_tool_registry() -> ToolRegistry:
-    """创建默认工具注册表：sub_agent 自建工具"""
+    """创建默认工具注册表：sub_agent + bash 自建工具"""
     registry = ToolRegistry()
     registry.register("sub_agent", SubAgentToolFactory(registry=registry))
+    registry.register("bash", BashToolFactory())
     return registry
 
 
@@ -840,9 +938,10 @@ git commit -m "feat: add E2E demo with MCP tools and sub_agent"
 ```
 tools/registry.py          — ToolRegistry, ToolFactory, ToolNotFoundError
 tools/deps.py              — AgentDeps
+tools/bash.py              — BashToolFactory → uses AgentDeps
 tools/sub_agent.py         — SubAgentToolFactory → uses ToolRegistry, AgentDeps
 tools/mcp_bridge.py        — McpBridge, McpToolFactory, McpServerConfig → uses ToolRegistry
-tools/defaults.py          — DEFAULT_MCP_SERVERS, default_tool_registry, setup_default_mcp
+tools/defaults.py          — DEFAULT_MCP_SERVERS, default_tool_registry, setup_default_mcp → uses BashToolFactory, SubAgentToolFactory, McpBridge
 engine/micro_agent.py      — updated: accepts ToolRegistry, resolves tools, injects deps
 engine/macro_graph.py      — updated: tools=None → load all, passes deps
 api.py                     — updated: mcp_servers param, tool_registry param

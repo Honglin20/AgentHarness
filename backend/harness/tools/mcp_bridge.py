@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from mcp import ClientSession, StdioServerParameters
 from pydantic import BaseModel
@@ -74,20 +74,22 @@ class McpBridge:
         self.config = config
         self.registry = registry
         self._session: ClientSession | None = None
+        self._session_cm: Any = None   # ClientSession context manager
+        self._stdio_cm: Any = None     # stdio_client context manager
         self._tool_names: list[str] = []
-
-    async def _create_session(self) -> ClientSession:
-        """Create and return MCP ClientSession (stdio transport)"""
-        from mcp.client.stdio import stdio_client
-
-        server_params = self.config.to_stdio_params()
-        read_stream, write_stream = await stdio_client(server_params).__aenter__()
-        session = ClientSession(read_stream, write_stream)
-        return session
 
     async def connect(self) -> None:
         """启动 MCP Server 进程并建立连接"""
-        self._session = await self._create_session()
+        from mcp.client.stdio import stdio_client
+
+        server_params = self.config.to_stdio_params()
+
+        # Keep both context managers alive for the connection lifecycle
+        self._stdio_cm = stdio_client(server_params)
+        read_stream, write_stream = await self._stdio_cm.__aenter__()
+
+        self._session_cm = ClientSession(read_stream, write_stream)
+        self._session = await self._session_cm.__aenter__()
         await self._session.initialize()
 
     async def register_tools(self) -> list[str]:
@@ -114,9 +116,13 @@ class McpBridge:
 
     async def disconnect(self) -> None:
         """关闭 MCP 连接"""
-        if self._session:
-            await self._session.__aexit__(None, None, None)
+        if self._session_cm:
+            await self._session_cm.__aexit__(None, None, None)
+            self._session_cm = None
             self._session = None
+        if self._stdio_cm:
+            await self._stdio_cm.__aexit__(None, None, None)
+            self._stdio_cm = None
 
     @property
     def tools(self) -> list[str]:

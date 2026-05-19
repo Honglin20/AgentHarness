@@ -1,14 +1,14 @@
-"""E2E demo: 3-agent serial workflow running in terminal."""
+"""E2E demo: 3-agent serial workflow with MCP tools + bash + sub_agent."""
+import asyncio
 import sys
 from pathlib import Path
 
-# Add backend to path so we can import harness
 sys.path.insert(0, str(Path(__file__).parent))
 
 from harness.api import Agent, Workflow
 
 
-def main():
+async def main():
     wf = Workflow(
         "demo_pipeline",
         agents=[
@@ -19,17 +19,18 @@ def main():
         agents_dir=str(Path(__file__).parent / "agents"),
     )
 
-    print("Compiling workflow...")
-    wf.compile()
+    print("Setting up tools and compiling workflow...")
+    await wf.setup()
+    print(f"Available tools: {wf.tool_registry.list_tools()}")
     print("Workflow compiled successfully.\n")
 
     print("Running workflow...")
-    result = wf.run({"task": "为一个 Python Web 项目设计用户认证模块"})
+    result = await wf.arun({"task": "为一个 Python Web 项目设计用户认证模块"})
 
     print("\n=== Workflow Result ===")
     for agent_name, output in result.outputs.items():
         print(f"\n--- {agent_name} ---")
-        print(output)
+        print(str(output)[:500])
 
     if result.errors:
         print("\n=== Errors ===")
@@ -40,6 +41,8 @@ def main():
     for t in result.trace:
         print(f"  {t.agent_name}: {t.status} ({t.duration_ms}ms)")
 
+    await wf.cleanup()
+
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

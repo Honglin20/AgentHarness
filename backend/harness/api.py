@@ -60,7 +60,6 @@ class Workflow:
         self.tool_registry = tool_registry or ToolRegistry()
         self._compiled = None
         self._mcp_bridges: list[McpBridge] = []
-        self._tools_setup = False
 
     def compile(self):
         """Compile the workflow into a LangGraph StateGraph.
@@ -101,26 +100,10 @@ class Workflow:
             bridges.append(bridge)
 
         self._mcp_bridges = bridges
-        self._tools_setup = True
         self.compile()
 
-    def run(self, inputs: dict) -> WorkflowResult:
-        """Run the workflow synchronously."""
-        if self._compiled is None:
-            self.compile()
-
-        initial_state = {
-            "inputs": inputs,
-            "outputs": {},
-            "errors": {},
-            "metadata": {},
-        }
-
-        final_state = self._compiled.invoke(initial_state)
-        return self._build_result(final_state)
-
     async def arun(self, inputs: dict) -> WorkflowResult:
-        """Run the workflow asynchronously."""
+        """Run the workflow asynchronously. Primary execution path."""
         if self._compiled is None:
             self.compile()
 
@@ -133,6 +116,10 @@ class Workflow:
 
         final_state = await self._compiled.ainvoke(initial_state)
         return self._build_result(final_state)
+
+    def run(self, inputs: dict) -> WorkflowResult:
+        """Run the workflow synchronously. Wraps arun() with asyncio.run()."""
+        return asyncio.run(self.arun(inputs))
 
     def _build_result(self, final_state: dict) -> WorkflowResult:
         """Construct WorkflowResult from final LangGraph state."""
