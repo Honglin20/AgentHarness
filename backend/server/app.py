@@ -5,10 +5,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from server.routes import router
-from server.ws_handler import router as ws_router
-from server.event_bus import get_event_bus
-from server.runner import get_runner
+from .routes import router
+from .ws_handler import router as ws_router
+from .event_bus import get_event_bus
+from .runner import get_runner
 
 
 @asynccontextmanager
@@ -45,8 +45,12 @@ def create_app() -> FastAPI:
     )
 
     # Routes
-    app.include_router(router)
-    app.include_router(ws_router)
+    app.include_router(router, prefix="/api")
+    app.include_router(ws_router, prefix="/ws")
+
+    # Health check at root level (not under /api)
+    from .routes import health_check
+    app.add_api_route("/health", health_check, methods=["GET"])
 
     return app
 

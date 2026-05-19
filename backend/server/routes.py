@@ -40,7 +40,7 @@ async def health_check() -> HealthResponse:
     return HealthResponse()
 
 
-@router.get("/api/agents")
+@router.get("/agents")
 async def list_agents(agents_dir: str = "agents") -> list[AgentInfo]:
     """List all available agents by scanning agents_dir."""
     agents_dir_path = Path(agents_dir)
@@ -65,7 +65,7 @@ async def list_agents(agents_dir: str = "agents") -> list[AgentInfo]:
     return agents
 
 
-@router.get("/api/agents/{name}")
+@router.get("/agents/{name}")
 async def get_agent(name: str, agents_dir: str = "agents") -> AgentInfo:
     """Get a specific agent's definition."""
     md_path = Path(agents_dir) / f"{name}.md"
@@ -85,7 +85,7 @@ async def get_agent(name: str, agents_dir: str = "agents") -> AgentInfo:
         raise HTTPException(status_code=500, detail=f"Failed to parse agent: {e}")
 
 
-@router.get("/api/tools")
+@router.get("/tools")
 async def list_tools() -> list[ToolInfo]:
     """List all registered tools."""
     from harness.tools.defaults import default_tool_registry
@@ -103,7 +103,7 @@ async def list_tools() -> list[ToolInfo]:
     return tools
 
 
-@router.post("/api/workflows", response_model=CreateWorkflowResponse)
+@router.post("/workflows", response_model=CreateWorkflowResponse)
 async def create_workflow(
     request: CreateWorkflowRequest,
     event_bus = Depends(get_event_bus),
@@ -150,7 +150,7 @@ async def create_workflow(
     return CreateWorkflowResponse(workflow_id=workflow_id, status="running")
 
 
-@router.get("/api/workflows/{workflow_id}", response_model=WorkflowStatusResponse)
+@router.get("/workflows/{workflow_id}", response_model=WorkflowStatusResponse)
 async def get_workflow(workflow_id: str) -> WorkflowStatusResponse:
     """Get workflow status and result."""
     if workflow_id not in _workflows:
@@ -165,7 +165,7 @@ async def get_workflow(workflow_id: str) -> WorkflowStatusResponse:
     )
 
 
-@router.post("/api/workflows/{workflow_id}/cancel")
+@router.post("/workflows/{workflow_id}/cancel")
 async def cancel_workflow(workflow_id: str) -> dict:
     """Cancel a running workflow."""
     if workflow_id not in _workflows:
@@ -182,7 +182,7 @@ async def cancel_workflow(workflow_id: str) -> dict:
     return {"status": "cancelled"}
 
 
-@router.get("/api/workflows/{workflow_id}/dag")
+@router.get("/workflows/{workflow_id}/dag")
 async def get_workflow_dag(workflow_id: str) -> dict:
     """Get DAG structure for React Flow."""
     if workflow_id not in _dag_cache:
@@ -191,7 +191,7 @@ async def get_workflow_dag(workflow_id: str) -> dict:
     return _dag_cache[workflow_id]
 
 
-@router.get("/api/workflows/{workflow_id}/trace")
+@router.get("/workflows/{workflow_id}/trace")
 async def get_workflow_trace(workflow_id: str) -> dict:
     """Get execution trace."""
     if workflow_id not in _workflows:
