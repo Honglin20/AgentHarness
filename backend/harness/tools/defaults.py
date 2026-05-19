@@ -50,9 +50,7 @@ def default_tool_registry(event_bus=None) -> ToolRegistry:
     registry.register("bash", BashToolFactory())
     if event_bus:
         from harness.tools.ask_human import AskHumanToolFactory
-        from harness.tools.chart import ChartToolFactory
         registry.register("ask_human", AskHumanToolFactory(event_bus=event_bus))
-        registry.register("chart", ChartToolFactory(event_bus=event_bus))
     return registry
 
 

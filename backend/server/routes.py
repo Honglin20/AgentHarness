@@ -3,7 +3,7 @@
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from harness.api import Agent, Workflow
@@ -101,6 +101,25 @@ async def list_tools() -> list[ToolInfo]:
         tools.append(ToolInfo(name=name, description=desc))
 
     return tools
+
+
+@router.post("/charts")
+async def chart_render(
+    request: Request,
+    event_bus = Depends(get_event_bus),
+) -> dict:
+    """Receive chart payload from render_chart() HTTP fallback and emit via EventBus."""
+    body = await request.json()
+    node_id = body.get("node_id", "")
+    chart = body.get("chart", {})
+
+    event_bus.emit("chart.render", {
+        "node_id": node_id,
+        "agent_name": node_id,
+        "chart": chart,
+    })
+
+    return {"status": "ok"}
 
 
 @router.post("/workflows", response_model=CreateWorkflowResponse)

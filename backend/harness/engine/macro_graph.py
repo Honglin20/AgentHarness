@@ -28,9 +28,6 @@ class MacroGraphBuilder:
         self.event_bus = event_bus  # Store for use in node functions
 
         # Register event-bus-dependent tools when event_bus is available
-        if event_bus and "chart" not in self.tool_registry.list_tools():
-            from harness.tools.chart import ChartToolFactory
-            self.tool_registry.register("chart", ChartToolFactory(event_bus=event_bus))
         if event_bus and "ask_human" not in self.tool_registry.list_tools():
             from harness.tools.ask_human import AskHumanToolFactory
             self.tool_registry.register("ask_human", AskHumanToolFactory(event_bus=event_bus))

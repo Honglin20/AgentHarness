@@ -1,24 +1,14 @@
-"""Tests for chart tool."""
+"""Tests for render_chart — plain function with dual-channel delivery."""
 
 from __future__ import annotations
 
+import json
+import os
 from typing import Any
 
 import pytest
-from pydantic_ai import RunContext
 
-from harness.tools.chart import ChartToolFactory
-from harness.tools.deps import AgentDeps
-
-
-def _make_ctx(agent_name: str = "test-agent") -> RunContext[AgentDeps]:
-    deps = AgentDeps(agent_name=agent_name)
-    return RunContext(
-        deps=deps,
-        model=None,
-        usage=None,
-        prompt=None,
-    )
+from harness.tools.chart import render_chart
 
 
 class MockEventBus:
@@ -31,76 +21,49 @@ class MockEventBus:
         self.events.append({"type": event_type, "payload": payload})
 
 
-class TestChartToolFactory:
-    def test_chart_factory_name_and_description(self):
-        """ChartToolFactory has correct name and description."""
-        factory = ChartToolFactory(event_bus=None)
+@pytest.fixture
+def sample_data():
+    return [{"x": 1, "y": 4}, {"x": 2, "y": 5}, {"x": 3, "y": 6}]
 
-        assert factory.name == "chart"
-        assert "chart_type" in factory.description
 
-    def test_chart_factory_creates_tool(self):
-        """ChartToolFactory.create() returns a PydanticAITool."""
-        from pydantic_ai import Tool as PydanticAITool
+class TestRenderChartEventBus:
+    """Tests for EventBus channel (same process)."""
 
-        factory = ChartToolFactory(event_bus=None)
-        tool = factory.create()
-
-        assert isinstance(tool, PydanticAITool)
-        assert tool.takes_ctx is True
-
-    @pytest.mark.asyncio
-    async def test_chart_emits_event(self):
-        """Calling chart tool with EventBus emits a chart.render event."""
+    def test_emits_event_via_event_bus(self, monkeypatch, sample_data):
+        """render_chart emits chart.render via EventBus when available."""
         bus = MockEventBus()
-        factory = ChartToolFactory(event_bus=bus)
-        tool = factory.create()
-        chart_fn = tool.function
 
-        data = [{"x": 1, "y": 4}, {"x": 2, "y": 5}, {"x": 3, "y": 6}]
-        ctx = _make_ctx(agent_name="analyzer")
+        def _mock_get_event_bus():
+            return bus
 
-        result = await chart_fn(ctx, data=data, chart_type="bar", x="x", y="y")
+        monkeypatch.setattr(
+            "harness.tools.chart._try_get_event_bus", _mock_get_event_bus
+        )
 
-        # Should have emitted one event
+        result = render_chart(
+            data=sample_data, chart_type="bar", x="x", y="y", node_id="analyzer"
+        )
+
         assert len(bus.events) == 1
         event = bus.events[0]
         assert event["type"] == "chart.render"
-        payload = event["payload"]
-        assert payload["node_id"] == "analyzer"
-        assert payload["agent_name"] == "analyzer"
-        assert payload["chart"]["chart_type"] == "bar"
+        assert event["payload"]["node_id"] == "analyzer"
+        assert event["payload"]["agent_name"] == "analyzer"
+        assert event["payload"]["chart"]["chart_type"] == "bar"
+        assert "bar" in result
 
-    @pytest.mark.asyncio
-    async def test_chart_without_event_bus(self):
-        """Calling chart tool without EventBus returns string, no error."""
-        factory = ChartToolFactory(event_bus=None)
-        tool = factory.create()
-        chart_fn = tool.function
-
-        data = [{"x": 1, "y": 3}, {"x": 2, "y": 4}]
-        ctx = _make_ctx()
-
-        result = await chart_fn(ctx, data=data, chart_type="line", x="x", y="y")
-
-        assert isinstance(result, str)
-        assert "line" in result
-        assert "label='default'" in result
-
-    @pytest.mark.asyncio
-    async def test_chart_payload_structure(self):
-        """Chart payload has required fields: chart_type, data, columns, x, y, label, title."""
+    def test_payload_structure(self, monkeypatch, sample_data):
+        """Chart payload has all required fields."""
         bus = MockEventBus()
-        factory = ChartToolFactory(event_bus=bus)
-        tool = factory.create()
-        chart_fn = tool.function
+        monkeypatch.setattr(
+            "harness.tools.chart._try_get_event_bus", lambda: bus
+        )
 
-        data = [{"month": "Jan", "sales": 100}, {"month": "Feb", "sales": 200}]
-        ctx = _make_ctx()
-
-        await chart_fn(
-            ctx, data=data, chart_type="scatter",
+        render_chart(
+            data=[{"month": "Jan", "sales": 100}, {"month": "Feb", "sales": 200}],
+            chart_type="scatter",
             x="month", y="sales", label="q1", title="Q1 Sales",
+            node_id="test",
         )
 
         chart = bus.events[0]["payload"]["chart"]
@@ -113,46 +76,157 @@ class TestChartToolFactory:
         assert chart["title"] == "Q1 Sales"
         assert chart["hue"] is None
 
-    @pytest.mark.asyncio
-    async def test_chart_pareto_direction(self):
-        """When chart_type='pareto' and pareto_direction='max', payload includes it."""
+    def test_pareto_direction(self, monkeypatch):
+        """chart_type='pareto' includes pareto_direction."""
         bus = MockEventBus()
-        factory = ChartToolFactory(event_bus=bus)
-        tool = factory.create()
-        chart_fn = tool.function
+        monkeypatch.setattr(
+            "harness.tools.chart._try_get_event_bus", lambda: bus
+        )
 
-        data = [{"category": "A", "value": 10}, {"category": "B", "value": 20}]
-        ctx = _make_ctx()
-
-        result = await chart_fn(
-            ctx, data=data, chart_type="pareto",
-            x="category", y="value", pareto_direction="max",
+        render_chart(
+            data=[{"category": "A", "value": 10}],
+            chart_type="pareto", x="category", y="value",
+            pareto_direction="max",
         )
 
         chart = bus.events[0]["payload"]["chart"]
         assert chart["chart_type"] == "pareto"
         assert chart["pareto_direction"] == "max"
-        # Should NOT have optimal_line
         assert "optimal_line" not in chart
 
-    @pytest.mark.asyncio
-    async def test_chart_optimal_line(self):
-        """When chart_type='optimal_line' and optimal_line='min', payload includes it."""
+    def test_optimal_line(self, monkeypatch):
+        """chart_type='optimal_line' includes optimal_line."""
         bus = MockEventBus()
-        factory = ChartToolFactory(event_bus=bus)
-        tool = factory.create()
-        chart_fn = tool.function
+        monkeypatch.setattr(
+            "harness.tools.chart._try_get_event_bus", lambda: bus
+        )
 
-        data = [{"iter": 1, "loss": 0.5}, {"iter": 2, "loss": 0.3}, {"iter": 3, "loss": 0.1}]
-        ctx = _make_ctx()
-
-        result = await chart_fn(
-            ctx, data=data, chart_type="optimal_line",
-            x="iter", y="loss", optimal_line="min",
+        render_chart(
+            data=[{"iter": 1, "loss": 0.5}, {"iter": 2, "loss": 0.3}],
+            chart_type="optimal_line", x="iter", y="loss",
+            optimal_line="min",
         )
 
         chart = bus.events[0]["payload"]["chart"]
         assert chart["chart_type"] == "optimal_line"
         assert chart["optimal_line"] == "min"
-        # Should NOT have pareto_direction
         assert "pareto_direction" not in chart
+
+    def test_empty_data(self, monkeypatch):
+        """Empty data produces empty columns."""
+        bus = MockEventBus()
+        monkeypatch.setattr(
+            "harness.tools.chart._try_get_event_bus", lambda: bus
+        )
+
+        render_chart(data=[], chart_type="table", label="empty")
+
+        chart = bus.events[0]["payload"]["chart"]
+        assert chart["columns"] == []
+        assert chart["data"] == []
+
+    def test_title_fallback(self, monkeypatch):
+        """When title is empty, falls back to chart_type."""
+        bus = MockEventBus()
+        monkeypatch.setattr(
+            "harness.tools.chart._try_get_event_bus", lambda: bus
+        )
+
+        render_chart(data=[{"a": 1}], chart_type="line", title="")
+
+        chart = bus.events[0]["payload"]["chart"]
+        assert chart["title"] == "line"
+
+
+class TestRenderChartHTTP:
+    """Tests for HTTP fallback channel (subprocess / external)."""
+
+    @pytest.fixture(autouse=True)
+    def clear_env(self):
+        """Clear HARNESS_API_URL before each test."""
+        old = os.environ.pop("HARNESS_API_URL", None)
+        yield
+        if old is not None:
+            os.environ["HARNESS_API_URL"] = old
+
+    def test_http_fallback_used_when_no_event_bus(self, monkeypatch, sample_data):
+        """When EventBus unavailable, uses HTTP POST to HARNESS_API_URL."""
+        monkeypatch.setattr(
+            "harness.tools.chart._try_get_event_bus", lambda: None
+        )
+        os.environ["HARNESS_API_URL"] = "http://localhost:1234"
+
+        captured: dict[str, Any] = {}
+
+        def fake_http_post(url, payload):
+            captured["url"] = url
+            captured["payload"] = payload
+            return True
+
+        monkeypatch.setattr(
+            "harness.tools.chart._http_post", fake_http_post
+        )
+
+        result = render_chart(
+            data=sample_data, chart_type="line", x="x", y="y", node_id="test"
+        )
+
+        assert captured["url"] == "http://localhost:1234/api/charts"
+        assert captured["payload"]["chart"]["chart_type"] == "line"
+        assert "line" in result
+
+    def test_http_fallback_strips_trailing_slash(self, monkeypatch, sample_data):
+        """HARNESS_API_URL with trailing slash works correctly."""
+        monkeypatch.setattr(
+            "harness.tools.chart._try_get_event_bus", lambda: None
+        )
+        os.environ["HARNESS_API_URL"] = "http://localhost:8001/"
+
+        captured: dict[str, Any] = {}
+
+        def fake_http_post(url, payload):
+            captured["url"] = url
+            return True
+
+        monkeypatch.setattr(
+            "harness.tools.chart._http_post", fake_http_post
+        )
+
+        render_chart(data=[{"a": 1}], chart_type="bar", x="a")
+
+        assert captured["url"] == "http://localhost:8001/api/charts"
+
+    def test_http_fallback_failure(self, monkeypatch, sample_data):
+        """Failed HTTP POST returns error message."""
+        monkeypatch.setattr(
+            "harness.tools.chart._try_get_event_bus", lambda: None
+        )
+        os.environ["HARNESS_API_URL"] = "http://localhost:9999"
+
+        monkeypatch.setattr(
+            "harness.tools.chart._http_post", lambda url, payload: False
+        )
+
+        result = render_chart(
+            data=sample_data, chart_type="bar", x="x", y="y"
+        )
+
+        assert "failed" in result.lower()
+
+
+class TestRenderChartNoChannel:
+    """Tests for no-channel fallback."""
+
+    def test_no_event_bus_no_api_url(self, monkeypatch, sample_data):
+        """When neither EventBus nor HARNESS_API_URL is available, returns info message."""
+        monkeypatch.setattr(
+            "harness.tools.chart._try_get_event_bus", lambda: None
+        )
+        # No HARNESS_API_URL in env
+        os.environ.pop("HARNESS_API_URL", None)
+
+        result = render_chart(
+            data=sample_data, chart_type="line", x="x", y="y"
+        )
+
+        assert "not rendered" in result.lower()
