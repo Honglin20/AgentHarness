@@ -1,0 +1,24 @@
+[project]
+name = "agent-harness"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.0",
+    "pydantic-ai>=0.0.36",
+    "langgraph>=0.2.0",
+    "python-frontmatter>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["backend"]
+asyncio_mode = "auto"
