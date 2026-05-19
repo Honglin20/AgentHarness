@@ -22,9 +22,11 @@ class MacroGraphBuilder:
     def __init__(
         self,
         tool_registry: ToolRegistry | None = None,
+        event_bus: Any | None = None,  # Optional EventBus for emitting events
     ):
         self.tool_registry = tool_registry or ToolRegistry()
         self.micro_factory = MicroAgentFactory(tool_registry=self.tool_registry)
+        self.event_bus = event_bus  # Store for use in node functions
 
     def build(self, workflow) -> StateGraph:
         """Build a LangGraph StateGraph from a Workflow definition."""
@@ -102,11 +104,20 @@ class MacroGraphBuilder:
     def _make_node_func(self, agent_def, parsed, dep_map):
         """Create an async LangGraph node function for an agent."""
         micro_factory = self.micro_factory
+        bus = self.event_bus  # Capture for closure
         final_tool_names, model, retries, result_type = self._resolve_agent_config(agent_def, parsed)
         upstream_names = dep_map[agent_def.name]
 
         async def node_func(state: HarnessState) -> dict:
             start_time = time.time()
+
+            # Emit node.started event
+            if bus:
+                bus.emit("node.started", {
+                    "node_id": agent_def.name,
+                    "agent_name": agent_def.name,
+                    "attempt": 1,
+                })
 
             # Gather upstream outputs
             upstream_outputs = {}
@@ -124,6 +135,20 @@ class MacroGraphBuilder:
                 upstream_outputs=upstream_outputs,
             )
 
+            # Create stream callback if event_bus is present
+            def make_stream_callback(node_id: str, agent_name: str):
+                def stream_callback(text: str) -> None:
+                    """Called for each partial result chunk."""
+                    if bus:
+                        bus.emit("agent.text_delta", {
+                            "node_id": node_id,
+                            "agent_name": agent_name,
+                            "text": text,
+                        })
+                return stream_callback
+
+            stream_callback = make_stream_callback(agent_def.name, agent_def.name) if bus else None
+
             # Create the Pydantic AI agent with resolved tools
             pydantic_agent = micro_factory.create(
                 name=agent_def.name,
@@ -133,12 +158,33 @@ class MacroGraphBuilder:
                 retries=retries,
                 result_type=result_type,
                 deps=deps,
+                stream_callback=stream_callback,
             )
 
             # Run the Pydantic AI agent (async)
             try:
-                result = await pydantic_agent.run(context, deps=deps)
+                if bus:
+                    # Use streaming
+                    result_chunks = []
+                    async for chunk in pydantic_agent.run_stream(context, deps=deps):
+                        result_chunks.append(chunk)
+                    # Concatenate partial results
+                    result = "".join(result_chunks)
+                else:
+                    # Use non-streaming
+                    result = await pydantic_agent.run(context, deps=deps)
+
                 duration_ms = int((time.time() - start_time) * 1000)
+
+                # Emit node.completed event
+                if bus:
+                    bus.emit("node.completed", {
+                        "node_id": agent_def.name,
+                        "agent_name": agent_def.name,
+                        "duration_ms": duration_ms,
+                        "status": "success",
+                    })
+
                 return {
                     STATE_OUTPUTS: {agent_def.name: result.output},
                     STATE_ERRORS: {},
@@ -146,6 +192,18 @@ class MacroGraphBuilder:
                 }
             except Exception as e:
                 duration_ms = int((time.time() - start_time) * 1000)
+
+                # Emit node.failed event
+                if bus:
+                    bus.emit("node.failed", {
+                        "node_id": agent_def.name,
+                        "agent_name": agent_def.name,
+                        "error": str(e),
+                        "duration_ms": duration_ms,
+                        "attempt": 1,
+                        "will_retry": False,  # Pydantic AI handles retries internally
+                    })
+
                 return {
                     STATE_OUTPUTS: {},
                     STATE_ERRORS: {agent_def.name: str(e)},

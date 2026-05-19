@@ -27,6 +27,7 @@ class MicroAgentFactory:
         result_type: Type[BaseModel] | None,
         deps: AgentDeps | None = None,
         exclude_tools: list[str] | None = None,
+        stream_callback: Any | None = None,  # Optional callback for streaming text deltas
     ) -> PydanticAgent:
         agent_model = model or DEFAULT_MODEL
 
@@ -41,6 +42,10 @@ class MicroAgentFactory:
             tools=resolved_tools,
             deps_type=AgentDeps,
         )
+
+        # Store stream_callback for use during run()
+        agent._stream_callback = stream_callback
+
         return agent
 
     def build_node_prompt(

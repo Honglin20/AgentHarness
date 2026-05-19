@@ -54,12 +54,14 @@ class Workflow:
         agents_dir: str = "agents",
         mcp_servers: list[McpServerConfig] | None = None,
         tool_registry: ToolRegistry | None = None,
+        event_bus: Any | None = None,  # Optional EventBus for real-time events
     ):
         self.name = name
         self.agents = agents
         self.agents_dir = agents_dir
         self.mcp_servers = mcp_servers or []
         self.tool_registry = tool_registry or ToolRegistry()
+        self._event_bus = event_bus
         self._compiled = None
         self._mcp_setup_done = False
         self._mcp_bridges: list[McpBridge] = []
@@ -76,7 +78,10 @@ class Workflow:
         if not self.tool_registry.list_tools():
             self.tool_registry = default_tool_registry()
 
-        builder = MacroGraphBuilder(tool_registry=self.tool_registry)
+        builder = MacroGraphBuilder(
+            tool_registry=self.tool_registry,
+            event_bus=self._event_bus,
+        )
         graph = builder.build(self)
         self._compiled = graph.compile()
         return self._compiled
