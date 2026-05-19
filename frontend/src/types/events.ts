@@ -25,11 +25,13 @@ export type EventType =
 export interface WorkflowStartedPayload {
   workflow_id: string;
   name: string;
+  inputs?: Record<string, unknown>;
+  dag?: { nodes: string[]; edges: [string, string][] };
 }
 
 export interface WorkflowCompletedPayload {
   workflow_id: string;
-  duration_ms: number;
+  duration_ms?: number;
   status: string;
 }
 

@@ -64,11 +64,12 @@ export const useWorkflowStore = create<WorkflowState>()((set) => ({
   reset: () => set(initialState),
 
   handleWorkflowStarted: (payload) =>
-    set({
-      status: "running",
+    set((state) => ({
+      status: "running" as const,
       workflowId: payload.workflow_id,
       workflowName: payload.name,
-    }),
+      dag: payload.dag ?? state.dag,
+    })),
 
   handleWorkflowCompleted: (payload) =>
     set({
