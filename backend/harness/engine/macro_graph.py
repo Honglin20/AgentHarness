@@ -11,13 +11,19 @@ from harness.compiler.dag_builder import build_dag
 from harness.compiler.md_parser import parse_agent_md
 from harness.engine.micro_agent import MicroAgentFactory
 from harness.engine.state import HarnessState
+from harness.tools.deps import AgentDeps
+from harness.tools.registry import ToolRegistry
 
 
 class MacroGraphBuilder:
     """将编译后的 DAG 转为 LangGraph StateGraph。"""
 
-    def __init__(self, micro_factory: MicroAgentFactory | None = None):
-        self.micro_factory = micro_factory or MicroAgentFactory()
+    def __init__(
+        self,
+        tool_registry: ToolRegistry | None = None,
+    ):
+        self.tool_registry = tool_registry or ToolRegistry()
+        self.micro_factory = MicroAgentFactory(tool_registry=self.tool_registry)
 
     def build(self, workflow) -> StateGraph:
         """Build a LangGraph StateGraph from a Workflow definition."""
@@ -93,16 +99,6 @@ class MacroGraphBuilder:
         retries = parsed.retries
         result_type = agent_def.result_type
 
-        # Create the Pydantic AI agent
-        pydantic_agent = micro_factory.create(
-            name=agent_def.name,
-            prompt=parsed.prompt,
-            tools=final_tool_names,
-            model=model,
-            retries=retries,
-            result_type=result_type,
-        )
-
         upstream_names = dep_map[agent_def.name]
 
         def node_func(state: HarnessState) -> dict:
@@ -115,15 +111,29 @@ class MacroGraphBuilder:
                 if dep_name in outputs:
                     upstream_outputs[dep_name] = outputs[dep_name]
 
+            # Build deps for this agent
+            deps = AgentDeps(agent_name=agent_def.name)
+
             # Build the context (user message) — system prompt is already set via md_prompt
             context = micro_factory.build_node_prompt(
                 inputs=state.get("inputs", {}),
                 upstream_outputs=upstream_outputs,
             )
 
+            # Create the Pydantic AI agent with resolved tools
+            pydantic_agent = micro_factory.create(
+                name=agent_def.name,
+                prompt=parsed.prompt,
+                tools=final_tool_names,
+                model=model,
+                retries=retries,
+                result_type=result_type,
+                deps=deps,
+            )
+
             # Run the Pydantic AI agent
             try:
-                result = pydantic_agent.run_sync(context)
+                result = pydantic_agent.run_sync(context, deps=deps)
                 duration_ms = int((time.time() - start_time) * 1000)
                 return {
                     "outputs": {agent_def.name: result.output},

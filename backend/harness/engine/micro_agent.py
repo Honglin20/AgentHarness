@@ -6,6 +6,8 @@ from typing import Type
 from pydantic import BaseModel
 from pydantic_ai import Agent as PydanticAgent
 
+from harness.tools.deps import AgentDeps
+from harness.tools.registry import ToolRegistry
 
 DEFAULT_MODEL = "deepseek:deepseek-chat"
 
@@ -13,21 +15,23 @@ DEFAULT_MODEL = "deepseek:deepseek-chat"
 class MicroAgentFactory:
     """为每个 DAG 节点生成 Pydantic AI Agent 实例。"""
 
+    def __init__(self, tool_registry: ToolRegistry | None = None):
+        self.tool_registry = tool_registry or ToolRegistry()
+
     def create(
         self,
         name: str,
         prompt: str,
-        tools: list[str],
+        tools: list[str] | None,
         model: str | None,
         retries: int,
         result_type: Type[BaseModel] | None,
+        deps: AgentDeps | None = None,
+        exclude_tools: list[str] | None = None,
     ) -> PydanticAgent:
-        """Create a Pydantic AI Agent instance for a DAG node.
-
-        Note: Tool resolution (name → callable) is deferred to Phase 2.
-        Phase 1 agents run without tools.
-        """
         agent_model = model or DEFAULT_MODEL
+
+        resolved_tools = self.tool_registry.resolve(tools, exclude=exclude_tools)
 
         agent = PydanticAgent(
             model=agent_model,
@@ -35,6 +39,8 @@ class MicroAgentFactory:
             retries=retries,
             output_type=result_type or str,
             defer_model_check=True,
+            tools=resolved_tools,
+            deps_type=AgentDeps,
         )
         return agent
 
