@@ -150,15 +150,19 @@ async def create_workflow(
     }
 
     # Build DAG for React Flow
-    dag = build_dag(agents)
-    _dag_cache[workflow_id] = dag
+    node_order = build_dag(agents)
+    edges: list[list[str]] = []
+    for a in agents:
+        for dep in a.after:
+            edges.append([dep, a.name])
+    _dag_cache[workflow_id] = {"nodes": node_order, "edges": edges}
 
     # Emit workflow.started event (actual execution managed by WorkflowRunner)
     event_bus.emit("workflow.started", {
         "workflow_id": workflow_id,
         "name": workflow.name,
         "inputs": request.inputs,
-        "dag": dag,  # Include DAG structure for frontend
+        "dag": {"nodes": node_order, "edges": edges},  # Include DAG structure for frontend
     })
 
     # Submit to runner

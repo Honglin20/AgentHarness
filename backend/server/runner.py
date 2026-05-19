@@ -92,8 +92,8 @@ class WorkflowRunner:
                     event_bus.emit("workflow.cancelled", {"workflow_id": workflow_id})
                     return
 
-                # Run workflow (sync for now, will make async later)
-                result = workflow.run(inputs)
+                # Run workflow
+                result = await workflow.arun(inputs)
 
                 # Emit completion
                 event_bus.emit("workflow.completed", {
