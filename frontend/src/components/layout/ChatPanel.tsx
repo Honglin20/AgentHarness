@@ -12,7 +12,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 
-const LANGFUSE_URL = process.env.NEXT_PUBLIC_LANGFUSE_URL || null;
+const TRACE_URL = process.env.NEXT_PUBLIC_TRACE_URL || null;
 
 export function ChatPanel() {
   const workflowId = useWorkflowStore((s) => s.workflowId);
@@ -30,7 +30,7 @@ export function ChatPanel() {
       <MessageList />
       <ChatInput sendAnswer={sendAnswer} />
 
-      {LANGFUSE_URL && (
+      {TRACE_URL && (
         <Collapsible
           open={langfuseOpen}
           onOpenChange={setLangfuseOpen}
@@ -49,7 +49,7 @@ export function ChatPanel() {
           </CollapsibleTrigger>
           <CollapsibleContent>
             <iframe
-              src={LANGFUSE_URL}
+              src={TRACE_URL}
               className="h-[400px] w-full border-0"
               title="Langfuse Trace Viewer"
             />

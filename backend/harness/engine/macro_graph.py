@@ -14,7 +14,7 @@ from harness.engine.micro_agent import MicroAgentFactory
 from harness.engine.state import HarnessState
 from harness.tools.deps import AgentDeps
 from harness.tools.registry import ToolRegistry
-from harness.instrumentation import start_observation
+from harness.instrumentation import trace_agent
 
 
 class MacroGraphBuilder:
@@ -168,8 +168,8 @@ class MacroGraphBuilder:
                 stream_callback=stream_callback,
             )
 
-            # Run the Pydantic AI agent (async) — wrapped in Langfuse agent span
-            with start_observation(agent_def.name, as_type="agent", input=context) as lf_span:
+            # Run the Pydantic AI agent (async) — traced via LangSmith
+            with trace_agent(agent_def.name, inputs={"context": context}) as ls_run:
                 try:
                     if bus:
                         # Use streaming
@@ -193,8 +193,21 @@ class MacroGraphBuilder:
                             "status": "success",
                         })
 
-                    if lf_span:
-                        lf_span.update(output=result.output if hasattr(result, 'output') else str(result))
+                    if ls_run:
+                        try:
+                            usage = result.usage()
+                            ls_run.end(
+                                outputs={"result": str(result.output)},
+                                metadata={
+                                    "token_usage": {
+                                        "input": usage.request_tokens,
+                                        "output": usage.response_tokens,
+                                        "total": usage.total_tokens,
+                                    }
+                                },
+                            )
+                        except Exception:
+                            ls_run.end(outputs={"result": str(result.output)})
 
                     return {
                         STATE_OUTPUTS: {agent_def.name: result.output},
@@ -212,11 +225,11 @@ class MacroGraphBuilder:
                             "error": str(e),
                             "duration_ms": duration_ms,
                             "attempt": 1,
-                            "will_retry": False,  # Pydantic AI handles retries internally
+                            "will_retry": False,
                         })
 
-                    if lf_span:
-                        lf_span.update(output=None, level="ERROR", status_message=str(e))
+                    if ls_run:
+                        ls_run.end(error=str(e))
 
                     return {
                         STATE_OUTPUTS: {},

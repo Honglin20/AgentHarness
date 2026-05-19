@@ -1,7 +1,8 @@
-"""Langfuse instrumentation — shared TracerProvider for pydantic_ai + Langfuse.
+"""LangSmith instrumentation — auto-trace LangGraph + manual Pydantic AI spans.
 
-Without LANGFUSE_PUBLIC_KEY, init_langfuse() is a no-op and all instrumentation
-calls degrade gracefully.
+Without LANGCHAIN_API_KEY, all instrumentation degrades to no-op.
+LangGraph nodes are auto-traced by LangChain's callback system when
+LANGCHAIN_TRACING_V2=true (set automatically).
 """
 
 from __future__ import annotations
@@ -13,64 +14,54 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_langfuse: Any = None
-_tracer_provider: Any = None
+_client: Any = None
 
 
-def init_langfuse() -> None:
-    """Initialize Langfuse with shared TracerProvider.
+def init_langsmith() -> None:
+    """Initialize LangSmith tracing. No-op if LANGCHAIN_API_KEY not set."""
+    global _client
 
-    Reads LANGFUSE_PUBLIC_KEY from environment. No-op if not set or already
-    initialized. Called once at server startup.
-    """
-    global _langfuse, _tracer_provider
-
-    if _langfuse is not None:
+    if _client is not None:
         return
 
-    if not os.environ.get("LANGFUSE_PUBLIC_KEY"):
-        logger.debug("LANGFUSE_PUBLIC_KEY not set — Langfuse disabled")
+    if not os.environ.get("LANGCHAIN_API_KEY"):
+        logger.debug("LANGCHAIN_API_KEY not set — LangSmith disabled")
         return
 
     try:
-        from opentelemetry.sdk.trace import TracerProvider
-        from langfuse import Langfuse
+        from langsmith import Client
 
-        _tracer_provider = TracerProvider()
-        _langfuse = Langfuse(tracer_provider=_tracer_provider)
-        logger.info("Langfuse initialized")
+        os.environ["LANGCHAIN_TRACING_V2"] = "true"
+        _client = Client()
+        logger.info("LangSmith initialized")
     except ImportError as e:
-        logger.warning(f"Langfuse not available: {e}")
+        logger.warning(f"LangSmith not available: {e}")
 
 
-def get_tracer_provider() -> Any:
-    """Get the shared TracerProvider, or None if Langfuse is disabled."""
-    return _tracer_provider
+def get_client() -> Any:
+    """Get the LangSmith Client, or None if disabled."""
+    return _client
 
 
-def get_langfuse() -> Any:
-    """Get the Langfuse client, or None if disabled."""
-    return _langfuse
-
-
-def start_observation(
-    name: str,
-    as_type: str = "span",
-    input: Any = None,
-) -> Any:
-    """Start a Langfuse observation if available, otherwise a no-op context.
+def trace_agent(name: str, inputs: dict | None = None) -> Any:
+    """Start a LangSmith trace for an agent's LLM execution.
 
     Usage:
-        with start_observation("analyzer", as_type="agent", input=ctx) as span:
-            result = do_work()
-            if span:
-                span.update(output=result)
+        with trace_agent("analyzer", inputs={"context": ...}) as run:
+            result = await agent.run(context)
+            if run:
+                run.end(outputs={"result": result.output})
     """
-    lf = _langfuse
-    if lf is not None:
-        return lf.start_as_current_observation(
+    if _client is None:
+        return _nullcontext()
+
+    try:
+        from langsmith.run_helpers import trace
+
+        return trace(
             name=name,
-            as_type=as_type,
-            input=input,
+            run_type="llm",
+            inputs=inputs or {},
         )
-    return _nullcontext()
+    except Exception:
+        return _nullcontext()
