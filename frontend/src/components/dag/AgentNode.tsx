@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
 import type { NodeState } from "@/stores/workflowStore";
 
@@ -11,37 +12,37 @@ const STATUS_CONFIG: Record<
   { dot: string; border: string; bg: string; label: string; pulse: boolean }
 > = {
   idle: {
-    dot: "#9CA3AF",
-    border: "#E5E7EB",
-    bg: "#FFFFFF",
+    dot: "bg-gray-400",
+    border: "border-gray-200",
+    bg: "bg-white",
     label: "Idle",
     pulse: false,
   },
   running: {
-    dot: "#3B82F6",
-    border: "#3B82F6",
-    bg: "#FFFFFF",
+    dot: "bg-blue-500",
+    border: "border-blue-500",
+    bg: "bg-white",
     label: "Running",
     pulse: true,
   },
   success: {
-    dot: "#10B981",
-    border: "#10B981",
-    bg: "#ECFDF5",
+    dot: "bg-emerald-500",
+    border: "border-emerald-500",
+    bg: "bg-emerald-50",
     label: "Done",
     pulse: false,
   },
   failed: {
-    dot: "#EF4444",
-    border: "#EF4444",
-    bg: "#FEF2F2",
+    dot: "bg-red-500",
+    border: "border-red-500",
+    bg: "bg-red-50",
     label: "Failed",
     pulse: false,
   },
   retrying: {
-    dot: "#F59E0B",
-    border: "#F59E0B",
-    bg: "#FFFBEB",
+    dot: "bg-amber-500",
+    border: "border-amber-500",
+    bg: "bg-amber-50",
     label: "Retrying",
     pulse: true,
   },
@@ -53,7 +54,15 @@ function formatDuration(ms?: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-export default function AgentNode({ data }: NodeProps<AgentNode>) {
+const DOT_COLORS: Record<NodeState["status"], string> = {
+  idle: "#9CA3AF",
+  running: "#3B82F6",
+  success: "#10B981",
+  failed: "#EF4444",
+  retrying: "#F59E0B",
+};
+
+function AgentNodeInner({ data }: NodeProps<AgentNode>) {
   const { nodeState } = data;
   const cfg = STATUS_CONFIG[nodeState.status];
 
@@ -62,23 +71,16 @@ export default function AgentNode({ data }: NodeProps<AgentNode>) {
       <Handle
         type="target"
         position={Position.Top}
-        style={{ background: cfg.dot, width: 6, height: 6 }}
+        style={{ background: DOT_COLORS[nodeState.status], width: 6, height: 6 }}
       />
       <div
-        style={{
-          borderColor: cfg.border,
-          backgroundColor: cfg.bg,
-          boxShadow:
-            nodeState.status === "running"
-              ? `0 0 8px 2px rgba(59,130,246,0.3)`
-              : undefined,
-        }}
-        className="w-[200px] rounded-lg border-2 px-3 py-2 transition-all duration-300"
+        className={`w-[200px] rounded-lg border-2 px-3 py-2 transition-all duration-300 ${cfg.border} ${cfg.bg} ${
+          nodeState.status === "running" ? "shadow-[0_0_8px_2px_rgba(59,130,246,0.3)]" : ""
+        }`}
       >
         <div className="flex items-center gap-2">
           <span
-            className={`inline-block h-2 w-2 shrink-0 rounded-full ${cfg.pulse ? "animate-pulse" : ""}`}
-            style={{ backgroundColor: cfg.dot }}
+            className={`inline-block h-2 w-2 shrink-0 rounded-full ${cfg.dot} ${cfg.pulse ? "animate-pulse" : ""}`}
           />
           <span className="truncate text-xs font-semibold text-app-text-primary">
             {nodeState.name}
@@ -86,7 +88,7 @@ export default function AgentNode({ data }: NodeProps<AgentNode>) {
         </div>
 
         <div className="mt-1 flex items-center justify-between text-[10px]">
-          <span style={{ color: cfg.dot }} className="font-medium">
+          <span className="font-medium" style={{ color: DOT_COLORS[nodeState.status] }}>
             {cfg.label}
             {nodeState.attempt && nodeState.attempt > 1
               ? ` (${nodeState.attempt})`
@@ -108,8 +110,10 @@ export default function AgentNode({ data }: NodeProps<AgentNode>) {
       <Handle
         type="source"
         position={Position.Bottom}
-        style={{ background: cfg.dot, width: 6, height: 6 }}
+        style={{ background: DOT_COLORS[nodeState.status], width: 6, height: 6 }}
       />
     </>
   );
 }
+
+export default React.memo(AgentNodeInner);

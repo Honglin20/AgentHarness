@@ -33,8 +33,8 @@ function DAGCanvasInner() {
       },
     }));
 
-    const rawEdges: Edge[] = dag.edges.map(([source, target], i) => ({
-      id: `e${i}`,
+    const rawEdges: Edge[] = dag.edges.map(([source, target]) => ({
+      id: `e-${source}-${target}`,
       source,
       target,
       type: "smoothstep",
