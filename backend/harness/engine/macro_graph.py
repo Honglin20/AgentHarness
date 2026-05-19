@@ -123,7 +123,7 @@ class MacroGraphBuilder:
                 result = pydantic_agent.run_sync(context)
                 duration_ms = int((time.time() - start_time) * 1000)
                 return {
-                    "outputs": {agent_def.name: result.data},
+                    "outputs": {agent_def.name: result.output},
                     "errors": {},
                     "metadata": {agent_def.name: {"duration_ms": duration_ms}},
                 }

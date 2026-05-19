@@ -1,6 +1,6 @@
 ---
 name: planner
-model: claude-sonnet-4-6
+model: deepseek:deepseek-chat
 retries: 2
 ---
 

@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from pydantic_ai import Agent as PydanticAgent
 
 
-DEFAULT_MODEL = "anthropic:claude-sonnet-4-6"
+DEFAULT_MODEL = "deepseek:deepseek-chat"
 
 
 class MicroAgentFactory:
@@ -28,8 +28,6 @@ class MicroAgentFactory:
         Phase 1 agents run without tools.
         """
         agent_model = model or DEFAULT_MODEL
-        if ":" not in agent_model:
-            agent_model = f"anthropic:{agent_model}"
 
         agent = PydanticAgent(
             model=agent_model,

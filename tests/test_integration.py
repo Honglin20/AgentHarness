@@ -29,7 +29,7 @@ def test_workflow_run_with_mocked_llm():
 
     with patch("pydantic_ai.Agent.run_sync") as mock_run_sync:
         mock_result = MagicMock()
-        mock_result.data = "mock output"
+        mock_result.output = "mock output"
         mock_run_sync.return_value = mock_result
 
         result = wf.run({"task": "test"})
