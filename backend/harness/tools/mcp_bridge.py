@@ -56,7 +56,8 @@ class McpToolFactory(ToolFactory):
             result = await session.call_tool(mcp_name, arguments=kwargs)
             # MCP returns list of content blocks; concatenate text
             return "\n".join(
-                block.text for block in result.content if hasattr(block, "text")
+                block.text for block in result.content
+                if isinstance(block.text, str)
             )
 
         return PydanticAITool(
@@ -84,13 +85,32 @@ class McpBridge:
 
         server_params = self.config.to_stdio_params()
 
-        # Keep both context managers alive for the connection lifecycle
         self._stdio_cm = stdio_client(server_params)
-        read_stream, write_stream = await self._stdio_cm.__aenter__()
+        try:
+            read_stream, write_stream = await self._stdio_cm.__aenter__()
+        except BaseException:
+            self._stdio_cm = None
+            raise
 
         self._session_cm = ClientSession(read_stream, write_stream)
-        self._session = await self._session_cm.__aenter__()
-        await self._session.initialize()
+        try:
+            self._session = await self._session_cm.__aenter__()
+            await self._session.initialize()
+        except BaseException:
+            # Clean up session context manager if it was entered
+            try:
+                await self._session_cm.__aexit__(None, None, None)
+            except BaseException:
+                pass
+            self._session_cm = None
+            self._session = None
+            # Clean up stdio context manager since session failed
+            try:
+                await self._stdio_cm.__aexit__(None, None, None)
+            except BaseException:
+                pass
+            self._stdio_cm = None
+            raise
 
     async def register_tools(self) -> list[str]:
         """发现所有工具并注册到 registry"""

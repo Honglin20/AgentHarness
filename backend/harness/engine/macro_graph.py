@@ -9,6 +9,7 @@ from langgraph.graph import StateGraph, START, END
 from harness.api import Agent
 from harness.compiler.dag_builder import build_dag
 from harness.compiler.md_parser import parse_agent_md
+from harness.constants import STATE_ERRORS, STATE_INPUTS, STATE_METADATA, STATE_OUTPUTS
 from harness.engine.micro_agent import MicroAgentFactory
 from harness.engine.state import HarnessState
 from harness.tools.deps import AgentDeps
@@ -80,11 +81,11 @@ class MacroGraphBuilder:
     def add_evaluator_edge(self, eval_node, pass_target, fail_target):
         raise NotImplementedError("Evaluator edges are planned for Phase 4")
 
-    def _make_node_func(self, agent_def, parsed, dep_map):
-        """Create an async LangGraph node function for an agent."""
-        micro_factory = self.micro_factory
+    def _resolve_agent_config(self, agent_def, parsed):
+        """Merge tools, model, retries from API definition and MD file.
 
-        # Merge tools: both unspecified → load all; either specified → use specified + API append
+        Returns (final_tool_names, model, retries, result_type).
+        """
         md_tools = parsed.tools
         api_tools = agent_def.tools or []
         if not md_tools and not api_tools:
@@ -92,13 +93,16 @@ class MacroGraphBuilder:
         else:
             final_tool_names = md_tools + [t for t in api_tools if t not in md_tools]
 
-        # Merge model: API > MD > default
         model = agent_def.model or parsed.model
-
-        # Use MD retries as source of truth
         retries = parsed.retries
         result_type = agent_def.result_type
 
+        return final_tool_names, model, retries, result_type
+
+    def _make_node_func(self, agent_def, parsed, dep_map):
+        """Create an async LangGraph node function for an agent."""
+        micro_factory = self.micro_factory
+        final_tool_names, model, retries, result_type = self._resolve_agent_config(agent_def, parsed)
         upstream_names = dep_map[agent_def.name]
 
         async def node_func(state: HarnessState) -> dict:
@@ -106,7 +110,7 @@ class MacroGraphBuilder:
 
             # Gather upstream outputs
             upstream_outputs = {}
-            outputs = state.get("outputs", {})
+            outputs = state.get(STATE_OUTPUTS, {})
             for dep_name in upstream_names:
                 if dep_name in outputs:
                     upstream_outputs[dep_name] = outputs[dep_name]
@@ -116,7 +120,7 @@ class MacroGraphBuilder:
 
             # Build the context (user message) — system prompt is already set via md_prompt
             context = micro_factory.build_node_prompt(
-                inputs=state.get("inputs", {}),
+                inputs=state.get(STATE_INPUTS, {}),
                 upstream_outputs=upstream_outputs,
             )
 
@@ -136,16 +140,16 @@ class MacroGraphBuilder:
                 result = await pydantic_agent.run(context, deps=deps)
                 duration_ms = int((time.time() - start_time) * 1000)
                 return {
-                    "outputs": {agent_def.name: result.output},
-                    "errors": {},
-                    "metadata": {agent_def.name: {"duration_ms": duration_ms}},
+                    STATE_OUTPUTS: {agent_def.name: result.output},
+                    STATE_ERRORS: {},
+                    STATE_METADATA: {agent_def.name: {"duration_ms": duration_ms}},
                 }
             except Exception as e:
                 duration_ms = int((time.time() - start_time) * 1000)
                 return {
-                    "outputs": {},
-                    "errors": {agent_def.name: str(e)},
-                    "metadata": {agent_def.name: {"duration_ms": duration_ms}},
+                    STATE_OUTPUTS: {},
+                    STATE_ERRORS: {agent_def.name: str(e)},
+                    STATE_METADATA: {agent_def.name: {"duration_ms": duration_ms}},
                 }
 
         return node_func

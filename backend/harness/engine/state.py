@@ -1,8 +1,15 @@
+import logging
 from typing import TypedDict, Annotated
+
+logger = logging.getLogger(__name__)
 
 
 def merge_dicts(left: dict, right: dict) -> dict:
     """Reducer that merges dicts. Right overwrites left on key conflict."""
+    if right:
+        conflicts = set(left) & set(right)
+        if conflicts:
+            logger.warning("merge_dicts: key conflict overwritten: %s", conflicts)
     return {**left, **right}
 
 

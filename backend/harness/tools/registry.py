@@ -1,3 +1,5 @@
+from abc import ABC, abstractmethod
+
 from pydantic_ai import Tool as PydanticAITool
 
 
@@ -5,13 +7,14 @@ class ToolNotFoundError(Exception):
     pass
 
 
-class ToolFactory:
-    """工具工厂抽象"""
+class ToolFactory(ABC):
+    """Abstract tool factory — subclasses must implement create()."""
+
     name: str = ""
     description: str = ""
 
-    def create(self) -> PydanticAITool:
-        raise NotImplementedError
+    @abstractmethod
+    def create(self) -> PydanticAITool: ...
 
 
 class ToolRegistry:

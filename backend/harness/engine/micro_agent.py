@@ -7,9 +7,8 @@ from pydantic import BaseModel
 from pydantic_ai import Agent as PydanticAgent
 
 from harness.tools.deps import AgentDeps
+from harness.constants import DEFAULT_MODEL
 from harness.tools.registry import ToolRegistry
-
-DEFAULT_MODEL = "deepseek:deepseek-chat"
 
 
 class MicroAgentFactory:

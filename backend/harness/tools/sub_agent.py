@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from pydantic_ai import Agent as PydanticAgent, RunContext, Tool as PydanticAITool
 
 from harness.tools.deps import AgentDeps
+from harness.constants import DEFAULT_MODEL
 from harness.tools.registry import ToolFactory
 
 if TYPE_CHECKING:
@@ -30,7 +31,7 @@ class SubAgentToolFactory(ToolFactory):
         max_depth: int = 1,
     ):
         self.registry = registry
-        self.model = model or "deepseek:deepseek-chat"
+        self.model = model or DEFAULT_MODEL
         self.max_depth = max_depth
 
     def create(self, depth: int = 0) -> PydanticAITool:

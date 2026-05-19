@@ -27,7 +27,7 @@ class BashToolFactory(ToolFactory):
         timeout = self.timeout
 
         def bash(ctx: RunContext, command: str) -> str:
-            workdir = ctx.deps.workdir if ctx.deps and hasattr(ctx.deps, "workdir") else "."
+            workdir = ctx.deps.workdir if isinstance(ctx.deps, AgentDeps) else "."
             try:
                 result = subprocess.run(
                     command,
@@ -37,12 +37,15 @@ class BashToolFactory(ToolFactory):
                     timeout=timeout,
                     cwd=workdir,
                 )
-                output = result.stdout
+
+                parts = []
+                if result.stdout:
+                    parts.append(result.stdout)
                 if result.stderr:
-                    output += f"\n[stderr]\n{result.stderr}"
+                    parts.append(f"[stderr]\n{result.stderr}")
                 if result.returncode != 0:
-                    output += f"\n[exit code: {result.returncode}]"
-                return output or "(no output)"
+                    parts.append(f"[exit code: {result.returncode}]")
+                return "\n".join(parts) if parts else "(no output)"
             except subprocess.TimeoutExpired:
                 return f"Error: command timed out after {timeout}s"
 

@@ -5,7 +5,9 @@ from typing import Any, Literal, Type
 
 from pydantic import BaseModel
 
-from harness.tools.mcp_bridge import McpServerConfig
+from harness.constants import STATE_ERRORS, STATE_INPUTS, STATE_METADATA, STATE_OUTPUTS
+from harness.tools.defaults import default_tool_registry, setup_default_mcp
+from harness.tools.mcp_bridge import McpBridge, McpServerConfig
 from harness.tools.registry import ToolRegistry
 
 
@@ -59,6 +61,8 @@ class Workflow:
         self.mcp_servers = mcp_servers or []
         self.tool_registry = tool_registry or ToolRegistry()
         self._compiled = None
+        self._mcp_setup_done = False
+        self._mcp_bridges: list[McpBridge] = []
 
     def compile(self):
         """Compile the workflow into a LangGraph StateGraph.
@@ -68,7 +72,6 @@ class Workflow:
         Does NOT connect MCP servers — call run() for full setup.
         """
         from harness.engine.macro_graph import MacroGraphBuilder
-        from harness.tools.defaults import default_tool_registry
 
         if not self.tool_registry.list_tools():
             self.tool_registry = default_tool_registry()
@@ -90,14 +93,20 @@ class Workflow:
 
         Caller is responsible for MCP lifecycle (call setup/cleanup if needed).
         """
+        if self.mcp_servers and not self._mcp_setup_done:
+            raise RuntimeError(
+                "MCP servers are configured but setup() was not called. "
+                "Call await workflow.setup() before arun(), or use run() instead."
+            )
+
         if self._compiled is None:
             self.compile()
 
         initial_state = {
-            "inputs": inputs,
-            "outputs": {},
-            "errors": {},
-            "metadata": {},
+            STATE_INPUTS: inputs,
+            STATE_OUTPUTS: {},
+            STATE_ERRORS: {},
+            STATE_METADATA: {},
         }
 
         final_state = await self._compiled.ainvoke(initial_state)
@@ -108,9 +117,6 @@ class Workflow:
 
         For advanced usage with arun(). Not needed if using run().
         """
-        from harness.tools.defaults import default_tool_registry, setup_default_mcp
-        from harness.tools.mcp_bridge import McpBridge
-
         if not self.tool_registry.list_tools():
             self.tool_registry = default_tool_registry()
 
@@ -123,6 +129,7 @@ class Workflow:
             bridges.append(bridge)
 
         self._mcp_bridges = bridges
+        self._mcp_setup_done = True
         self.compile()
 
     async def cleanup(self):
@@ -133,6 +140,7 @@ class Workflow:
             except BaseException:
                 pass
         self._mcp_bridges = []
+        self._mcp_setup_done = False
 
     async def _execute(self, inputs: dict) -> WorkflowResult:
         """Internal: full lifecycle in one event loop."""
@@ -145,9 +153,9 @@ class Workflow:
 
     def _build_result(self, final_state: dict) -> WorkflowResult:
         """Construct WorkflowResult from final LangGraph state."""
-        outputs = final_state.get("outputs", {})
-        errors = final_state.get("errors", {})
-        metadata = final_state.get("metadata", {})
+        outputs = final_state.get(STATE_OUTPUTS, {})
+        errors = final_state.get(STATE_ERRORS, {})
+        metadata = final_state.get(STATE_METADATA, {})
 
         trace = []
         for agent in self.agents:
