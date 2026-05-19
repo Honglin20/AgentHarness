@@ -12,10 +12,8 @@ interface ChatInputProps {
 export default function ChatInput({ sendAnswer }: ChatInputProps) {
   const pendingQuestionId = useChatStore((s) => s.pendingQuestionId);
   const [value, setValue] = useState("");
-  const [sending, setSending] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-focus when pending question appears
   useEffect(() => {
     if (pendingQuestionId) {
       inputRef.current?.focus();
@@ -24,14 +22,11 @@ export default function ChatInput({ sendAnswer }: ChatInputProps) {
 
   const handleSubmit = useCallback(() => {
     const trimmed = value.trim();
-    if (!trimmed || !pendingQuestionId || sending) return;
+    if (!trimmed || !pendingQuestionId) return;
 
-    setSending(true);
     sendAnswer(pendingQuestionId, trimmed);
     setValue("");
-    // Brief disabled state — re-enable on next tick
-    requestAnimationFrame(() => setSending(false));
-  }, [value, pendingQuestionId, sending, sendAnswer]);
+  }, [value, pendingQuestionId, sendAnswer]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -53,13 +48,14 @@ export default function ChatInput({ sendAnswer }: ChatInputProps) {
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder="Type your answer..."
-        disabled={sending}
+        aria-label="Type your answer"
+        disabled={!value.trim()}
         className="h-8 text-sm"
       />
       <Button
         size="sm"
         onClick={handleSubmit}
-        disabled={sending || !value.trim()}
+        disabled={!value.trim()}
         className="h-8 shrink-0 px-3"
       >
         Send
