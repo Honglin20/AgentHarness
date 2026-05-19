@@ -1,15 +1,13 @@
-import { Activity } from "lucide-react";
+"use client";
+
+import AgentStatusBar from "@/components/output/AgentStatusBar";
+import StreamingText from "@/components/output/StreamingText";
 
 export function CenterPanel() {
   return (
-    <main className="flex flex-1 flex-col">
-      <div className="flex items-center gap-2 border-b px-3 py-2">
-        <Activity className="h-4 w-4 text-app-text-secondary" />
-        <span className="text-sm font-medium text-app-text-primary">Output</span>
-      </div>
-      <div className="flex flex-1 items-center justify-center">
-        <p className="text-sm text-app-text-secondary">Agent output and charts</p>
-      </div>
-    </main>
+    <div className="flex flex-1 flex-col bg-app-bg-primary">
+      <AgentStatusBar />
+      <StreamingText />
+    </div>
   );
 }
