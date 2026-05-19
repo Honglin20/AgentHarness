@@ -78,10 +78,13 @@ class MacroGraphBuilder:
         """Create a LangGraph node function for an agent."""
         micro_factory = self.micro_factory
 
-        # Merge tools: MD default + API append
+        # Merge tools: both unspecified → load all; either specified → use specified + API append
         md_tools = parsed.tools
         api_tools = agent_def.tools or []
-        final_tools = md_tools + [t for t in api_tools if t not in md_tools]
+        if not md_tools and not api_tools:
+            final_tool_names = None  # → resolve() loads all
+        else:
+            final_tool_names = md_tools + [t for t in api_tools if t not in md_tools]
 
         # Merge model: API > MD > default
         model = agent_def.model or parsed.model
@@ -94,7 +97,7 @@ class MacroGraphBuilder:
         pydantic_agent = micro_factory.create(
             name=agent_def.name,
             prompt=parsed.prompt,
-            tools=final_tools,
+            tools=final_tool_names,
             model=model,
             retries=retries,
             result_type=result_type,

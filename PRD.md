@@ -81,10 +81,11 @@ Conditional Edge 打回                Result validation + retry
 Pydantic AI 不原生支持 MCP 协议，需要 `mcp_bridge.py` 做一层薄适配：
 
 ```
-MCP Server Tool Schema → Pydantic Model (参数) → 包装函数 → Pydantic AI Tool
+MCP Server Tool Schema → Pydantic Model (参数) → 包装函数 → Pydantic AI Tool → 注册到 ToolRegistry
 ```
 
-工作量小，但无法省略。基础工具（bash, fs）直接用 Pydantic AI `@agent.tool` 定义，不经过 MCP。
+**基础工具不自建** — bash、fs 等通过连接 MCP Server 获取。`mcp_bridge` 是工具注册的核心入口。
+自建工具（sub_agent）直接实现 `ToolFactory` 注册到同一个 `ToolRegistry`。
 
 ---
 
@@ -195,15 +196,17 @@ harness_project/
 | 1.7 | 端到端验证：3 agent 串行工作流在终端跑通 | E2E 脚本 |
 
 ### Phase 2: 工具化与鲁棒性 (Tooling & Robustness) — 1 周
-**目标：** Agent 能写代码、跑 Bash，报错自重试，MCP 工具可接入
+**目标：** Agent 能通过 MCP 使用工具（bash、fs），sub_agent 可委托子任务，报错自重试
 
 | # | 任务 | 交付物 |
 |---|------|--------|
-| 2.1 | 敲定 builtins 工具与 mcp_bridge 接口规范 | SPEC.md §Tools, §MCP |
-| 2.2 | 实现 `builtins/bash.py` + `builtins/fs.py` — Pydantic AI tools | 工具 + 单测 |
-| 2.3 | 实现 `mcp_bridge.py` — MCP → Pydantic AI Tool 适配 | 适配器 + 集成测试 |
-| 2.4 | Pydantic AI retries 集成 — 验证结构化输出 + 自动重试 | 鲁棒性测试 |
-| 2.5 | 端到端验证：agent 用 bash 写文件 → 读取 → 自修复 | E2E 脚本 |
+| 2.1 | 敲定 ToolRegistry / sub_agent / mcp_bridge 接口规范 | SPEC.md §Tools, §MCP |
+| 2.2 | 实现 `ToolRegistry` + `ToolFactory` + `AgentDeps` | 注册表 + 单测 |
+| 2.3 | 实现 `SubAgentTool` — 子代理委托，物理防嵌套 | sub_agent 工具 + 单测 |
+| 2.4 | 实现 `mcp_bridge.py` — MCP Server → Pydantic AI Tool 适配 | 适配器 + 集成测试 |
+| 2.5 | Pydantic AI retries 验证 — 结构化输出 + 自动重试 | 鲁棒性测试 |
+| 2.6 | MicroAgentFactory 更新 — 工具解析 + deps 注入 | 引擎更新 + 集成测试 |
+| 2.7 | 端到端验证：MCP 工具 + sub_agent + retries 完整跑通 | E2E 脚本 |
 
 ### Phase 3: 前端可视化与交互 (Web UI) — 1.5 周
 **目标：** 浏览器 Apple 风格界面，DAG + 对话 + 富文本
