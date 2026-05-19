@@ -14,6 +14,7 @@ from harness.engine.micro_agent import MicroAgentFactory
 from harness.engine.state import HarnessState
 from harness.tools.deps import AgentDeps
 from harness.tools.registry import ToolRegistry
+from harness.instrumentation import start_observation
 
 
 class MacroGraphBuilder:
@@ -167,53 +168,60 @@ class MacroGraphBuilder:
                 stream_callback=stream_callback,
             )
 
-            # Run the Pydantic AI agent (async)
-            try:
-                if bus:
-                    # Use streaming
-                    result_chunks = []
-                    async for chunk in pydantic_agent.run_stream(context, deps=deps):
-                        result_chunks.append(chunk)
-                    # Concatenate partial results
-                    result = "".join(result_chunks)
-                else:
-                    # Use non-streaming
-                    result = await pydantic_agent.run(context, deps=deps)
+            # Run the Pydantic AI agent (async) — wrapped in Langfuse agent span
+            with start_observation(agent_def.name, as_type="agent", input=context) as lf_span:
+                try:
+                    if bus:
+                        # Use streaming
+                        result_chunks = []
+                        async for chunk in pydantic_agent.run_stream(context, deps=deps):
+                            result_chunks.append(chunk)
+                        # Concatenate partial results
+                        result = "".join(result_chunks)
+                    else:
+                        # Use non-streaming
+                        result = await pydantic_agent.run(context, deps=deps)
 
-                duration_ms = int((time.time() - start_time) * 1000)
+                    duration_ms = int((time.time() - start_time) * 1000)
 
-                # Emit node.completed event
-                if bus:
-                    bus.emit("node.completed", {
-                        "node_id": agent_def.name,
-                        "agent_name": agent_def.name,
-                        "duration_ms": duration_ms,
-                        "status": "success",
-                    })
+                    # Emit node.completed event
+                    if bus:
+                        bus.emit("node.completed", {
+                            "node_id": agent_def.name,
+                            "agent_name": agent_def.name,
+                            "duration_ms": duration_ms,
+                            "status": "success",
+                        })
 
-                return {
-                    STATE_OUTPUTS: {agent_def.name: result.output},
-                    STATE_ERRORS: {},
-                    STATE_METADATA: {agent_def.name: {"duration_ms": duration_ms}},
-                }
-            except Exception as e:
-                duration_ms = int((time.time() - start_time) * 1000)
+                    if lf_span:
+                        lf_span.update(output=result.output if hasattr(result, 'output') else str(result))
 
-                # Emit node.failed event
-                if bus:
-                    bus.emit("node.failed", {
-                        "node_id": agent_def.name,
-                        "agent_name": agent_def.name,
-                        "error": str(e),
-                        "duration_ms": duration_ms,
-                        "attempt": 1,
-                        "will_retry": False,  # Pydantic AI handles retries internally
-                    })
+                    return {
+                        STATE_OUTPUTS: {agent_def.name: result.output},
+                        STATE_ERRORS: {},
+                        STATE_METADATA: {agent_def.name: {"duration_ms": duration_ms}},
+                    }
+                except Exception as e:
+                    duration_ms = int((time.time() - start_time) * 1000)
 
-                return {
-                    STATE_OUTPUTS: {},
-                    STATE_ERRORS: {agent_def.name: str(e)},
-                    STATE_METADATA: {agent_def.name: {"duration_ms": duration_ms}},
-                }
+                    # Emit node.failed event
+                    if bus:
+                        bus.emit("node.failed", {
+                            "node_id": agent_def.name,
+                            "agent_name": agent_def.name,
+                            "error": str(e),
+                            "duration_ms": duration_ms,
+                            "attempt": 1,
+                            "will_retry": False,  # Pydantic AI handles retries internally
+                        })
+
+                    if lf_span:
+                        lf_span.update(output=None, level="ERROR", status_message=str(e))
+
+                    return {
+                        STATE_OUTPUTS: {},
+                        STATE_ERRORS: {agent_def.name: str(e)},
+                        STATE_METADATA: {agent_def.name: {"duration_ms": duration_ms}},
+                    }
 
         return node_func

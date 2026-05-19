@@ -9,6 +9,7 @@ from pydantic_ai import Agent as PydanticAgent
 from harness.tools.deps import AgentDeps
 from harness.constants import DEFAULT_MODEL
 from harness.tools.registry import ToolRegistry
+from harness.instrumentation import get_tracer_provider
 
 
 class MicroAgentFactory:
@@ -30,6 +31,12 @@ class MicroAgentFactory:
         stream_callback: Any | None = None,  # Optional callback for streaming text deltas
     ) -> PydanticAgent:
         agent_model = model or DEFAULT_MODEL
+
+        # Wrap with InstrumentedModel if Langfuse is configured
+        tracer = get_tracer_provider()
+        if tracer is not None:
+            from pydantic_ai.models.instrumented import InstrumentedModel
+            agent_model = InstrumentedModel(agent_model, tracer_provider=tracer)
 
         resolved_tools = self.tool_registry.resolve(tools, exclude=exclude_tools)
 

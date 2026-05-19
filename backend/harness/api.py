@@ -9,6 +9,7 @@ from harness.constants import STATE_ERRORS, STATE_INPUTS, STATE_METADATA, STATE_
 from harness.tools.defaults import default_tool_registry, setup_default_mcp
 from harness.tools.mcp_bridge import McpBridge, McpServerConfig
 from harness.tools.registry import ToolRegistry
+from harness.instrumentation import start_observation
 
 
 class Agent:
@@ -149,12 +150,15 @@ class Workflow:
 
     async def _execute(self, inputs: dict) -> WorkflowResult:
         """Internal: full lifecycle in one event loop."""
-        await self.setup()
-        try:
-            result = await self.arun(inputs)
-        finally:
-            await self.cleanup()
-        return result
+        with start_observation(self.name, as_type="chain", input=inputs) as lf_trace:
+            await self.setup()
+            try:
+                result = await self.arun(inputs)
+                if lf_trace:
+                    lf_trace.update(output=result.model_dump())
+            finally:
+                await self.cleanup()
+            return result
 
     def _build_result(self, final_state: dict) -> WorkflowResult:
         """Construct WorkflowResult from final LangGraph state."""

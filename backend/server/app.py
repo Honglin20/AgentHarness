@@ -22,6 +22,10 @@ async def lifespan(app: FastAPI):
     app.state.event_bus = bus
     app.state.runner = runner
 
+    # Initialize Langfuse (no-op if LANGFUSE_PUBLIC_KEY not set)
+    from harness.instrumentation import init_langfuse
+    init_langfuse()
+
     # Set HARNESS_API_URL for subprocess render_chart() HTTP fallback
     host = os.environ.get("HARNESS_HOST", "localhost")
     port = os.environ.get("HARNESS_PORT", "8001")
