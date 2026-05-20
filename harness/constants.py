@@ -1,5 +1,6 @@
 """Shared constants for the harness framework."""
 
+import harness.config  # noqa — loads .env + propagates keys before model read
 import os
 
 DEFAULT_MODEL = os.environ.get("HARNESS_MODEL", "")
