@@ -11,6 +11,7 @@ export interface WSEvent {
 export type EventType =
   | "workflow.started"
   | "workflow.completed"
+  | "workflow.error"
   | "node.started"
   | "node.completed"
   | "node.failed"
@@ -130,6 +131,7 @@ export interface ChatAnswerPayload {
 export interface EventPayloadMap {
   "workflow.started": WorkflowStartedPayload;
   "workflow.completed": WorkflowCompletedPayload;
+  "workflow.error": { workflow_id: string; error: string };
   "node.started": NodeStartedPayload;
   "node.completed": NodeCompletedPayload;
   "node.failed": NodeFailedPayload;

@@ -6,6 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useWorkflowStore } from "@/stores/workflowStore";
+import { useOutputStore } from "@/stores/outputStore";
+import { useChatStore } from "@/stores/chatStore";
+import { useChartStore } from "@/stores/chartStore";
 
 const API_BASE = "";
 
@@ -70,6 +73,11 @@ export default function WorkflowLauncher() {
     if (selected.size === 0 || !task.trim()) return;
     setRunning(true);
     setError("");
+
+    // Reset all stores for the new workflow
+    useOutputStore.getState().reset();
+    useChatStore.getState().reset();
+    useChartStore.getState().reset();
 
     try {
       const agentList = Array.from(selected);

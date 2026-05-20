@@ -70,6 +70,16 @@ function dispatchEvent(event: WSEvent): void {
       useChartStore.getState().addChart(p.chart);
       break;
     }
+
+    case "workflow.error": {
+      const p = event.payload as { workflow_id: string; error: string };
+      useWorkflowStore.getState().handleWorkflowCompleted({
+        workflow_id: p.workflow_id,
+        status: "failed",
+      });
+      useOutputStore.getState().setWorkflowError(p.error);
+      break;
+    }
   }
 }
 

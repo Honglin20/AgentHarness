@@ -7,16 +7,21 @@ export interface OutputState {
   // Current active node (the one being streamed)
   activeNodeId: string | null;
 
+  // Workflow-level error message
+  workflowError: string | null;
+
   // Actions
   appendText: (nodeId: string, delta: string) => void;
   setActiveNode: (nodeId: string | null) => void;
   clearNode: (nodeId: string) => void;
+  setWorkflowError: (error: string | null) => void;
   reset: () => void;
 }
 
 const initialState = {
   texts: {} as Record<string, string>,
   activeNodeId: null as string | null,
+  workflowError: null as string | null,
 };
 
 export const useOutputStore = create<OutputState>()((set) => ({
@@ -40,6 +45,8 @@ export const useOutputStore = create<OutputState>()((set) => ({
         activeNodeId: state.activeNodeId === nodeId ? null : state.activeNodeId,
       };
     }),
+
+  setWorkflowError: (error) => set({ workflowError: error }),
 
   reset: () => set(initialState),
 }));

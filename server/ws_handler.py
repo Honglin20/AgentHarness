@@ -1,5 +1,6 @@
 """WebSocket connection handler for real-time event streaming."""
 
+import asyncio
 import json
 from typing import Any
 
@@ -16,6 +17,7 @@ class ConnectionManager:
 
     def __init__(self):
         self._connections: dict[str, WebSocket] = {}  # sub_id -> WebSocket
+        self._tasks: dict[str, "asyncio.Task"] = {}   # sub_id -> forward task
         self._lock = None
 
     async def connect(self, workflow_id: str, websocket: WebSocket, event_bus: EventBus) -> str:
@@ -34,8 +36,9 @@ class ConnectionManager:
             self._connections[sub_id] = websocket
 
         # Start background task to forward events
-        from asyncio import create_task
-        create_task(self._forward_events(sub_id, queue, websocket))
+        task = asyncio.create_task(self._forward_events(sub_id, queue, websocket))
+        async with self._lock:
+            self._tasks[sub_id] = task
 
         return sub_id
 
@@ -47,6 +50,14 @@ class ConnectionManager:
         async with self._lock:
             if sub_id in self._connections:
                 del self._connections[sub_id]
+            task = self._tasks.pop(sub_id, None)
+
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
         await event_bus.unsubscribe(sub_id)
 
@@ -58,6 +69,8 @@ class ConnectionManager:
 
                 # Send as JSON
                 await websocket.send_text(json.dumps(event))
+        except asyncio.CancelledError:
+            pass
         except Exception:
             # Connection closed or error
             pass
