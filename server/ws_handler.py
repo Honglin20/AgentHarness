@@ -83,7 +83,7 @@ def get_connection_manager() -> ConnectionManager:
     return _manager
 
 
-@router.websocket("/ws/workflows/{workflow_id}")
+@router.websocket("/workflows/{workflow_id}")
 async def websocket_endpoint(
     workflow_id: str,
     websocket: WebSocket,
