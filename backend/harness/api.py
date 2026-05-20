@@ -14,8 +14,10 @@ from harness.tools.defaults import default_tool_registry, setup_default_mcp
 from harness.tools.mcp_bridge import McpBridge, McpServerConfig
 from harness.tools.registry import ToolRegistry
 
-# Directory for saved workflow definitions (relative to project root)
-_WORKFLOWS_DIR = Path(__file__).resolve().parent.parent.parent / "workflows"
+# Directories resolved from this file's location — not cwd-dependent
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+_WORKFLOWS_DIR = _BACKEND_DIR.parent / "workflows"
+_DEFAULT_AGENTS_DIR = str(_BACKEND_DIR / "agents")
 
 
 class Agent:
@@ -84,7 +86,7 @@ class Workflow:
         self,
         name: str,
         agents: list[Agent],
-        agents_dir: str = "agents",
+        agents_dir: str = _DEFAULT_AGENTS_DIR,
         mcp_servers: list[McpServerConfig] | None = None,
         tool_registry: ToolRegistry | None = None,
         event_bus: Any | None = None,  # Optional EventBus for real-time events
@@ -127,7 +129,7 @@ class Workflow:
         return path
 
     @classmethod
-    def load(cls, name: str, agents_dir: str = "agents") -> Workflow:
+    def load(cls, name: str, agents_dir: str = _DEFAULT_AGENTS_DIR) -> Workflow:
         """Load a saved workflow definition from workflows/<name>.json."""
         path = _WORKFLOWS_DIR / f"{name}.json"
         if not path.exists():
@@ -165,7 +167,7 @@ class Workflow:
         }
 
     @classmethod
-    def from_dict(cls, data: dict, agents_dir: str = "agents") -> Workflow:
+    def from_dict(cls, data: dict, agents_dir: str = _DEFAULT_AGENTS_DIR) -> Workflow:
         agents = [Agent.from_dict(a) for a in data.get("agents", [])]
         return cls(name=data["name"], agents=agents, agents_dir=agents_dir)
 
