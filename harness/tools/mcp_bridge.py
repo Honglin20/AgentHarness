@@ -81,36 +81,45 @@ class McpBridge:
 
     async def connect(self) -> None:
         """启动 MCP Server 进程并建立连接"""
+        import os as _os
         from mcp.client.stdio import stdio_client
 
         server_params = self.config.to_stdio_params()
 
-        self._stdio_cm = stdio_client(server_params)
-        try:
-            read_stream, write_stream = await self._stdio_cm.__aenter__()
-        except BaseException:
-            self._stdio_cm = None
-            raise
+        # Suppress MCP stdio startup messages on stderr
+        _stderr_fd = _os.dup(2)
+        _null = _os.open(_os.devnull, _os.O_WRONLY)
+        _os.dup2(_null, 2)
+        _os.close(_null)
 
-        self._session_cm = ClientSession(read_stream, write_stream)
         try:
-            self._session = await self._session_cm.__aenter__()
-            await self._session.initialize()
-        except BaseException:
-            # Clean up session context manager if it was entered
+            self._stdio_cm = stdio_client(server_params)
             try:
-                await self._session_cm.__aexit__(None, None, None)
+                read_stream, write_stream = await self._stdio_cm.__aenter__()
             except BaseException:
-                pass
-            self._session_cm = None
-            self._session = None
-            # Clean up stdio context manager since session failed
+                self._stdio_cm = None
+                raise
+
+            self._session_cm = ClientSession(read_stream, write_stream)
             try:
-                await self._stdio_cm.__aexit__(None, None, None)
+                self._session = await self._session_cm.__aenter__()
+                await self._session.initialize()
             except BaseException:
-                pass
-            self._stdio_cm = None
-            raise
+                try:
+                    await self._session_cm.__aexit__(None, None, None)
+                except BaseException:
+                    pass
+                self._session_cm = None
+                self._session = None
+                try:
+                    await self._stdio_cm.__aexit__(None, None, None)
+                except BaseException:
+                    pass
+                self._stdio_cm = None
+                raise
+        finally:
+            _os.dup2(_stderr_fd, 2)
+            _os.close(_stderr_fd)
 
     async def register_tools(self) -> list[str]:
         """发现所有工具并注册到 registry"""
