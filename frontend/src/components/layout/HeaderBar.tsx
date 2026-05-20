@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Settings, Key, Cpu, X } from "lucide-react";
+import { Settings, Key, Cpu, Globe, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -14,6 +14,7 @@ export function HeaderBar() {
   const [open, setOpen] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
+  const [apiUrl, setApiUrl] = useState("");
   const [saved, setSaved] = useState(false);
 
   const loadConfig = useCallback(async () => {
@@ -23,6 +24,7 @@ export function HeaderBar() {
         const cfg = await r.json();
         if (cfg.api_key_set) setApiKey(cfg.api_key_masked);
         if (cfg.model) setModel(cfg.model);
+        if (cfg.api_url) setApiUrl(cfg.api_url);
       }
     } catch {}
   }, []);
@@ -35,13 +37,14 @@ export function HeaderBar() {
         body: JSON.stringify({
           ...(apiKey && !apiKey.includes("*") ? { api_key: apiKey } : {}),
           ...(model ? { model } : {}),
+          ...(apiUrl ? { api_url: apiUrl } : {}),
           persist: true,
         }),
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch {}
-  }, [apiKey, model]);
+  }, [apiKey, model, apiUrl]);
 
   return (
     <header className="relative flex h-12 items-center justify-between border-b px-4">
@@ -95,6 +98,17 @@ export function HeaderBar() {
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
                 placeholder="deepseek:deepseek-chat"
+                className="h-8 text-xs"
+              />
+            </div>
+            <div>
+              <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-app-text-secondary">
+                <Globe className="h-3 w-3" /> API URL
+              </label>
+              <Input
+                value={apiUrl}
+                onChange={(e) => setApiUrl(e.target.value)}
+                placeholder="https://api.deepseek.com/anthropic"
                 className="h-8 text-xs"
               />
             </div>
