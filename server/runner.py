@@ -95,6 +95,16 @@ class WorkflowRunner:
                 # Run workflow
                 result = await workflow.arun(inputs)
 
+                # Store result for REST endpoints
+                from server.routes import _workflows
+                if workflow_id in _workflows:
+                    _workflows[workflow_id]["status"] = "completed"
+                    _workflows[workflow_id]["result"] = {
+                        "outputs": result.outputs,
+                        "errors": result.errors,
+                        "trace": [t.model_dump() for t in result.trace],
+                    }
+
                 # Emit completion
                 event_bus.emit("workflow.completed", {
                     "workflow_id": workflow_id,
@@ -104,6 +114,16 @@ class WorkflowRunner:
                 })
 
             except Exception as e:
+                # Store error for REST endpoints
+                from server.routes import _workflows
+                if workflow_id in _workflows:
+                    _workflows[workflow_id]["status"] = "failed"
+                    _workflows[workflow_id]["result"] = {
+                        "outputs": {},
+                        "errors": {"_workflow": str(e)},
+                        "trace": [],
+                    }
+
                 event_bus.emit("workflow.error", {
                     "workflow_id": workflow_id,
                     "error": str(e),

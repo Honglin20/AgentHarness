@@ -6,6 +6,7 @@ from harness.tools.bash import BashToolFactory
 from harness.tools.mcp_bridge import McpBridge, McpServerConfig
 from harness.tools.registry import ToolRegistry
 from harness.tools.sub_agent import SubAgentToolFactory
+from harness.tools.chart import render_chart
 
 
 def _find_filesystem_server(

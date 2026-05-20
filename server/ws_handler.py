@@ -119,9 +119,8 @@ async def websocket_endpoint(
                 answer = message.get("payload", {}).get("answer")
 
                 if question_id and answer:
-                    # Resolve the pending Future (will be implemented in ask_human.py)
                     from harness.tools.ask_human import resolve_question
-                    resolve_question(question_id, answer)
+                    await resolve_question(question_id, answer)
     except WebSocketDisconnect:
         pass
     finally:
