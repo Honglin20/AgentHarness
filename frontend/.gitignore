@@ -9,7 +9,6 @@
 
 # next.js
 /.next/
-/out/
 
 # production
 /build
@@ -32,3 +31,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Agent-generated files (from workflow execution)
+backend/agents/fixed_code.py
+backend/agents/plan.md
+test_server_agents/
+
