@@ -1,6 +1,7 @@
 """Shared constants for the harness framework."""
 
-DEFAULT_MODEL = "deepseek:deepseek-chat"
+import os
+DEFAULT_MODEL = os.environ.get("HARNESS_MODEL", "")
 
 # State dict keys used across LangGraph nodes
 STATE_INPUTS = "inputs"

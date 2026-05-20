@@ -72,7 +72,7 @@ def test_create_returns_pydantic_ai_agent():
         name="test",
         prompt="You are a test agent.",
         tools=[],
-        model=None,
+        model="openai:gpt-4o",
         retries=1,
         result_type=None,
     )

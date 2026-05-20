@@ -30,6 +30,12 @@ class MicroAgentFactory:
         stream_callback: Any | None = None,  # Optional callback for streaming text deltas
     ) -> PydanticAgent:
         agent_model = model or DEFAULT_MODEL
+        if not agent_model:
+            raise RuntimeError(
+                "No model configured. Set HARNESS_MODEL env var (e.g. 'openai:gpt-4o') "
+                "or pass model=... to Agent().\n"
+                "Run: python install.py  or  export HARNESS_MODEL='your-model'"
+            )
 
         resolved_tools = self.tool_registry.resolve(tools, exclude=exclude_tools)
 

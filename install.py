@@ -17,6 +17,22 @@ IS_WINDOWS = platform.system() == "Windows"
 PYTHON = sys.executable
 
 
+def _write_env(env_file: Path, key: str, value: str) -> None:
+    """Write a key=value to .env file, updating if exists."""
+    lines: list[str] = []
+    found = False
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            if line.strip().startswith(f"{key}="):
+                lines.append(f'{key}="{value}"')
+                found = True
+            else:
+                lines.append(line)
+    if not found:
+        lines.append(f'{key}="{value}"')
+    env_file.write_text("\n".join(lines) + "\n")
+
+
 def run(cmd: list[str], desc: str, shell: bool = False, cwd: Path | None = None) -> bool:
     print(f"\n  [{desc}]")
     print(f"  {' '.join(cmd) if isinstance(cmd, list) else cmd}")
@@ -36,26 +52,44 @@ def main():
 
     quick = "--quick" in sys.argv
 
-    # ── 1. API Key ──────────────────────────────────────────────
+    # ── 1. Config (.env) ────────────────────────────────────────
     env_file = ROOT / ".env"
-    existing_key = os.environ.get("DEEPSEEK_API_KEY", "")
+
+    need_prompt = not env_file.exists() and not quick
 
     if env_file.exists():
         print(f"\n  .env already exists at {env_file}")
-    elif existing_key:
-        print(f"\n  DEEPSEEK_API_KEY found in environment — writing .env")
-        env_file.write_text(f'DEEPSEEK_API_KEY="{existing_key}"\n')
     elif quick:
-        print("\n  ⚠  No DEEPSEEK_API_KEY found — set it via .env or environment")
-        print("     Get one at: https://platform.deepseek.com/api_keys")
-    else:
-        key = input("\n  DeepSeek API key (or press Enter to skip): ").strip()
-        if key:
-            env_file.write_text(f'DEEPSEEK_API_KEY="{key}"\n')
-            print(f"  ✓ Written to {env_file}")
+        print("\n  --quick mode: skipping config prompts")
+        if os.environ.get("HARNESS_API_KEY"):
+            print("  HARNESS_API_KEY found in environment")
         else:
-            print("  ⚠  Skipped — set it later in .env")
-            print("     Get one at: https://platform.deepseek.com/api_keys")
+            print("  ⚠  Set HARNESS_API_KEY / HARNESS_MODEL in .env or environment")
+
+    if need_prompt:
+        print("\n  Configure your LLM provider:")
+        print("  ─────────────────────────────")
+
+        key = input("  API key (required): ").strip()
+        if not key:
+            print("  ⚠  Skipped — set HARNESS_API_KEY in .env later")
+        else:
+            _write_env(env_file, "HARNESS_API_KEY", key)
+
+        model = input(
+            "  Model (e.g. openai:gpt-4o, deepseek:deepseek-chat, "
+            "anthropic:claude-sonnet-4-6): "
+        ).strip()
+        if model:
+            _write_env(env_file, "HARNESS_MODEL", model)
+
+        url = input(
+            "  API base URL (optional — only if using a proxy/custom endpoint): "
+        ).strip()
+        if url:
+            _write_env(env_file, "HARNESS_API_URL", url)
+
+        print(f"  ✓ Written to {env_file}")
 
     # ── 2. Python deps ──────────────────────────────────────────
     run(

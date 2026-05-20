@@ -1,6 +1,5 @@
 ---
 name: reviewer
-model: deepseek:deepseek-chat
 retries: 2
 ---
 

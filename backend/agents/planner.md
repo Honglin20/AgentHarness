@@ -1,6 +1,5 @@
 ---
 name: planner
-model: deepseek:deepseek-chat
 retries: 2
 ---
 

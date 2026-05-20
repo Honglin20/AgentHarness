@@ -1,7 +1,7 @@
-"""Configuration — API key management, .env loading, runtime configure().
+"""Configuration — API key, model, URL management.
 
 Auto-loads .env at import time. Provides configure() for programmatic use
-and the settings REST endpoint.
+and the settings REST endpoint. Provider-agnostic — no hardcoded defaults.
 """
 
 from __future__ import annotations
@@ -16,8 +16,8 @@ _ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
 
 def _load_dotenv() -> None:
     candidates = [
-        _ENV_FILE,                                                   # project root
-        Path(__file__).resolve().parent.parent / ".env",             # backend/
+        _ENV_FILE,
+        Path(__file__).resolve().parent.parent / ".env",
     ]
     for env_file in candidates:
         if not env_file.exists():
@@ -34,11 +34,16 @@ def _load_dotenv() -> None:
 
 
 def _auto_detect_keys() -> None:
-    if not os.environ.get("DEEPSEEK_API_KEY"):
-        for src in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"):
-            if os.environ.get(src):
-                os.environ["DEEPSEEK_API_KEY"] = os.environ[src]
-                break
+    """Map HARNESS_API_KEY to provider-specific env vars if not already set."""
+    key = os.environ.get("HARNESS_API_KEY", "")
+    if not key:
+        return
+
+    # Try to guess the provider from the model or just set common ones
+    providers = ["DEEPSEEK_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"]
+    for p in providers:
+        if not os.environ.get(p):
+            os.environ[p] = key
 
 
 _load_dotenv()
@@ -47,38 +52,53 @@ _auto_detect_keys()
 
 # ── public API ─────────────────────────────────────────────────────
 
-def configure(api_key: str | None = None, model: str | None = None,
-              persist: bool = True) -> dict:
-    """Set API key and/or model at runtime. Optionally persist to .env.
+def configure(
+    api_key: str | None = None,
+    model: str | None = None,
+    api_url: str | None = None,
+    persist: bool = True,
+) -> dict:
+    """Set API key, model, and/or base URL. Optionally persist to .env.
 
     Args:
-        api_key: DEEPSEEK_API_KEY value. None = don't change.
-        model: Model string (e.g. 'deepseek:deepseek-chat'). None = don't change.
-        persist: Write to .env file so it survives restarts.
+        api_key: Provider API key (written as HARNESS_API_KEY).
+        model: Model string (e.g. 'openai:gpt-4o', 'deepseek:deepseek-chat').
+        api_url: Optional custom API base URL.
+        persist: Write to .env file.
 
     Returns:
-        Current config dict with api_key (masked), model, persist status.
+        Current config dict.
     """
     if api_key:
-        os.environ["DEEPSEEK_API_KEY"] = api_key
+        os.environ["HARNESS_API_KEY"] = api_key
+        # Also propagate to common providers
+        for p in ("DEEPSEEK_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+            if not os.environ.get(p):
+                os.environ[p] = api_key
         if persist:
-            _write_env("DEEPSEEK_API_KEY", api_key)
+            _write_env("HARNESS_API_KEY", api_key)
 
     if model:
         os.environ["HARNESS_MODEL"] = model
         if persist:
             _write_env("HARNESS_MODEL", model)
 
+    if api_url:
+        os.environ["HARNESS_API_URL"] = api_url
+        if persist:
+            _write_env("HARNESS_API_URL", api_url)
+
     return get_config()
 
 
 def get_config() -> dict:
-    """Return current config (key masked for safety)."""
-    key = os.environ.get("DEEPSEEK_API_KEY", "")
+    """Return current config (key masked)."""
+    key = os.environ.get("HARNESS_API_KEY", "")
     return {
         "api_key_set": bool(key),
         "api_key_masked": _mask(key),
-        "model": os.environ.get("HARNESS_MODEL", "deepseek:deepseek-chat"),
+        "model": os.environ.get("HARNESS_MODEL", "(not set — run install.py)"),
+        "api_url": os.environ.get("HARNESS_API_URL", ""),
     }
 
 
@@ -89,7 +109,6 @@ def _mask(s: str) -> str:
 
 
 def _write_env(key: str, value: str) -> None:
-    """Write or update a key in the .env file."""
     lines: list[str] = []
     found = False
     if _ENV_FILE.exists():

@@ -15,7 +15,7 @@ Define multi-agent workflows in Python, execute with a single `wf.run()`, and vi
 
 - Python 3.10+
 - Node.js 18+ and npm (for MCP filesystem tools + Web UI)
-- A DeepSeek API key ([get one here](https://platform.deepseek.com/api_keys))
+- An LLM API key — any provider Pydantic AI supports (OpenAI, Anthropic, DeepSeek, Groq, etc.)
 - MCP filesystem server (for `read_file`, `write_file`, etc.)
 
 ```bash
@@ -111,11 +111,11 @@ Open http://localhost:3000 — pick a saved workflow, enter a task, watch execut
 from harness.config import configure, get_config
 
 # Programmatic
-configure(api_key="sk-...", model="deepseek:deepseek-chat", persist=True)
-print(get_config())  # key is masked in output
+configure(api_key="sk-...", model="openai:gpt-4o", persist=True)
+print(get_config())
 
 # Via REST
-# POST /api/config {"api_key":"sk-...", "model":"deepseek:deepseek-chat"}
+# POST /api/config {"api_key":"sk-...", "model":"openai:gpt-4o"}
 # Or use the ⚙ Settings panel in the Web UI header bar
 ```
 
@@ -134,7 +134,7 @@ Agent(
     name: str,                          # must match agents/<name>.md
     after: list[str] = [],             # upstream dependencies
     tools: list[str] | None = None,    # None = all available, [] = none, ["bash"] = bash only
-    model: str | None = None,          # None = default (deepseek:deepseek-chat)
+    model: str | None = None,          # reads HARNESS_MODEL env var
     retries: int = 3,                  # Pydantic AI retry count
 )
 ```
@@ -144,7 +144,7 @@ Agent prompts live in `backend/agents/<name>.md`:
 ```markdown
 ---
 name: analyzer
-model: deepseek:deepseek-chat
+model: openai:gpt-4o      # optional — defaults to HARNESS_MODEL env var
 retries: 2
 tools:               # optional — limits the tools available to this agent
   - bash

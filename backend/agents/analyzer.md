@@ -1,6 +1,5 @@
 ---
 name: analyzer
-model: deepseek:deepseek-chat
 retries: 2
 ---
 
