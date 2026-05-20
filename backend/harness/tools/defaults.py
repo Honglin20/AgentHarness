@@ -10,12 +10,10 @@ from harness.tools.sub_agent import SubAgentToolFactory
 
 def _find_filesystem_server(
     extra_candidates: list[str | Path] | None = None,
-) -> str:
+) -> str | None:
     """Find the filesystem MCP server binary path.
 
-    Args:
-        extra_candidates: Additional paths to check before defaults.
-            Useful for testing or custom installations.
+    Returns None if not found — caller should fall back to npx.
     """
     candidates = [
         *(Path(p) for p in (extra_candidates or [])),
@@ -26,16 +24,7 @@ def _find_filesystem_server(
         if p.exists():
             return str(p)
 
-    return "npx"
-
-
-DEFAULT_MCP_SERVERS = [
-    McpServerConfig(
-        name="",
-        command=_find_filesystem_server(),
-        args=["."],  # workdir injected by setup_default_mcp
-    ),
-]
+    return None
 
 
 def default_tool_registry(event_bus=None) -> ToolRegistry:
@@ -69,11 +58,16 @@ async def setup_default_mcp(
     """
     command = server_path or _find_filesystem_server()
 
-    config = McpServerConfig(
-        name="",
-        command=command,
-        args=[workdir],
-    )
+    if command is not None:
+        # Binary found — just pass the workdir
+        config = McpServerConfig(name="", command=command, args=[workdir])
+    else:
+        # Fall back to npx with the correct package name
+        config = McpServerConfig(
+            name="",
+            command="npx",
+            args=["-y", "@modelcontextprotocol/server-filesystem", workdir],
+        )
 
     bridge = McpBridge(config, registry=registry)
     await bridge.connect()
