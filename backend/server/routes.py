@@ -190,7 +190,11 @@ async def create_workflow(
     runner = get_runner()
     await runner.submit(workflow_id, workflow, request.inputs, event_bus)
 
-    return CreateWorkflowResponse(workflow_id=workflow_id, status="running")
+    return CreateWorkflowResponse(
+        workflow_id=workflow_id,
+        status="running",
+        dag={"nodes": node_order, "edges": edges},
+    )
 
 
 @router.get("/workflows/{workflow_id}", response_model=WorkflowStatusResponse)

@@ -7,14 +7,12 @@ from pydantic import BaseModel, Field
 
 class AgentDef(BaseModel):
     """Agent definition for workflow creation."""
-
     name: str
     after: list[str] = Field(default_factory=list)
 
 
 class CreateWorkflowRequest(BaseModel):
     """Request to create and start a workflow."""
-
     name: str
     agents: list[AgentDef]
     agents_dir: str = "agents"
@@ -23,46 +21,13 @@ class CreateWorkflowRequest(BaseModel):
 
 class CreateWorkflowResponse(BaseModel):
     """Response to workflow creation."""
-
     workflow_id: str
     status: str = "running"
+    dag: dict | None = None  # {nodes: [...], edges: [...]} for frontend
 
 
 class WorkflowStatusResponse(BaseModel):
     """Response to workflow status query."""
-
-    workflow_id: str
-    name: str
-    status: str
-    result: dict[str, Any] | None = None
-
-
-class AgentDef(BaseModel):
-    """Agent definition for workflow creation."""
-
-    name: str
-    after: list[str] = Field(default_factory=list)
-
-
-class CreateWorkflowRequest(BaseModel):
-    """Request to create and start a workflow."""
-
-    name: str
-    agents: list[AgentDef]
-    agents_dir: str = "agents"
-    inputs: dict = Field(default_factory=dict)
-
-
-class CreateWorkflowResponse(BaseModel):
-    """Response to workflow creation."""
-
-    workflow_id: str
-    status: str = "running"
-
-
-class WorkflowStatusResponse(BaseModel):
-    """Response to workflow status query."""
-
     workflow_id: str
     name: str
     status: str
@@ -71,7 +36,6 @@ class WorkflowStatusResponse(BaseModel):
 
 class AgentInfo(BaseModel):
     """Agent information."""
-
     name: str
     description: str | None = None
     model: str | None = None
@@ -81,18 +45,10 @@ class AgentInfo(BaseModel):
 
 class ToolInfo(BaseModel):
     """Tool information."""
-
     name: str
     description: str
 
 
 class HealthResponse(BaseModel):
     """Health check response."""
-
-    status: str = "ok"
-
-
-class HealthResponse(BaseModel):
-    """Health check response."""
-
     status: str = "ok"
