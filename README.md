@@ -14,8 +14,17 @@ Define multi-agent workflows in Python, execute with a single `wf.run()`, and vi
 ### Prerequisites
 
 - Python 3.10+
-- Node.js 18+ (for Web UI)
+- Node.js 18+ and npm (for MCP filesystem tools + Web UI)
 - A DeepSeek API key ([get one here](https://platform.deepseek.com/api_keys))
+- MCP filesystem server (for `read_file`, `write_file`, etc.)
+
+```bash
+npm install -g @modelcontextprotocol/server-filesystem
+```
+
+> The framework auto-connects to this MCP server on startup to provide filesystem tools.
+> If it's not installed, a warning is printed and the workflow continues with the built-in
+> `bash` and `sub_agent` tools only.
 
 ### Setup
 
