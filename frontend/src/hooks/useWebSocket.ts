@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WSEvent } from "@/types/events";
 
-const WS_BASE_URL =
-  typeof window !== "undefined"
-    ? (window as unknown as Record<string, string>).__WS_BASE_URL__ ??
-      "ws://localhost:8000"
-    : "ws://localhost:8000";
+function getWsBaseUrl(): string {
+  if (typeof window === "undefined") return "";
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${window.location.host}`;
+}
 
 const MAX_BACKOFF_MS = 30_000;
 
@@ -31,95 +31,70 @@ export function useWebSocket({
   autoReconnect = true,
   reconnectDelay = 3000,
 }: UseWebSocketOptions): UseWebSocketReturn {
+  const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attemptRef = useRef(0);
   const onEventRef = useRef(onEvent);
-  const [isConnected, setIsConnected] = useState(false);
-
-  // Keep onEvent ref current without re-running the effect
-  useEffect(() => {
-    onEventRef.current = onEvent;
-  }, [onEvent]);
-
-  const clearReconnectTimer = useCallback(() => {
-    if (reconnectTimerRef.current !== null) {
-      clearTimeout(reconnectTimerRef.current);
-      reconnectTimerRef.current = null;
-    }
-  }, []);
+  onEventRef.current = onEvent;
 
   const disconnect = useCallback(() => {
-    clearReconnectTimer();
     attemptRef.current = 0;
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
     }
     setIsConnected(false);
-  }, [clearReconnectTimer]);
+  }, []);
 
   const connect = useCallback(() => {
     if (!workflowId) return;
+    disconnect();
 
-    // Close existing connection if any
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-
-    const url = `${WS_BASE_URL}/ws/workflows/${workflowId}`;
+    const base = getWsBaseUrl();
+    const url = `${base}/ws/workflows/${workflowId}`;
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      attemptRef.current = 0;
       setIsConnected(true);
+      attemptRef.current = 0;
     };
 
-    ws.onmessage = (event: MessageEvent) => {
+    ws.onmessage = (e) => {
       try {
-        const parsed = JSON.parse(event.data as string) as WSEvent;
-        onEventRef.current?.(parsed);
-      } catch {
-        // Ignore malformed messages
-      }
+        const event: WSEvent = JSON.parse(e.data);
+        onEventRef.current?.(event);
+      } catch {}
     };
 
     ws.onclose = () => {
       setIsConnected(false);
       wsRef.current = null;
-
-      if (autoReconnect) {
-        const backoff = Math.min(
+      if (autoReconnect && workflowId) {
+        const delay = Math.min(
           reconnectDelay * Math.pow(2, attemptRef.current),
-          MAX_BACKOFF_MS,
+          MAX_BACKOFF_MS
         );
-        attemptRef.current += 1;
-        reconnectTimerRef.current = setTimeout(connect, backoff);
+        attemptRef.current++;
+        setTimeout(connect, delay);
       }
     };
 
     ws.onerror = () => {
-      // Let onclose handle reconnection; onclose fires after onerror
+      ws.close();
     };
-  }, [workflowId, autoReconnect, reconnectDelay]);
+  }, [workflowId, autoReconnect, reconnectDelay, disconnect]);
+
+  useEffect(() => {
+    connect();
+    return () => disconnect();
+  }, [connect, disconnect]);
 
   const send = useCallback((data: unknown) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(data));
     }
   }, []);
-
-  // Connect when workflowId changes, disconnect on cleanup
-  useEffect(() => {
-    if (workflowId) {
-      connect();
-    }
-    return () => {
-      disconnect();
-    };
-  }, [workflowId, connect, disconnect]);
 
   return { isConnected, connect, disconnect, send };
 }
