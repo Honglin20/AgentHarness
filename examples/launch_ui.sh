@@ -23,13 +23,16 @@ if [ ! -d "$ROOT/frontend/out" ]; then
     exit 1
   fi
 
-  if [ ! -d "$ROOT/frontend/node_modules" ]; then
+  cd "$ROOT/frontend"
+
+  if [ ! -d "node_modules" ] || [ ! -f "node_modules/.bin/next" ]; then
     echo "=== Installing frontend dependencies ==="
-    cd "$ROOT/frontend" && npm install
+    npm install
   fi
 
   echo "=== Building frontend ==="
-  cd "$ROOT/frontend" && npm run build
+  npm run build
+  cd "$ROOT"
 fi
 
 echo "=== Starting AgentHarness (http://localhost:8000) ==="
