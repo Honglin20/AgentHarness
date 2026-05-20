@@ -7,7 +7,8 @@ from pydantic import BaseModel
 from pydantic_ai import Agent as PydanticAgent
 
 from harness.tools.deps import AgentDeps
-from harness.constants import DEFAULT_MODEL, resolve_model
+from harness.constants import DEFAULT_MODEL
+from harness.engine.llm import LLMClient
 from harness.tools.registry import ToolRegistry
 
 
@@ -29,35 +30,25 @@ class MicroAgentFactory:
         exclude_tools: list[str] | None = None,
         stream_callback: Any | None = None,  # Optional callback for streaming text deltas
     ) -> PydanticAgent:
-        agent_model = resolve_model(model or DEFAULT_MODEL)
+        agent_model = model or DEFAULT_MODEL
         if not agent_model:
             raise RuntimeError(
-                "No model configured. Set HARNESS_MODEL env var (e.g. 'gpt-4o', 'deepseek-chat') "
+                "No model configured. Set HARNESS_MODEL env var (e.g. 'gpt-4o') "
                 "or pass model=... to Agent().\n"
-                "Run: python install.py  or  export HARNESS_MODEL='gpt-4o'"
+                "Run: python config_llm.py  or  export HARNESS_MODEL='gpt-4o'"
             )
 
         resolved_tools = self.tool_registry.resolve(tools, exclude=exclude_tools)
 
-        import os
-        model_kwargs = {}
-        api_url = os.environ.get("HARNESS_API_URL", "")
-        if api_url:
-            model_kwargs["base_url"] = api_url
-
-        agent = PydanticAgent(
-            model=agent_model,
+        client = LLMClient(model=agent_model) if model else LLMClient()
+        agent = client.agent(
             system_prompt=prompt,
-            retries=retries,
             output_type=result_type or str,
-            defer_model_check=True,
+            retries=retries,
             tools=resolved_tools,
             deps_type=AgentDeps,
-            model_settings=model_kwargs if model_kwargs else None,
+            stream_callback=stream_callback,
         )
-
-        # Store stream_callback for use during run()
-        agent._stream_callback = stream_callback
 
         return agent
 

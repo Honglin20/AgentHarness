@@ -58,14 +58,18 @@ def configure(
     api_key: str | None = None,
     model: str | None = None,
     api_url: str | None = None,
+    proxy: str | None = None,
+    ssl_verify: str | None = None,
     persist: bool = True,
 ) -> dict:
-    """Set API key, model, and/or base URL. Optionally persist to .env.
+    """Set API key, model, base URL, proxy, and/or SSL verify. Optionally persist to .env.
 
     Args:
         api_key: Provider API key (written as HARNESS_API_KEY).
-        model: Model string (e.g. 'openai:gpt-4o', 'deepseek:deepseek-chat').
+        model: Model string (e.g. 'gpt-4o').
         api_url: Optional custom API base URL.
+        proxy: Optional HTTP proxy URL.
+        ssl_verify: 'true' or 'false' (string, for env var compatibility).
         persist: Write to .env file.
 
     Returns:
@@ -73,7 +77,6 @@ def configure(
     """
     if api_key:
         os.environ["HARNESS_API_KEY"] = api_key
-        # Also propagate to common providers
         for p in ("DEEPSEEK_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
             if not os.environ.get(p):
                 os.environ[p] = api_key
@@ -90,6 +93,16 @@ def configure(
         if persist:
             _write_env("HARNESS_API_URL", api_url)
 
+    if proxy is not None:
+        os.environ["HARNESS_PROXY"] = proxy
+        if persist:
+            _write_env("HARNESS_PROXY", proxy)
+
+    if ssl_verify is not None:
+        os.environ["HARNESS_SSL_VERIFY"] = ssl_verify
+        if persist:
+            _write_env("HARNESS_SSL_VERIFY", ssl_verify)
+
     return get_config()
 
 
@@ -99,8 +112,10 @@ def get_config() -> dict:
     return {
         "api_key_set": bool(key),
         "api_key_masked": _mask(key),
-        "model": os.environ.get("HARNESS_MODEL", "(not set — run install.py)"),
+        "model": os.environ.get("HARNESS_MODEL", "(not set — run config_llm.py)"),
         "api_url": os.environ.get("HARNESS_API_URL", ""),
+        "proxy": os.environ.get("HARNESS_PROXY", ""),
+        "ssl_verify": os.environ.get("HARNESS_SSL_VERIFY", "true"),
     }
 
 

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pydantic_ai import Agent as PydanticAgent, RunContext, Tool as PydanticAITool
+from pydantic_ai import RunContext, Tool as PydanticAITool
 
 from harness.tools.deps import AgentDeps
 from harness.constants import DEFAULT_MODEL
+from harness.engine.llm import LLMClient
 from harness.tools.registry import ToolFactory
 
 if TYPE_CHECKING:
@@ -53,12 +54,11 @@ class SubAgentToolFactory(ToolFactory):
                 depth=depth + 1,
             )
 
-            child = PydanticAgent(
-                model=model,
+            client = LLMClient(model=model) if model else LLMClient()
+            child = client.agent(
                 system_prompt="You are a sub-agent. Complete the assigned task concisely.",
-                tools=resolved_tools,
                 output_type=str,
-                defer_model_check=True,
+                tools=resolved_tools,
                 deps_type=AgentDeps,
             )
 
