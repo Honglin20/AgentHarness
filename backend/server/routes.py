@@ -40,6 +40,26 @@ async def health_check() -> HealthResponse:
     return HealthResponse()
 
 
+@router.post("/config")
+async def set_config(request: Request) -> dict:
+    """Set API key / model at runtime. Optionally persist to .env."""
+    from harness.config import configure
+
+    body = await request.json()
+    return configure(
+        api_key=body.get("api_key"),
+        model=body.get("model"),
+        persist=body.get("persist", True),
+    )
+
+
+@router.get("/config")
+async def get_config() -> dict:
+    """Get current config (key masked)."""
+    from harness.config import get_config as gc
+    return gc()
+
+
 @router.get("/agents")
 async def list_agents(agents_dir: str = "agents") -> list[AgentInfo]:
     """List all available agents by scanning agents_dir."""

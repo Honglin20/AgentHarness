@@ -7,6 +7,7 @@ distribution. EventBus is a singleton at process scope.
 from __future__ import annotations
 
 import asyncio
+import time as _time
 import uuid
 from typing import Any
 
@@ -15,8 +16,19 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _now() -> float:
+    """Get current timestamp. Falls back to time.time() when no event loop."""
+    try:
+        return asyncio.get_event_loop().time()
+    except RuntimeError:
+        return _time.time()
+
+
 class EventBus:
     """In-process event broadcaster. Thread-safe, non-blocking emit.
+
+    Safe to call emit() from any context — degrades gracefully when no
+    event loop is running (e.g. CLI mode, tests).
 
     Usage:
         bus = EventBus()
@@ -64,7 +76,7 @@ class EventBus:
         """
         event = {
             "type": event_type,
-            "ts": asyncio.get_event_loop().time(),
+            "ts": _now(),
             "payload": payload,
         }
 
