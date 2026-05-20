@@ -137,14 +137,25 @@ export default function StreamingText() {
   const activeNodeId = useOutputStore((s) => s.activeNodeId);
   const nodes = useWorkflowStore((s) => s.nodes);
 
-  const nodeIds = Object.keys(texts);
-  if (nodeIds.length === 0) return null;
+  // Include nodes that failed with no text output (show their error)
+  const failedNodeIds = Object.values(nodes)
+    .filter((n) => (n.status === "failed" || n.status === "retrying") && !texts[n.id])
+    .map((n) => n.id);
 
-  // Order: completed nodes first (by insertion order), then active node last
-  const completedIds = nodeIds.filter(
+  const textNodeIds = Object.keys(texts);
+  const seen = new Set<string>();
+  const allNodeIds: string[] = [];
+  for (const id of [...textNodeIds, ...failedNodeIds]) {
+    if (!seen.has(id)) { seen.add(id); allNodeIds.push(id); }
+  }
+
+  if (allNodeIds.length === 0) return null;
+
+  // Order: completed/failed nodes first, then active node last
+  const completedIds = allNodeIds.filter(
     (id) => id !== activeNodeId && nodes[id]?.status !== "running"
   );
-  const activeIds = nodeIds.filter(
+  const activeIds = allNodeIds.filter(
     (id) => id === activeNodeId || nodes[id]?.status === "running"
   );
   const orderedIds = [...completedIds, ...activeIds];
@@ -158,7 +169,7 @@ export default function StreamingText() {
             key={nodeId}
             nodeId={nodeId}
             node={nodes[nodeId]}
-            text={texts[nodeId]}
+            text={texts[nodeId] || (nodes[nodeId]?.error ? `**Error:** ${nodes[nodeId]?.error}` : "")}
             isStreaming={
               nodeId === activeNodeId || nodes[nodeId]?.status === "running"
             }
