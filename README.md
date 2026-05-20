@@ -44,8 +44,6 @@ for your API key. Use `python install.py --quick` for non-interactive mode.
 
 ```bash
 python -c "
-import sys; sys.path.insert(0, 'backend')
-import harness.config
 from harness.api import Agent, Workflow
 
 result = Workflow('hello', agents=[Agent('analyzer', after=[])]).run(
@@ -89,7 +87,7 @@ for t in result.trace:
 ### UI Mode
 
 ```python
-# Auto-starts backend server + opens browser
+# Auto-starts server + opens browser
 result = wf.run({"task": "Review: def div(a,b): return a/b"}, ui=True)
 ```
 
@@ -97,7 +95,7 @@ Or manually:
 
 ```bash
 # Terminal 1
-cd backend && uvicorn server.app:app --host 0.0.0.0 --port 8001
+uvicorn server.app:app --host 0.0.0.0 --port 8001
 
 # Terminal 2
 cd frontend && npm run dev
@@ -139,7 +137,7 @@ Agent(
 )
 ```
 
-Agent prompts live in `backend/agents/<name>.md`:
+Agent prompts live in `agents/<name>.md`:
 
 ```markdown
 ---
@@ -160,7 +158,7 @@ from harness.api import Workflow
 wf = Workflow(
     name: str,
     agents: list[Agent],
-    agents_dir: str = backend/agents/,    # auto-resolved, rarely needed
+    agents_dir: str = agents/,    # auto-resolved, rarely needed
 )
 
 wf.save()                      # → workflows/<name>.json
@@ -293,8 +291,7 @@ render_chart(data, chart_type="table")
 
 ```
 .
-├── backend/
-│   ├── harness/
+├── harness/
 │   │   ├── api.py           Agent, Workflow, WorkflowResult
 │   │   ├── config.py        configure(), .env auto-loading
 │   │   ├── engine/          macro_graph, micro_agent

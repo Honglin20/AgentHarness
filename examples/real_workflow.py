@@ -4,7 +4,7 @@ Prerequisites:
     export DEEPSEEK_API_KEY="sk-..."
 
 Usage:
-    cd backend && python ../examples/real_workflow.py
+    python examples/real_workflow.py
 
 Shows the complete public API surface:
     Agent, Workflow, WorkflowResult, NodeTrace, TokenUsage
@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from harness.api import Agent, Workflow
 
@@ -29,8 +29,8 @@ def main():
     ]
 
     # ── 2. Create workflow ──────────────────────────────────────────
-    backend_dir = os.path.join(os.path.dirname(__file__), "..", "backend")
-    wf = Workflow("code_review_pipeline", agents=agents, agents_dir=os.path.join(backend_dir, "agents"))
+    agents_dir = os.path.join(os.path.dirname(__file__), "..", "agents")
+    wf = Workflow("code_review_pipeline", agents=agents, agents_dir=agents_dir)
 
     # ── 3. Run (synchronous, no await) ──────────────────────────────
     print("Running workflow ...\n")

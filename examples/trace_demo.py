@@ -3,7 +3,7 @@
 Shows the full data flow: workflow → agents → node events → token_usage → trace.
 
 Usage:
-    cd backend && python ../examples/trace_demo.py
+    python examples/trace_demo.py
 """
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ import os
 import sys
 from unittest.mock import MagicMock, AsyncMock, patch
 
-# Add backend to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from harness.api import Agent, Workflow, WorkflowResult
 
@@ -26,8 +26,8 @@ def run_demo() -> WorkflowResult:
         Agent("reviewer", after=["planner"]),
     ]
 
-    backend_dir = os.path.join(os.path.dirname(__file__), "..", "backend")
-    wf = Workflow("trace_demo", agents=agents, agents_dir=os.path.join(backend_dir, "agents"))
+    agents_dir = os.path.join(os.path.dirname(__file__), "..", "agents")
+    wf = Workflow("trace_demo", agents=agents, agents_dir=agents_dir)
 
     # Mock Pydantic AI agent.run() to return fake results with token usage
     class FakeUsage:

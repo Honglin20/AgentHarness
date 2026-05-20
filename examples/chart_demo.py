@@ -4,11 +4,11 @@ render_chart() is NOT an agent tool. It's a plain function that agent code calls
 directly to push visualizations to the frontend.
 
 Usage:
-    cd backend && python ../examples/chart_demo.py
+    python examples/chart_demo.py
 """
 
 import os, sys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from harness.tools.chart import render_chart
 

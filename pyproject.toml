@@ -16,9 +16,9 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["backend"]
+include = ["harness", "harness.*", "server", "server.*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["backend"]
+pythonpath = ["."]
 asyncio_mode = "auto"

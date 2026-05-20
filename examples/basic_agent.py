@@ -10,7 +10,7 @@ Usage (from project root):
 """
 
 import os, sys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import harness.config  # noqa — auto-loads .env + detects API keys
 from harness.api import Agent, Workflow
@@ -20,8 +20,8 @@ def main():
     # Define agents
     agents = [Agent("analyzer", after=[])]
 
-    backend_dir = os.path.join(os.path.dirname(__file__), "..", "backend")
-    wf = Workflow("simple", agents=agents, agents_dir=os.path.join(backend_dir, "agents"))
+    agents_dir = os.path.join(os.path.dirname(__file__), "..", "agents")
+    wf = Workflow("simple", agents=agents, agents_dir=agents_dir)
 
     print("Compiling ...")
     graph = wf.compile()

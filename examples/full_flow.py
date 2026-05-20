@@ -28,7 +28,7 @@ import os
 import sys
 import asyncio
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import harness.config  # noqa — auto-loads .env + detects keys
 from harness.config import configure, get_config
@@ -43,11 +43,11 @@ def cli_demo():
 
     # 2. Define agents
     agents = [Agent("analyzer", after=[])]
-    backend_dir = os.path.join(os.path.dirname(__file__), "..", "backend")
+    agents_dir = os.path.join(os.path.dirname(__file__), "..", "agents")
 
     # 3. Create workflow
     wf = Workflow("full_flow_demo", agents=agents,
-                  agents_dir=os.path.join(backend_dir, "agents"))
+                  agents_dir=agents_dir)
 
     # 4. Compile (optional — run() does it automatically)
     graph = wf.compile()
@@ -76,9 +76,9 @@ def cli_demo():
 async def async_demo():
     """Demonstrate async path."""
     agents = [Agent("analyzer", after=[])]
-    backend_dir = os.path.join(os.path.dirname(__file__), "..", "backend")
+    agents_dir = os.path.join(os.path.dirname(__file__), "..", "agents")
     wf = Workflow("async_demo", agents=agents,
-                  agents_dir=os.path.join(backend_dir, "agents"))
+                  agents_dir=agents_dir)
 
     result = await wf.arun({"task": "Say hi in one word."})
     print(f"Async result: {result.outputs['analyzer']}")

@@ -6,7 +6,7 @@ set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "=== Starting Backend (port 8001) ==="
-cd "$ROOT/backend"
+cd "$ROOT"
 python -m uvicorn server.app:app --host 0.0.0.0 --port 8001 &
 BACKEND_PID=$!
 
