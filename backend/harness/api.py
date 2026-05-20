@@ -255,17 +255,28 @@ class Workflow:
         try:
             bridges = await setup_default_mcp(self.tool_registry, workdir=self.agents_dir)
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(
-                f"MCP setup failed (non-fatal): {e}. "
-                f"Self-built tools (bash, sub_agent) are still available."
+            import sys
+            print(
+                f"\n⚠  MCP filesystem server failed to start: {e}\n"
+                f"   Install it with:\n"
+                f"     npm install -g @modelcontextprotocol/server-filesystem\n"
+                f"   Or skip MCP tools — bash, sub_agent work without it.\n",
+                file=sys.stderr,
             )
 
         for config in self.mcp_servers:
-            bridge = McpBridge(config, registry=self.tool_registry)
-            await bridge.connect()
-            await bridge.register_tools()
-            bridges.append(bridge)
+            try:
+                bridge = McpBridge(config, registry=self.tool_registry)
+                await bridge.connect()
+                await bridge.register_tools()
+                bridges.append(bridge)
+            except Exception as e:
+                import sys
+                print(
+                    f"\n⚠  Custom MCP server '{config.name}' failed: {e}\n"
+                    f"   Check the server is installed and the command is correct.\n",
+                    file=sys.stderr,
+                )
 
         self._mcp_bridges = bridges
         self._mcp_setup_done = True
