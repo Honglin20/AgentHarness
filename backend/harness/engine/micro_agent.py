@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from pydantic_ai import Agent as PydanticAgent
 
 from harness.tools.deps import AgentDeps
-from harness.constants import DEFAULT_MODEL
+from harness.constants import DEFAULT_MODEL, resolve_model
 from harness.tools.registry import ToolRegistry
 
 
@@ -29,15 +29,21 @@ class MicroAgentFactory:
         exclude_tools: list[str] | None = None,
         stream_callback: Any | None = None,  # Optional callback for streaming text deltas
     ) -> PydanticAgent:
-        agent_model = model or DEFAULT_MODEL
+        agent_model = resolve_model(model or DEFAULT_MODEL)
         if not agent_model:
             raise RuntimeError(
-                "No model configured. Set HARNESS_MODEL env var (e.g. 'openai:gpt-4o') "
+                "No model configured. Set HARNESS_MODEL env var (e.g. 'gpt-4o', 'deepseek-chat') "
                 "or pass model=... to Agent().\n"
-                "Run: python install.py  or  export HARNESS_MODEL='your-model'"
+                "Run: python install.py  or  export HARNESS_MODEL='gpt-4o'"
             )
 
         resolved_tools = self.tool_registry.resolve(tools, exclude=exclude_tools)
+
+        import os
+        model_kwargs = {}
+        api_url = os.environ.get("HARNESS_API_URL", "")
+        if api_url:
+            model_kwargs["base_url"] = api_url
 
         agent = PydanticAgent(
             model=agent_model,
@@ -47,6 +53,7 @@ class MicroAgentFactory:
             defer_model_check=True,
             tools=resolved_tools,
             deps_type=AgentDeps,
+            model_settings=model_kwargs if model_kwargs else None,
         )
 
         # Store stream_callback for use during run()

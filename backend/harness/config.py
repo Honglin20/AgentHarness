@@ -34,16 +34,18 @@ def _load_dotenv() -> None:
 
 
 def _auto_detect_keys() -> None:
-    """Map HARNESS_API_KEY to provider-specific env vars if not already set."""
+    """Map HARNESS_API_KEY and HARNESS_API_URL to provider-specific env vars."""
     key = os.environ.get("HARNESS_API_KEY", "")
-    if not key:
-        return
+    if key:
+        for p in ("DEEPSEEK_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+            if not os.environ.get(p):
+                os.environ[p] = key
 
-    # Try to guess the provider from the model or just set common ones
-    providers = ["DEEPSEEK_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"]
-    for p in providers:
-        if not os.environ.get(p):
-            os.environ[p] = key
+    url = os.environ.get("HARNESS_API_URL", "")
+    if url:
+        for p in ("DEEPSEEK_BASE_URL", "OPENAI_BASE_URL"):
+            if not os.environ.get(p):
+                os.environ[p] = url
 
 
 _load_dotenv()
