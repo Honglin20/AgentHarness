@@ -86,22 +86,17 @@ for t in result.trace:
 
 ### UI Mode
 
-```python
-# Auto-starts server + opens browser
-result = wf.run({"task": "Review: def div(a,b): return a/b"}, ui=True)
-```
-
-Or manually:
-
 ```bash
-# Terminal 1
-uvicorn server.app:app --host 0.0.0.0 --port 8001
+# 1. Save a workflow
+python examples/06_agent_to_ui.py
 
-# Terminal 2
-cd frontend && npm run dev
+# 2. Start backend + frontend
+bash examples/launch_ui.sh
+
+# 3. Open http://localhost:3000
+#    → Select "code_review" from dropdown
+#    → Enter task → Run → Watch in real time
 ```
-
-Open http://localhost:3000 — pick a saved workflow, enter a task, watch execution in real time.
 
 ### API Key Configuration
 
@@ -322,7 +317,7 @@ Each file is standalone — run directly with `python examples/<file>`.
 | 3 | `03_pipeline.py` | 3-agent chain with full trace output | yes |
 | 4 | `04_chart_demo.py` | All 8 chart types | no |
 | 5 | `05_trace_demo.py` | Mocked demo showing data structures | no |
-| 6 | `06_agent_to_ui.py` | Define → save → run with UI visualization | yes |
+| 6 | `06_agent_to_ui.py` | Define → save → then launch UI separately | no |
 
 ---
 
