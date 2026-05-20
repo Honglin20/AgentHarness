@@ -7,6 +7,27 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Build frontend if needed
 if [ ! -d "$ROOT/frontend/out" ]; then
+  echo "=== Frontend not built — checking prerequisites ==="
+
+  if ! command -v node &>/dev/null; then
+    echo ""
+    echo "ERROR: Node.js is not installed."
+    echo "  Install it from: https://nodejs.org/ (LTS recommended)"
+    echo "  Or: brew install node   /  apt install nodejs npm"
+    exit 1
+  fi
+
+  if ! command -v npm &>/dev/null; then
+    echo ""
+    echo "ERROR: npm is not installed (should come with Node.js)."
+    exit 1
+  fi
+
+  if [ ! -d "$ROOT/frontend/node_modules" ]; then
+    echo "=== Installing frontend dependencies ==="
+    cd "$ROOT/frontend" && npm install
+  fi
+
   echo "=== Building frontend ==="
   cd "$ROOT/frontend" && npm run build
 fi

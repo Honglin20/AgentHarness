@@ -61,6 +61,29 @@ def create_app() -> FastAPI:
     if frontend_out.exists():
         app.mount("/_next", StaticFiles(directory=frontend_out / "_next"), name="next_assets")
         app.mount("/", StaticFiles(directory=frontend_out, html=True), name="frontend")
+    else:
+        from fastapi.responses import HTMLResponse
+
+        @app.get("/", response_class=HTMLResponse)
+        async def frontend_not_built():
+            return f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>AgentHarness — UI not built</title></head>
+<body style="font-family:system-ui,sans-serif;max-width:640px;margin:80px auto;padding:0 20px;line-height:1.6">
+<h1>AgentHarness</h1>
+<p>The frontend has not been built yet. <code>frontend/out/</code> is missing.</p>
+<h2>Quick fix</h2>
+<pre>bash examples/launch_ui.sh</pre>
+<p>The script will check prerequisites, install dependencies, and build the frontend for you.</p>
+<h2>Manual steps</h2>
+<ol>
+  <li>Install <a href="https://nodejs.org/">Node.js</a> (LTS)</li>
+  <li><code>cd frontend && npm install && npm run build</code></li>
+  <li>Restart this server</li>
+</ol>
+<p style="margin-top:40px;color:#888">API is still available at <a href="/api/health">/api/health</a></p>
+</body>
+</html>"""
 
     return app
 
