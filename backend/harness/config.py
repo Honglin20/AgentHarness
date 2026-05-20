@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-_ENV_FILE = Path(__file__).resolve().parent.parent.parent.parent / ".env"
+_ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
 
 
 # ── import-time setup ──────────────────────────────────────────────
