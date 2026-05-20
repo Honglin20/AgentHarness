@@ -141,20 +141,6 @@ class MacroGraphBuilder:
                 upstream_outputs=upstream_outputs,
             )
 
-            # Create stream callback if event_bus is present
-            def make_stream_callback(node_id: str, agent_name: str):
-                def stream_callback(text: str) -> None:
-                    """Called for each partial result chunk."""
-                    if bus:
-                        bus.emit("agent.text_delta", {
-                            "node_id": node_id,
-                            "agent_name": agent_name,
-                            "text": text,
-                        })
-                return stream_callback
-
-            stream_callback = make_stream_callback(agent_def.name, agent_def.name) if bus else None
-
             # Create the Pydantic AI agent with resolved tools
             pydantic_agent = micro_factory.create(
                 name=agent_def.name,
@@ -164,32 +150,36 @@ class MacroGraphBuilder:
                 retries=retries,
                 result_type=result_type,
                 deps=deps,
-                stream_callback=stream_callback,
             )
 
             # Run the Pydantic AI agent (async)
             try:
                 if bus:
-                    # Use streaming
-                    result_chunks = []
-                    async for chunk in pydantic_agent.run_stream(context, deps=deps):
-                        result_chunks.append(chunk)
-                    # Concatenate partial results
-                    result = "".join(result_chunks)
+                    # Use streaming — pydantic_ai v1.x: run_stream is @asynccontextmanager
+                    async with pydantic_agent.run_stream(context, deps=deps) as streamed:
+                        async for chunk in streamed.stream_text(delta=True):
+                            bus.emit("agent.text_delta", {
+                                "node_id": agent_def.name,
+                                "agent_name": agent_def.name,
+                                "text": chunk,
+                            })
+                    output = await streamed.get_output()
+                    usage_obj = streamed.usage
                 else:
                     # Use non-streaming
                     result = await pydantic_agent.run(context, deps=deps)
+                    output = result.output
+                    usage_obj = result.usage
 
                 duration_ms = int((time.time() - start_time) * 1000)
 
                 # Extract token usage
                 token_usage = None
                 try:
-                    usage = result.usage
                     token_usage = {
-                        "input": usage.input_tokens,
-                        "output": usage.output_tokens,
-                        "total": usage.total_tokens,
+                        "input": usage_obj.input_tokens,
+                        "output": usage_obj.output_tokens,
+                        "total": usage_obj.total_tokens,
                     }
                 except Exception:
                     pass
@@ -211,7 +201,7 @@ class MacroGraphBuilder:
                     bus.emit("node.completed", event_payload)
 
                 return {
-                    STATE_OUTPUTS: {agent_def.name: result.output},
+                    STATE_OUTPUTS: {agent_def.name: output},
                     STATE_ERRORS: {},
                     STATE_METADATA: {agent_def.name: node_meta},
                 }

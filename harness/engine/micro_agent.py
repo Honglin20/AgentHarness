@@ -28,7 +28,6 @@ class MicroAgentFactory:
         result_type: Type[BaseModel] | None,
         deps: AgentDeps | None = None,
         exclude_tools: list[str] | None = None,
-        stream_callback: Any | None = None,  # Optional callback for streaming text deltas
     ) -> PydanticAgent:
         agent_model = model or DEFAULT_MODEL
         if not agent_model:
@@ -47,7 +46,6 @@ class MicroAgentFactory:
             retries=retries,
             tools=resolved_tools,
             deps_type=AgentDeps,
-            stream_callback=stream_callback,
         )
 
         return agent

@@ -85,10 +85,9 @@ class LLMClient:
         retries: int = 3,
         tools: list | None = None,
         deps_type: type | None = None,
-        stream_callback: Any | None = None,
     ) -> PydanticAgent:
         """Create a configured PydanticAgent from this client."""
-        agent = PydanticAgent(
+        return PydanticAgent(
             model=self._model,
             system_prompt=system_prompt,
             retries=retries,
@@ -97,6 +96,3 @@ class LLMClient:
             tools=tools or [],
             deps_type=deps_type,
         )
-        if stream_callback:
-            agent._stream_callback = stream_callback
-        return agent
