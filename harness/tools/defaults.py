@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from harness.tools.bash import BashToolFactory
+from harness.tools.chart_tool import ChartToolFactory
 from harness.tools.mcp_bridge import McpBridge, McpServerConfig
 from harness.tools.registry import ToolRegistry
 from harness.tools.sub_agent import SubAgentToolFactory
@@ -37,6 +38,7 @@ def default_tool_registry(event_bus=None) -> ToolRegistry:
     registry = ToolRegistry()
     registry.register("sub_agent", SubAgentToolFactory(registry=registry))
     registry.register("bash", BashToolFactory())
+    registry.register("render_chart", ChartToolFactory())
     if event_bus:
         from harness.tools.ask_human import AskHumanToolFactory
         registry.register("ask_human", AskHumanToolFactory(event_bus=event_bus))

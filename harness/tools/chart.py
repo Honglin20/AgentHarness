@@ -109,15 +109,15 @@ def render_chart(
         return f"Chart rendered: {chart_type} | label='{label}' | title='{title or chart_type}'"
 
     # Channel 2: HTTP POST (subprocess / external script)
-    api_url = os.environ.get("HARNESS_API_URL")
-    if api_url:
-        url = f"{api_url.rstrip('/')}{_CHART_ENDPOINT}"
+    server_url = os.environ.get("HARNESS_SERVER_URL")
+    if server_url:
+        url = f"{server_url.rstrip('/')}{_CHART_ENDPOINT}"
         ok = _http_post(url, {"node_id": node_id, "chart": chart_payload})
         if ok:
             return f"Chart rendered: {chart_type} | label='{label}' | title='{title or chart_type}'"
         return f"Chart failed to render: could not reach {url}"
 
     return (
-        f"Chart not rendered: no event bus or API URL available. "
-        f"Set HARNESS_API_URL environment variable or run inside the server process."
+        f"Chart not rendered: no event bus or server URL available. "
+        f"Run inside the server process, or set HARNESS_SERVER_URL (e.g. http://localhost:8000)."
     )
