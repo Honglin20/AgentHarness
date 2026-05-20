@@ -251,7 +251,15 @@ class Workflow:
         if not self.tool_registry.list_tools():
             self.tool_registry = default_tool_registry()
 
-        bridges = await setup_default_mcp(self.tool_registry, workdir=self.agents_dir)
+        bridges: list[McpBridge] = []
+        try:
+            bridges = await setup_default_mcp(self.tool_registry, workdir=self.agents_dir)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"MCP setup failed (non-fatal): {e}. "
+                f"Self-built tools (bash, sub_agent) are still available."
+            )
 
         for config in self.mcp_servers:
             bridge = McpBridge(config, registry=self.tool_registry)
