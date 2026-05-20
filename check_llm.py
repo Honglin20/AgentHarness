@@ -1,4 +1,4 @@
-"""Test your LLM configuration.
+"""Quick LLM connectivity test — sends "hi", prints the response.
 
 Usage:
     python check_llm.py
@@ -13,58 +13,61 @@ print("AgentHarness — LLM Config Check\n")
 from harness.config import get_config
 cfg = get_config()
 
-issues = []
 if not cfg["api_key_set"]:
-    issues.append("HARNESS_API_KEY not set")
-if not cfg["model"] or cfg["model"].startswith("(not set"):
-    issues.append("HARNESS_MODEL not set")
-
-print(f"  API Key:  {'✓ ' + cfg['api_key_masked'] if cfg['api_key_set'] else '✗ not set'}")
-print(f"  Model:    {'✓ ' + cfg['model'] if cfg['model'] else '✗ not set'}")
-print(f"  URL:      {'  ' + cfg['api_url'] if cfg['api_url'] else '  (default)'}")
-
-if issues:
-    print(f"\n✗ Fix these before running workflows:")
-    for i in issues:
-        print(f"    • {i}")
-    print("  Run: python install.py")
+    print("  ✗ HARNESS_API_KEY not set")
+    print("    Run: python install.py  or  export HARNESS_API_KEY=...")
     sys.exit(1)
 
-# 2. Resolve model
+if not cfg["model"] or cfg["model"].startswith("(not set"):
+    print("  ✗ HARNESS_MODEL not set")
+    print("    Run: python install.py  or  export HARNESS_MODEL=gpt-4o")
+    sys.exit(1)
+
+print(f"  API Key:  ✓ {cfg['api_key_masked']}")
+print(f"  Model:    ✓ {cfg['model']}")
+print(f"  URL:        {cfg['api_url'] or '(default)'}")
+
+# 2. Resolve model to provider:model format that Pydantic AI requires
 from harness.constants import resolve_model
-resolved = resolve_model(cfg["model"])
-print(f"  Resolved: {resolved}")
+model = resolve_model(cfg["model"])
+if model != cfg["model"]:
+    print(f"  Resolved:  {model}")
 
-# 3. Test LLM call
-print("\n  Testing LLM call ...")
+# 3. Send "hi"
+print("\n  Sending 'hi' to LLM ...")
+
 try:
-    from harness.api import Agent, Workflow
-    wf = Workflow("_check", agents=[Agent("analyzer", after=[])])
-    result = wf.run({"task": 'Reply with exactly "OK". No other text.'})
+    from pydantic_ai import Agent
 
-    out = result.outputs.get("analyzer", "")
-    if "OK" in out:
-        print(f"  ✓ LLM works — response: {out.strip()}")
-    else:
-        print(f"  ⚠ Unexpected response: {out.strip()[:100]}")
+    api_url = cfg["api_url"]
+    model_kwargs = {}
+    if api_url:
+        model_kwargs["base_url"] = api_url
 
-    t = result.trace[0]
-    if t.token_usage:
-        print(f"  ✓ Token usage: {t.token_usage.input} in / {t.token_usage.output} out / {t.token_usage.total} total")
+    agent = Agent(
+        model=model,
+        system_prompt="Reply concisely.",
+        output_type=str,
+        defer_model_check=True,
+        model_settings=model_kwargs if model_kwargs else None,
+    )
+
+    result = agent.run_sync("hi")
+    response = str(result.output).strip()
+
+    print(f"  ✓ LLM responded ({len(response)} chars):")
+    print(f"    {response[:200]}")
 
 except Exception as e:
-    msg = str(e)
-    if "401" in msg or "auth" in msg.lower():
+    msg = str(e).lower()
+    if "401" in msg or "auth" in msg:
         print(f"  ✗ Authentication failed — check your API key")
-        print(f"    {msg[:200]}")
-    elif "model" in msg.lower():
-        print(f"  ✗ Model error — check HARNESS_MODEL")
-        print(f"    {msg[:200]}")
-    elif "connect" in msg.lower() or "timeout" in msg.lower():
-        print(f"  ✗ Connection failed — check HARNESS_API_URL")
-        print(f"    {msg[:200]}")
+    elif "model" in msg or "not found" in msg:
+        print(f"  ✗ Model not found — check HARNESS_MODEL ({model})")
+    elif "connect" in msg or "timeout" in msg:
+        print(f"  ✗ Connection failed — check network / HARNESS_API_URL")
     else:
-        print(f"  ✗ Error: {msg[:200]}")
+        print(f"  ✗ Error: {e}")
     sys.exit(1)
 
-print("\n✓ All checks passed — ready to run workflows.")
+print("\n✓ LLM connection works.")
