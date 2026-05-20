@@ -313,13 +313,16 @@ render_chart(data, chart_type="table")
 
 ## Examples
 
-| File | Description |
-|------|-------------|
-| `examples/full_flow.py` | All paths: save, run, async, server |
-| `examples/real_workflow.py` | 3-agent pipeline with real LLM |
-| `examples/basic_agent.py` | Single agent: compile, run, trace |
-| `examples/chart_demo.py` | All 8 chart types (no API key needed) |
-| `examples/trace_demo.py` | Mocked demo (no API key needed) |
+Each file is standalone — run directly with `python examples/<file>`.
+
+| # | File | Description | Needs LLM |
+|---|------|-------------|-----------|
+| 1 | `01_quickstart.py` | Minimal: define → run → print result | yes |
+| 2 | `02_save_load.py` | Save, list, load, run | yes |
+| 3 | `03_pipeline.py` | 3-agent chain with full trace output | yes |
+| 4 | `04_chart_demo.py` | All 8 chart types | no |
+| 5 | `05_trace_demo.py` | Mocked demo showing data structures | no |
+| 6 | `06_agent_to_ui.py` | Define → save → run with UI visualization | yes |
 
 ---
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-_ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
+_ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
 
 # ── import-time setup ──────────────────────────────────────────────
@@ -43,7 +43,7 @@ def _auto_detect_keys() -> None:
 
     url = os.environ.get("HARNESS_API_URL", "")
     if url:
-        for p in ("DEEPSEEK_BASE_URL", "OPENAI_BASE_URL"):
+        for p in ("DEEPSEEK_BASE_URL", "OPENAI_BASE_URL", "ANTHROPIC_BASE_URL"):
             if not os.environ.get(p):
                 os.environ[p] = url
 
