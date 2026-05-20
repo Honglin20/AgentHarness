@@ -5,18 +5,38 @@ Dual-engine AI agent workflow framework — LangGraph + Pydantic AI.
 ## Quick Start
 
 ```bash
-cd backend
+# 1. Set your API key (pick one method)
+echo 'DEEPSEEK_API_KEY=sk-...' > .env     # auto-loaded, no export needed
+# OR
 export DEEPSEEK_API_KEY="sk-..."
 
-# Run a single agent
-python ../examples/basic_agent.py
+# 2. Run examples
+python examples/basic_agent.py             # single agent with real LLM
+python examples/real_workflow.py           # 3-agent pipeline
+python examples/chart_demo.py              # all 8 chart types
+python examples/trace_demo.py              # mocked demo (no API key needed)
 
-# Run a 3-agent pipeline (analyzer → planner → reviewer)
-python ../examples/real_workflow.py
-
-# Chart rendering demo
-python ../examples/chart_demo.py
+# 3. Launch Web UI (backend + frontend)
+bash examples/launch_ui.sh
+# → http://localhost:3000
 ```
+
+API key is auto-detected: `.env` file → `ANTHROPIC_AUTH_TOKEN` → `ANTHROPIC_API_KEY`. No manual export needed if you have a `.env` file.
+
+### Coverage
+
+| Capability | Example / Docs |
+|------------|---------------|
+| Agent + Workflow definition | `basic_agent.py`, `real_workflow.py` |
+| `compile()` / `run()` (sync) | `basic_agent.py` |
+| `arun()` (async) | `wf.arun(inputs)` — same API, add `await` |
+| `WorkflowResult` + trace + token_usage | All examples, README §3 |
+| `render_chart()` (8 chart types) | `chart_demo.py`, README §4 |
+| Agent MD files | `agents/*.md`, README §5 |
+| REST API (10 endpoints) | `launch_ui.sh` → http://localhost:8001/docs |
+| WebSocket events (10 types) | `launch_ui.sh` → frontend connects automatically |
+| Web UI (DAG + Output + Chat + Trace) | `launch_ui.sh` → http://localhost:3000 |
+| Mocked demo (no API key) | `trace_demo.py` |
 
 ## Core API
 

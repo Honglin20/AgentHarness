@@ -2,13 +2,17 @@
 
 Shows: Agent, Workflow, compile(), run(), WorkflowResult, NodeTrace, TokenUsage
 
+Setup:
+    cp .env.example .env   # then add your DEEPSEEK_API_KEY
+
 Usage (from project root):
-    cd backend && python ../examples/basic_agent.py
+    python examples/basic_agent.py
 """
 
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
+import harness.config  # noqa — auto-loads .env + detects API keys
 from harness.api import Agent, Workflow
 
 
