@@ -33,13 +33,12 @@ npm install -g @modelcontextprotocol/server-filesystem
 git clone https://github.com/Honglin20/AgentHarness.git
 cd AgentHarness
 
-# Backend
-pip install -e .                           # install agent-harness + deps
-echo 'DEEPSEEK_API_KEY=sk-...' > .env     # auto-loaded at startup
-
-# Frontend (optional — only if you want the Web UI)
-cd frontend && npm install && cd ..
+# One command — installs everything (macOS / Linux / Windows)
+python install.py
 ```
+
+This installs: Python dependencies, Node.js dependencies, MCP filesystem server, and prompts
+for your API key. Use `python install.py --quick` for non-interactive mode.
 
 ### Verify
 
