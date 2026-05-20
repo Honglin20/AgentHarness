@@ -26,17 +26,18 @@ def run_demo() -> WorkflowResult:
         Agent("reviewer", after=["planner"]),
     ]
 
-    wf = Workflow("trace_demo", agents=agents, agents_dir="agents")
+    backend_dir = os.path.join(os.path.dirname(__file__), "..", "backend")
+    wf = Workflow("trace_demo", agents=agents, agents_dir=os.path.join(backend_dir, "agents"))
 
     # Mock Pydantic AI agent.run() to return fake results with token usage
     class FakeUsage:
-        request_tokens = 150
-        response_tokens = 80
+        input_tokens = 150
+        output_tokens = 80
         total_tokens = 230
 
     mock_result = MagicMock()
     mock_result.output = "Task analyzed successfully."
-    mock_result.usage.return_value = FakeUsage()
+    mock_result.usage = FakeUsage()
 
     with patch("pydantic_ai.Agent.run", new_callable=AsyncMock) as mock_run:
         mock_run.return_value = mock_result

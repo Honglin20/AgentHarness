@@ -185,10 +185,10 @@ class MacroGraphBuilder:
                 # Extract token usage
                 token_usage = None
                 try:
-                    usage = result.usage()
+                    usage = result.usage
                     token_usage = {
-                        "input": usage.request_tokens,
-                        "output": usage.response_tokens,
+                        "input": usage.input_tokens,
+                        "output": usage.output_tokens,
                         "total": usage.total_tokens,
                     }
                 except Exception:
