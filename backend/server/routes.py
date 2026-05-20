@@ -142,6 +142,12 @@ async def chart_render(
     return {"status": "ok"}
 
 
+@router.get("/workflows/definitions")
+async def list_workflow_definitions() -> list[dict]:
+    """List all saved workflow definitions (from workflows/*.json)."""
+    return Workflow.list_saved()
+
+
 @router.post("/workflows", response_model=CreateWorkflowResponse)
 async def create_workflow(
     request: CreateWorkflowRequest,

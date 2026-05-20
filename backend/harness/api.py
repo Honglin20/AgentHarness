@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+import webbrowser
+from pathlib import Path
 from typing import Any, Literal, Type
 
 from pydantic import BaseModel
@@ -9,6 +13,9 @@ from harness.constants import STATE_ERRORS, STATE_INPUTS, STATE_METADATA, STATE_
 from harness.tools.defaults import default_tool_registry, setup_default_mcp
 from harness.tools.mcp_bridge import McpBridge, McpServerConfig
 from harness.tools.registry import ToolRegistry
+
+# Directory for saved workflow definitions (relative to project root)
+_WORKFLOWS_DIR = Path(__file__).resolve().parent.parent.parent / "workflows"
 
 
 class Agent:
@@ -29,6 +36,25 @@ class Agent:
         self.model = model
         self.retries = retries
         self.result_type = result_type
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "after": self.after,
+            "tools": self.tools,
+            "model": self.model,
+            "retries": self.retries,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> Agent:
+        return cls(
+            name=d["name"],
+            after=d.get("after", []),
+            tools=d.get("tools"),
+            model=d.get("model"),
+            retries=d.get("retries", 3),
+        )
 
 
 class TokenUsage(BaseModel):
@@ -93,12 +119,103 @@ class Workflow:
         self._compiled = graph.compile()
         return self._compiled
 
-    def run(self, inputs: dict) -> WorkflowResult:
+    def save(self) -> Path:
+        """Save workflow definition to workflows/<name>.json."""
+        _WORKFLOWS_DIR.mkdir(parents=True, exist_ok=True)
+        path = _WORKFLOWS_DIR / f"{self.name}.json"
+        path.write_text(json.dumps(self.to_dict(), indent=2, ensure_ascii=False))
+        return path
+
+    @classmethod
+    def load(cls, name: str, agents_dir: str = "agents") -> Workflow:
+        """Load a saved workflow definition from workflows/<name>.json."""
+        path = _WORKFLOWS_DIR / f"{name}.json"
+        if not path.exists():
+            raise FileNotFoundError(f"Workflow '{name}' not found at {path}")
+        data = json.loads(path.read_text())
+        return cls.from_dict(data, agents_dir=agents_dir)
+
+    @staticmethod
+    def list_saved() -> list[dict]:
+        """List all saved workflow definitions with their DAG structure."""
+        if not _WORKFLOWS_DIR.exists():
+            return []
+        from harness.compiler.dag_builder import build_dag
+
+        result = []
+        for f in sorted(_WORKFLOWS_DIR.glob("*.json")):
+            data = json.loads(f.read_text())
+            agents = [Agent.from_dict(a) for a in data.get("agents", [])]
+            node_order = build_dag(agents)
+            edges = []
+            for a in agents:
+                for dep in a.after:
+                    edges.append([dep, a.name])
+            result.append({
+                "name": data["name"],
+                "agents": [a.to_dict() for a in agents],
+                "dag": {"nodes": node_order, "edges": edges},
+            })
+        return result
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "agents": [a.to_dict() for a in self.agents],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict, agents_dir: str = "agents") -> Workflow:
+        agents = [Agent.from_dict(a) for a in data.get("agents", [])]
+        return cls(name=data["name"], agents=agents, agents_dir=agents_dir)
+
+    def run(self, inputs: dict, ui: bool = False) -> WorkflowResult:
         """Run the workflow. Primary API — synchronous, simple.
 
-        Internally: setup MCP → compile → execute → cleanup, all in one event loop.
+        Args:
+            inputs: Task input dict.
+            ui: If True, auto-start server + open browser to visualize execution.
         """
+        if ui:
+            self._launch_ui(inputs)
         return asyncio.run(self._execute(inputs))
+
+    def _launch_ui(self, inputs: dict) -> None:
+        """Start backend server and open browser for UI visualization."""
+        import subprocess
+        import time
+        import threading
+
+        backend_dir = Path(__file__).resolve().parent.parent
+
+        def _start_server():
+            import uvicorn
+            uvicorn.run("server.app:app", host="0.0.0.0", port=8001, log_level="warning")
+
+        # Check if server is already running
+        import urllib.request
+        try:
+            urllib.request.urlopen("http://localhost:8001/health", timeout=1)
+        except Exception:
+            t = threading.Thread(target=_start_server, daemon=True)
+            t.start()
+            time.sleep(2)
+
+        # Create workflow via API so frontend can connect
+        import urllib.request as ur
+        data = json.dumps({
+            "name": self.name,
+            "agents": [a.to_dict() for a in self.agents],
+            "inputs": inputs,
+        }).encode()
+        req = ur.Request("http://localhost:8001/api/workflows", data=data,
+                         headers={"Content-Type": "application/json"})
+        resp = ur.urlopen(req)
+        result = json.loads(resp.read())
+        wid = result["workflow_id"]
+
+        # Open browser
+        webbrowser.open(f"http://localhost:3000?workflow={wid}")
 
     async def arun(self, inputs: dict) -> WorkflowResult:
         """Run the workflow asynchronously. For callers already in an async context.

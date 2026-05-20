@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Play, Loader2 } from "lucide-react";
+import { Play, Loader2, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -11,14 +11,26 @@ const API_BASE = "http://localhost:8001";
 
 interface AgentInfo {
   name: string;
-  description: string;
-  model: string;
-  tools: string[];
+  description?: string;
+  model?: string;
+  tools?: string[];
+}
+
+interface SavedWorkflow {
+  name: string;
+  agents: { name: string; after: string[] }[];
+  dag: { nodes: string[]; edges: [string, string][] };
 }
 
 export default function WorkflowLauncher() {
+  // Saved workflows
+  const [saved, setSaved] = useState<SavedWorkflow[]>([]);
+  const [selectedWf, setSelectedWf] = useState("");
+
+  // Ad-hoc agents
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+
   const [task, setTask] = useState("");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
@@ -26,13 +38,27 @@ export default function WorkflowLauncher() {
   const setWorkflow = useWorkflowStore((s) => s.setWorkflow);
 
   useEffect(() => {
+    // Load saved workflows
+    fetch(`${API_BASE}/api/workflows/definitions`)
+      .then((r) => r.json())
+      .then((data: SavedWorkflow[]) => setSaved(data))
+      .catch(() => {});
+    // Load available agents
     fetch(`${API_BASE}/api/agents`)
       .then((r) => r.json())
       .then((data: AgentInfo[]) => setAgents(data))
       .catch(() => {});
   }, []);
 
+  // When a saved workflow is picked, auto-select its agents
+  useEffect(() => {
+    if (!selectedWf) return;
+    const wf = saved.find((s) => s.name === selectedWf);
+    if (wf) setSelected(new Set(wf.dag.nodes));
+  }, [selectedWf, saved]);
+
   const toggleAgent = useCallback((name: string) => {
+    setSelectedWf(""); // switch to ad-hoc mode
     setSelected((prev) => {
       const next = new Set(prev);
       next.has(name) ? next.delete(name) : next.add(name);
@@ -56,25 +82,59 @@ export default function WorkflowLauncher() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: agentList.join(" → "),
+          name: selectedWf || agentList.join(" → "),
           agents,
           inputs: { task: task.trim() },
         }),
       });
 
       if (!r.ok) throw new Error(await r.text());
-
       const data = await r.json();
-      setWorkflow(data.workflow_id, agentList.join(" → "), data.dag);
+      setWorkflow(data.workflow_id, selectedWf || agentList.join(" → "), data.dag);
     } catch (e: any) {
       setError(e.message || "Failed to start workflow");
     } finally {
       setRunning(false);
     }
-  }, [selected, task, setWorkflow]);
+  }, [selected, selectedWf, task, setWorkflow]);
+
+  const selectedWfData = saved.find((s) => s.name === selectedWf);
 
   return (
     <div className="flex flex-col gap-4 p-6">
+      {/* ── Saved workflow selector ── */}
+      <div>
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-app-text-secondary">
+          Saved Workflows
+        </h3>
+        {saved.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            No saved workflows. Use <code className="rounded bg-muted px-1">wf.save()</code> to save one.
+          </p>
+        ) : (
+          <div className="relative">
+            <select
+              value={selectedWf}
+              onChange={(e) => setSelectedWf(e.target.value)}
+              className="h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <option value="">— Custom (pick agents below) —</option>
+              {saved.map((s) => (
+                <option key={s.name} value={s.name}>
+                  {s.name} ({s.dag.nodes.length} agents)
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        {selectedWfData && (
+          <p className="mt-1.5 text-[10px] text-muted-foreground">
+            {selectedWfData.dag.nodes.join(" → ")}
+          </p>
+        )}
+      </div>
+
+      {/* ── Agent badges ── */}
       <div>
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-app-text-secondary">
           Agents
@@ -95,13 +155,14 @@ export default function WorkflowLauncher() {
             </Badge>
           ))}
         </div>
-        {selected.size > 0 && (
+        {!selectedWf && selected.size > 0 && (
           <p className="mt-1.5 text-[10px] text-muted-foreground">
             {Array.from(selected).join(" → ")}
           </p>
         )}
       </div>
 
+      {/* ── Task ── */}
       <div>
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-app-text-secondary">
           Task
@@ -133,9 +194,7 @@ export default function WorkflowLauncher() {
         )}
       </Button>
 
-      {error && (
-        <p className="text-xs text-red-500">{error}</p>
-      )}
+      {error && <p className="text-xs text-red-500">{error}</p>}
     </div>
   );
 }
