@@ -6,8 +6,8 @@ import type { WSEvent } from "@/types/events";
 const WS_BASE_URL =
   typeof window !== "undefined"
     ? (window as unknown as Record<string, string>).__WS_BASE_URL__ ??
-      "ws://localhost:8001"
-    : "ws://localhost:8001";
+      "ws://localhost:8000"
+    : "ws://localhost:8000";
 
 const MAX_BACKOFF_MS = 30_000;
 

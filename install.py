@@ -134,7 +134,7 @@ def main():
     print("   \"")
     print()
     print(" Web UI:")
-    print("   uvicorn server.app:app --port 8001")
+    print("   uvicorn server.app:app --port 8000")
     print("   cd frontend && npm run dev")
     print("   → http://localhost:3000")
     print("=" * 60)

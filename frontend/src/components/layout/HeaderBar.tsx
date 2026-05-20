@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { useWorkflowStore } from "@/stores/workflowStore";
 
-const API_BASE = "http://localhost:8001";
+const API_BASE = "http://localhost:8000";
 
 export function HeaderBar() {
   const workflowName = useWorkflowStore((s) => s.workflowName);
