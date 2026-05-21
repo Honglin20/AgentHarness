@@ -10,6 +10,8 @@ import { useOutputStore } from "@/stores/outputStore";
 import { useChatStore } from "@/stores/chatStore";
 import { useChartStore } from "@/stores/chartStore";
 import { useToolCallStore } from "@/stores/toolCallStore";
+import { useConversationStore } from "@/stores/conversationStore";
+import { setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
 
 const API_BASE = "";
 
@@ -67,6 +69,8 @@ export function HeaderBar() {
     useChatStore.getState().reset();
     useChartStore.getState().reset();
     useToolCallStore.getState().reset();
+    useConversationStore.getState().reset();
+    setActiveWorkflowId(null);
     setStopping(false);
   }, [workflowId]);
 
@@ -76,6 +80,9 @@ export function HeaderBar() {
     useChatStore.getState().reset();
     useChartStore.getState().reset();
     useToolCallStore.getState().reset();
+    useConversationStore.getState().reset();
+    // Clear the active workflow ID so stale WS events are ignored
+    setActiveWorkflowId(null);
   }, []);
 
   return (

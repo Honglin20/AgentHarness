@@ -164,7 +164,7 @@ function dispatchEvent(event: WSEvent): void {
 
 /** Set the active workflow ID before the WebSocket connects so that
  *  replayed events are filtered correctly from the start. */
-export function setActiveWorkflowId(id: string) {
+export function setActiveWorkflowId(id: string | null) {
   _activeWorkflowId = id;
 }
 
