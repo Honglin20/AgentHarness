@@ -149,8 +149,6 @@ async def update_agent_md(name: str, request: Request) -> dict:
     except Exception as e:
         tmp.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=f"Invalid agent MD: {e}")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid agent MD: {e}")
 
 
 @router.get("/tools")
