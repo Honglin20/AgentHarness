@@ -26,6 +26,19 @@ import { useConversationStore } from "@/stores/conversationStore";
 // Track the current workflow to filter stale replayed events
 let _activeWorkflowId: string | null = null;
 
+/** Save conversation messages to the backend for a completed/failed run. */
+function _saveConversation(workflowId: string | undefined): void {
+  if (!workflowId) return;
+  const messages = useConversationStore.getState().messages;
+  fetch(`/api/runs/${workflowId}/conversation`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ conversation: messages }),
+  }).catch(() => {
+    // Best-effort — don't block UI on failure
+  });
+}
+
 // Cast through unknown — the switch on event.type guarantees the payload shape
 function dispatchEvent(event: WSEvent): void {
   const payloadWid = event.payload?.workflow_id as string | undefined;
@@ -47,6 +60,8 @@ function dispatchEvent(event: WSEvent): void {
       useWorkflowStore
         .getState()
         .handleWorkflowCompleted(p);
+      // Persist conversation to backend
+      _saveConversation(payloadWid);
       break;
     }
 
@@ -133,6 +148,8 @@ function dispatchEvent(event: WSEvent): void {
         status: "failed",
       });
       useOutputStore.getState().setWorkflowError(p.error);
+      // Persist conversation to backend
+      _saveConversation(p.workflow_id);
       break;
     }
 

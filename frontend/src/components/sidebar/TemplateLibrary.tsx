@@ -1,13 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { Play, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useState, useEffect } from "react";
+import { LayoutTemplate } from "lucide-react";
 import { useWorkflowStore } from "@/stores/workflowStore";
-import { useOutputStore } from "@/stores/outputStore";
-import { useChatStore } from "@/stores/chatStore";
-import { useChartStore } from "@/stores/chartStore";
-import { setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
 
 interface SavedWorkflow {
   name: string;
@@ -18,9 +13,9 @@ interface SavedWorkflow {
 
 export function TemplateLibrary() {
   const [templates, setTemplates] = useState<SavedWorkflow[]>([]);
-  const [task, setTask] = useState("");
-  const [running, setRunning] = useState("");
-  const setWorkflow = useWorkflowStore((s) => s.setWorkflow);
+  const selectedTemplate = useWorkflowStore((s) => s.selectedTemplate);
+  const setSelectedTemplate = useWorkflowStore((s) => s.setSelectedTemplate);
+  const status = useWorkflowStore((s) => s.status);
 
   useEffect(() => {
     fetch("/api/workflows/definitions")
@@ -29,56 +24,32 @@ export function TemplateLibrary() {
       .catch(() => {});
   }, []);
 
-  const runTemplate = useCallback(async (wf: SavedWorkflow) => {
-    if (!task.trim()) return;
-    setRunning(wf.name);
-    useOutputStore.getState().reset();
-    useChatStore.getState().reset();
-    useChartStore.getState().reset();
-    try {
-      const agents = wf.agents.map((a) => ({
-        name: a.name,
-        after: a.after,
-        ...(a.on_pass != null ? { on_pass: a.on_pass } : {}),
-        ...(a.on_fail != null ? { on_fail: a.on_fail } : {}),
-      }));
-      const r = await fetch("/api/workflows", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: wf.name, agents, agents_dir: wf.agents_dir || "agents", inputs: { task: task.trim() } }),
-      });
-      if (!r.ok) throw new Error(await r.text());
-      const data = await r.json();
-      setActiveWorkflowId(data.workflow_id);
-      setWorkflow(data.workflow_id, wf.name, data.dag, wf.agents_dir || "agents");
-      setTask("");
-    } catch (e: any) {
-      console.error("Failed:", e.message);
-    } finally {
-      setRunning("");
-    }
-  }, [task, setWorkflow]);
-
   if (templates.length === 0) {
     return <p className="px-3 py-4 text-xs text-muted-foreground">No templates.</p>;
   }
 
   return (
-    <div className="flex flex-col gap-2 px-3 py-2">
-      <input
-        value={task}
-        onChange={(e) => setTask(e.target.value)}
-        placeholder="Task..."
-        className="h-7 w-full rounded border border-input bg-transparent px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        onKeyDown={(e) => { if (e.key === "Enter" && templates.length === 1) runTemplate(templates[0]); }}
-      />
-      {templates.map((wf) => (
-        <Button key={wf.name} variant="outline" size="sm" className="h-7 justify-start gap-2 text-xs" disabled={!task.trim() || running !== ""} onClick={() => runTemplate(wf)}>
-          {running === wf.name ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-          {wf.name}
-          <span className="ml-auto text-[10px] text-muted-foreground">{wf.dag.nodes.length} agents</span>
-        </Button>
-      ))}
+    <div className="flex flex-col gap-0.5 px-2 py-1">
+      {templates.map((wf) => {
+        const isSelected = selectedTemplate?.name === wf.name;
+        const isDisabled = status !== "idle";
+        return (
+          <button
+            key={wf.name}
+            onClick={() => !isDisabled && setSelectedTemplate(isSelected ? null : wf as unknown as Record<string, unknown>)}
+            disabled={isDisabled}
+            className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors ${
+              isSelected
+                ? "bg-blue-50 text-blue-700 font-medium"
+                : "text-app-text-primary hover:bg-gray-50"
+            } ${isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+          >
+            <LayoutTemplate className="h-3 w-3 shrink-0" />
+            {wf.name}
+            <span className="ml-auto text-[10px] text-muted-foreground">{wf.dag.nodes.length}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }

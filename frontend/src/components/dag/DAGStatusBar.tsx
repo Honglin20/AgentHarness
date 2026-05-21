@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import dagre from "dagre";
 import { useWorkflowStore } from "@/stores/workflowStore";
 
-const NODE_RADIUS = 10;
+const NODE_RADIUS = 6;
 const NODE_WIDTH = 80;
 const NODE_HEIGHT = 28;
 
@@ -77,9 +77,9 @@ export default function DAGStatusBar() {
       const t = g.node(target);
       return {
         key: `e-${source}-${target}`,
-        x1: s.x - minX,
+        x1: s.x - minX + NODE_RADIUS,
         y1: s.y - minY,
-        x2: t.x - minX,
+        x2: t.x - minX - NODE_RADIUS,
         y2: t.y - minY,
       };
     });
@@ -98,9 +98,9 @@ export default function DAGStatusBar() {
           CONDITIONAL_COLORS[ce.label] ?? CONDITIONAL_COLORS["pass"];
 
         if (isLoop) {
-          const sx = s.x - minX;
+          const sx = s.x - minX + NODE_RADIUS;
           const sy = s.y - minY;
-          const tx = t.x - minX;
+          const tx = t.x - minX - NODE_RADIUS;
           const ty = t.y - minY;
           const cx = (sx + tx) / 2;
           const cy = Math.min(sy, ty) - 30;
@@ -117,9 +117,9 @@ export default function DAGStatusBar() {
 
         return {
           key: `ce-${ce.from}-${ce.to}-${i}`,
-          x1: s.x - minX,
+          x1: s.x - minX + NODE_RADIUS,
           y1: s.y - minY,
-          x2: t.x - minX,
+          x2: t.x - minX - NODE_RADIUS,
           y2: t.y - minY,
           color,
           label: ce.label,
@@ -157,7 +157,7 @@ export default function DAGStatusBar() {
   if (!dag || !layout) return null;
 
   return (
-    <div className="overflow-x-auto" style={{ height: 48 }}>
+    <div className="flex items-center justify-center overflow-x-auto" style={{ height: 44 }}>
       <svg
         width={layout.svgWidth}
         height={layout.svgHeight}
@@ -278,8 +278,9 @@ export default function DAGStatusBar() {
               style={{ cursor: "pointer" }}
             />
             <text
-              x={n.cx + NODE_RADIUS + 4}
-              y={n.cy + 4}
+              x={n.cx}
+              y={n.cy - NODE_RADIUS - 4}
+              textAnchor="middle"
               fontSize={10}
               fill="#374151"
             >

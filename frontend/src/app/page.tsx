@@ -16,15 +16,15 @@ export default function Home() {
       <HeaderBar />
       {status !== "idle" && <DAGStatusBar />}
       <Group orientation="horizontal" className="flex-1">
-        <Panel defaultSize="15%" minSize="10%" maxSize="25%">
+        <Panel defaultSize="18%" minSize="10%" maxSize="30%">
           <Sidebar />
         </Panel>
         <Separator className="w-1 bg-app-border hover:bg-blue-400 transition-colors" />
-        <Panel defaultSize="60%" minSize="40%">
+        <Panel defaultSize="62%" minSize="40%">
           <CenterPanel />
         </Panel>
         <Separator className="w-1 bg-app-border hover:bg-blue-400 transition-colors" />
-        <Panel defaultSize="25%" minSize="15%" maxSize="35%">
+        <Panel defaultSize="20%" minSize="15%" maxSize="28%">
           <DiagnosticsPanel />
         </Panel>
       </Group>

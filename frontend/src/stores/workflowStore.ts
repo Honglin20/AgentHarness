@@ -34,10 +34,12 @@ export interface WorkflowState {
   agentsDir: string;
 
   selectedNodeId: string | null;
+  selectedTemplate: Record<string, unknown> | null;
 
   // Actions
   setWorkflow: (id: string, name: string, dag?: unknown, agentsDir?: string) => void;
   setSelectedNode: (id: string | null) => void;
+  setSelectedTemplate: (template: Record<string, unknown> | null) => void;
   reset: () => void;
 
   // Event handlers
@@ -59,6 +61,7 @@ const initialState = {
 
 export const useWorkflowStore = create<WorkflowState>()((set) => ({
   selectedNodeId: null as string | null,
+  selectedTemplate: null as Record<string, unknown> | null,
   ...initialState,
 
   setWorkflow: (id, name, dag, agentsDir) =>
@@ -74,7 +77,9 @@ export const useWorkflowStore = create<WorkflowState>()((set) => ({
 
   setSelectedNode: (id) => set({ selectedNodeId: id }),
 
-  reset: () => set({ ...initialState, selectedNodeId: null, agentsDir: "agents" }),
+  setSelectedTemplate: (template) => set({ selectedTemplate: template }),
+
+  reset: () => set({ ...initialState, selectedNodeId: null, selectedTemplate: null, agentsDir: "agents" }),
 
   handleWorkflowStarted: (payload) =>
     set((state) => ({

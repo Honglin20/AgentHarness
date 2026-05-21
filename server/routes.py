@@ -213,12 +213,37 @@ async def get_run(run_id: str) -> RunDetail:
     return run
 
 
+@router.patch("/runs/{run_id}/conversation")
+async def update_run_conversation(run_id: str, request: Request) -> dict:
+    """Update conversation messages for a persisted run."""
+    body = await request.json()
+    conversation = body.get("conversation", [])
+    from harness.run_store import RunStore
+    store = RunStore()
+    run = store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    run["conversation"] = conversation
+    path = store._safe_path(run_id)
+    if not path:
+        raise HTTPException(status_code=400, detail="Invalid run_id")
+    import json
+    path.write_text(json.dumps(run, indent=2, ensure_ascii=False))
+    return {"status": "ok"}
+
+
 @router.post("/workflows", response_model=CreateWorkflowResponse)
 async def create_workflow(
     request: CreateWorkflowRequest,
     event_bus = Depends(get_event_bus),
 ) -> CreateWorkflowResponse:
     """Create and start a workflow."""
+    # Block concurrent workflows — only one at a time
+    from server.runner import get_runner
+    runner = get_runner()
+    if runner.running_count > 0:
+        raise HTTPException(status_code=409, detail="A workflow is already running. Wait for it to complete or cancel it first.")
+
     workflow_id = str(uuid.uuid4())
 
     # Convert AgentDef to Agent

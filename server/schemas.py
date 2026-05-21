@@ -74,4 +74,5 @@ class RunDetail(BaseModel):
     status: str
     inputs: dict = {}
     result: dict[str, Any] | None = None
+    conversation: list[dict] = []
     created_at: str
