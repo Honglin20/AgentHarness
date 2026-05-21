@@ -17,6 +17,7 @@ from server.schemas import (
     CreateWorkflowRequest,
     CreateWorkflowResponse,
     HealthResponse,
+    RunDetail,
     ToolInfo,
     WorkflowStatusResponse,
 )
@@ -148,15 +149,15 @@ async def list_workflow_definitions() -> list[dict]:
     return Workflow.list_saved()
 
 
-@router.get("/runs")
-async def list_runs(workflow_name: str | None = None) -> list[dict]:
+@router.get("/runs", response_model=list[RunDetail])
+async def list_runs(workflow_name: str | None = None) -> list[RunDetail]:
     """List persisted workflow runs."""
     from harness.run_store import RunStore
     return RunStore().list_runs(workflow_name=workflow_name)
 
 
-@router.get("/runs/{run_id}")
-async def get_run(run_id: str) -> dict:
+@router.get("/runs/{run_id}", response_model=RunDetail)
+async def get_run(run_id: str) -> RunDetail:
     """Get a specific persisted run."""
     from harness.run_store import RunStore
     run = RunStore().get_run(run_id)

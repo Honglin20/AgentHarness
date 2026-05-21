@@ -10,6 +10,26 @@ from typing import Any
 from server.event_bus import EventBus
 
 
+def _build_agents_snapshot(workflow) -> list[dict]:
+    """Build a snapshot of agent definitions with their current MD content."""
+    agents_dir = Path(workflow.agents_dir)
+    snapshot = []
+    for agent_def in workflow.agents:
+        md_path = agents_dir / f"{agent_def.name}.md"
+        md_content = ""
+        if md_path.exists():
+            md_content = md_path.read_text()
+        snapshot.append({
+            "name": agent_def.name,
+            "after": agent_def.after,
+            "md_content": md_content,
+            "tools": agent_def.tools,
+            "model": agent_def.model,
+            "retries": agent_def.retries,
+        })
+    return snapshot
+
+
 class WorkflowRunner:
     """Manages background workflow execution."""
 
@@ -109,27 +129,10 @@ class WorkflowRunner:
 
                 # Persist run to disk
                 from harness.run_store import RunStore
-                run_store = RunStore()
-                agents_dir = Path(workflow.agents_dir)
-                agents_snapshot = []
-                for agent_def in workflow.agents:
-                    md_path = agents_dir / f"{agent_def.name}.md"
-                    md_content = ""
-                    if md_path.exists():
-                        md_content = md_path.read_text()
-                    agents_snapshot.append({
-                        "name": agent_def.name,
-                        "after": agent_def.after,
-                        "md_content": md_content,
-                        "tools": agent_def.tools,
-                        "model": agent_def.model,
-                        "retries": agent_def.retries,
-                    })
-
-                run_store.save(
+                RunStore().save(
                     run_id=workflow_id,
                     workflow_name=workflow.name,
-                    agents_snapshot=agents_snapshot,
+                    agents_snapshot=_build_agents_snapshot(workflow),
                     status="completed",
                     inputs=inputs,
                     result=_workflows[workflow_id]["result"],
@@ -156,27 +159,10 @@ class WorkflowRunner:
 
                 # Persist failed run to disk
                 from harness.run_store import RunStore
-                run_store = RunStore()
-                agents_dir = Path(workflow.agents_dir)
-                agents_snapshot = []
-                for agent_def in workflow.agents:
-                    md_path = agents_dir / f"{agent_def.name}.md"
-                    md_content = ""
-                    if md_path.exists():
-                        md_content = md_path.read_text()
-                    agents_snapshot.append({
-                        "name": agent_def.name,
-                        "after": agent_def.after,
-                        "md_content": md_content,
-                        "tools": agent_def.tools,
-                        "model": agent_def.model,
-                        "retries": agent_def.retries,
-                    })
-
-                run_store.save(
+                RunStore().save(
                     run_id=workflow_id,
                     workflow_name=workflow.name,
-                    agents_snapshot=agents_snapshot,
+                    agents_snapshot=_build_agents_snapshot(workflow),
                     status="failed",
                     inputs=inputs,
                     result=None,

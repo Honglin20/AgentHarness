@@ -66,11 +66,12 @@ class AgentSnapshot(BaseModel):
     retries: int = 3
 
 
-class RunInfo(BaseModel):
-    """Summary of a persisted workflow run."""
+class RunDetail(BaseModel):
+    """Full persisted workflow run record."""
     run_id: str
     workflow_name: str
+    agents_snapshot: list[AgentSnapshot] = []
     status: str
     inputs: dict = {}
+    result: dict[str, Any] | None = None
     created_at: str
-    agents_count: int
