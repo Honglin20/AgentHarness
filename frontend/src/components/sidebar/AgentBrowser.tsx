@@ -22,11 +22,11 @@ export function AgentBrowser() {
   const [diffAgent, setDiffAgent] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/agents")
+    fetch(`/api/agents?agents_dir=${encodeURIComponent(agentsDir || "agents")}`)
       .then((r) => r.json())
       .then((data: AgentInfo[]) => setAgents(data))
       .catch(() => {});
-  }, []);
+  }, [agentsDir]);
 
   const dagAgents = dag ? agents.filter((a) => dag.nodes.includes(a.name)) : agents;
 

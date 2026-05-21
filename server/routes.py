@@ -24,6 +24,17 @@ from server.schemas import (
 
 router = APIRouter()
 
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+_ALLOWED_AGENTS_BASE = _BACKEND_DIR.parent  # project root — agents/ must be under here
+
+
+def _validate_agents_dir(agents_dir: str) -> Path:
+    """Ensure agents_dir resolves within the project tree. Prevents path traversal."""
+    resolved = (Path(_ALLOWED_AGENTS_BASE) / agents_dir).resolve()
+    if not str(resolved).startswith(str(_ALLOWED_AGENTS_BASE.resolve())):
+        raise HTTPException(status_code=400, detail="agents_dir escapes allowed directory")
+    return resolved
+
 # In-memory storage (production: use database)
 _workflows: dict[str, dict] = {}  # workflow_id -> {workflow, status, result}
 _dag_cache: dict[str, dict] = {}  # workflow_id -> dag structure
@@ -64,7 +75,7 @@ async def get_config() -> dict:
 @router.get("/agents")
 async def list_agents(agents_dir: str = "agents") -> list[AgentInfo]:
     """List all available agents by scanning agents_dir."""
-    agents_dir_path = Path(agents_dir)
+    agents_dir_path = _validate_agents_dir(agents_dir)
     if not agents_dir_path.exists():
         return []
 
@@ -89,7 +100,8 @@ async def list_agents(agents_dir: str = "agents") -> list[AgentInfo]:
 @router.get("/agents/{name}")
 async def get_agent(name: str, agents_dir: str = "agents") -> AgentInfo:
     """Get a specific agent's definition."""
-    md_path = Path(agents_dir) / f"{name}.md"
+    agents_dir_path = _validate_agents_dir(agents_dir)
+    md_path = agents_dir_path / f"{name}.md"
     if not md_path.exists():
         raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
 
@@ -109,7 +121,8 @@ async def get_agent(name: str, agents_dir: str = "agents") -> AgentInfo:
 @router.get("/agents/{name}/md")
 async def get_agent_md(name: str, agents_dir: str = "agents") -> dict:
     """Get the raw Markdown content of an agent definition."""
-    md_path = Path(agents_dir) / f"{name}.md"
+    agents_dir_path = _validate_agents_dir(agents_dir)
+    md_path = agents_dir_path / f"{name}.md"
     if not md_path.exists():
         raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
     return {"name": name, "md_content": md_path.read_text(), "agents_dir": agents_dir}
@@ -121,13 +134,21 @@ async def update_agent_md(name: str, request: Request) -> dict:
     body = await request.json()
     agents_dir = body.get("agents_dir", "agents")
     md_content = body.get("md_content", "")
-    md_path = Path(agents_dir) / f"{name}.md"
+    agents_dir_path = _validate_agents_dir(agents_dir)
+    md_path = agents_dir_path / f"{name}.md"
     if not md_path.exists():
         raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
-    md_path.write_text(md_content)
+    # Validate before writing — write to temp file, parse, then rename
+    import tempfile
+    tmp = md_path.with_suffix(".tmp")
     try:
-        parsed = parse_agent_md(md_path)
+        tmp.write_text(md_content)
+        parsed = parse_agent_md(tmp)
+        tmp.replace(md_path)
         return {"status": "ok", "name": parsed.name, "description": parsed.description}
+    except Exception as e:
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"Invalid agent MD: {e}")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid agent MD: {e}")
 
