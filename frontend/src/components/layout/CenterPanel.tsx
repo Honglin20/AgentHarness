@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { LayoutTemplate } from "lucide-react";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useOutputStore } from "@/stores/outputStore";
 import { useChatStore } from "@/stores/chatStore";
@@ -10,13 +11,20 @@ import { ConversationTab } from "@/components/conversation/ConversationTab";
 import ResultsTab from "@/components/results/ResultsTab";
 import ChatInput from "@/components/chat/ChatInput";
 import { RunReplayView } from "@/components/sidebar/RunReplayView";
-import { useWorkflowEvents } from "@/hooks/useWorkflowEvents";
-import { setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
+import { useWorkflowEvents, setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
 
 type Tab = "conversation" | "results";
 
+interface SavedWorkflow {
+  name: string;
+  agents: { name: string; after: string[]; on_pass?: string; on_fail?: string }[];
+  agents_dir?: string;
+  dag: { nodes: string[]; edges: [string, string][] };
+}
+
 export function CenterPanel() {
   const [activeTab, setActiveTab] = useState<Tab>("conversation");
+  const [templates, setTemplates] = useState<SavedWorkflow[]>([]);
 
   const status = useWorkflowStore((s) => s.status);
   const nodeCount = useWorkflowStore((s) => Object.keys(s.nodes).length);
@@ -25,10 +33,19 @@ export function CenterPanel() {
   const resultCount = useChartStore((s) => s.groupOrder.length);
   const replayRun = useRunHistoryStore((s) => s.replayRun);
   const selectedTemplate = useWorkflowStore((s) => s.selectedTemplate);
+  const setSelectedTemplate = useWorkflowStore((s) => s.setSelectedTemplate);
   const setWorkflow = useWorkflowStore((s) => s.setWorkflow);
 
   const isIdle = status === "idle" && nodeCount === 0;
   const { sendAnswer, sendInterrupt } = useWorkflowEvents(workflowId);
+
+  // Fetch templates for the landing page cards
+  useState(() => {
+    fetch("/api/workflows/definitions")
+      .then((r) => r.json())
+      .then((data: SavedWorkflow[]) => setTemplates(data))
+      .catch(() => {});
+  });
 
   const startWorkflow = useCallback(async (template: unknown, task: string) => {
     const t = template as Record<string, unknown>;
@@ -71,16 +88,6 @@ export function CenterPanel() {
     );
   }
 
-  if (isIdle && !selectedTemplate) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 bg-app-bg-primary">
-        <p className="text-sm text-muted-foreground">
-          Select a template from the sidebar to start a workflow
-        </p>
-      </div>
-    );
-  }
-
   if (workflowError) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 bg-app-bg-primary p-6">
@@ -88,6 +95,54 @@ export function CenterPanel() {
         <p className="max-w-md text-center text-xs text-app-text-secondary">
           {workflowError}
         </p>
+      </div>
+    );
+  }
+
+  // Landing page — ChatGPT-style
+  if (isIdle && !selectedTemplate) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center bg-app-bg-primary px-4">
+        <div className="w-full max-w-2xl">
+          <h2 className="mb-1 text-center text-lg font-semibold text-app-text-primary">Agent Harness</h2>
+          <p className="mb-6 text-center text-xs text-muted-foreground">
+            Choose a workflow template, then describe your task
+          </p>
+
+          {templates.length > 0 && (
+            <div className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {templates.map((wf) => {
+                const isSelected = (selectedTemplate as SavedWorkflow | null)?.name === wf.name;
+                return (
+                  <button
+                    key={wf.name}
+                    onClick={() => setSelectedTemplate(wf as unknown as Record<string, unknown>)}
+                    className={`flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors ${
+                      isSelected
+                        ? "border-blue-400 bg-blue-50"
+                        : "border-app-border bg-white hover:border-gray-300 hover:bg-gray-50"
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <LayoutTemplate className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-xs font-medium text-app-text-primary">{wf.name}</span>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground">
+                      {wf.dag.nodes.length} agent{wf.dag.nodes.length !== 1 ? "s" : ""}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          <ChatInput
+            sendAnswer={sendAnswer}
+            sendInterrupt={sendInterrupt}
+            startWorkflow={startWorkflow}
+            alwaysVisible
+          />
+        </div>
       </div>
     );
   }

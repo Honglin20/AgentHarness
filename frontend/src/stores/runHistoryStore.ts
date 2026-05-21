@@ -9,6 +9,19 @@ export interface AgentSnapshot {
   retries: number;
 }
 
+export interface ConversationMessage {
+  id: string;
+  type: "agent" | "user" | "tool_call" | "system";
+  content?: string;
+  agentName?: string;
+  toolName?: string;
+  toolArgs?: Record<string, unknown>;
+  toolResult?: string;
+  status?: string;
+  durationMs?: number;
+  timestamp?: number;
+}
+
 export interface RunRecord {
   run_id: string;
   workflow_name: string;
@@ -25,6 +38,7 @@ export interface RunRecord {
       error: string | null;
     }>;
   } | null;
+  conversation: ConversationMessage[];
   created_at: string;
 }
 

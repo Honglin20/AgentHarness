@@ -17,6 +17,7 @@ export function HeaderBar() {
   const workflowId = useWorkflowStore((s) => s.workflowId);
   const workflowName = useWorkflowStore((s) => s.workflowName);
   const status = useWorkflowStore((s) => s.status);
+  const selectedTemplate = useWorkflowStore((s) => s.selectedTemplate);
   const isRunning = status === "running";
   const isActive = status !== "idle";
   const [open, setOpen] = useState(false);
@@ -85,7 +86,7 @@ export function HeaderBar() {
         </h1>
         <Separator orientation="vertical" className="h-4" />
         <span className="text-sm text-app-text-secondary">
-          {workflowName || "Untitled Workflow"}
+          {workflowName || (selectedTemplate ? `${(selectedTemplate as Record<string, unknown>).name as string} (ready)` : "")}
         </span>
       </div>
 
