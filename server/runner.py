@@ -4,6 +4,7 @@ Manages concurrent workflow runs with resource limits and cancellation.
 """
 
 import asyncio
+from pathlib import Path
 from typing import Any
 
 from server.event_bus import EventBus
@@ -106,6 +107,34 @@ class WorkflowRunner:
                         "trace": [t.model_dump() for t in result.trace],
                     }
 
+                # Persist run to disk
+                from harness.run_store import RunStore
+                run_store = RunStore()
+                agents_dir = Path(workflow.agents_dir)
+                agents_snapshot = []
+                for agent_def in workflow.agents:
+                    md_path = agents_dir / f"{agent_def.name}.md"
+                    md_content = ""
+                    if md_path.exists():
+                        md_content = md_path.read_text()
+                    agents_snapshot.append({
+                        "name": agent_def.name,
+                        "after": agent_def.after,
+                        "md_content": md_content,
+                        "tools": agent_def.tools,
+                        "model": agent_def.model,
+                        "retries": agent_def.retries,
+                    })
+
+                run_store.save(
+                    run_id=workflow_id,
+                    workflow_name=workflow.name,
+                    agents_snapshot=agents_snapshot,
+                    status="completed",
+                    inputs=inputs,
+                    result=_workflows[workflow_id]["result"],
+                )
+
                 # Emit completion
                 event_bus.emit("workflow.completed", {
                     "workflow_id": workflow_id,
@@ -124,6 +153,34 @@ class WorkflowRunner:
                         "errors": {"_workflow": str(e)},
                         "trace": [],
                     }
+
+                # Persist failed run to disk
+                from harness.run_store import RunStore
+                run_store = RunStore()
+                agents_dir = Path(workflow.agents_dir)
+                agents_snapshot = []
+                for agent_def in workflow.agents:
+                    md_path = agents_dir / f"{agent_def.name}.md"
+                    md_content = ""
+                    if md_path.exists():
+                        md_content = md_path.read_text()
+                    agents_snapshot.append({
+                        "name": agent_def.name,
+                        "after": agent_def.after,
+                        "md_content": md_content,
+                        "tools": agent_def.tools,
+                        "model": agent_def.model,
+                        "retries": agent_def.retries,
+                    })
+
+                run_store.save(
+                    run_id=workflow_id,
+                    workflow_name=workflow.name,
+                    agents_snapshot=agents_snapshot,
+                    status="failed",
+                    inputs=inputs,
+                    result=None,
+                )
 
                 event_bus.emit("workflow.error", {
                     "workflow_id": workflow_id,

@@ -1,0 +1,58 @@
+"""File-based run persistence. Each run is a JSON file in runs/ directory."""
+
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+_DEFAULT_RUNS_DIR = _BACKEND_DIR / "runs"
+
+
+class RunStore:
+    """Persist and query workflow run records."""
+
+    def __init__(self, runs_dir: str | Path | None = None):
+        self._dir = Path(runs_dir) if runs_dir else _DEFAULT_RUNS_DIR
+        self._dir.mkdir(parents=True, exist_ok=True)
+
+    def save(
+        self,
+        run_id: str,
+        workflow_name: str,
+        agents_snapshot: list[dict],
+        status: str,
+        inputs: dict,
+        result: dict | None,
+    ) -> Path:
+        record = {
+            "run_id": run_id,
+            "workflow_name": workflow_name,
+            "agents_snapshot": agents_snapshot,
+            "status": status,
+            "inputs": inputs,
+            "result": result,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        path = self._dir / f"{run_id}.json"
+        path.write_text(json.dumps(record, indent=2, ensure_ascii=False))
+        return path
+
+    def list_runs(self, workflow_name: str | None = None) -> list[dict]:
+        runs = []
+        for f in self._dir.glob("*.json"):
+            try:
+                data = json.loads(f.read_text())
+                if workflow_name and data.get("workflow_name") != workflow_name:
+                    continue
+                runs.append(data)
+            except (json.JSONDecodeError, KeyError):
+                continue
+        runs.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+        return runs
+
+    def get_run(self, run_id: str) -> dict | None:
+        path = self._dir / f"{run_id}.json"
+        if not path.exists():
+            return None
+        return json.loads(path.read_text())

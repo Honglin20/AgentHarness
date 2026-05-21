@@ -148,6 +148,23 @@ async def list_workflow_definitions() -> list[dict]:
     return Workflow.list_saved()
 
 
+@router.get("/runs")
+async def list_runs(workflow_name: str | None = None) -> list[dict]:
+    """List persisted workflow runs."""
+    from harness.run_store import RunStore
+    return RunStore().list_runs(workflow_name=workflow_name)
+
+
+@router.get("/runs/{run_id}")
+async def get_run(run_id: str) -> dict:
+    """Get a specific persisted run."""
+    from harness.run_store import RunStore
+    run = RunStore().get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return run
+
+
 @router.post("/workflows", response_model=CreateWorkflowResponse)
 async def create_workflow(
     request: CreateWorkflowRequest,

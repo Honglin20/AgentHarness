@@ -54,3 +54,23 @@ class ToolInfo(BaseModel):
 class HealthResponse(BaseModel):
     """Health check response."""
     status: str = "ok"
+
+
+class AgentSnapshot(BaseModel):
+    """Snapshot of an agent definition at run time."""
+    name: str
+    after: list[str] = []
+    md_content: str = ""
+    tools: list[str] | None = None
+    model: str | None = None
+    retries: int = 3
+
+
+class RunInfo(BaseModel):
+    """Summary of a persisted workflow run."""
+    run_id: str
+    workflow_name: str
+    status: str
+    inputs: dict = {}
+    created_at: str
+    agents_count: int
