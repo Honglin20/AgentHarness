@@ -32,9 +32,17 @@ const STATUS_LABEL: Record<string, string> = {
   retrying: "Retry",
 };
 
-export default function TraceTab() {
-  const nodes = useWorkflowStore((s) => s.nodes);
-  const status = useWorkflowStore((s) => s.status);
+export default function TraceTab({
+  nodes: nodesProp,
+  status: statusProp,
+}: {
+  nodes?: Record<string, NodeState>;
+  status?: string;
+} = {}) {
+  const storeNodes = useWorkflowStore((s) => s.nodes);
+  const storeStatus = useWorkflowStore((s) => s.status);
+  const nodes = nodesProp ?? storeNodes;
+  const status = statusProp ?? storeStatus;
 
   const nodeList = Object.values(nodes);
   if (nodeList.length === 0) {

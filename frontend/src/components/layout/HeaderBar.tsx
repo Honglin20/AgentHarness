@@ -1,17 +1,14 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { Settings, Key, Cpu, Globe, X, RotateCcw, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { useWorkflowStore } from "@/stores/workflowStore";
-import { useOutputStore } from "@/stores/outputStore";
-import { useChatStore } from "@/stores/chatStore";
-import { useChartStore } from "@/stores/chartStore";
-import { useToolCallStore } from "@/stores/toolCallStore";
-import { useConversationStore } from "@/stores/conversationStore";
-import { setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
+import { useWorkflowStore, type NodeState } from "@/stores/workflowStore";
+import { useViewStore } from "@/stores/viewStore";
+import { useResetWorkflow } from "@/hooks/useResetWorkflow";
+import DAGStatusBar from "@/components/dag/DAGStatusBar";
 
 const API_BASE = "";
 
@@ -20,6 +17,7 @@ export function HeaderBar() {
   const workflowName = useWorkflowStore((s) => s.workflowName);
   const status = useWorkflowStore((s) => s.status);
   const selectedTemplate = useWorkflowStore((s) => s.selectedTemplate);
+  const activeView = useViewStore((s) => s.activeView);
   const isRunning = status === "running";
   const isActive = status !== "idle";
   const [open, setOpen] = useState(false);
@@ -28,6 +26,29 @@ export function HeaderBar() {
   const [apiUrl, setApiUrl] = useState("");
   const [saved, setSaved] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const resetWorkflow = useResetWorkflow();
+
+  // Decide which DAG (if any) to render inline: live store, replay snapshot, or none
+  const dagProps = useMemo(() => {
+    if (activeView.type === "replay") {
+      const run = activeView.run;
+      if (!run.dag) return null;
+      const trace = run.result?.trace ?? [];
+      const nodes: Record<string, NodeState> = {};
+      for (const t of trace) {
+        nodes[t.agent_name] = {
+          id: t.agent_name,
+          name: t.agent_name,
+          status: t.status === "success" ? "success" : "failed",
+          durationMs: t.duration_ms,
+          error: t.error ?? undefined,
+        };
+      }
+      return { dag: run.dag, nodes, interactive: false };
+    }
+    if (status !== "idle") return { dag: undefined, nodes: undefined, interactive: true };
+    return null;
+  }, [activeView, status]);
 
   const loadConfig = useCallback(async () => {
     try {
@@ -64,40 +85,42 @@ export function HeaderBar() {
     try {
       await fetch(`${API_BASE}/api/workflows/${workflowId}/cancel`, { method: "POST" });
     } catch {}
-    useWorkflowStore.getState().reset();
-    useOutputStore.getState().reset();
-    useChatStore.getState().reset();
-    useChartStore.getState().reset();
-    useToolCallStore.getState().reset();
-    useConversationStore.getState().reset();
-    setActiveWorkflowId(null);
+    resetWorkflow();
     setStopping(false);
-  }, [workflowId]);
+  }, [workflowId, resetWorkflow]);
 
-  const handleNew = useCallback(() => {
-    useWorkflowStore.getState().reset();
-    useOutputStore.getState().reset();
-    useChatStore.getState().reset();
-    useChartStore.getState().reset();
-    useToolCallStore.getState().reset();
-    useConversationStore.getState().reset();
-    // Clear the active workflow ID so stale WS events are ignored
-    setActiveWorkflowId(null);
-  }, []);
+  const handleNew = resetWorkflow;
 
   return (
-    <header className="relative flex h-12 items-center justify-between border-b px-4">
-      <div className="flex items-center gap-3">
-        <h1 className="text-sm font-semibold text-app-text-primary">
-          Agent Harness
-        </h1>
+    <header className="relative flex h-14 items-center gap-3 border-b px-4">
+      <div className="relative z-10 flex shrink-0 items-center gap-3 bg-app-bg-primary">
+        <button
+          onClick={resetWorkflow}
+          className="text-sm font-semibold text-app-text-primary hover:text-blue-600 transition-colors"
+          title="Back to home / start a new workflow"
+        >
+          TARS
+        </button>
         <Separator orientation="vertical" className="h-4" />
-        <span className="text-sm text-app-text-secondary">
+        <span className="max-w-[180px] truncate text-sm text-app-text-secondary">
           {workflowName || (selectedTemplate ? `${(selectedTemplate as Record<string, unknown>).name as string} (ready)` : "")}
         </span>
       </div>
 
-      <div className="flex items-center gap-1">
+      {dagProps && (
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-0 flex h-14 items-center justify-center">
+          <div className="pointer-events-auto max-w-[60%]">
+            <DAGStatusBar
+              dag={dagProps.dag}
+              nodes={dagProps.nodes}
+              interactive={dagProps.interactive}
+              compact
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="ml-auto flex shrink-0 items-center gap-1 bg-app-bg-primary relative z-10">
         {isActive && isRunning && (
           <Button
             variant="ghost"
@@ -131,7 +154,7 @@ export function HeaderBar() {
       </div>
 
       {open && (
-        <div className="absolute right-2 top-12 z-50 w-80 rounded-lg border border-app-border bg-white p-4 shadow-lg">
+        <div className="absolute right-2 top-14 z-50 w-80 rounded-lg border border-app-border bg-white p-4 shadow-lg">
           <div className="mb-3 flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-app-text-secondary">
               Settings

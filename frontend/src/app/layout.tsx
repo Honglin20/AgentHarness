@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
+import "katex/dist/katex.min.css";
+import "prismjs/themes/prism.css";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -14,7 +16,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Agent Harness",
+  title: "TARS",
   description: "Multi-agent orchestration dashboard",
 };
 

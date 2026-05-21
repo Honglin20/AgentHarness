@@ -10,11 +10,32 @@ function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-function truncateArgs(args: Record<string, unknown>, maxLen = 60): string {
-  const str = Object.entries(args)
-    .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
-    .join(", ");
-  return str.length > maxLen ? str.slice(0, maxLen) + "..." : str;
+function truncateArgs(args: unknown, maxLen = 60): string {
+  if (args == null) return "";
+  if (typeof args === "string") return args.length > maxLen ? args.slice(0, maxLen) + "..." : args;
+  if (typeof args !== "object") {
+    const s = String(args);
+    return s.length > maxLen ? s.slice(0, maxLen) + "..." : s;
+  }
+  try {
+    const str = Object.entries(args as Record<string, unknown>)
+      .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
+      .join(", ");
+    return str.length > maxLen ? str.slice(0, maxLen) + "..." : str;
+  } catch {
+    const s = JSON.stringify(args);
+    return s.length > maxLen ? s.slice(0, maxLen) + "..." : s;
+  }
+}
+
+function formatArgsBlock(args: unknown): string {
+  if (args == null) return "";
+  if (typeof args === "string") return args;
+  try {
+    return JSON.stringify(args, null, 2);
+  } catch {
+    return String(args);
+  }
 }
 
 function truncateResult(result: string | undefined, maxLen = 80): string {
@@ -66,7 +87,7 @@ function ToolCallRow({ record }: { record: ToolCallRecord }) {
               Arguments
             </div>
             <pre className="overflow-x-auto rounded bg-white p-2 text-[11px] font-mono">
-              {JSON.stringify(record.args, null, 2)}
+              {formatArgsBlock(record.args)}
             </pre>
           </div>
           {record.result !== undefined && (
@@ -85,9 +106,17 @@ function ToolCallRow({ record }: { record: ToolCallRecord }) {
   );
 }
 
-export default function ToolCallsTab() {
-  const records = useToolCallStore((s) => s.records);
-  const order = useToolCallStore((s) => s.order);
+export default function ToolCallsTab({
+  records: recordsProp,
+  order: orderProp,
+}: {
+  records?: Record<string, ToolCallRecord>;
+  order?: string[];
+} = {}) {
+  const storeRecords = useToolCallStore((s) => s.records);
+  const storeOrder = useToolCallStore((s) => s.order);
+  const records = recordsProp ?? storeRecords;
+  const order = orderProp ?? storeOrder;
   const [filter, setFilter] = useState<string | null>(null);
 
   const allRecords = order.map((id) => records[id]);

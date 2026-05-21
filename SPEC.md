@@ -857,7 +857,7 @@ def get_config() -> dict:
 | `chart.render` | S→C | chart 数据就绪，前端渲染 |
 | `chat.question` | S→C | agent 需要人类回答 |
 | `chat.answer` | C→S | 用户回答问题 |
-| `workflow.interrupt` | C→S | 用户主动打断当前 agent |
+| `agent.stop_and_regenerate` | C→S | 用户中止当前 agent 并附带指导让其重新生成 |
 | `workflow.resumed` | S→C | agent 已恢复执行 |
 
 ### 架构
@@ -1359,36 +1359,36 @@ else:
 
 ---
 
-## §Interrupt — 主动打断 Agent
+## §StopAndRegenerate — 打断并重新生成
 
-> Phase 4 敲定（2026-05-20）
+> Phase 4 敲定（2026-05-20）；2026-05-21 重命名 `workflow.interrupt` → `agent.stop_and_regenerate`，语义同时包含"停止当前流"与"基于部分输出+用户指导重跑同一 agent"。
 
 ### 定位
 
-当前 HIL 只有 agent 主动调 `ask_human` 才触发。主动打断允许用户在 agent 执行过程中随时中断，注入指令后恢复执行。
+ChatGPT 风格：agent streaming 期间，用户随时可以打断；可选附加"用户指导"。后端中止当前 LLM 调用，把"已输出的部分回复 + 用户指导"作为新的 prompt 让**同一 agent** 重新生成（不进入下一节点）。
 
 ### 事件协议
 
 ```
-用户点击"打断" + 输入指令
-→ 前端发送 workflow.interrupt 事件
-→ 后端停止当前节点 streaming
-→ 保存当前 state（LangGraph checkpoint）
-→ 用户输入新指令后发送 workflow.interrupt（含 directive）
-→ 后端 Command(resume=directive) 恢复
-→ agent 带着新指令继续执行
+用户在 agent streaming 期间点击 Stop（输入框可空可填）
+→ 前端发送 agent.stop_and_regenerate（含 agent_name / partial_output / user_guidance）
+→ 后端 break 当前 stream
+→ 后端用 (原 context + 部分回复 + 用户指导) 重新调用同一 agent
+→ agent 重新生成，发送 workflow.resumed
 ```
 
 ### WebSocket 事件
 
 ```json
-// C→S: 用户请求打断
+// C→S: 用户请求 stop + regenerate
 {
-  "type": "workflow.interrupt",
+  "type": "agent.stop_and_regenerate",
   "ts": 1716000000000,
   "payload": {
     "workflow_id": "...",
-    "directive": "不要用递归，改用迭代方式重写"
+    "agent_name": "coder",
+    "partial_output": "已经生成的部分文本……",
+    "user_guidance": "不要用递归，改用迭代方式重写"  // 可空
   }
 }
 
@@ -1404,94 +1404,79 @@ else:
 }
 ```
 
+`user_guidance` 为空时，后端使用默认提示 "请基于此重新整理思路。"。
+
 ### 后端实现
 
 ```python
-# harness/engine/macro_graph.py — 节点函数中的 interrupt 检查点
+# harness/engine/macro_graph.py
 
-async def node_func(state: HarnessState) -> dict:
-    ...
-    if bus:
-        async with pydantic_agent.run_stream(context, deps=deps) as streamed:
-            async for chunk in streamed.stream_text(delta=True):
-                bus.emit("agent.text_delta", {...})
+_pending_stop_regen: dict[str, dict[str, str]] = {}  # workflow_id → {agent_name, partial_output, user_guidance}
 
-                # 检查是否有 pending interrupt
-                if _has_pending_interrupt(workflow_id):
-                    directive = _consume_interrupt(workflow_id)
-                    # 将 directive 注入上下文，继续 streaming
-                    # Pydantic AI 不支持 mid-stream 注入，
-                    # 因此：停止当前 stream → 用新 prompt 重新 run
-                    break
+async def request_stop_and_regenerate(
+    workflow_id: str, agent_name: str, partial_output: str, user_guidance: str,
+) -> None:
+    async with _stop_regen_lock:
+        _pending_stop_regen[workflow_id] = {
+            "agent_name": agent_name,
+            "partial_output": partial_output,
+            "user_guidance": user_guidance,
+        }
 
-            if directive:
-                # 用原始 context + directive 重新执行
-                new_context = context + f"\n\n[用户打断指令]: {directive}"
-                async with pydantic_agent.run_stream(new_context, deps=deps) as streamed2:
-                    async for chunk in streamed2.stream_text(delta=True):
-                        bus.emit("agent.text_delta", {...})
-                output = await streamed2.get_output()
-                bus.emit("workflow.resumed", {
-                    "workflow_id": workflow_id,
-                    "node_id": agent_def.name,
-                    "directive": directive,
-                })
-            else:
-                output = await streamed.get_output()
-```
+# 节点函数 stream loop 中：
+async for chunk in stream.stream_text(delta=True):
+    bus.emit("agent.text_delta", {...})
+    if _has_pending_stop_regen(wid, agent_def.name):
+        stop_regen = _consume_stop_regen(wid)
+        break
 
-### 中断信号存储
-
-```python
-# harness/engine/macro_graph.py — 模块级 interrupt 管理
-
-_pending_interrupts: dict[str, str] = {}  # workflow_id → directive
-_interrupt_lock = asyncio.Lock()
-
-async def request_interrupt(workflow_id: str, directive: str) -> None:
-    async with _interrupt_lock:
-        _pending_interrupts[workflow_id] = directive
-
-def _has_pending_interrupt(workflow_id: str) -> bool:
-    return workflow_id in _pending_interrupts
-
-def _consume_interrupt(workflow_id: str) -> str | None:
-    return _pending_interrupts.pop(workflow_id, None)
+if stop_regen:
+    guidance = stop_regen["user_guidance"] or "请基于此重新整理思路。"
+    new_context = "\n\n".join([
+        context,
+        f"[此前你的部分回复]:\n{stop_regen['partial_output']}",
+        f"[用户指导]: {guidance}",
+        "请基于上述部分回复与用户指导，重新生成完整回答。",
+    ])
+    agent_run = await _run_agent(new_context)
+    bus.emit("workflow.resumed", {...})
 ```
 
 ### WebSocket 处理
 
 ```python
-# server/ws_handler.py — 新增 interrupt 事件处理
-
-if message.get("type") == "workflow.interrupt":
-    workflow_id = message.get("payload", {}).get("workflow_id")
-    directive = message.get("payload", {}).get("directive", "")
-    if workflow_id and directive:
-        from harness.engine.macro_graph import request_interrupt
-        await request_interrupt(workflow_id, directive)
+# server/ws_handler.py
+elif message.get("type") == "agent.stop_and_regenerate":
+    payload = message.get("payload", {}) or {}
+    agent_name = payload.get("agent_name") or ""
+    partial_output = payload.get("partial_output", "") or ""
+    user_guidance = payload.get("user_guidance", "") or ""
+    if agent_name:
+        from harness.engine.macro_graph import request_stop_and_regenerate
+        await request_stop_and_regenerate(workflow_id, agent_name, partial_output, user_guidance)
 ```
 
 ### 前端实现
 
-- ChatInput 常驻底部（Phase B 已实现）
-- 新增"打断"按钮（红色闪电图标），仅当 `status === "running"` 时显示
-- 打断时：发送 `workflow.interrupt` 事件，输入框中的文字作为 `directive`
-- 收到 `workflow.resumed` 事件后，在 agent 输出中显示 `[用户打断指令]` 标记
+- ChatInput 常驻底部
+- 检测最近一条 `status === "streaming"` 的 agent 消息 → 进入 "Stop" 模式
+- Stop 模式下 Send 按钮变为方块 Stop（红色），不再要求输入框非空
+- 点击 Stop 时发送 `agent.stop_and_regenerate`（partial_output 取 agent 消息当前 content，user_guidance 取输入框值，可空）
+- 收到 `workflow.resumed` 事件后会在消息流插入 system 消息提示
 
 ### 设计决策
 
-- [x] 不使用 LangGraph interrupt()，用 streaming 循环内检查点
-  - Why: LangGraph interrupt 需要 checkpointer 且与 Pydantic AI 的 run_stream 交互复杂；streaming 循环中每个 chunk 都检查更简单可靠
-  - How: `_has_pending_interrupt()` 在每次 emit text_delta 后检查，发现 interrupt 则 break 当前 stream + 用新 context 重新 run
-- [x] directive 注入方式为拼接到 context 末尾
-  - Why: 最简单，不改变 Pydantic AI 的 tool loop 结构
-  - How: `new_context = context + f"\n\n[用户打断指令]: {directive}"`
+- [x] 使用 streaming 循环内检查点，不使用 LangGraph interrupt()
+  - Why: LangGraph interrupt 需要 checkpointer 且与 Pydantic AI 的 iter loop 交互复杂
+- [x] 同 agent 重新生成而非进入下一节点
+  - Why: 用户语义是"对当前 agent 输出不满意，给指导让它再来一次"
+- [x] 把 partial_output 一并塞回新 prompt
+  - Why: 让 agent 看到自己之前说了什么，避免重复或丢失上下文
+- [x] user_guidance 可空
+  - Why: ChatGPT 风格 — 想立即停就停，不强制写理由
+- [x] 仅一个事件而非"interrupt + 新增 stop"两套
+  - Why: 二者本质同一件事，避免协议分裂
 
-### 待讨论
-
-- [ ] 是否需要打断时保留当前已生成的部分输出？还是清除后重新生成？
-- [ ] 多次打断（同一节点打断两次）是否需要支持？
 
 ---
 

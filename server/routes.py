@@ -196,19 +196,66 @@ async def list_workflow_definitions() -> list[dict]:
 
 @router.get("/runs", response_model=list[RunDetail])
 async def list_runs(workflow_name: str | None = None) -> list[RunDetail]:
-    """List persisted workflow runs."""
+    """List persisted runs, merged with currently-running in-memory workflows.
+
+    Live runs are returned with status="running" so the sidebar can show them
+    alongside finished ones and offer a cancel button. They are merged by
+    run_id — if a workflow finishes between sidebar refreshes, the persisted
+    record takes precedence.
+    """
     from harness.run_store import RunStore
-    return RunStore().list_runs(workflow_name=workflow_name)
+    persisted = RunStore().list_runs(workflow_name=workflow_name)
+    persisted_ids = {r.get("run_id") for r in persisted}
+
+    # Add running in-memory workflows that aren't yet persisted
+    live_records = []
+    for wid, data in _workflows.items():
+        if data["status"] != "running" or wid in persisted_ids:
+            continue
+        workflow = data["workflow"]
+        if workflow_name and workflow.name != workflow_name:
+            continue
+        live_records.append({
+            "run_id": wid,
+            "workflow_name": workflow.name,
+            "agents_snapshot": data.get("agents_snapshot", []),
+            "status": "running",
+            "inputs": data.get("inputs", {}),
+            "result": None,
+            "conversation": [],
+            "created_at": data.get("created_at", ""),
+            "dag": _dag_cache.get(wid),
+        })
+
+    # Live runs first (most recent), then persisted (sorted by created_at desc by RunStore)
+    return live_records + persisted
 
 
 @router.get("/runs/{run_id}", response_model=RunDetail)
 async def get_run(run_id: str) -> RunDetail:
-    """Get a specific persisted run."""
+    """Get a run by id — persisted disk record or live in-memory workflow."""
     from harness.run_store import RunStore
     run = RunStore().get_run(run_id)
-    if not run:
-        raise HTTPException(status_code=404, detail="Run not found")
-    return run
+    if run:
+        return run
+
+    # Fall back to in-memory live workflow
+    data = _workflows.get(run_id)
+    if data is not None:
+        workflow = data["workflow"]
+        return {
+            "run_id": run_id,
+            "workflow_name": workflow.name,
+            "agents_snapshot": data.get("agents_snapshot", []),
+            "status": data["status"],
+            "inputs": data.get("inputs", {}),
+            "result": data.get("result"),
+            "conversation": [],
+            "created_at": data.get("created_at", ""),
+            "dag": _dag_cache.get(run_id),
+        }
+
+    raise HTTPException(status_code=404, detail="Run not found")
 
 
 @router.patch("/runs/{run_id}/conversation")
@@ -230,6 +277,25 @@ async def update_run_conversation(run_id: str, request: Request) -> dict:
     return {"status": "ok"}
 
 
+@router.patch("/runs/{run_id}/charts")
+async def update_run_charts(run_id: str, request: Request) -> dict:
+    """Update chart_groups snapshot for a persisted run (so Results tab replays)."""
+    body = await request.json()
+    chart_groups = body.get("chart_groups")
+    from harness.run_store import RunStore
+    store = RunStore()
+    run = store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    run["chart_groups"] = chart_groups
+    path = store._safe_path(run_id)
+    if not path:
+        raise HTTPException(status_code=400, detail="Invalid run_id")
+    import json
+    path.write_text(json.dumps(run, indent=2, ensure_ascii=False))
+    return {"status": "ok"}
+
+
 @router.post("/workflows", response_model=CreateWorkflowResponse)
 async def create_workflow(
     request: CreateWorkflowRequest,
@@ -241,6 +307,11 @@ async def create_workflow(
     runner = get_runner()
     if runner.running_count > 0:
         raise HTTPException(status_code=409, detail="A workflow is already running. Wait for it to complete or cancel it first.")
+
+    # Clear EventBus replay buffer so the new WS subscriber doesn't receive
+    # stale events from prior runs (e.g. ghost charts, replayed workflow.started
+    # that would overwrite _activeWorkflowId on the client).
+    event_bus.clear_buffer()
 
     workflow_id = str(uuid.uuid4())
 
@@ -257,10 +328,17 @@ async def create_workflow(
     )
 
     # Store workflow
+    from datetime import datetime, timezone
+    from server.runner import _build_agents_snapshot
     _workflows[workflow_id] = {
         "workflow": workflow,
         "status": "running",
         "result": None,
+        "inputs": request.inputs,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        # Take agents_snapshot at workflow START so that mid-run .md edits don't
+        # pollute history. The persisted record will use this exact snapshot.
+        "agents_snapshot": _build_agents_snapshot(workflow),
     }
 
     # Build DAG for React Flow

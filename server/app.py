@@ -3,7 +3,7 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -49,6 +49,17 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # HTML responses (index.html, 404.html) must not be cached so that a
+    # fresh `next build` shows up without users needing to hard-refresh.
+    # Hashed _next/* assets remain cacheable.
+    @app.middleware("http")
+    async def no_cache_html(request: Request, call_next):
+        response = await call_next(request)
+        ct = response.headers.get("content-type", "")
+        if ct.startswith("text/html"):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return response
+
     # API routes (must come before static mount)
     app.include_router(router, prefix="/api")
     app.include_router(ws_router, prefix="/ws")
@@ -58,8 +69,9 @@ def create_app() -> FastAPI:
 
     # Serve frontend static build (if exists)
     frontend_out = Path(__file__).resolve().parent.parent / "frontend" / "out"
-    if frontend_out.exists():
-        app.mount("/_next", StaticFiles(directory=frontend_out / "_next"), name="next_assets")
+    next_assets = frontend_out / "_next"
+    if frontend_out.exists() and next_assets.exists():
+        app.mount("/_next", StaticFiles(directory=next_assets), name="next_assets")
         app.mount("/", StaticFiles(directory=frontend_out, html=True), name="frontend")
     else:
         from fastapi.responses import HTMLResponse

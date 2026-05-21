@@ -4,8 +4,13 @@ import { useWorkflowStore, type NodeState } from "@/stores/workflowStore";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AlertCircle } from "lucide-react";
 
-export default function ErrorsTab() {
-  const nodes = useWorkflowStore((s) => s.nodes);
+export default function ErrorsTab({
+  nodes: nodesProp,
+}: {
+  nodes?: Record<string, NodeState>;
+} = {}) {
+  const storeNodes = useWorkflowStore((s) => s.nodes);
+  const nodes = nodesProp ?? storeNodes;
 
   const failedNodes = Object.values(nodes).filter(
     (n) => n.status === "failed" || n.status === "retrying"

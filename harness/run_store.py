@@ -33,6 +33,7 @@ class RunStore:
         status: str,
         inputs: dict,
         result: dict | None,
+        dag: dict | None = None,
     ) -> Path:
         record = {
             "run_id": run_id,
@@ -41,6 +42,7 @@ class RunStore:
             "status": status,
             "inputs": inputs,
             "result": result,
+            "dag": dag,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         path = self._safe_path(run_id)

@@ -53,12 +53,12 @@ export function useWebSocket({
   }, []);
 
   const connect = useCallback(() => {
-    if (!workflowIdRef.current) return;
+    if (!workflowId) return;
     disconnect();
     cancelledRef.current = false;
 
     const base = getWsBaseUrl();
-    const url = `${base}/ws/workflows/${workflowIdRef.current}`;
+    const url = `${base}/ws/workflows/${workflowId}`;
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
@@ -77,7 +77,7 @@ export function useWebSocket({
     ws.onclose = () => {
       setIsConnected(false);
       wsRef.current = null;
-      // Read the current workflowId from the ref, not the closure
+      // Read latest workflowId from ref + check cancellation flag
       if (autoReconnect && !cancelledRef.current && workflowIdRef.current) {
         const delay = Math.min(
           reconnectDelay * Math.pow(2, attemptRef.current),
@@ -91,7 +91,7 @@ export function useWebSocket({
     ws.onerror = () => {
       ws.close();
     };
-  }, [autoReconnect, reconnectDelay, disconnect]);
+  }, [workflowId, autoReconnect, reconnectDelay, disconnect]);
 
   useEffect(() => {
     connect();

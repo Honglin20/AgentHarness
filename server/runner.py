@@ -89,6 +89,26 @@ class WorkflowRunner:
             if workflow_id in self._cancelled:
                 self._cancelled.remove(workflow_id)
 
+            # Persist a cancelled record so the run shows up in history
+            from server.routes import _workflows, _dag_cache
+            data = _workflows.get(workflow_id)
+            if data is not None:
+                workflow = data["workflow"]
+                from harness.run_store import RunStore
+                try:
+                    RunStore().save(
+                        run_id=workflow_id,
+                        workflow_name=workflow.name,
+                        agents_snapshot=data.get("agents_snapshot")
+                            or _build_agents_snapshot(workflow),
+                        status="cancelled",
+                        inputs=data.get("inputs", {}),
+                        result=None,
+                        dag=_dag_cache.get(workflow_id),
+                    )
+                except Exception:
+                    pass
+
             return True
 
     async def _run_workflow(
@@ -129,13 +149,16 @@ class WorkflowRunner:
 
                 # Persist run to disk
                 from harness.run_store import RunStore
+                from server.routes import _dag_cache
                 RunStore().save(
                     run_id=workflow_id,
                     workflow_name=workflow.name,
-                    agents_snapshot=_build_agents_snapshot(workflow),
+                    agents_snapshot=_workflows[workflow_id].get("agents_snapshot")
+                        or _build_agents_snapshot(workflow),
                     status="completed",
                     inputs=inputs,
                     result=_workflows[workflow_id]["result"],
+                    dag=_dag_cache.get(workflow_id),
                 )
 
                 # Emit completion
@@ -159,13 +182,16 @@ class WorkflowRunner:
 
                 # Persist failed run to disk
                 from harness.run_store import RunStore
+                from server.routes import _dag_cache
                 RunStore().save(
                     run_id=workflow_id,
                     workflow_name=workflow.name,
-                    agents_snapshot=_build_agents_snapshot(workflow),
+                    agents_snapshot=_workflows[workflow_id].get("agents_snapshot")
+                        or _build_agents_snapshot(workflow),
                     status="failed",
                     inputs=inputs,
                     result=None,
+                    dag=_dag_cache.get(workflow_id),
                 )
 
                 event_bus.emit("workflow.error", {

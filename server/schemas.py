@@ -76,3 +76,5 @@ class RunDetail(BaseModel):
     result: dict[str, Any] | None = None
     conversation: list[dict] = []
     created_at: str
+    dag: dict | None = None  # {nodes, edges, conditional_edges} — needed so replay view can render the DAG identically to live view
+    chart_groups: dict | None = None  # {groups: {label: ChartGroup}, groupOrder: [labels]} — snapshot of frontend chartStore so Results tab replays

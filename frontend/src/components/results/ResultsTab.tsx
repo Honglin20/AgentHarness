@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { useChartStore } from "@/stores/chartStore";
+import { useChartStore, type ChartGroup } from "@/stores/chartStore";
 import ChartWidget from "@/components/output/ChartWidget";
 import DataTable from "@/components/output/charts/DataTable";
 import {
@@ -12,10 +12,18 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
-export default function ResultsTab() {
-  const groups = useChartStore((s) => s.groups);
-  const groupOrder = useChartStore((s) => s.groupOrder);
+interface ResultsTabProps {
+  /** When provided, render these chart groups (replay mode). Otherwise read live store. */
+  groups?: Record<string, ChartGroup>;
+  groupOrder?: string[];
+}
+
+export default function ResultsTab({ groups: groupsProp, groupOrder: groupOrderProp }: ResultsTabProps = {}) {
+  const storeGroups = useChartStore((s) => s.groups);
+  const storeGroupOrder = useChartStore((s) => s.groupOrder);
   const toggleCollapse = useChartStore((s) => s.toggleCollapse);
+  const groups = groupsProp ?? storeGroups;
+  const groupOrder = groupOrderProp ?? storeGroupOrder;
 
   if (groupOrder.length === 0) {
     return (
@@ -46,7 +54,7 @@ export default function ResultsTab() {
             >
               <Collapsible
                 open={!group.collapsed}
-                onOpenChange={() => toggleCollapse(label)}
+                onOpenChange={() => { if (!groupsProp) toggleCollapse(label); }}
               >
                 <CollapsibleTrigger className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-app-bg-secondary rounded-t-lg">
                   {group.collapsed ? (

@@ -5,18 +5,19 @@ import { useConversationStore } from "@/stores/conversationStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Play, Zap } from "lucide-react";
+import { Play, Square } from "lucide-react";
 
 interface ChatInputProps {
   sendAnswer: (questionId: string, answer: string) => void;
-  sendInterrupt?: (directive: string) => void;
+  sendStopAndRegenerate?: (agentName: string, partialOutput: string, userGuidance: string) => void;
   startWorkflow?: (template: unknown, task: string) => void;
   alwaysVisible?: boolean;
 }
 
-export default function ChatInput({ sendAnswer, sendInterrupt, startWorkflow, alwaysVisible = false }: ChatInputProps) {
+export default function ChatInput({ sendAnswer, sendStopAndRegenerate, startWorkflow, alwaysVisible = false }: ChatInputProps) {
   const pendingQuestionId = useConversationStore((s) => s.pendingQuestionId);
   const pendingQuestionAgent = useConversationStore((s) => s.pendingQuestionAgent);
+  const messages = useConversationStore((s) => s.messages);
   const hasPendingQuestion = pendingQuestionId !== null;
   const status = useWorkflowStore((s) => s.status);
   const selectedTemplate = useWorkflowStore((s) => s.selectedTemplate);
@@ -24,8 +25,20 @@ export default function ChatInput({ sendAnswer, sendInterrupt, startWorkflow, al
   const inputRef = useRef<HTMLInputElement>(null);
 
   const isIdle = status === "idle";
-  const isRunning = status === "running";
   const canStartWorkflow = isIdle && !!selectedTemplate && !!startWorkflow;
+
+  // Find the most recent agent message that's still streaming
+  const streamingAgent = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.type === "agent" && m.status === "streaming") {
+        return { agentName: m.agentName ?? m.nodeId ?? "agent", content: m.content };
+      }
+    }
+    return null;
+  })();
+
+  const showStop = !!streamingAgent && !!sendStopAndRegenerate && !hasPendingQuestion;
 
   useEffect(() => {
     if (pendingQuestionId || canStartWorkflow) {
@@ -33,7 +46,7 @@ export default function ChatInput({ sendAnswer, sendInterrupt, startWorkflow, al
     }
   }, [pendingQuestionId, canStartWorkflow]);
 
-  const handleSubmit = useCallback(() => {
+  const handleSend = useCallback(() => {
     const trimmed = value.trim();
     if (!trimmed) return;
 
@@ -43,35 +56,39 @@ export default function ChatInput({ sendAnswer, sendInterrupt, startWorkflow, al
       useConversationStore.getState().clearPendingQuestion(pendingQuestionId);
     } else if (canStartWorkflow) {
       startWorkflow(selectedTemplate, trimmed);
-    } else if (isRunning && sendInterrupt) {
-      sendInterrupt(trimmed);
-      useConversationStore.getState().addUserMessage(trimmed);
     }
     setValue("");
-  }, [value, pendingQuestionId, hasPendingQuestion, isRunning, sendAnswer, sendInterrupt, startWorkflow, selectedTemplate, canStartWorkflow]);
+  }, [value, pendingQuestionId, hasPendingQuestion, sendAnswer, startWorkflow, selectedTemplate, canStartWorkflow]);
 
-  const handleInterrupt = useCallback(() => {
-    const trimmed = value.trim();
-    if (!trimmed || !sendInterrupt) return;
-    sendInterrupt(trimmed);
+  const handleStop = useCallback(() => {
+    if (!streamingAgent || !sendStopAndRegenerate) return;
+    sendStopAndRegenerate(streamingAgent.agentName, streamingAgent.content, value);
+    if (value.trim()) {
+      useConversationStore.getState().addUserMessage(value);
+    }
     setValue("");
-  }, [value, sendInterrupt]);
+  }, [streamingAgent, sendStopAndRegenerate, value]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        handleSubmit();
+        if (showStop) {
+          handleStop();
+        } else {
+          handleSend();
+        }
       }
     },
-    [handleSubmit]
+    [showStop, handleStop, handleSend]
   );
 
-  if (!alwaysVisible && !hasPendingQuestion && !canStartWorkflow) return null;
+  if (!alwaysVisible && !hasPendingQuestion && !canStartWorkflow && !showStop) return null;
 
   const getPlaceholder = () => {
     if (hasPendingQuestion && pendingQuestionAgent) return `回答 ${pendingQuestionAgent} 的问题...`;
     if (canStartWorkflow) return `输入任务启动 ${(selectedTemplate as Record<string, unknown>).name as string}...`;
+    if (showStop) return `指导 ${streamingAgent!.agentName} 重新生成（可留空直接停止）...`;
     return "Message...";
   };
 
@@ -86,24 +103,25 @@ export default function ChatInput({ sendAnswer, sendInterrupt, startWorkflow, al
         aria-label={hasPendingQuestion ? "Type your answer" : "Type a message"}
         className={hasPendingQuestion ? "h-8 text-sm ring-2 ring-blue-500" : "h-8 text-sm"}
       />
-      <Button
-        size="sm"
-        onClick={handleSubmit}
-        disabled={!value.trim()}
-        className="h-8 shrink-0 gap-1 px-3"
-      >
-        {canStartWorkflow ? <><Play className="h-3.5 w-3.5" />Start</> : "Send"}
-      </Button>
-      {isRunning && sendInterrupt && !hasPendingQuestion && (
+      {showStop ? (
         <Button
           size="sm"
           variant="destructive"
-          onClick={handleInterrupt}
+          onClick={handleStop}
+          className="h-8 shrink-0 gap-1 px-3"
+          aria-label="Stop and regenerate"
+        >
+          <Square className="h-3.5 w-3.5 fill-current" />
+          Stop
+        </Button>
+      ) : (
+        <Button
+          size="sm"
+          onClick={handleSend}
           disabled={!value.trim()}
           className="h-8 shrink-0 gap-1 px-3"
         >
-          <Zap className="h-3.5 w-3.5" />
-          Interrupt
+          {canStartWorkflow ? <><Play className="h-3.5 w-3.5" />Start</> : "Send"}
         </Button>
       )}
     </div>

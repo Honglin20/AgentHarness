@@ -122,12 +122,17 @@ async def websocket_endpoint(
                     from harness.tools.ask_human import resolve_question
                     await resolve_question(question_id, answer)
 
-            # Handle interrupt requests
-            elif message.get("type") == "workflow.interrupt":
-                directive = message.get("payload", {}).get("directive", "")
-                if directive:
-                    from harness.engine.macro_graph import request_interrupt
-                    await request_interrupt(workflow_id, directive)
+            # Handle stop + regenerate requests
+            elif message.get("type") == "agent.stop_and_regenerate":
+                payload = message.get("payload", {}) or {}
+                agent_name = payload.get("agent_name") or ""
+                partial_output = payload.get("partial_output", "") or ""
+                user_guidance = payload.get("user_guidance", "") or ""
+                if agent_name:
+                    from harness.engine.macro_graph import request_stop_and_regenerate
+                    await request_stop_and_regenerate(
+                        workflow_id, agent_name, partial_output, user_guidance,
+                    )
     except WebSocketDisconnect:
         pass
     finally:

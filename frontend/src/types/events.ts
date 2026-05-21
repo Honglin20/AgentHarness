@@ -21,7 +21,7 @@ export type EventType =
   | "chart.render"
   | "chat.question"
   | "chat.answer"
-  | "workflow.interrupt"
+  | "agent.stop_and_regenerate"
   | "workflow.resumed";
 
 // Workflow events

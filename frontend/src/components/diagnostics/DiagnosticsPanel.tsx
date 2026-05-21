@@ -1,17 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import TraceTab from "./TraceTab";
 import ToolCallsTab from "./ToolCallsTab";
 import ErrorsTab from "./ErrorsTab";
-import { useWorkflowStore } from "@/stores/workflowStore";
-import { useToolCallStore } from "@/stores/toolCallStore";
+import { useWorkflowStore, type NodeState } from "@/stores/workflowStore";
+import { useToolCallStore, type ToolCallRecord } from "@/stores/toolCallStore";
+import { useViewStore } from "@/stores/viewStore";
 
 export default function DiagnosticsPanel() {
-  const nodes = useWorkflowStore((s) => s.nodes);
+  const liveNodes = useWorkflowStore((s) => s.nodes);
+  const liveStatus = useWorkflowStore((s) => s.status);
   const selectedNodeId = useWorkflowStore((s) => s.selectedNodeId);
-  const toolCallCount = useToolCallStore((s) => s.order.length);
+  const liveToolCallCount = useToolCallStore((s) => s.order.length);
+  const activeView = useViewStore((s) => s.activeView);
   const [activeTab, setActiveTab] = useState("trace");
 
   useEffect(() => {
@@ -19,6 +22,49 @@ export default function DiagnosticsPanel() {
       setActiveTab("trace");
     }
   }, [selectedNodeId]);
+
+  // In replay mode, derive nodes / tool calls from the run record so the
+  // diagnostics tabs show historical state instead of being empty.
+  const replayDerived = useMemo(() => {
+    if (activeView.type !== "replay") return null;
+    const run = activeView.run;
+    const nodes: Record<string, NodeState> = {};
+    for (const t of run.result?.trace ?? []) {
+      nodes[t.agent_name] = {
+        id: t.agent_name,
+        name: t.agent_name,
+        status: t.status === "success" ? "success" : "failed",
+        durationMs: t.duration_ms,
+        error: t.error ?? undefined,
+      };
+    }
+
+    const records: Record<string, ToolCallRecord> = {};
+    const order: string[] = [];
+    let i = 0;
+    for (const msg of run.conversation ?? []) {
+      if (msg.type !== "tool_call" || !msg.toolName) continue;
+      const id = `replay-tc-${i++}`;
+      records[id] = {
+        id,
+        nodeId: msg.agentName ?? "",
+        agentName: msg.agentName ?? "",
+        toolName: msg.toolName,
+        args: msg.toolArgs ?? {},
+        result: msg.toolResult,
+        timestamp: msg.timestamp ?? 0,
+      };
+      order.push(id);
+    }
+
+    return { nodes, status: run.status, records, order };
+  }, [activeView]);
+
+  const nodes = replayDerived?.nodes ?? liveNodes;
+  const status = replayDerived?.status ?? liveStatus;
+  const toolRecords = replayDerived?.records;
+  const toolOrder = replayDerived?.order;
+  const toolCallCount = toolOrder ? toolOrder.length : liveToolCallCount;
 
   const errorCount = Object.values(nodes).filter(
     (n) => n.status === "failed" || n.status === "retrying"
@@ -39,13 +85,13 @@ export default function DiagnosticsPanel() {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="trace" className="flex-1 overflow-hidden">
-          <TraceTab />
+          <TraceTab nodes={replayDerived ? nodes : undefined} status={replayDerived ? status : undefined} />
         </TabsContent>
         <TabsContent value="tools" className="flex-1 overflow-hidden">
-          <ToolCallsTab />
+          <ToolCallsTab records={toolRecords} order={toolOrder} />
         </TabsContent>
         <TabsContent value="errors" className="flex-1 overflow-hidden">
-          <ErrorsTab />
+          <ErrorsTab nodes={replayDerived ? nodes : undefined} />
         </TabsContent>
       </Tabs>
     </aside>

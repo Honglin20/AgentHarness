@@ -39,6 +39,18 @@ function _saveConversation(workflowId: string | undefined): void {
   });
 }
 
+/** Save chartStore snapshot (groups + groupOrder) so the Results tab replays. */
+function _saveCharts(workflowId: string | undefined): void {
+  if (!workflowId) return;
+  const { groups, groupOrder } = useChartStore.getState();
+  if (groupOrder.length === 0) return;  // nothing to save
+  fetch(`/api/runs/${workflowId}/charts`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chart_groups: { groups, groupOrder } }),
+  }).catch(() => {});
+}
+
 // Cast through unknown — the switch on event.type guarantees the payload shape
 function dispatchEvent(event: WSEvent): void {
   const payloadWid = event.payload?.workflow_id as string | undefined;
@@ -48,6 +60,10 @@ function dispatchEvent(event: WSEvent): void {
   switch (event.type) {
     case "workflow.started": {
       const p = event.payload as unknown as WorkflowStartedPayload;
+      // If we already locked to a workflow_id (set via setActiveWorkflowId
+      // before connecting), ignore any replayed/stale workflow.started events
+      // for a different workflow.
+      if (_activeWorkflowId && p.workflow_id !== _activeWorkflowId) break;
       _activeWorkflowId = p.workflow_id;
       useWorkflowStore.getState().handleWorkflowStarted(p);
       useConversationStore.getState().addSystemMessage("Workflow started: " + p.name);
@@ -60,8 +76,9 @@ function dispatchEvent(event: WSEvent): void {
       useWorkflowStore
         .getState()
         .handleWorkflowCompleted(p);
-      // Persist conversation to backend
+      // Persist conversation + charts to backend
       _saveConversation(payloadWid);
+      _saveCharts(payloadWid);
       break;
     }
 
@@ -148,8 +165,9 @@ function dispatchEvent(event: WSEvent): void {
         status: "failed",
       });
       useOutputStore.getState().setWorkflowError(p.error);
-      // Persist conversation to backend
+      // Persist conversation + charts to backend
       _saveConversation(p.workflow_id);
+      _saveCharts(p.workflow_id);
       break;
     }
 
@@ -170,7 +188,10 @@ export function setActiveWorkflowId(id: string | null) {
 
 export function useWorkflowEvents(
   workflowId: string | null,
-): UseWebSocketReturn & { sendAnswer: (questionId: string, answer: string) => void; sendInterrupt: (directive: string) => void } {
+): UseWebSocketReturn & {
+  sendAnswer: (questionId: string, answer: string) => void;
+  sendStopAndRegenerate: (agentName: string, partialOutput: string, userGuidance: string) => void;
+} {
   const onEvent = useCallback((event: WSEvent) => {
     dispatchEvent(event);
   }, []);
@@ -190,13 +211,21 @@ export function useWorkflowEvents(
     [ws.send],
   );
 
-  const sendInterrupt = useCallback(
-    (directive: string) => {
+  const sendStopAndRegenerate = useCallback(
+    (agentName: string, partialOutput: string, userGuidance: string) => {
       if (!workflowId) return;
-      ws.send({ type: "workflow.interrupt", payload: { workflow_id: workflowId, directive } });
+      ws.send({
+        type: "agent.stop_and_regenerate",
+        payload: {
+          workflow_id: workflowId,
+          agent_name: agentName,
+          partial_output: partialOutput,
+          user_guidance: userGuidance,
+        },
+      });
     },
     [ws.send, workflowId],
   );
 
-  return { ...ws, sendAnswer, sendInterrupt };
+  return { ...ws, sendAnswer, sendStopAndRegenerate };
 }

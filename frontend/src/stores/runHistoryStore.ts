@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { ChartGroup } from "./chartStore";
 
 export interface AgentSnapshot {
   name: string;
@@ -40,27 +41,32 @@ export interface RunRecord {
   } | null;
   conversation: ConversationMessage[];
   created_at: string;
+  dag: {
+    nodes: string[];
+    edges: [string, string][];
+    conditional_edges?: { from: string; to: string; label: string }[];
+  } | null;
+  chart_groups: {
+    groups: Record<string, ChartGroup>;
+    groupOrder: string[];
+  } | null;
 }
 
 interface RunHistoryState {
   runs: RunRecord[];
   loading: boolean;
   selectedRunId: string | null;
-  replayRun: RunRecord | null;
 
   fetchRuns: (workflowName?: string) => Promise<void>;
   fetchRun: (runId: string) => Promise<RunRecord | null>;
   selectRun: (runId: string | null) => void;
-  loadReplay: (runId: string) => Promise<void>;
-  clearReplay: () => void;
   reset: () => void;
 }
 
-export const useRunHistoryStore = create<RunHistoryState>()((set, get) => ({
+export const useRunHistoryStore = create<RunHistoryState>()((set) => ({
   runs: [],
   loading: false,
   selectedRunId: null,
-  replayRun: null,
 
   fetchRuns: async (workflowName?: string) => {
     set({ loading: true });
@@ -86,12 +92,5 @@ export const useRunHistoryStore = create<RunHistoryState>()((set, get) => ({
 
   selectRun: (runId) => set({ selectedRunId: runId }),
 
-  loadReplay: async (runId: string) => {
-    const run = await get().fetchRun(runId);
-    set({ replayRun: run, selectedRunId: runId });
-  },
-
-  clearReplay: () => set({ replayRun: null, selectedRunId: null }),
-
-  reset: () => set({ runs: [], loading: false, selectedRunId: null, replayRun: null }),
+  reset: () => set({ runs: [], loading: false, selectedRunId: null }),
 }));

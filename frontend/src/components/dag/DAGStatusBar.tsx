@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import dagre from "dagre";
-import { useWorkflowStore } from "@/stores/workflowStore";
+import { useWorkflowStore, type NodeState } from "@/stores/workflowStore";
 
 const NODE_RADIUS = 6;
 const NODE_WIDTH = 80;
@@ -21,9 +21,28 @@ const CONDITIONAL_COLORS: Record<string, string> = {
   fail: "#ef4444",
 };
 
-export default function DAGStatusBar() {
-  const dag = useWorkflowStore((s) => s.dag);
-  const nodes = useWorkflowStore((s) => s.nodes);
+export type DAGShape = {
+  nodes: string[];
+  edges: [string, string][];
+  conditional_edges?: { from: string; to: string; label: string }[];
+} | null;
+
+interface DAGStatusBarProps {
+  /** When provided, render this DAG (replay mode). Otherwise read live workflow store. */
+  dag?: DAGShape;
+  /** Optional node statuses keyed by node id; when omitted, derived from `dag` (all idle/success in replay). */
+  nodes?: Record<string, NodeState>;
+  /** Disable click-to-select-node (replay mode shouldn't drive live store). */
+  interactive?: boolean;
+  /** Compact mode strips the standalone wrapper styling so the SVG can be embedded inline (e.g. in HeaderBar). */
+  compact?: boolean;
+}
+
+export default function DAGStatusBar({ dag: dagProp, nodes: nodesProp, interactive = true, compact = false }: DAGStatusBarProps = {}) {
+  const storeDag = useWorkflowStore((s) => s.dag);
+  const storeNodes = useWorkflowStore((s) => s.nodes);
+  const dag = dagProp !== undefined ? dagProp : storeDag;
+  const nodes = nodesProp ?? storeNodes;
 
   const layout = useMemo(() => {
     if (!dag) return null;
@@ -69,7 +88,8 @@ export default function DAGStatusBar() {
     }
 
     const svgWidth = maxX - minX;
-    const svgHeight = maxY - minY;
+    const LABEL_PAD = 16;
+    const svgHeight = maxY - minY + LABEL_PAD;
 
     // Static edges
     const staticEdges = dag.edges.map(([source, target]) => {
@@ -156,8 +176,12 @@ export default function DAGStatusBar() {
 
   if (!dag || !layout) return null;
 
+  const wrapperClass = compact
+    ? "flex min-w-0 items-center overflow-x-auto"
+    : "flex items-center justify-center overflow-x-auto border-b border-app-border bg-app-bg py-2";
+
   return (
-    <div className="flex items-center justify-center overflow-x-auto" style={{ height: 44 }}>
+    <div className={wrapperClass}>
       <svg
         width={layout.svgWidth}
         height={layout.svgHeight}
@@ -274,12 +298,12 @@ export default function DAGStatusBar() {
               r={NODE_RADIUS}
               fill={n.color}
               className={n.status === "running" ? "dag-node-running" : undefined}
-              onClick={() => useWorkflowStore.getState().setSelectedNode(n.key)}
-              style={{ cursor: "pointer" }}
+              onClick={interactive ? () => useWorkflowStore.getState().setSelectedNode(n.key) : undefined}
+              style={{ cursor: interactive ? "pointer" : "default" }}
             />
             <text
               x={n.cx}
-              y={n.cy - NODE_RADIUS - 4}
+              y={n.cy + NODE_RADIUS + 10}
               textAnchor="middle"
               fontSize={10}
               fill="#374151"
