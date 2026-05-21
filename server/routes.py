@@ -157,7 +157,7 @@ async def create_workflow(
     workflow_id = str(uuid.uuid4())
 
     # Convert AgentDef to Agent
-    agents = [Agent(name=a.name, after=a.after) for a in request.agents]
+    agents = [Agent(name=a.name, after=a.after, on_pass=a.on_pass, on_fail=a.on_fail) for a in request.agents]
 
     # Create Workflow instance
     workflow = Workflow(
@@ -178,17 +178,23 @@ async def create_workflow(
     # Build DAG for React Flow
     node_order = build_dag(agents)
     edges: list[list[str]] = []
+    conditional_edges: list[dict] = []
     for a in agents:
         for dep in a.after:
             edges.append([dep, a.name])
-    _dag_cache[workflow_id] = {"nodes": node_order, "edges": edges}
+        if a.on_pass is not None or a.on_fail is not None:
+            if a.on_pass is not None:
+                conditional_edges.append({"from": a.name, "to": a.on_pass, "label": "pass"})
+            if a.on_fail is not None:
+                conditional_edges.append({"from": a.name, "to": a.on_fail, "label": "fail"})
+    _dag_cache[workflow_id] = {"nodes": node_order, "edges": edges, "conditional_edges": conditional_edges}
 
     # Emit workflow.started event (actual execution managed by WorkflowRunner)
     event_bus.emit("workflow.started", {
         "workflow_id": workflow_id,
         "name": workflow.name,
         "inputs": request.inputs,
-        "dag": {"nodes": node_order, "edges": edges},  # Include DAG structure for frontend
+        "dag": {"nodes": node_order, "edges": edges, "conditional_edges": conditional_edges},
     })
 
     # Submit to runner
@@ -199,7 +205,7 @@ async def create_workflow(
     return CreateWorkflowResponse(
         workflow_id=workflow_id,
         status="running",
-        dag={"nodes": node_order, "edges": edges},
+        dag={"nodes": node_order, "edges": edges, "conditional_edges": conditional_edges},
     )
 
 

@@ -9,10 +9,13 @@ from pathlib import Path
 import pytest
 
 # Skip entire module if no API key
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("DEEPSEEK_API_KEY"),
-    reason="DEEPSEEK_API_KEY not set",
-)
+pytestmark = [
+    pytest.mark.skipif(
+        not os.environ.get("DEEPSEEK_API_KEY"),
+        reason="DEEPSEEK_API_KEY not set",
+    ),
+    pytest.mark.slow,
+]
 
 
 def _find_filesystem_server() -> str | None:

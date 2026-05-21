@@ -22,3 +22,7 @@ include = ["harness", "harness.*", "server", "server.*"]
 testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
+markers = [
+    "slow: tests that call real LLM APIs or MCP servers (deselected by default)",
+]
+addopts = "-m 'not slow'"

@@ -10,6 +10,8 @@ class ParsedAgent(BaseModel):
     model: str | None = None
     retries: int = 3
     description: str | None = None
+    on_pass: str | None = None
+    on_fail: str | None = None
 
 
 def parse_agent_md(path: Path) -> ParsedAgent:
@@ -48,4 +50,6 @@ def parse_agent_md(path: Path) -> ParsedAgent:
         model=post.metadata.get("model"),
         retries=post.metadata.get("retries", 3),
         description=description,
+        on_pass=post.metadata.get("on_pass"),
+        on_fail=post.metadata.get("on_fail"),
     )

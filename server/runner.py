@@ -80,17 +80,18 @@ class WorkflowRunner:
         """Internal: execute workflow with cancellation check."""
         async with self._semaphore:
             try:
-                # Emit start event
-                event_bus.emit("workflow.started", {
-                    "workflow_id": workflow_id,
-                    "name": workflow.name,
-                    "inputs": inputs,
-                })
+                # workflow.started is already emitted by routes.py with the DAG.
+                # Do NOT emit a second one here — it would lack the DAG data
+                # and cause duplicate processing on the frontend.
 
                 # Check cancellation before starting
                 if await self._is_cancelled(workflow_id):
                     event_bus.emit("workflow.cancelled", {"workflow_id": workflow_id})
                     return
+
+                # Set workflow_id on builder for interrupt support
+                if workflow._builder is not None:
+                    workflow._builder.workflow_id = workflow_id
 
                 # Run workflow
                 result = await workflow.arun(inputs)

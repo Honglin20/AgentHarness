@@ -18,3 +18,4 @@ class HarnessState(TypedDict):
     outputs: Annotated[dict, merge_dicts]       # {agent_name: result} — reducer 自动合并 fan-out
     errors: Annotated[dict, merge_dicts]        # {agent_name: error_info}
     metadata: Annotated[dict, merge_dicts]      # 可扩展插槽
+    iteration_counts: Annotated[dict, merge_dicts]  # {edge_key: count} — 条件边回环计数

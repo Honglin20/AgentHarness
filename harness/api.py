@@ -31,6 +31,8 @@ class Agent:
         model: str | None = None,
         retries: int = 3,
         result_type: Type[BaseModel] | None = None,
+        on_pass: str | None = None,
+        on_fail: str | None = None,
     ):
         self.name = name
         self.after = after or []
@@ -38,15 +40,26 @@ class Agent:
         self.model = model
         self.retries = retries
         self.result_type = result_type
+        self.on_pass = on_pass
+        self.on_fail = on_fail
+
+    @property
+    def has_conditional_edges(self) -> bool:
+        return self.on_pass is not None or self.on_fail is not None
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "name": self.name,
             "after": self.after,
             "tools": self.tools,
             "model": self.model,
             "retries": self.retries,
         }
+        if self.on_pass is not None:
+            d["on_pass"] = self.on_pass
+        if self.on_fail is not None:
+            d["on_fail"] = self.on_fail
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> Agent:
@@ -56,6 +69,8 @@ class Agent:
             tools=d.get("tools"),
             model=d.get("model"),
             retries=d.get("retries", 3),
+            on_pass=d.get("on_pass"),
+            on_fail=d.get("on_fail"),
         )
 
 
@@ -89,7 +104,8 @@ class Workflow:
         agents_dir: str = _DEFAULT_AGENTS_DIR,
         mcp_servers: list[McpServerConfig] | None = None,
         tool_registry: ToolRegistry | None = None,
-        event_bus: Any | None = None,  # Optional EventBus for real-time events
+        event_bus: Any | None = None,
+        max_iterations: int = 3,
     ):
         self.name = name
         self.agents = agents
@@ -97,7 +113,9 @@ class Workflow:
         self.mcp_servers = mcp_servers or []
         self.tool_registry = tool_registry or ToolRegistry()
         self._event_bus = event_bus
+        self.max_iterations = max_iterations
         self._compiled = None
+        self._builder: Any | None = None  # MacroGraphBuilder, set by compile()
         self._mcp_setup_done = False
         self._mcp_bridges: list[McpBridge] = []
 
@@ -116,8 +134,10 @@ class Workflow:
         builder = MacroGraphBuilder(
             tool_registry=self.tool_registry,
             event_bus=self._event_bus,
+            max_iterations=self.max_iterations,
         )
         graph = builder.build(self)
+        self._builder = builder
         self._compiled = graph.compile()
         return self._compiled
 

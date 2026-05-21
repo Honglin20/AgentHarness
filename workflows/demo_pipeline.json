@@ -1,0 +1,30 @@
+{
+  "name": "demo_pipeline",
+  "agents": [
+    {
+      "name": "analyzer",
+      "after": [],
+      "tools": null,
+      "model": null,
+      "retries": 3
+    },
+    {
+      "name": "planner",
+      "after": [
+        "analyzer"
+      ],
+      "tools": null,
+      "model": null,
+      "retries": 3
+    },
+    {
+      "name": "reviewer",
+      "after": [
+        "planner"
+      ],
+      "tools": null,
+      "model": null,
+      "retries": 3
+    }
+  ]
+}

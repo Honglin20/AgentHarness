@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useOutputStore } from "@/stores/outputStore";
 import { useChatStore } from "@/stores/chatStore";
+import { setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
 import { useChartStore } from "@/stores/chartStore";
 
 const API_BASE = "";
@@ -98,6 +99,7 @@ export default function WorkflowLauncher() {
 
       if (!r.ok) throw new Error(await r.text());
       const data = await r.json();
+      setActiveWorkflowId(data.workflow_id);
       setWorkflow(data.workflow_id, selectedWf || agentList.join(" → "), data.dag);
     } catch (e: any) {
       setError(e.message || "Failed to start workflow");

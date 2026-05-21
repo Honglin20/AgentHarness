@@ -102,13 +102,7 @@ def render_chart(
         "chart": chart_payload,
     }
 
-    # Channel 1: EventBus (same process)
-    bus = _try_get_event_bus()
-    if bus:
-        bus.emit("chart.render", event_payload)
-        return f"Chart rendered: {chart_type} | label='{label}' | title='{title or chart_type}'"
-
-    # Channel 2: HTTP POST (subprocess / external script)
+    # Channel 1: HTTP POST (works in both server process and subprocess)
     server_url = os.environ.get("HARNESS_SERVER_URL")
     if server_url:
         url = f"{server_url.rstrip('/')}{_CHART_ENDPOINT}"
@@ -116,6 +110,12 @@ def render_chart(
         if ok:
             return f"Chart rendered: {chart_type} | label='{label}' | title='{title or chart_type}'"
         return f"Chart failed to render: could not reach {url}"
+
+    # Channel 2: EventBus fallback (same-process, no HTTP needed)
+    bus = _try_get_event_bus()
+    if bus:
+        bus.emit("chart.render", event_payload)
+        return f"Chart rendered: {chart_type} | label='{label}' | title='{title or chart_type}'"
 
     return (
         f"Chart not rendered: no event bus or server URL available. "

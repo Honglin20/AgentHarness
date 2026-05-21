@@ -20,7 +20,9 @@ export type EventType =
   | "agent.tool_result"
   | "chart.render"
   | "chat.question"
-  | "chat.answer";
+  | "chat.answer"
+  | "workflow.interrupt"
+  | "workflow.resumed";
 
 // Workflow events
 export interface WorkflowStartedPayload {

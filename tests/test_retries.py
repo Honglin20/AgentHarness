@@ -18,6 +18,7 @@ class StrictScore(BaseModel):
         return v
 
 
+@pytest.mark.slow
 def test_retry_on_invalid_output():
     """When LLM outputs invalid structured data, Pydantic AI retries automatically."""
     if not os.environ.get("DEEPSEEK_API_KEY"):

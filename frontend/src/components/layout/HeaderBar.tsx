@@ -1,21 +1,30 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Settings, Key, Cpu, Globe, X } from "lucide-react";
+import { Settings, Key, Cpu, Globe, X, RotateCcw, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { useWorkflowStore } from "@/stores/workflowStore";
+import { useOutputStore } from "@/stores/outputStore";
+import { useChatStore } from "@/stores/chatStore";
+import { useChartStore } from "@/stores/chartStore";
+import { useToolCallStore } from "@/stores/toolCallStore";
 
 const API_BASE = "";
 
 export function HeaderBar() {
+  const workflowId = useWorkflowStore((s) => s.workflowId);
   const workflowName = useWorkflowStore((s) => s.workflowName);
+  const status = useWorkflowStore((s) => s.status);
+  const isRunning = status === "running";
+  const isActive = status !== "idle";
   const [open, setOpen] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [apiUrl, setApiUrl] = useState("");
   const [saved, setSaved] = useState(false);
+  const [stopping, setStopping] = useState(false);
 
   const loadConfig = useCallback(async () => {
     try {
@@ -46,6 +55,28 @@ export function HeaderBar() {
     } catch {}
   }, [apiKey, model, apiUrl]);
 
+  const handleStop = useCallback(async () => {
+    if (!workflowId) return;
+    setStopping(true);
+    try {
+      await fetch(`${API_BASE}/api/workflows/${workflowId}/cancel`, { method: "POST" });
+    } catch {}
+    useWorkflowStore.getState().reset();
+    useOutputStore.getState().reset();
+    useChatStore.getState().reset();
+    useChartStore.getState().reset();
+    useToolCallStore.getState().reset();
+    setStopping(false);
+  }, [workflowId]);
+
+  const handleNew = useCallback(() => {
+    useWorkflowStore.getState().reset();
+    useOutputStore.getState().reset();
+    useChatStore.getState().reset();
+    useChartStore.getState().reset();
+    useToolCallStore.getState().reset();
+  }, []);
+
   return (
     <header className="relative flex h-12 items-center justify-between border-b px-4">
       <div className="flex items-center gap-3">
@@ -58,13 +89,38 @@ export function HeaderBar() {
         </span>
       </div>
 
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={() => { setOpen(!open); if (!open) loadConfig(); }}
-      >
-        <Settings className="h-4 w-4" />
-      </Button>
+      <div className="flex items-center gap-1">
+        {isActive && isRunning && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+            onClick={handleStop}
+            disabled={stopping}
+          >
+            <Square className="h-3.5 w-3.5" />
+            {stopping ? "Stopping..." : "Stop"}
+          </Button>
+        )}
+        {isActive && !isRunning && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-app-text-primary"
+            onClick={handleNew}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            New Workflow
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => { setOpen(!open); if (!open) loadConfig(); }}
+        >
+          <Settings className="h-4 w-4" />
+        </Button>
+      </div>
 
       {open && (
         <div className="absolute right-2 top-12 z-50 w-80 rounded-lg border border-app-border bg-white p-4 shadow-lg">

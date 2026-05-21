@@ -51,6 +51,15 @@ class AskHumanToolFactory(ToolFactory):
         bus = self.event_bus
 
         async def ask_human(ctx: RunContext, question: str) -> str:
+            """Ask the user a question and wait for their response.
+
+            Use this tool when you need input, clarification, or confirmation
+            from the user before proceeding. The user will see your question
+            and type their answer. This function blocks until the user responds.
+
+            Args:
+                question: The question to ask the user. Be specific and clear.
+            """
             import uuid
 
             question_id = str(uuid.uuid4())
@@ -79,4 +88,8 @@ class AskHumanToolFactory(ToolFactory):
             except TimeoutError:
                 return "User disconnected. Proceed with your best judgment."
 
-        return PydanticAITool(ask_human, takes_ctx=True)
+        return PydanticAITool(
+            ask_human,
+            takes_ctx=True,
+            description=self.description,
+        )

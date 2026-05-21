@@ -9,6 +9,8 @@ class AgentDef(BaseModel):
     """Agent definition for workflow creation."""
     name: str
     after: list[str] = Field(default_factory=list)
+    on_pass: str | None = None
+    on_fail: str | None = None
 
 
 class CreateWorkflowRequest(BaseModel):

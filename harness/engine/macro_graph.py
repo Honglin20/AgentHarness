@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from langgraph.graph import StateGraph, START, END
+from pydantic import BaseModel
 
 from harness.api import Agent
 from harness.compiler.dag_builder import build_dag
@@ -16,16 +18,44 @@ from harness.tools.deps import AgentDeps
 from harness.tools.registry import ToolRegistry
 
 
+# --- Interrupt signal management ---
+_pending_interrupts: dict[str, str] = {}  # workflow_id → directive
+_interrupt_lock = asyncio.Lock()
+
+
+async def request_interrupt(workflow_id: str, directive: str) -> None:
+    """Called from WebSocket handler when user requests an interrupt."""
+    async with _interrupt_lock:
+        _pending_interrupts[workflow_id] = directive
+
+
+def _has_pending_interrupt(workflow_id: str) -> bool:
+    return workflow_id in _pending_interrupts
+
+
+def _consume_interrupt(workflow_id: str) -> str | None:
+    return _pending_interrupts.pop(workflow_id, None)
+
+
+class ReviewDecision(BaseModel):
+    """Default result_type for agents with conditional edges."""
+    decision: Literal["pass", "fail"]
+    reason: str
+
+
 class MacroGraphBuilder:
     """将编译后的 DAG 转为 LangGraph StateGraph。"""
 
     def __init__(
         self,
         tool_registry: ToolRegistry | None = None,
-        event_bus: Any | None = None,  # Optional EventBus for emitting events
+        event_bus: Any | None = None,
+        max_iterations: int = 3,
     ):
         self.tool_registry = tool_registry or ToolRegistry()
-        self.event_bus = event_bus  # Store for use in node functions
+        self.event_bus = event_bus
+        self.max_iterations = max_iterations
+        self.workflow_id: str | None = None  # Set by runner before execution
 
         # Register event-bus-dependent tools when event_bus is available
         if event_bus and "ask_human" not in self.tool_registry.list_tools():
@@ -46,12 +76,20 @@ class MacroGraphBuilder:
             parsed = parse_agent_md(md_path)
             parsed_agents[agent.name] = parsed
 
-        # Build execution order
+        # Build execution order (static edges only)
         execution_order = build_dag(agents)
 
         # Build dependency map
         dep_map = {a.name: a.after for a in agents}
         agent_map = {a.name: a for a in agents}
+
+        # Merge on_pass/on_fail from parsed MD into agent defs
+        for agent in agents:
+            parsed = parsed_agents[agent.name]
+            if agent.on_pass is None and parsed.on_pass is not None:
+                agent.on_pass = parsed.on_pass
+            if agent.on_fail is None and parsed.on_fail is not None:
+                agent.on_fail = parsed.on_fail
 
         # Build the StateGraph
         graph = StateGraph(HarnessState)
@@ -73,21 +111,39 @@ class MacroGraphBuilder:
             for dep in dep_map[agent_name]:
                 graph.add_edge(dep, agent_name)
 
-        # Add edges from leaf nodes to END
+        # Track which nodes have conditional edges
+        conditional_nodes = set()
+
+        # Add conditional edges for agents with on_pass/on_fail
+        for agent in agents:
+            if agent.has_conditional_edges:
+                conditional_nodes.add(agent.name)
+                targets = {}
+                targets["pass"] = agent.on_pass if agent.on_pass is not None else END
+                targets["fail"] = agent.on_fail if agent.on_fail is not None else END
+
+                graph.add_conditional_edges(
+                    agent.name,
+                    lambda state, an=agent.name: _route_decision(state, an),
+                    targets,
+                )
+
+        # Add edges from leaf nodes to END (only if no conditional edges)
         downstream = set()
         for deps in dep_map.values():
             downstream.update(deps)
+        # Add conditional edge targets to downstream
+        for agent in agents:
+            if agent.on_pass is not None:
+                downstream.add(agent.on_pass)
+            if agent.on_fail is not None:
+                downstream.add(agent.on_fail)
+
         for agent_name in execution_order:
-            if agent_name not in downstream:
+            if agent_name not in downstream and agent_name not in conditional_nodes:
                 graph.add_edge(agent_name, END)
 
         return graph
-
-    def add_conditional_edge(self, from_node, condition_fn, targets):
-        raise NotImplementedError("Conditional edges are planned for Phase 2+")
-
-    def add_evaluator_edge(self, eval_node, pass_target, fail_target):
-        raise NotImplementedError("Evaluator edges are planned for Phase 4")
 
     def _resolve_agent_config(self, agent_def, parsed):
         """Merge tools, model, retries from API definition and MD file.
@@ -105,21 +161,50 @@ class MacroGraphBuilder:
         retries = parsed.retries
         result_type = agent_def.result_type
 
+        # Auto-inject ReviewDecision if agent has conditional edges and no result_type
+        if agent_def.has_conditional_edges and result_type is None:
+            result_type = ReviewDecision
+
         return final_tool_names, model, retries, result_type
 
     def _make_node_func(self, agent_def, parsed, dep_map):
         """Create an async LangGraph node function for an agent."""
         micro_factory = self.micro_factory
-        bus = self.event_bus  # Capture for closure
+        bus = self.event_bus
+        max_iterations = self.max_iterations
+        builder_self = self  # Capture for workflow_id access
         final_tool_names, model, retries, result_type = self._resolve_agent_config(agent_def, parsed)
         upstream_names = dep_map[agent_def.name]
 
         async def node_func(state: HarnessState) -> dict:
             start_time = time.time()
 
+            # Check iteration count for conditional edges
+            if agent_def.has_conditional_edges:
+                iter_key = f"{agent_def.name}_loop"
+                current_count = state.get("iteration_counts", {}).get(iter_key, 0)
+                if current_count >= max_iterations:
+                    if bus:
+                        bus.emit("node.failed", {
+                            "workflow_id": builder_self.workflow_id,
+                            "node_id": agent_def.name,
+                            "agent_name": agent_def.name,
+                            "error": f"Max iterations ({max_iterations}) reached for conditional edge loop",
+                            "duration_ms": 0,
+                            "attempt": 1,
+                            "will_retry": False,
+                        })
+                    return {
+                        STATE_OUTPUTS: {},
+                        STATE_ERRORS: {agent_def.name: f"Max iterations ({max_iterations}) exceeded"},
+                        STATE_METADATA: {},
+                        "iteration_counts": {iter_key: current_count},
+                    }
+
             # Emit node.started event
             if bus:
                 bus.emit("node.started", {
+                    "workflow_id": builder_self.workflow_id,
                     "node_id": agent_def.name,
                     "agent_name": agent_def.name,
                     "attempt": 1,
@@ -154,19 +239,78 @@ class MacroGraphBuilder:
 
             # Run the Pydantic AI agent (async)
             try:
+                directive = None
                 if bus:
-                    # Use streaming — pydantic_ai v1.x: run_stream is @asynccontextmanager
+                    wid = builder_self.workflow_id
                     async with pydantic_agent.run_stream(context, deps=deps) as streamed:
                         async for chunk in streamed.stream_text(delta=True):
                             bus.emit("agent.text_delta", {
+                                "workflow_id": wid,
                                 "node_id": agent_def.name,
                                 "agent_name": agent_def.name,
                                 "text": chunk,
                             })
-                    output = await streamed.get_output()
-                    usage_obj = streamed.usage
+
+                            # Check for pending interrupt after each chunk
+                            if wid and _has_pending_interrupt(wid):
+                                directive = _consume_interrupt(wid)
+                                break
+
+                    if directive:
+                        # Interrupt received: re-run with directive injected into context
+                        bus.emit("agent.text_delta", {
+                            "workflow_id": wid,
+                            "node_id": agent_def.name,
+                            "agent_name": agent_def.name,
+                            "text": "\n\n--- [用户打断指令]: " + directive + " ---\n\n",
+                        })
+                        new_context = context + f"\n\n[用户打断指令]: {directive}"
+                        async with pydantic_agent.run_stream(new_context, deps=deps) as streamed:
+                            async for chunk in streamed.stream_text(delta=True):
+                                bus.emit("agent.text_delta", {
+                                    "workflow_id": wid,
+                                    "node_id": agent_def.name,
+                                    "agent_name": agent_def.name,
+                                    "text": chunk,
+                                })
+                        output = await streamed.get_output()
+                        usage_obj = streamed.usage
+
+                        bus.emit("workflow.resumed", {
+                            "workflow_id": wid,
+                            "node_id": agent_def.name,
+                            "directive": directive,
+                        })
+                        directive = None  # Reset
+                    else:
+                        output = await streamed.get_output()
+                        usage_obj = streamed.usage
+
+                    # Emit tool_call / tool_result events from streamed messages
+                    try:
+                        all_msgs = streamed.all_messages()
+                        for msg in all_msgs:
+                            for part in msg.parts:
+                                kind = getattr(part, 'part_kind', None)
+                                if kind == 'tool-call':
+                                    bus.emit("agent.tool_call", {
+                                        "workflow_id": wid,
+                                        "node_id": agent_def.name,
+                                        "agent_name": agent_def.name,
+                                        "tool_name": part.tool_name,
+                                        "tool_args": part.args if hasattr(part, 'args') else {},
+                                    })
+                                elif kind == 'tool-return':
+                                    bus.emit("agent.tool_result", {
+                                        "workflow_id": wid,
+                                        "node_id": agent_def.name,
+                                        "agent_name": agent_def.name,
+                                        "tool_name": part.tool_name,
+                                        "result": str(part.content) if hasattr(part, 'content') else "",
+                                    })
+                    except Exception:
+                        pass
                 else:
-                    # Use non-streaming
                     result = await pydantic_agent.run(context, deps=deps)
                     output = result.output
                     usage_obj = result.usage
@@ -191,6 +335,7 @@ class MacroGraphBuilder:
                 # Emit node.completed event
                 if bus:
                     event_payload = {
+                        "workflow_id": builder_self.workflow_id,
                         "node_id": agent_def.name,
                         "agent_name": agent_def.name,
                         "duration_ms": duration_ms,
@@ -200,17 +345,30 @@ class MacroGraphBuilder:
                         event_payload["token_usage"] = token_usage
                     bus.emit("node.completed", event_payload)
 
-                return {
+                # Build iteration_counts update for conditional edges
+                iter_update = {}
+                if agent_def.has_conditional_edges:
+                    iter_key = f"{agent_def.name}_loop"
+                    # Determine decision from output
+                    decision = _extract_decision(output)
+                    if decision == "fail" and agent.on_fail is not None:
+                        iter_update[iter_key] = state.get("iteration_counts", {}).get(iter_key, 0) + 1
+
+                result_dict = {
                     STATE_OUTPUTS: {agent_def.name: output},
                     STATE_ERRORS: {},
                     STATE_METADATA: {agent_def.name: node_meta},
                 }
+                if iter_update:
+                    result_dict["iteration_counts"] = iter_update
+
+                return result_dict
             except Exception as e:
                 duration_ms = int((time.time() - start_time) * 1000)
 
-                # Emit node.failed event
                 if bus:
                     bus.emit("node.failed", {
+                        "workflow_id": builder_self.workflow_id,
                         "node_id": agent_def.name,
                         "agent_name": agent_def.name,
                         "error": str(e),
@@ -226,3 +384,27 @@ class MacroGraphBuilder:
                 }
 
         return node_func
+
+
+def _route_decision(state: HarnessState, agent_name: str) -> str:
+    """Route based on the decision field in the agent's output."""
+    outputs = state.get(STATE_OUTPUTS, {})
+    output = outputs.get(agent_name)
+
+    decision = _extract_decision(output)
+    return decision if decision in ("pass", "fail") else "pass"
+
+
+def _extract_decision(output: Any) -> str:
+    """Extract decision from agent output, which may be a ReviewDecision model or a string."""
+    if isinstance(output, ReviewDecision):
+        return output.decision
+    if isinstance(output, BaseModel):
+        decision = getattr(output, "decision", None)
+        if decision:
+            return str(decision)
+    if isinstance(output, str):
+        lower = output.lower()
+        if "fail" in lower:
+            return "fail"
+    return "pass"
