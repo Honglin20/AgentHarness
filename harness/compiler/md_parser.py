@@ -1,6 +1,7 @@
 from pathlib import Path
 from pydantic import BaseModel
 import frontmatter
+import yaml
 
 
 class ParsedAgent(BaseModel):
@@ -53,3 +54,30 @@ def parse_agent_md(path: Path) -> ParsedAgent:
         on_pass=post.metadata.get("on_pass"),
         on_fail=post.metadata.get("on_fail"),
     )
+
+
+def write_agent_md(
+    path: Path,
+    name: str,
+    prompt: str,
+    tools: list[str] | None = None,
+    model: str | None = None,
+    retries: int = 3,
+    on_pass: str | None = None,
+    on_fail: str | None = None,
+) -> None:
+    """Write an agent Markdown file with YAML frontmatter."""
+    metadata = {"name": name, "retries": retries}
+    if tools:
+        metadata["tools"] = tools
+    if model:
+        metadata["model"] = model
+    if on_pass is not None:
+        metadata["on_pass"] = on_pass
+    if on_fail is not None:
+        metadata["on_fail"] = on_fail
+
+    frontmatter_str = yaml.dump(metadata, default_flow_style=False, allow_unicode=True).strip()
+    content = f"---\n{frontmatter_str}\n---\n\n{prompt.strip()}\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)

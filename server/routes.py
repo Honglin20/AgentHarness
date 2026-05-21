@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from harness.api import Agent, Workflow
-from harness.compiler.md_parser import parse_agent_md
+from harness.compiler.md_parser import parse_agent_md, write_agent_md
 from harness.compiler.dag_builder import build_dag
 from harness.engine.macro_graph import MacroGraphBuilder
 from harness.tools.registry import ToolRegistry
@@ -104,6 +104,32 @@ async def get_agent(name: str, agents_dir: str = "agents") -> AgentInfo:
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to parse agent: {e}")
+
+
+@router.get("/agents/{name}/md")
+async def get_agent_md(name: str, agents_dir: str = "agents") -> dict:
+    """Get the raw Markdown content of an agent definition."""
+    md_path = Path(agents_dir) / f"{name}.md"
+    if not md_path.exists():
+        raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
+    return {"name": name, "md_content": md_path.read_text(), "agents_dir": agents_dir}
+
+
+@router.put("/agents/{name}/md")
+async def update_agent_md(name: str, request: Request) -> dict:
+    """Update an agent's Markdown file."""
+    body = await request.json()
+    agents_dir = body.get("agents_dir", "agents")
+    md_content = body.get("md_content", "")
+    md_path = Path(agents_dir) / f"{name}.md"
+    if not md_path.exists():
+        raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
+    md_path.write_text(md_content)
+    try:
+        parsed = parse_agent_md(md_path)
+        return {"status": "ok", "name": parsed.name, "description": parsed.description}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid agent MD: {e}")
 
 
 @router.get("/tools")
