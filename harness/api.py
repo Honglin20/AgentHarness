@@ -177,6 +177,7 @@ class Workflow:
                 "name": data["name"],
                 "agents": [a.to_dict() for a in agents],
                 "dag": {"nodes": node_order, "edges": edges},
+                "agents_dir": data.get("agents_dir"),
             })
         return result
 
@@ -184,12 +185,17 @@ class Workflow:
         return {
             "name": self.name,
             "agents": [a.to_dict() for a in self.agents],
+            "agents_dir": self.agents_dir,
         }
 
     @classmethod
-    def from_dict(cls, data: dict, agents_dir: str = _DEFAULT_AGENTS_DIR) -> Workflow:
+    def from_dict(cls, data: dict, agents_dir: str | None = None) -> Workflow:
         agents = [Agent.from_dict(a) for a in data.get("agents", [])]
-        return cls(name=data["name"], agents=agents, agents_dir=agents_dir)
+        return cls(
+            name=data["name"],
+            agents=agents,
+            agents_dir=agents_dir or data.get("agents_dir", _DEFAULT_AGENTS_DIR),
+        )
 
     def run(self, inputs: dict, ui: bool = False) -> WorkflowResult:
         """Run the workflow. Primary API — synchronous, simple.
