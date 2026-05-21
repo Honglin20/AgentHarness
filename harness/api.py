@@ -141,6 +141,33 @@ class Workflow:
         self._compiled = graph.compile()
         return self._compiled
 
+    def use(self, extension) -> "Workflow":
+        """Register an extension (Hook / Middleware / GraphMutator) on this
+        workflow's event bus.
+
+        If no bus was provided at construction time, a local Bus is created
+        and reused for subsequent extensions on this workflow.
+
+        Returns self for fluent chaining:
+
+            wf = (
+                Workflow("research", agents=[...])
+                .use(AutoCompact(threshold_tokens=8000))
+                .use(FileMemory(path="./memory.md"))
+            )
+        """
+        if self._event_bus is None:
+            from harness.extensions.bus import Bus
+            self._event_bus = Bus()
+        if not hasattr(self._event_bus, "register"):
+            raise TypeError(
+                "Workflow.event_bus does not support extensions. "
+                "Pass a harness.extensions.bus.Bus instance instead of a "
+                "custom event bus, or omit it to create one automatically."
+            )
+        self._event_bus.register(extension)
+        return self
+
     def save(self) -> Path:
         """Save workflow definition to workflows/<name>.json."""
         _WORKFLOWS_DIR.mkdir(parents=True, exist_ok=True)
