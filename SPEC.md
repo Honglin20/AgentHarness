@@ -116,9 +116,9 @@ class Workflow:
     def load(cls, name: str) -> Workflow: ...      # 从 workflows/<name>.json 加载
     @staticmethod
     def list_saved() -> list[dict]: ...            # 列出所有已保存 workflow 定义
-    def to_dict(self) -> dict: ...                 # 序列化
+    def to_dict(self) -> dict: ...                 # 序列化（含 agents_dir）
     @classmethod
-    def from_dict(cls, data: dict) -> Workflow: ... # 反序列化
+    def from_dict(cls, data: dict, agents_dir: str | None = None) -> Workflow: ... # 反序列化
 
 # 用法
 wf = Workflow("code_pipeline", agents=[
@@ -890,6 +890,120 @@ def get_event_bus() -> EventBus:  # 单例
 
 ---
 
+## §RunStore — 运行持久化
+
+> Phase 3 补充（2026-05-21）
+
+### 定位
+
+将已完成的 workflow 运行记录持久化到文件系统，支持历史回看和 agent diff 对比。
+
+### 接口
+
+```python
+# harness/run_store.py
+
+class RunStore:
+    """文件系统运行记录持久化。每条记录 = runs/{run_id}.json"""
+
+    def __init__(self, runs_dir: str | Path | None = None): ...
+
+    def save(
+        self,
+        run_id: str,
+        workflow_name: str,
+        agents_snapshot: list[dict],
+        status: str,
+        inputs: dict,
+        result: dict | None,
+    ) -> Path: ...
+
+    def list_runs(self, workflow_name: str | None = None) -> list[dict]:
+        """列出运行记录，最新优先。可选按 workflow_name 过滤。"""
+
+    def get_run(self, run_id: str) -> dict | None:
+        """获取单条运行记录，不存在返回 None。"""
+```
+
+### agents_snapshot 结构
+
+每次运行完成时，Runner 自动快照所有 agent 的 MD 文件内容：
+
+```python
+{
+    "name": "analyzer",
+    "after": [],
+    "md_content": "---\nname: analyzer\n---\n你是一个代码分析专家...",  # 完整 MD 文件内容
+    "tools": null,
+    "model": null,
+    "retries": 3
+}
+```
+
+### 运行记录文件格式
+
+```json
+{
+  "run_id": "uuid",
+  "workflow_name": "code_review",
+  "agents_snapshot": [...],
+  "status": "completed",
+  "inputs": {"task": "review foo"},
+  "result": {
+    "outputs": {"analyzer": "ok"},
+    "errors": {},
+    "trace": [...]
+  },
+  "created_at": "2026-05-21T14:30:00+00:00"
+}
+```
+
+### 设计决策
+
+- [x] 文件系统持久化，每条记录一个 JSON 文件
+  - Why: 简单、可调试、无需数据库依赖；当前不需要复杂查询
+  - How: `runs/{run_id}.json`，list_runs 扫描目录并按 created_at 降序排列
+- [x] agents_snapshot 包含完整 MD 内容
+  - Why: 支持 agent diff 对比 — 比较两次运行间 agent 定义的变更
+  - How: Runner 完成时读取每个 agent 的 .md 文件全文存入 snapshot
+
+---
+
+## §AgentCRUD — Agent Markdown 读写
+
+> Phase 3 补充（2026-05-21）
+
+### write_agent_md
+
+```python
+# harness/compiler/md_parser.py
+
+def write_agent_md(
+    path: Path,
+    name: str,
+    prompt: str,
+    tools: list[str] | None = None,
+    model: str | None = None,
+    retries: int = 3,
+    on_pass: str | None = None,
+    on_fail: str | None = None,
+) -> None:
+    """写入 agent Markdown 文件（YAML frontmatter + prompt）。"""
+```
+
+### API 端点
+
+- `GET /api/agents/{name}/md?agents_dir=xxx` — 返回 `{"name", "md_content", "agents_dir"}`
+- `PUT /api/agents/{name}/md` — 更新 agent MD 文件，body: `{"agents_dir", "md_content"}`
+
+### 设计决策
+
+- [x] 写入后立即 re-parse 验证
+  - Why: 防止写入无效 MD 导致后续工作流启动失败
+  - How: PUT 端点写入后调用 parse_agent_md，解析失败返回 400
+
+---
+
 ## §API — RESTful 接口
 
 > Phase 3 敲定（2026-05-20）
@@ -909,6 +1023,10 @@ def get_event_bus() -> EventBus:  # 单例
 | `GET` | `/api/config` | 获取当前配置（key 已脱敏） |
 | `POST` | `/api/config` | 设置 API key / model 等 |
 | `GET` | `/api/workflows/definitions` | 列出已保存的 workflow 定义 |
+| `GET` | `/api/runs` | 列出持久化的运行记录 |
+| `GET` | `/api/runs/{run_id}` | 获取单条运行记录 |
+| `GET` | `/api/agents/{name}/md` | 获取 agent 原始 Markdown |
+| `PUT` | `/api/agents/{name}/md` | 更新 agent Markdown |
 | `WS` | `/ws/workflows/{id}` | WebSocket 实时事件流 |
 
 ### HARNESS_SERVER_URL
@@ -969,6 +1087,25 @@ class ToolInfo(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str = "ok"
+
+class AgentSnapshot(BaseModel):
+    """运行时 agent 定义的快照。"""
+    name: str
+    after: list[str] = []
+    md_content: str = ""
+    tools: list[str] | None = None
+    model: str | None = None
+    retries: int = 3
+
+class RunDetail(BaseModel):
+    """持久化的完整运行记录。"""
+    run_id: str
+    workflow_name: str
+    agents_snapshot: list[AgentSnapshot] = []
+    status: str
+    inputs: dict = {}
+    result: dict[str, Any] | None = None
+    created_at: str
 ```
 
 ---
