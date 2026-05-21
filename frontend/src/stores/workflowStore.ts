@@ -28,10 +28,13 @@ export interface WorkflowState {
   nodes: Record<string, NodeState>;
 
   // DAG structure from backend
-  dag: { nodes: string[]; edges: [string, string][] } | null;
+  dag: { nodes: string[]; edges: [string, string][]; conditional_edges?: { from: string; to: string; label: string }[] } | null;
+
+  selectedNodeId: string | null;
 
   // Actions
   setWorkflow: (id: string, name: string, dag?: unknown) => void;
+  setSelectedNode: (id: string | null) => void;
   reset: () => void;
 
   // Event handlers
@@ -51,6 +54,7 @@ const initialState = {
 };
 
 export const useWorkflowStore = create<WorkflowState>()((set) => ({
+  selectedNodeId: null as string | null,
   ...initialState,
 
   setWorkflow: (id, name, dag) =>
@@ -58,11 +62,14 @@ export const useWorkflowStore = create<WorkflowState>()((set) => ({
       workflowId: id,
       workflowName: name,
       dag: (dag as WorkflowState["dag"]) ?? null,
-      status: "idle",
+      status: "running",
       nodes: {},
+      selectedNodeId: null,
     }),
 
-  reset: () => set(initialState),
+  setSelectedNode: (id) => set({ selectedNodeId: id }),
+
+  reset: () => set({ ...initialState, selectedNodeId: null }),
 
   handleWorkflowStarted: (payload) =>
     set((state) => ({

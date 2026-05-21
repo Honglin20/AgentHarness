@@ -274,6 +274,8 @@ export default function DAGStatusBar() {
               r={NODE_RADIUS}
               fill={n.color}
               className={n.status === "running" ? "dag-node-running" : undefined}
+              onClick={() => useWorkflowStore.getState().setSelectedNode(n.key)}
+              style={{ cursor: "pointer" }}
             />
             <text
               x={n.cx + NODE_RADIUS + 4}
