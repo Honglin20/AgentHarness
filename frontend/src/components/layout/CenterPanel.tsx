@@ -4,10 +4,11 @@ import { useState } from "react";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useOutputStore } from "@/stores/outputStore";
 import { useChartStore } from "@/stores/chartStore";
+import { useRunHistoryStore } from "@/stores/runHistoryStore";
 import { ConversationTab } from "@/components/conversation/ConversationTab";
 import ResultsTab from "@/components/results/ResultsTab";
 import ChatInput from "@/components/chat/ChatInput";
-import WorkflowLauncher from "@/components/output/WorkflowLauncher";
+import { RunReplayView } from "@/components/sidebar/RunReplayView";
 import { useWorkflowEvents } from "@/hooks/useWorkflowEvents";
 
 type Tab = "conversation" | "results";
@@ -20,14 +21,22 @@ export function CenterPanel() {
   const workflowId = useWorkflowStore((s) => s.workflowId);
   const workflowError = useOutputStore((s) => s.workflowError);
   const resultCount = useChartStore((s) => s.groupOrder.length);
+  const replayRun = useRunHistoryStore((s) => s.replayRun);
 
   const isIdle = status === "idle" && nodeCount === 0;
   const { sendAnswer, sendInterrupt } = useWorkflowEvents(workflowId);
 
+  // Replay mode takes priority
+  if (replayRun) {
+    return <RunReplayView />;
+  }
+
   if (isIdle) {
     return (
-      <div className="flex flex-1 flex-col bg-app-bg-primary">
-        <WorkflowLauncher />
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 bg-app-bg-primary">
+        <p className="text-sm text-muted-foreground">
+          Select a template from the sidebar to start a workflow
+        </p>
       </div>
     );
   }
