@@ -30,6 +30,7 @@ export interface WorkflowStartedPayload {
   name: string;
   inputs?: Record<string, unknown>;
   dag?: { nodes: string[]; edges: [string, string][] };
+  agents_dir?: string;
 }
 
 export interface WorkflowCompletedPayload {

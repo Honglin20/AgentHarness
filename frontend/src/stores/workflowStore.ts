@@ -82,9 +82,7 @@ export const useWorkflowStore = create<WorkflowState>()((set) => ({
       workflowId: payload.workflow_id,
       workflowName: payload.name,
       dag: payload.dag ?? state.dag,
-      agentsDir: (payload as unknown as Record<string, unknown>).agents_dir != null
-        ? String((payload as unknown as Record<string, unknown>).agents_dir)
-        : state.agentsDir,
+      agentsDir: payload.agents_dir ?? state.agentsDir,
     })),
 
   handleWorkflowCompleted: (payload) =>

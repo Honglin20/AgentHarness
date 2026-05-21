@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from langgraph.graph import StateGraph, START, END
 from pydantic import BaseModel
+from pydantic_graph import End
 
 from harness.api import Agent
 from harness.compiler.dag_builder import build_dag
@@ -238,82 +239,91 @@ class MacroGraphBuilder:
             )
 
             # Run the Pydantic AI agent (async)
+            # Use iter() instead of run_stream() so that tool calls are fully executed.
+            # run_stream() treats the first text output as "final result" and skips
+            # subsequent tool calls (pydantic_ai end_strategy='early' default).
             try:
                 directive = None
-                if bus:
-                    wid = builder_self.workflow_id
-                    async with pydantic_agent.run_stream(context, deps=deps) as streamed:
-                        async for chunk in streamed.stream_text(delta=True):
-                            bus.emit("agent.text_delta", {
-                                "workflow_id": wid,
-                                "node_id": agent_def.name,
-                                "agent_name": agent_def.name,
-                                "text": chunk,
-                            })
+                wid = builder_self.workflow_id if bus else None
 
-                            # Check for pending interrupt after each chunk
-                            if wid and _has_pending_interrupt(wid):
-                                directive = _consume_interrupt(wid)
-                                break
+                async def _run_agent(user_context: str):
+                    """Run agent via iter() — executes tools fully, streams text + tool events."""
+                    nonlocal directive
+                    async with pydantic_agent.iter(user_context, deps=deps) as agent_run:
+                        node = agent_run.next_node
+                        while not isinstance(node, End):
+                            if pydantic_agent.is_model_request_node(node):
+                                async with node.stream(agent_run.ctx) as stream:
+                                    async for chunk in stream.stream_text(delta=True):
+                                        if bus:
+                                            bus.emit("agent.text_delta", {
+                                                "workflow_id": wid,
+                                                "node_id": agent_def.name,
+                                                "agent_name": agent_def.name,
+                                                "text": chunk,
+                                            })
+                                        if wid and _has_pending_interrupt(wid):
+                                            directive = _consume_interrupt(wid)
+                                            break
+                                if directive:
+                                    break
+                                node = await agent_run.next(node)
 
-                    if directive:
-                        # Interrupt received: re-run with directive injected into context
-                        bus.emit("agent.text_delta", {
-                            "workflow_id": wid,
-                            "node_id": agent_def.name,
-                            "agent_name": agent_def.name,
-                            "text": "\n\n--- [用户打断指令]: " + directive + " ---\n\n",
-                        })
-                        new_context = context + f"\n\n[用户打断指令]: {directive}"
-                        async with pydantic_agent.run_stream(new_context, deps=deps) as streamed:
-                            async for chunk in streamed.stream_text(delta=True):
-                                bus.emit("agent.text_delta", {
-                                    "workflow_id": wid,
-                                    "node_id": agent_def.name,
-                                    "agent_name": agent_def.name,
-                                    "text": chunk,
-                                })
-                        output = await streamed.get_output()
-                        usage_obj = streamed.usage
+                            elif pydantic_agent.is_call_tools_node(node):
+                                if bus:
+                                    async with node.stream(agent_run.ctx) as stream:
+                                        async for event in stream:
+                                            ek = getattr(event, 'event_kind', '')
+                                            if ek == 'function_tool_call':
+                                                part = event.part
+                                                bus.emit("agent.tool_call", {
+                                                    "workflow_id": wid,
+                                                    "node_id": agent_def.name,
+                                                    "agent_name": agent_def.name,
+                                                    "tool_name": part.tool_name,
+                                                    "tool_args": part.args if hasattr(part, 'args') else {},
+                                                })
+                                            elif ek == 'function_tool_result':
+                                                part = event.part
+                                                bus.emit("agent.tool_result", {
+                                                    "workflow_id": wid,
+                                                    "node_id": agent_def.name,
+                                                    "agent_name": agent_def.name,
+                                                    "tool_name": part.tool_name,
+                                                    "result": str(part.content) if hasattr(part, 'content') else "",
+                                                })
+                                else:
+                                    async with node.stream(agent_run.ctx) as stream:
+                                        async for _ in stream:
+                                            pass
+                                node = await agent_run.next(node)
 
-                        bus.emit("workflow.resumed", {
-                            "workflow_id": wid,
-                            "node_id": agent_def.name,
-                            "directive": directive,
-                        })
-                        directive = None  # Reset
-                    else:
-                        output = await streamed.get_output()
-                        usage_obj = streamed.usage
+                            else:
+                                node = await agent_run.next(node)
 
-                    # Emit tool_call / tool_result events from streamed messages
-                    try:
-                        all_msgs = streamed.all_messages()
-                        for msg in all_msgs:
-                            for part in msg.parts:
-                                kind = getattr(part, 'part_kind', None)
-                                if kind == 'tool-call':
-                                    bus.emit("agent.tool_call", {
-                                        "workflow_id": wid,
-                                        "node_id": agent_def.name,
-                                        "agent_name": agent_def.name,
-                                        "tool_name": part.tool_name,
-                                        "tool_args": part.args if hasattr(part, 'args') else {},
-                                    })
-                                elif kind == 'tool-return':
-                                    bus.emit("agent.tool_result", {
-                                        "workflow_id": wid,
-                                        "node_id": agent_def.name,
-                                        "agent_name": agent_def.name,
-                                        "tool_name": part.tool_name,
-                                        "result": str(part.content) if hasattr(part, 'content') else "",
-                                    })
-                    except Exception:
-                        pass
-                else:
-                    result = await pydantic_agent.run(context, deps=deps)
-                    output = result.output
-                    usage_obj = result.usage
+                        return agent_run
+
+                agent_run = await _run_agent(context)
+
+                if directive:
+                    bus.emit("agent.text_delta", {
+                        "workflow_id": wid,
+                        "node_id": agent_def.name,
+                        "agent_name": agent_def.name,
+                        "text": "\n\n--- [用户打断指令]: " + directive + " ---\n\n",
+                    })
+                    new_context = context + f"\n\n[用户打断指令]: {directive}"
+                    agent_run = await _run_agent(new_context)
+
+                    bus.emit("workflow.resumed", {
+                        "workflow_id": wid,
+                        "node_id": agent_def.name,
+                        "directive": directive,
+                    })
+                    directive = None
+
+                output = agent_run.result.output
+                usage_obj = agent_run.usage
 
                 duration_ms = int((time.time() - start_time) * 1000)
 

@@ -239,6 +239,7 @@ async def create_workflow(
         "name": workflow.name,
         "inputs": request.inputs,
         "dag": {"nodes": node_order, "edges": edges, "conditional_edges": conditional_edges},
+        "agents_dir": request.agents_dir,
     })
 
     # Submit to runner
