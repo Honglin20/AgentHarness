@@ -9,6 +9,7 @@ from typing import Any, Literal, Type
 
 from pydantic import BaseModel
 
+from harness.compiler.md_parser import resolve_agent_md
 from harness.constants import STATE_ERRORS, STATE_INPUTS, STATE_METADATA, STATE_OUTPUTS
 from harness.tools.defaults import default_tool_registry, setup_default_mcp
 from harness.tools.mcp_bridge import McpBridge, McpServerConfig
@@ -18,6 +19,27 @@ from harness.tools.registry import ToolRegistry
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
 _WORKFLOWS_DIR = _BACKEND_DIR / "workflows"
 _DEFAULT_AGENTS_DIR = str(_BACKEND_DIR / "agents")
+
+
+def _extract_description(agent_name: str, workflow_dir: Path) -> str:
+    """Extract the first non-heading, non-empty line from an agent.md as description."""
+    try:
+        path = resolve_agent_md(agent_name, workflow_dir)
+        content = path.read_text(encoding="utf-8")
+    except Exception:
+        return ""
+    in_frontmatter = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped == "---":
+            in_frontmatter = not in_frontmatter
+            continue
+        if in_frontmatter:
+            continue
+        if not stripped or stripped.startswith("#"):
+            continue
+        return stripped
+    return ""
 
 
 class Agent:
@@ -248,9 +270,12 @@ class Workflow:
             for a in agents:
                 for dep in a.after:
                     edges.append([dep, a.name])
+            agent_dicts = [a.to_dict() for a in agents]
+            for ad in agent_dicts:
+                ad["description"] = _extract_description(ad["name"], f.parent)
             result.append({
                 "name": data["name"],
-                "agents": [a.to_dict() for a in agents],
+                "agents": agent_dicts,
                 "dag": {"nodes": node_order, "edges": edges},
                 "workflow_dir": str(f.parent),
             })
