@@ -552,6 +552,8 @@ class MacroGraphBuilder:
                         "agent_name": agent_def.name,
                         "duration_ms": duration_ms,
                         "status": "success",
+                        "input_prompt": context,
+                        "output_result": output.model_dump() if isinstance(output, BaseModel) else str(output),
                     }
                     if token_usage:
                         event_payload["token_usage"] = token_usage

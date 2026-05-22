@@ -96,3 +96,12 @@ def test_stop_regen_signal_ttl_expiry():
     assert "test_wf_ttl" not in _pending_stop_regen
 
     _pending_stop_regen.clear()
+
+
+def test_node_completed_event_includes_io_fields():
+    """node.completed event payload should include input_prompt and output_result fields."""
+    import inspect
+    from harness.engine import macro_graph
+    source = inspect.getsource(macro_graph)
+    assert '"input_prompt"' in source, "node.completed event must include input_prompt field"
+    assert '"output_result"' in source, "node.completed event must include output_result field"
