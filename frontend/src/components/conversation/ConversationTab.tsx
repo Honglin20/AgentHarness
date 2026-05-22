@@ -7,6 +7,7 @@ import { AgentMessage } from "./AgentMessage";
 import { UserMessage } from "./UserMessage";
 import { SystemMessage } from "./SystemMessage";
 import { ToolCallMessage } from "./ToolCallMessage";
+import { ToolCallGroup } from "./ToolCallGroup";
 
 interface ConversationTabProps {
   /** When provided, render these messages (replay mode). Otherwise read live store. */
@@ -121,8 +122,7 @@ export function ConversationTab({ messages: messagesProp, autoScroll = true }: C
                 onToggleCollapse={() => toggle(id)}
                 sectionItemCount={itemCount}
               />
-              {!isCollapsed &&
-                b.tools.map((t) => <ToolCallMessage key={t.id} message={t} />)}
+              {!isCollapsed && <ToolCallGroup tools={b.tools} />}
             </div>
           );
         })}
