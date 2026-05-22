@@ -41,6 +41,8 @@ export interface WorkflowState {
   setSelectedNode: (id: string | null) => void;
   setSelectedTemplate: (template: Record<string, unknown> | null) => void;
   reset: () => void;
+  previewTemplate: (template: Record<string, unknown>) => void;
+  clearPreview: () => void;
 
   // Event handlers
   handleWorkflowStarted: (payload: WorkflowStartedPayload) => void;
@@ -80,6 +82,20 @@ export const useWorkflowStore = create<WorkflowState>()((set) => ({
   setSelectedTemplate: (template) => set({ selectedTemplate: template }),
 
   reset: () => set({ ...initialState, selectedNodeId: null, selectedTemplate: null, agentsDir: "agents" }),
+
+  previewTemplate: (template) =>
+    set({
+      workflowName: (template.name as string) ?? null,
+      dag: (template.dag as WorkflowState["dag"]) ?? null,
+      agentsDir: (template.agents_dir as string) || "agents",
+    }),
+
+  clearPreview: () =>
+    set({
+      workflowName: null,
+      dag: null,
+      agentsDir: "agents",
+    }),
 
   handleWorkflowStarted: (payload) =>
     set((state) => ({
