@@ -16,7 +16,7 @@ from harness.tools.registry import ToolRegistry
 
 # Directories resolved from this file's location — not cwd-dependent
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
-_WORKFLOWS_DIR = _BACKEND_DIR.parent / "workflows"
+_WORKFLOWS_DIR = _BACKEND_DIR / "workflows"
 _DEFAULT_AGENTS_DIR = str(_BACKEND_DIR / "agents")
 
 
