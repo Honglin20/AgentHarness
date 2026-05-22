@@ -19,12 +19,10 @@ interface DisplayedAgent {
 function useDisplayedAgents(): {
   agents: DisplayedAgent[];
   workflowName: string | null;
-  agentsDir: string;
   isReplay: boolean;
 } {
   const activeView = useViewStore((s) => s.activeView);
   const dag = useWorkflowStore((s) => s.dag);
-  const agentsDir = useWorkflowStore((s) => s.agentsDir);
   const workflowName = useWorkflowStore((s) => s.workflowName);
 
   return useMemo(() => {
@@ -37,13 +35,12 @@ function useDisplayedAgents(): {
           source: "snapshot" as const,
         })),
         workflowName: activeView.run.workflow_name,
-        agentsDir: "agents",  // replay reads from snapshot, not disk; dir is informational only
         isReplay: true,
       };
     }
     // live: show agents in the current workflow's dag (or empty if idle)
     if (!dag || dag.nodes.length === 0) {
-      return { agents: [], workflowName, agentsDir: agentsDir || "agents", isReplay: false };
+      return { agents: [], workflowName, isReplay: false };
     }
     return {
       agents: dag.nodes.map((name) => ({
@@ -52,14 +49,13 @@ function useDisplayedAgents(): {
         source: "live" as const,
       })),
       workflowName,
-      agentsDir: agentsDir || "agents",
       isReplay: false,
     };
-  }, [activeView, dag, agentsDir, workflowName]);
+  }, [activeView, dag, workflowName]);
 }
 
 export function AgentBrowser() {
-  const { agents, workflowName, agentsDir, isReplay } = useDisplayedAgents();
+  const { agents, workflowName, isReplay } = useDisplayedAgents();
   const [editAgent, setEditAgent] = useState<DisplayedAgent | null>(null);
   const [diffAgent, setDiffAgent] = useState<string | null>(null);
 
@@ -102,7 +98,6 @@ export function AgentBrowser() {
           open={!!editAgent}
           onOpenChange={(o) => !o && setEditAgent(null)}
           agentName={editAgent.name}
-          agentsDir={agentsDir}
           workflowName={!isReplay && workflowName ? workflowName : undefined}
           readOnlyContent={editAgent.snapshotMd}
         />

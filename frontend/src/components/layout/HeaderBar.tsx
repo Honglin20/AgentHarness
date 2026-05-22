@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
-import { Settings, Key, Cpu, Globe, X, RotateCcw, Square } from "lucide-react";
+import { Settings, Key, Cpu, Globe, X, RotateCcw, Square, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -24,6 +24,7 @@ export function HeaderBar() {
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [apiUrl, setApiUrl] = useState("");
+  const [stopRegenTtl, setStopRegenTtl] = useState("60");
   const [saved, setSaved] = useState(false);
   const [stopping, setStopping] = useState(false);
   const resetWorkflow = useResetWorkflow();
@@ -58,6 +59,7 @@ export function HeaderBar() {
         if (cfg.api_key_set) setApiKey(cfg.api_key_masked);
         if (cfg.model) setModel(cfg.model);
         if (cfg.api_url) setApiUrl(cfg.api_url);
+        if (cfg.stop_regen_ttl) setStopRegenTtl(cfg.stop_regen_ttl);
       }
     } catch {}
   }, []);
@@ -71,13 +73,14 @@ export function HeaderBar() {
           ...(apiKey && !apiKey.includes("*") ? { api_key: apiKey } : {}),
           ...(model ? { model } : {}),
           ...(apiUrl ? { api_url: apiUrl } : {}),
+          ...(stopRegenTtl ? { stop_regen_ttl: stopRegenTtl } : {}),
           persist: true,
         }),
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch {}
-  }, [apiKey, model, apiUrl]);
+  }, [apiKey, model, apiUrl, stopRegenTtl]);
 
   const handleStop = useCallback(async () => {
     if (!workflowId) return;
@@ -195,9 +198,25 @@ export function HeaderBar() {
               <Input
                 value={apiUrl}
                 onChange={(e) => setApiUrl(e.target.value)}
-                placeholder="https://api.deepseek.com/anthropic"
+                placeholder="https://api.deepseek.com/v1"
                 className="h-8 text-xs"
               />
+            </div>
+            <div>
+              <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-app-text-secondary">
+                <Timer className="h-3 w-3" /> Stop Signal TTL (seconds)
+              </label>
+              <Input
+                type="number"
+                min={1}
+                value={stopRegenTtl}
+                onChange={(e) => setStopRegenTtl(e.target.value)}
+                placeholder="60"
+                className="h-8 text-xs"
+              />
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                Orphan stop-and-regenerate signals expire after this many seconds.
+              </p>
             </div>
             <Button
               size="sm"

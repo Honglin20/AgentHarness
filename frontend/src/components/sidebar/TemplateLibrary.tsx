@@ -7,7 +7,6 @@ import { useWorkflowStore } from "@/stores/workflowStore";
 interface SavedWorkflow {
   name: string;
   agents: { name: string; after: string[]; on_pass?: string; on_fail?: string }[];
-  agents_dir?: string;
   dag: { nodes: string[]; edges: [string, string][] };
 }
 

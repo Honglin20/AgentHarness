@@ -19,7 +19,6 @@ type Tab = "conversation" | "results";
 interface SavedWorkflow {
   name: string;
   agents: { name: string; after: string[]; on_pass?: string; on_fail?: string; description?: string }[];
-  agents_dir?: string;
   dag: { nodes: string[]; edges: [string, string][] };
 }
 
@@ -106,15 +105,15 @@ export function CenterPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: t.name,
+          workflow: t.name,
           agents,
-          agents_dir: (t.agents_dir as string) || "agents",
           inputs: { task },
         }),
       });
       if (!r.ok) throw new Error(await r.text());
       const data = await r.json();
       setActiveWorkflowId(data.workflow_id);
-      setWorkflow(data.workflow_id, t.name as string, data.dag, (t.agents_dir as string) || "agents");
+      setWorkflow(data.workflow_id, t.name as string, data.dag);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("Failed to start workflow:", msg);

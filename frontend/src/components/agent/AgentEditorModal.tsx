@@ -9,12 +9,10 @@ interface AgentEditorModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   agentName: string;
-  /** Legacy: directory path under project root. Kept for back-compat. */
-  agentsDir: string;
   /**
-   * New: name of the workflow directory under workflows/. When provided, the
-   * editor uses the workflow-aware endpoints (private-first lookup with shared
-   * fallback) and exposes a "Save target" toggle for private vs shared.
+   * Name of the workflow directory under workflows/. Used for the
+   * workflow-aware endpoints (private-first lookup with shared fallback)
+   * and exposes a "Save target" toggle for private vs shared.
    */
   workflowName?: string;
   /** When provided, show this content read-only (e.g. replay snapshot). Save/Reset hidden. */
@@ -27,7 +25,6 @@ export function AgentEditorModal({
   open,
   onOpenChange,
   agentName,
-  agentsDir,
   workflowName,
   readOnlyContent,
 }: AgentEditorModalProps) {
@@ -51,7 +48,7 @@ export function AgentEditorModal({
     }
     const url = useNewLayout
       ? `/api/agents/${encodeURIComponent(agentName)}/md?workflow=${encodeURIComponent(workflowName!)}`
-      : `/api/agents/${encodeURIComponent(agentName)}/md?agents_dir=${encodeURIComponent(agentsDir)}`;
+      : `/api/agents/${encodeURIComponent(agentName)}/md`;
     fetch(url)
       .then((r) => r.json())
       .then((data) => {
@@ -65,7 +62,7 @@ export function AgentEditorModal({
         }
       })
       .catch(() => setError("Failed to load agent"));
-  }, [open, agentName, agentsDir, workflowName, useNewLayout, isReadOnly, readOnlyContent]);
+  }, [open, agentName, workflowName, useNewLayout, isReadOnly, readOnlyContent]);
 
   const isDirty = mdContent !== originalContent;
 
@@ -74,7 +71,7 @@ export function AgentEditorModal({
     try {
       const body = useNewLayout
         ? { workflow: workflowName, target: saveTarget, md_content: mdContent }
-        : { agents_dir: agentsDir, md_content: mdContent };
+        : { md_content: mdContent };
       const r = await fetch(`/api/agents/${encodeURIComponent(agentName)}/md`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -88,7 +85,7 @@ export function AgentEditorModal({
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     } finally { setSaving(false); }
-  }, [agentName, agentsDir, workflowName, useNewLayout, saveTarget, mdContent]);
+  }, [agentName, workflowName, useNewLayout, saveTarget, mdContent]);
 
   const handleReset = useCallback(() => { setMdContent(originalContent); }, [originalContent]);
 

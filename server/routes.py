@@ -80,6 +80,8 @@ async def set_config(request: Request) -> dict:
     return configure(
         api_key=body.get("api_key"),
         model=body.get("model"),
+        api_url=body.get("api_url"),
+        stop_regen_ttl=body.get("stop_regen_ttl"),
         persist=body.get("persist", True),
     )
 
@@ -92,8 +94,58 @@ async def get_config() -> dict:
 
 
 @router.get("/agents")
-async def list_agents(agents_dir: str = "agents") -> list[AgentInfo]:
-    """List all available agents by scanning agents_dir."""
+async def list_agents(
+    agents_dir: str = "agents",
+    workflow: str | None = None,
+) -> list[AgentInfo]:
+    """List all available agents.
+
+    Resolution order when ``workflow`` is given:
+      1. ``workflows/<workflow>/agents/*.md`` (private)
+      2. ``workflows/_shared/agents/*.md`` (shared fallback)
+    Otherwise falls back to the legacy ``agents_dir`` scan.
+    """
+    if workflow is not None:
+        wf_dir = _validate_workflow_dir(workflow)
+        agents: list[AgentInfo] = []
+        seen: set[str] = set()
+
+        # Private agents first
+        private_dir = wf_dir / "agents"
+        if private_dir.exists():
+            for md_file in private_dir.glob("*.md"):
+                try:
+                    parsed = parse_agent_md(md_file)
+                    seen.add(parsed.name)
+                    agents.append(AgentInfo(
+                        name=parsed.name,
+                        description=parsed.description,
+                        model=parsed.model,
+                        retries=parsed.retries,
+                        tools=parsed.tools or [],
+                    ))
+                except Exception:
+                    continue
+
+        # Shared agents (not overridden by private)
+        if _SHARED_AGENTS_DIR.exists():
+            for md_file in _SHARED_AGENTS_DIR.glob("*.md"):
+                try:
+                    parsed = parse_agent_md(md_file)
+                    if parsed.name not in seen:
+                        agents.append(AgentInfo(
+                            name=parsed.name,
+                            description=parsed.description,
+                            model=parsed.model,
+                            retries=parsed.retries,
+                            tools=parsed.tools or [],
+                        ))
+                except Exception:
+                    continue
+
+        return agents
+
+    # Legacy path
     agents_dir_path = _validate_agents_dir(agents_dir)
     if not agents_dir_path.exists():
         return []
@@ -109,16 +161,38 @@ async def list_agents(agents_dir: str = "agents") -> list[AgentInfo]:
                 retries=parsed.retries,
                 tools=parsed.tools or [],
             ))
-        except Exception as e:
-            # Skip invalid agent files
+        except Exception:
             continue
 
     return agents
 
 
 @router.get("/agents/{name}")
-async def get_agent(name: str, agents_dir: str = "agents") -> AgentInfo:
+async def get_agent(
+    name: str,
+    agents_dir: str = "agents",
+    workflow: str | None = None,
+) -> AgentInfo:
     """Get a specific agent's definition."""
+    if workflow is not None:
+        wf_dir = _validate_workflow_dir(workflow)
+        try:
+            md_path = resolve_agent_md(name, wf_dir)
+        except AgentNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        try:
+            parsed = parse_agent_md(md_path)
+            return AgentInfo(
+                name=parsed.name,
+                description=parsed.description,
+                model=parsed.model,
+                retries=parsed.retries,
+                tools=parsed.tools or [],
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to parse agent: {e}")
+
+    # Legacy path
     agents_dir_path = _validate_agents_dir(agents_dir)
     md_path = agents_dir_path / f"{name}.md"
     if not md_path.exists():
@@ -454,7 +528,7 @@ async def create_workflow(
         "name": workflow.name,
         "inputs": request.inputs,
         "dag": {"nodes": node_order, "edges": edges, "conditional_edges": conditional_edges},
-        "agents_dir": request.agents_dir,
+        "workflow": request.workflow or request.name,
     })
 
     # Submit to runner

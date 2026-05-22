@@ -30,14 +30,11 @@ export interface WorkflowState {
   // DAG structure from backend
   dag: { nodes: string[]; edges: [string, string][]; conditional_edges?: { from: string; to: string; label: string }[] } | null;
 
-  // Agents directory for the current workflow
-  agentsDir: string;
-
   selectedNodeId: string | null;
   selectedTemplate: Record<string, unknown> | null;
 
   // Actions
-  setWorkflow: (id: string, name: string, dag?: unknown, agentsDir?: string) => void;
+  setWorkflow: (id: string, name: string, dag?: unknown) => void;
   setSelectedNode: (id: string | null) => void;
   setSelectedTemplate: (template: Record<string, unknown> | null) => void;
   reset: () => void;
@@ -58,7 +55,6 @@ const initialState = {
   status: "idle" as const,
   nodes: {} as Record<string, NodeState>,
   dag: null as { nodes: string[]; edges: [string, string][] } | null,
-  agentsDir: "agents" as string,
 };
 
 export const useWorkflowStore = create<WorkflowState>()((set) => ({
@@ -66,12 +62,11 @@ export const useWorkflowStore = create<WorkflowState>()((set) => ({
   selectedTemplate: null as Record<string, unknown> | null,
   ...initialState,
 
-  setWorkflow: (id, name, dag, agentsDir) =>
+  setWorkflow: (id, name, dag) =>
     set({
       workflowId: id,
       workflowName: name,
       dag: (dag as WorkflowState["dag"]) ?? null,
-      agentsDir: agentsDir ?? "agents",
       status: "running",
       nodes: {},
       selectedNodeId: null,
@@ -81,20 +76,18 @@ export const useWorkflowStore = create<WorkflowState>()((set) => ({
 
   setSelectedTemplate: (template) => set({ selectedTemplate: template }),
 
-  reset: () => set({ ...initialState, selectedNodeId: null, selectedTemplate: null, agentsDir: "agents" }),
+  reset: () => set({ ...initialState, selectedNodeId: null, selectedTemplate: null }),
 
   previewTemplate: (template) =>
     set({
       workflowName: (template.name as string) ?? null,
       dag: (template.dag as WorkflowState["dag"]) ?? null,
-      agentsDir: (template.agents_dir as string) || "agents",
     }),
 
   clearPreview: () =>
     set({
       workflowName: null,
       dag: null,
-      agentsDir: "agents",
     }),
 
   handleWorkflowStarted: (payload) =>
@@ -103,7 +96,6 @@ export const useWorkflowStore = create<WorkflowState>()((set) => ({
       workflowId: payload.workflow_id,
       workflowName: payload.name,
       dag: payload.dag ?? state.dag,
-      agentsDir: payload.agents_dir ?? state.agentsDir,
     })),
 
   handleWorkflowCompleted: (payload) =>

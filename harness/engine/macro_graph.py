@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from pathlib import Path
 from typing import Any, Literal
@@ -23,7 +24,12 @@ from harness.tools.registry import ToolRegistry
 
 
 # --- Stop & Regenerate signal management ---
-_STOP_REGEN_TTL = 60  # seconds
+def _get_stop_regen_ttl() -> int:
+    """Read TTL from env, defaulting to 60s."""
+    try:
+        return int(os.environ.get("HARNESS_STOP_REGEN_TTL", "60"))
+    except ValueError:
+        return 60
 
 _pending_stop_regen: dict[str, dict[str, str | float]] = {}  # workflow_id → {agent_name, ..., _ts}
 _stop_regen_lock = asyncio.Lock()
@@ -53,8 +59,8 @@ def _has_pending_stop_regen(workflow_id: str, agent_name: str) -> bool:
     pending = _pending_stop_regen.get(workflow_id)
     if pending is None:
         return False
-    # TTL check — expire signals older than _STOP_REGEN_TTL seconds
-    if time.time() - pending.get("_ts", 0) > _STOP_REGEN_TTL:
+    # TTL check — expire signals older than configured TTL seconds
+    if time.time() - pending.get("_ts", 0) > _get_stop_regen_ttl():
         _pending_stop_regen.pop(workflow_id, None)
         return False
     return pending.get("agent_name") == agent_name
