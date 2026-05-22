@@ -12,13 +12,17 @@ from server.event_bus import EventBus
 
 def _build_agents_snapshot(workflow) -> list[dict]:
     """Build a snapshot of agent definitions with their current MD content."""
-    agents_dir = Path(workflow.agents_dir)
+    from harness.compiler.md_parser import resolve_agent_md, AgentNotFoundError
+
+    workflow_dir = workflow.workflow_dir
     snapshot = []
     for agent_def in workflow.agents:
-        md_path = agents_dir / f"{agent_def.name}.md"
         md_content = ""
-        if md_path.exists():
+        try:
+            md_path = resolve_agent_md(agent_def.name, workflow_dir)
             md_content = md_path.read_text()
+        except AgentNotFoundError:
+            pass
         snapshot.append({
             "name": agent_def.name,
             "after": agent_def.after,

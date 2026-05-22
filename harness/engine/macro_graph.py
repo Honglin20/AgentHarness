@@ -11,7 +11,7 @@ from pydantic_graph import End
 
 from harness.api import Agent
 from harness.compiler.dag_builder import build_dag
-from harness.compiler.md_parser import parse_agent_md
+from harness.compiler.md_parser import parse_agent_md, resolve_agent_md
 from harness.constants import STATE_ERRORS, STATE_INPUTS, STATE_METADATA, STATE_OUTPUTS
 from harness.extensions.base import NodeCtx, RejectAction, RetryAction, WorkflowCtx
 from harness.engine.micro_agent import MicroAgentFactory
@@ -99,12 +99,12 @@ class MacroGraphBuilder:
                     })
 
         agents = workflow.agents
-        agents_dir = Path(workflow.agents_dir)
+        workflow_dir = workflow.workflow_dir
 
-        # Parse all agent MD files
+        # Parse all agent MD files via resolve_agent_md (private first, shared fallback)
         parsed_agents = {}
         for agent in agents:
-            md_path = agents_dir / f"{agent.name}.md"
+            md_path = resolve_agent_md(agent.name, workflow_dir)
             parsed = parse_agent_md(md_path)
             parsed_agents[agent.name] = parsed
 
