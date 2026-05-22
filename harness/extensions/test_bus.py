@@ -240,3 +240,77 @@ def test_emit_does_not_invoke_hooks():
     bus.register(H())
     bus.emit("node.start", {"node_id": "x"})
     assert called == []
+
+
+# ---------- NodeCtx emit ----------
+
+def test_node_ctx_emit_appends_side_effects():
+    ctx = _make_node_ctx()
+    assert ctx._side_effects == []
+    ctx.emit("chart.render", {"chart_type": "line"})
+    assert len(ctx._side_effects) == 1
+    assert ctx._side_effects[0]["type"] == "chart.render"
+    assert ctx._side_effects[0]["payload"]["chart_type"] == "line"
+
+
+def test_node_ctx_emit_multiple():
+    ctx = _make_node_ctx()
+    ctx.emit("chart.render", {"a": 1})
+    ctx.emit("metric.report", {"b": 2})
+    assert len(ctx._side_effects) == 2
+    assert ctx._side_effects[0]["type"] == "chart.render"
+    assert ctx._side_effects[1]["type"] == "metric.report"
+
+
+# ---------- Bus flush side effects ----------
+
+@pytest.mark.asyncio
+async def test_run_hooks_flushes_side_effects():
+    bus = Bus()
+
+    class ChartHook(BaseHook):
+        name = "chart"
+        async def on_node_end(self, ctx: NodeCtx, output) -> None:
+            ctx.emit("chart.render", {"chart_type": "line", "data": []})
+
+    bus.register(ChartHook())
+    ctx = _make_node_ctx()
+    sub_id, queue = await bus.subscribe()
+
+    await bus.run_hooks("on_node_end", ctx, "output")
+
+    event = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert event["type"] == "chart.render"
+    assert event["payload"]["chart_type"] == "line"
+    assert ctx._side_effects == []
+
+
+@pytest.mark.asyncio
+async def test_run_hooks_no_side_effects_is_no_op():
+    bus = Bus()
+    ctx = _make_node_ctx()
+    await bus.run_hooks("on_node_end", ctx, "output")
+    assert ctx._side_effects == []
+
+
+@pytest.mark.asyncio
+async def test_run_hooks_multiple_side_effects_flush_in_order():
+    bus = Bus()
+
+    class MultiHook(BaseHook):
+        name = "multi"
+        async def on_node_end(self, ctx: NodeCtx, output) -> None:
+            ctx.emit("chart.render", {"order": 1})
+            ctx.emit("metric.report", {"order": 2})
+
+    bus.register(MultiHook())
+    ctx = _make_node_ctx()
+    sub_id, queue = await bus.subscribe()
+
+    await bus.run_hooks("on_node_end", ctx, "output")
+
+    e1 = await asyncio.wait_for(queue.get(), timeout=1.0)
+    e2 = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert e1["type"] == "chart.render"
+    assert e2["type"] == "metric.report"
+    assert ctx._side_effects == []

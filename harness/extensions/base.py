@@ -60,6 +60,11 @@ class NodeCtx:
     messages            – mutable: full message history (system+user+assistant+tool)
     upstream_outputs    – read-only: outputs from agents this one depends on
     metadata            – per-extension scratchpad, keyed by extension name
+    _side_effects       – internal: observational artifacts produced by hooks
+                          via emit(); cleared after Bus flushes them to WS layer
+
+    emit() — produce an observational artifact (chart, metric, trace) that the
+    Bus will flush to WebSocket subscribers after all hooks complete.
     """
     workflow: WorkflowCtx
     node_id: str
@@ -68,6 +73,10 @@ class NodeCtx:
     messages: list[dict[str, Any]]
     upstream_outputs: dict[str, Any]
     metadata: dict[str, dict[str, Any]] = field(default_factory=dict)
+    _side_effects: list[dict] = field(default_factory=list, repr=False)
+
+    def emit(self, event_type: str, payload: dict) -> None:
+        self._side_effects.append({"type": event_type, "payload": payload})
 
 
 @dataclass
