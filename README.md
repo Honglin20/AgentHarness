@@ -129,6 +129,7 @@ Agent(
     tools: list[str] | None = None,    # None = all available, [] = none, ["bash"] = bash only
     model: str | None = None,          # reads HARNESS_MODEL env var
     retries: int = 3,                  # Pydantic AI retry count
+    eval: bool = False,               # mark for auto-evaluation by EvalJudge
 )
 ```
 
@@ -139,6 +140,7 @@ Agent prompts live in `agents/<name>.md`:
 name: analyzer
 model: openai:gpt-4o      # optional — defaults to HARNESS_MODEL env var
 retries: 2
+eval: true               # optional — enables auto-judge (EvalJudge)
 tools:               # optional — limits the tools available to this agent
   - bash
 ---
@@ -153,15 +155,15 @@ from harness.api import Workflow
 wf = Workflow(
     name: str,
     agents: list[Agent],
-    agents_dir: str = agents/,    # auto-resolved, rarely needed
+    workflow_dir: Path | None = None,  # auto-resolved to workflows/<name>/
 )
 
-wf.save()                      # → workflows/<name>.json
+wf.save()                      # → workflows/<name>/workflow.json
 wf.compile()                   # → langgraph CompiledStateGraph
 result = wf.run(inputs: dict, ui: bool = False)            # sync, blocks until done
 result = await wf.arun(inputs: dict)                       # async (for existing event loops)
 
-Workflow.load("code_review")   # restore from workflows/
+Workflow.load("code_review")   # restore from workflows/<name>/
 Workflow.list_saved()          # → [{"name":"...", "dag":{...}, "agents":[...]}]
 ```
 
@@ -214,6 +216,33 @@ render_chart(data, chart_type="table")
 | `sub_agent` | Built-in | Delegate to a temporary agent (max depth 1) |
 | `ask_human` | Built-in | Ask the user a question, wait for response (UI only) |
 | `read_file`, `write_file`, etc. | MCP | Filesystem tools (via `@modelcontextprotocol/server-filesystem`) |
+
+## Extensions
+
+### EvalJudge — Auto-evaluate agent output
+
+Mark any agent with `eval=True` and register `EvalJudge` to automatically insert
+a judge node that evaluates the agent's output and routes based on pass/fail.
+
+```python
+from harness.api import Agent, Workflow
+from harness.extensions.eval import EvalJudge
+
+wf = (
+    Workflow("reviewed", agents=[
+        Agent("researcher", after=[], eval=True),
+        Agent("writer", after=["researcher"]),
+    ])
+    .use(EvalJudge(max_retries=2))
+)
+```
+
+How it works:
+- **DAG rewrite**: inserts `_judge_<name>` nodes after each `eval=True` agent
+- **Lazy summarization**: auto-summarizes the target agent's MD for the judge prompt (cached by SHA256)
+- **Pass → passthrough**: output flows downstream with `_judge_X` rewritten to display name `X`
+- **Fail → retry**: target agent re-runs with `## Previous judgment` critique injected
+- **Score chart**: emits `chart.render` events for real-time score tracking in the UI
 
 ## REST API
 
@@ -291,7 +320,8 @@ render_chart(data, chart_type="table")
 │   │   ├── config.py        configure(), .env auto-loading
 │   │   ├── engine/          macro_graph, micro_agent
 │   │   ├── tools/           chart, bash, sub_agent, ask_human
-│   │   └── compiler/        DAG builder, markdown parser
+│   │   ├── compiler/        DAG builder, markdown parser
+│   │   └── extensions/      EvalJudge, AutoCompact, FileMemory...
 │   ├── server/              FastAPI app, routes, WebSocket, EventBus
 │   └── agents/              Agent markdown definitions (*.md)
 ├── frontend/                Next.js 14 Web UI
@@ -302,8 +332,15 @@ render_chart(data, chart_type="table")
 │       ├── trace/           Trace table with token tracking
 │       └── layout/          Header, panels
 ├── examples/                Runnable examples
-├── workflows/               Saved workflow definitions (*.json)
-└── tests/                   123 tests
+├── workflows/               Per-workflow directories
+│   ├── <name>/              Each workflow is a directory:
+│   │   ├── workflow.json    Agent definitions + DAG
+│   │   ├── agents/          Private agent MDs (overrides _shared)
+│   │   └── scripts/         Private scripts (injected into prompts)
+│   └── _shared/             Shared pool (fallback for agents/ + scripts/)
+│       ├── agents/
+│       └── scripts/
+└── tests/
 ```
 
 ## Examples
@@ -318,6 +355,7 @@ Each file is standalone — run directly with `python examples/<file>`.
 | 4 | `04_chart_demo.py` | All 8 chart types | no |
 | 5 | `05_trace_demo.py` | Mocked demo showing data structures | no |
 | 6 | `06_agent_to_ui.py` | Define → save → then launch UI separately | no |
+| 10 | `10_eval_judge.py` | EvalJudge: auto-evaluate agent output with retry | yes |
 
 ---
 

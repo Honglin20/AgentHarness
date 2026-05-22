@@ -61,6 +61,36 @@ specialists; remove a node based on inputs.
 - Exceptions are caught and emitted as `ext.error`; compilation continues
   with the un-mutated workflow.
 
+### Case study: EvalJudge
+
+`EvalJudge` is a GraphMutator that inserts auto-judge nodes for agents
+marked `eval=True`. Given this workflow:
+
+```
+researcher → writer
+```
+
+`EvalJudge.mutate()` rewrites it to:
+
+```
+researcher → _judge_researcher → writer
+                ↓ on_fail
+            researcher (retry with critique)
+```
+
+Key design decisions:
+- **Judge node** has no MD file on disk — its system prompt is assembled
+  at runtime from three parts: evaluator role, lazy-summarized target MD,
+  and evaluation criteria. The engine skips `resolve_agent_md` for nodes
+  with `_eval_target` attribute.
+- **Passthrough outputs**: `outputs[_judge_X] = outputs[X]` so downstream
+  agents see the original output under the judge's key. Display name
+  rewrite (`_judge_X` → `X`) keeps prompts clean.
+- **Metadata routing**: `_route_judgment` reads from `metadata.judgment`,
+  not `outputs`, so the pass/fail decision doesn't pollute the output stream.
+- **Multi-downstream fan-out**: when `_judge_X` has >1 downstream, a
+  `_judge_X_passthrough` no-op node is inserted to keep the DAG valid.
+
 ## Composite extensions
 
 Some features need two contracts (e.g. Memory: inject via Middleware,
