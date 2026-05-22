@@ -1,16 +1,22 @@
 "use client";
 
-import { ChevronRight } from "lucide-react";
+import { useState } from "react";
+import { ChevronRight, FileInput, FileOutput } from "lucide-react";
 import type { ConversationMessage } from "@/stores/conversationStore";
+import { useAgentIOStore } from "@/stores/agentIOStore";
 import { formatDuration } from "@/components/output/status-config";
 import { MarkdownText } from "./MarkdownText";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 
 interface AgentMessageProps {
   message: ConversationMessage;
-  /** Whether the surrounding agent section is collapsed (controlled). */
   collapsed: boolean;
   onToggleCollapse: () => void;
-  /** Total items in the section (text + N tool calls), shown in the collapsed header. */
   sectionItemCount: number;
 }
 
@@ -18,6 +24,7 @@ const AGENT_STATUS_BADGE_BG: Record<string, string> = {
   streaming: "bg-blue-500/10 text-blue-500",
   done: "bg-emerald-500/10 text-emerald-500",
   error: "bg-red-500/10 text-red-500",
+  interrupted: "bg-amber-500/10 text-amber-500",
 };
 
 function firstNonEmptyLine(s: string): string {
@@ -28,10 +35,24 @@ function firstNonEmptyLine(s: string): string {
   return "";
 }
 
+type IOTab = "input" | "output";
+
 export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItemCount }: AgentMessageProps) {
-  const { agentName, content, status, durationMs } = message;
+  const { agentName, content, status, durationMs, nodeId } = message;
   const badgeClass = AGENT_STATUS_BADGE_BG[status ?? "done"] ?? AGENT_STATUS_BADGE_BG.done;
   const isStreaming = status === "streaming";
+  const isDone = status === "done";
+
+  const agentIO = useAgentIOStore((s) => nodeId ? s.data[nodeId] : undefined);
+  const hasIO = isDone && agentIO && (agentIO.inputPrompt || agentIO.outputResult != null);
+
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<IOTab>("input");
+
+  const openSheet = (tab: IOTab) => {
+    setActiveTab(tab);
+    setSheetOpen(true);
+  };
 
   const text = content ?? "";
   const preview = firstNonEmptyLine(text);
@@ -49,6 +70,26 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
         )}
         {durationMs != null && (
           <span className="shrink-0 text-xs text-muted-foreground">{formatDuration(durationMs)}</span>
+        )}
+        {hasIO && (
+          <>
+            <button
+              type="button"
+              onClick={() => openSheet("input")}
+              className="shrink-0 inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-xs text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10 transition-colors"
+              title="查看输入"
+            >
+              <FileInput className="h-3 w-3" />
+            </button>
+            <button
+              type="button"
+              onClick={() => openSheet("output")}
+              className="shrink-0 inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-xs text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10 transition-colors"
+              title="查看输出"
+            >
+              <FileOutput className="h-3 w-3" />
+            </button>
+          </>
         )}
         {!isStreaming && hasMore && (
           <button
@@ -86,6 +127,31 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
           <MarkdownText>{text}</MarkdownText>
           {isStreaming && <span className="animate-pulse">▎</span>}
         </div>
+      )}
+
+      {hasIO && (
+        <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+          <SheetContent side="right" className="w-[500px] sm:max-w-lg overflow-y-auto">
+            <SheetHeader>
+              <SheetTitle>
+                {activeTab === "input" ? "输入" : "输出"} — {agentName}
+              </SheetTitle>
+            </SheetHeader>
+            <div className="mt-4 rounded-md border border-app-border bg-gray-50 p-3">
+              {activeTab === "input" ? (
+                <pre className="whitespace-pre-wrap break-words text-xs font-mono text-app-text-primary">
+                  {agentIO.inputPrompt || "(empty)"}
+                </pre>
+              ) : (
+                <pre className="whitespace-pre-wrap break-words text-xs font-mono text-app-text-primary">
+                  {agentIO.outputResult != null
+                    ? JSON.stringify(agentIO.outputResult, null, 2)
+                    : "(empty)"}
+                </pre>
+              )}
+            </div>
+          </SheetContent>
+        </Sheet>
       )}
     </div>
   );
