@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useCallback } from "react";
 import { ReactFlow, Background, Controls, MiniMap } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { Node, Edge } from "@xyflow/react";
@@ -11,11 +11,13 @@ interface DAGPreviewProps {
   dag: NonNullable<DAGShape>;
   /** Agent descriptions keyed by agent name */
   agentDescriptions?: Record<string, string>;
+  /** Callback when user clicks an agent node */
+  onEditAgent?: (agentName: string) => void;
 }
 
 const nodeTypes = { preview: DAGPreviewNode };
 
-export function DAGPreview({ dag, agentDescriptions = {} }: DAGPreviewProps) {
+export function DAGPreview({ dag, agentDescriptions = {}, onEditAgent }: DAGPreviewProps) {
   const nodes: Node[] = useMemo(() => {
     return dag.nodes.map((name, i) => ({
       id: name,
@@ -24,9 +26,10 @@ export function DAGPreview({ dag, agentDescriptions = {} }: DAGPreviewProps) {
       data: {
         label: name,
         description: agentDescriptions[name] ?? "",
+        onEdit: onEditAgent,
       },
     }));
-  }, [dag.nodes, agentDescriptions]);
+  }, [dag.nodes, agentDescriptions, onEditAgent]);
 
   const edges: Edge[] = useMemo(() => {
     const edgeList = dag.edges.map(

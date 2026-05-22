@@ -11,6 +11,7 @@ import { ConversationTab } from "@/components/conversation/ConversationTab";
 import ResultsTab from "@/components/results/ResultsTab";
 import ChatInput from "@/components/chat/ChatInput";
 import { DAGPreview } from "@/components/dag/DAGPreview";
+import { AgentEditorModal } from "@/components/agent/AgentEditorModal";
 import { useWorkflowEvents, setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
 import type { ConversationMessage } from "@/stores/conversationStore";
 
@@ -25,6 +26,7 @@ interface SavedWorkflow {
 export function CenterPanel() {
   const [activeTab, setActiveTab] = useState<Tab>("conversation");
   const [templates, setTemplates] = useState<SavedWorkflow[]>([]);
+  const [editAgentName, setEditAgentName] = useState<string | null>(null);
 
   const status = useWorkflowStore((s) => s.status);
   const nodeCount = useWorkflowStore((s) => Object.keys(s.nodes).length);
@@ -39,6 +41,7 @@ export function CenterPanel() {
 
   const isReplay = activeView.type === "replay";
   const isIdle = !isReplay && status === "idle" && nodeCount === 0;
+  const workflowName = useWorkflowStore((s) => s.workflowName);
   const agentDescriptions = useMemo(() => {
     if (!selectedTemplate) return {};
     const wf = selectedTemplate as unknown as SavedWorkflow;
@@ -229,6 +232,7 @@ export function CenterPanel() {
                 <DAGPreview
                   dag={dag}
                   agentDescriptions={agentDescriptions}
+                  onEditAgent={(name) => setEditAgentName(name)}
                 />
               </div>
               <div className="shrink-0 border-t border-app-border px-4 py-2 text-center">
@@ -264,6 +268,13 @@ export function CenterPanel() {
           />
         </div>
       )}
+
+      <AgentEditorModal
+        open={editAgentName !== null}
+        onOpenChange={(o) => !o && setEditAgentName(null)}
+        agentName={editAgentName ?? ""}
+        workflowName={workflowName ?? undefined}
+      />
     </div>
   );
 }
