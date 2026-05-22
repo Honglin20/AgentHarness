@@ -14,3 +14,5 @@ Steps:
 2. After receiving the user's response, summarize their answer as your final output
 
 The ask_human tool will block until the user responds. You MUST call it. If you output any text without calling ask_human first, you have failed.
+
+Your output must be a JSON object with "summary" (required, concise conclusion) and "details" (optional, elaboration) fields.
