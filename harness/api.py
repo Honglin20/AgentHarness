@@ -33,6 +33,7 @@ class Agent:
         result_type: Type[BaseModel] | None = None,
         on_pass: str | None = None,
         on_fail: str | None = None,
+        eval: bool = False,
     ):
         self.name = name
         self.after = after or []
@@ -42,6 +43,7 @@ class Agent:
         self.result_type = result_type
         self.on_pass = on_pass
         self.on_fail = on_fail
+        self.eval = eval
 
     @property
     def has_conditional_edges(self) -> bool:
@@ -59,6 +61,8 @@ class Agent:
             d["on_pass"] = self.on_pass
         if self.on_fail is not None:
             d["on_fail"] = self.on_fail
+        if self.eval:
+            d["eval"] = True
         return d
 
     @classmethod
@@ -71,6 +75,7 @@ class Agent:
             retries=d.get("retries", 3),
             on_pass=d.get("on_pass"),
             on_fail=d.get("on_fail"),
+            eval=bool(d.get("eval", False)),
         )
 
 
@@ -101,7 +106,8 @@ class Workflow:
         self,
         name: str,
         agents: list[Agent],
-        agents_dir: str = _DEFAULT_AGENTS_DIR,
+        workflow_dir: Path | None = None,
+        agents_dir: str | None = None,  # legacy back-compat — derived from workflow_dir if omitted
         mcp_servers: list[McpServerConfig] | None = None,
         tool_registry: ToolRegistry | None = None,
         event_bus: Any | None = None,
@@ -109,7 +115,21 @@ class Workflow:
     ):
         self.name = name
         self.agents = agents
-        self.agents_dir = agents_dir
+        # New: workflow_dir is the canonical per-workflow directory.
+        # If a legacy agents_dir is passed (and no workflow_dir), keep it for MCP
+        # workdir back-compat — its parent doubles as workflow_dir.
+        if workflow_dir is not None:
+            self.workflow_dir = Path(workflow_dir)
+        elif agents_dir is not None:
+            # Legacy: treat the directory containing the agents folder as the workflow_dir.
+            # If agents_dir already points at a directory called "agents", use its parent;
+            # otherwise treat agents_dir itself as the workflow_dir (some old callers passed
+            # a flat directory of MDs).
+            ad = Path(agents_dir)
+            self.workflow_dir = ad.parent if ad.name == "agents" else ad
+        else:
+            self.workflow_dir = _WORKFLOWS_DIR / name
+        self._legacy_agents_dir = agents_dir  # preserved if caller passed it
         self.mcp_servers = mcp_servers or []
         self.tool_registry = tool_registry or ToolRegistry()
         self._event_bus = event_bus
@@ -118,6 +138,18 @@ class Workflow:
         self._builder: Any | None = None  # MacroGraphBuilder, set by compile()
         self._mcp_setup_done = False
         self._mcp_bridges: list[McpBridge] = []
+
+    @property
+    def agents_dir(self) -> str:
+        """Legacy alias — directory holding agent MD files.
+
+        Returns the explicit legacy value if one was passed, else
+        ``str(self.workflow_dir / 'agents')`` under the new layout.
+        """
+        if self._legacy_agents_dir is not None:
+            return self._legacy_agents_dir
+        return str(self.workflow_dir / "agents")
+
 
     def compile(self):
         """Compile the workflow into a LangGraph StateGraph.
@@ -169,30 +201,46 @@ class Workflow:
         return self
 
     def save(self) -> Path:
-        """Save workflow definition to workflows/<name>.json."""
-        _WORKFLOWS_DIR.mkdir(parents=True, exist_ok=True)
-        path = _WORKFLOWS_DIR / f"{self.name}.json"
+        """Save workflow definition to workflows/<name>/workflow.json.
+
+        Creates the per-workflow directory plus its ``agents/`` and ``scripts/``
+        subdirectories if they don't exist.
+        """
+        self.workflow_dir.mkdir(parents=True, exist_ok=True)
+        (self.workflow_dir / "agents").mkdir(exist_ok=True)
+        (self.workflow_dir / "scripts").mkdir(exist_ok=True)
+        path = self.workflow_dir / "workflow.json"
         path.write_text(json.dumps(self.to_dict(), indent=2, ensure_ascii=False))
         return path
 
     @classmethod
-    def load(cls, name: str, agents_dir: str = _DEFAULT_AGENTS_DIR) -> Workflow:
-        """Load a saved workflow definition from workflows/<name>.json."""
-        path = _WORKFLOWS_DIR / f"{name}.json"
+    def load(cls, name: str, agents_dir: str | None = None) -> Workflow:
+        """Load a saved workflow definition from workflows/<name>/workflow.json.
+
+        ``agents_dir`` is retained for back-compat; new layout derives it from
+        ``workflows/<name>/agents``.
+        """
+        wf_dir = _WORKFLOWS_DIR / name
+        path = wf_dir / "workflow.json"
         if not path.exists():
             raise FileNotFoundError(f"Workflow '{name}' not found at {path}")
         data = json.loads(path.read_text())
-        return cls.from_dict(data, agents_dir=agents_dir)
+        return cls.from_dict(data, workflow_dir=wf_dir, agents_dir=agents_dir)
 
     @staticmethod
     def list_saved() -> list[dict]:
-        """List all saved workflow definitions with their DAG structure."""
+        """List all saved workflow definitions with their DAG structure.
+
+        Scans ``workflows/*/workflow.json`` (skipping ``_shared/``).
+        """
         if not _WORKFLOWS_DIR.exists():
             return []
         from harness.compiler.dag_builder import build_dag
 
         result = []
-        for f in sorted(_WORKFLOWS_DIR.glob("*.json")):
+        for f in sorted(_WORKFLOWS_DIR.glob("*/workflow.json")):
+            if f.parent.name == "_shared":
+                continue
             data = json.loads(f.read_text())
             agents = [Agent.from_dict(a) for a in data.get("agents", [])]
             node_order = build_dag(agents)
@@ -204,7 +252,7 @@ class Workflow:
                 "name": data["name"],
                 "agents": [a.to_dict() for a in agents],
                 "dag": {"nodes": node_order, "edges": edges},
-                "agents_dir": data.get("agents_dir"),
+                "workflow_dir": str(f.parent),
             })
         return result
 
@@ -212,16 +260,21 @@ class Workflow:
         return {
             "name": self.name,
             "agents": [a.to_dict() for a in self.agents],
-            "agents_dir": self.agents_dir,
         }
 
     @classmethod
-    def from_dict(cls, data: dict, agents_dir: str | None = None) -> Workflow:
+    def from_dict(
+        cls,
+        data: dict,
+        workflow_dir: Path | None = None,
+        agents_dir: str | None = None,
+    ) -> Workflow:
         agents = [Agent.from_dict(a) for a in data.get("agents", [])]
         return cls(
             name=data["name"],
             agents=agents,
-            agents_dir=agents_dir or data.get("agents_dir", _DEFAULT_AGENTS_DIR),
+            workflow_dir=workflow_dir,
+            agents_dir=agents_dir,
         )
 
     def run(self, inputs: dict, ui: bool = False) -> WorkflowResult:
