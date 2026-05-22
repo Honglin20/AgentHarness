@@ -25,12 +25,13 @@ from pydantic import BaseModel
 from typing import Type[BaseModel] | None
 
 class Agent:
-    name: str                    # agent 唯一标识，对应 agents/<name>.md
+    name: str                    # agent 唯一标识，对应 <workflow_dir>/agents/<name>.md
     after: list[str]             # 依赖的 agent 名称列表（仅 API 定义，MD 中不放）
     tools: list[str] | None      # 运行时追加的工具，与 MD 中的 tools 合并
     model: str | None            # 模型，None 时用默认
     retries: int = 3             # Pydantic AI 重试次数
     result_type: Type[BaseModel] | None  # 结构化输出类型，仅 API 指定
+    eval: bool = False           # 标记为评测目标，由 EvalJudge 自动插入评测节点；MD 中也可写 eval: true
 
     def to_dict(self) -> dict: ...          # 序列化为 dict（用于 save/load）
     @classmethod
@@ -38,6 +39,7 @@ class Agent:
 
 # 用法
 agent = Agent("refactorer", after=["analyzer"], tools=["bash", "fs"])
+reviewer = Agent("reviewer", after=["refactorer"], eval=True)  # 由 EvalJudge 配套消费
 ```
 
 ### Agent Markdown 格式
@@ -50,6 +52,7 @@ tools:
   - fs
 model: claude-sonnet-4-6
 retries: 3
+eval: false              # 可选；true 时由 EvalJudge 在其下游自动插入评测节点
 ---
 
 你是一个代码重构专家。你的任务是：
@@ -89,7 +92,7 @@ from langgraph.graph import StateGraph
 class Workflow:
     name: str
     agents: list[Agent]
-    agents_dir: str
+    workflow_dir: Path           # 默认 workflows/<name>/，自包含 agents/ + scripts/
     mcp_servers: list[McpServerConfig]
     tool_registry: ToolRegistry
 
@@ -111,14 +114,25 @@ class Workflow:
     async def arun(self, inputs: dict) -> WorkflowResult:
         """异步运行。调用方负责 MCP 生命周期（先 setup 再 arun）。"""
 
-    def save(self) -> Path: ...                    # 保存到 workflows/<name>.json
+    def save(self) -> Path:
+        """保存到 workflows/<name>/workflow.json。
+        若 workflow_dir 不存在则创建 agents/ 和 scripts/ 子目录。
+        返回 workflow.json 的路径。"""
+
     @classmethod
-    def load(cls, name: str) -> Workflow: ...      # 从 workflows/<name>.json 加载
+    def load(cls, name: str) -> Workflow:
+        """从 workflows/<name>/workflow.json 加载。workflow_dir 自动设为 workflows/<name>/。"""
+
     @staticmethod
-    def list_saved() -> list[dict]: ...            # 列出所有已保存 workflow 定义
-    def to_dict(self) -> dict: ...                 # 序列化（含 agents_dir）
+    def list_saved() -> list[dict]:
+        """扫描 workflows/*/workflow.json（排除 _shared/）返回 workflow 定义列表。"""
+
+    def to_dict(self) -> dict:
+        """序列化为 dict。不再写入 workflow_dir / agents_dir（由调用方按 name 推导）。"""
+
     @classmethod
-    def from_dict(cls, data: dict, agents_dir: str | None = None) -> Workflow: ... # 反序列化
+    def from_dict(cls, data: dict, workflow_dir: Path | None = None) -> Workflow:
+        """反序列化。workflow_dir 未提供时默认 workflows/<name>/。"""
 
 # 用法
 wf = Workflow("code_pipeline", agents=[
@@ -174,6 +188,102 @@ class WorkflowResult(BaseModel):
 - [x] `compile()` 不连接 MCP Server — 仅编译 DAG
   - Why: compile 是纯拓扑操作，不应有 IO 副作用
   - How: MCP 连接在 `setup()` 中完成；`compile()` 仅在 registry 已有工具时工作
+
+---
+
+## §WorkflowLayout — Workflow 目录化布局
+
+> Phase 5 敲定（2026-05-22）— 取代单文件 workflow.json + 顶层 agents/
+
+### 目录结构
+
+每个 workflow 是一个自包含目录，agent MD 和私有脚本随 workflow 走，互不污染。`_shared/` 放跨 workflow 的通用资源。
+
+```
+workflows/
+├── _shared/
+│   ├── agents/                  # 框架级共享 agent（v1 只放 runner.md）
+│   │   └── runner.md
+│   └── scripts/                 # 跨 workflow 共享脚本（v1 留位空目录）
+│
+├── code_review/                 # 每个 workflow = 一个文件夹
+│   ├── workflow.json
+│   ├── agents/
+│   │   ├── analyzer.md
+│   │   └── planner.md
+│   └── scripts/
+│       └── lint_runner.py
+│
+└── chart_demo/
+    ├── workflow.json
+    ├── agents/
+    │   └── runner.md
+    └── scripts/
+        └── chart_script.py
+```
+
+### workflow.json 形态
+
+```json
+{
+  "name": "code_review",
+  "agents": [
+    {"name": "analyzer", "after": []},
+    {"name": "planner", "after": ["analyzer"]},
+    {"name": "reviewer", "after": ["planner"], "eval": true}
+  ]
+}
+```
+
+- 去掉 `agents_dir` 字段（workflow_dir 由 name 推导）
+- `eval: bool` 是 Agent 字段的序列化形态，默认 false 时可省略
+
+### Agent 查找规则 — `resolve_agent_md`
+
+```python
+# harness/compiler/md_parser.py
+class AgentNotFoundError(FileNotFoundError):
+    name: str
+    searched: list[str]    # 试过的绝对路径，便于排查
+
+def resolve_agent_md(agent_name: str, workflow_dir: Path) -> Path:
+    """workflow 私有优先，_shared 兜底。
+
+    1. workflows/<wf>/agents/<name>.md 存在 → 返回
+    2. workflows/_shared/agents/<name>.md 存在 → 返回
+    3. 都不存在 → AgentNotFoundError(name, searched=[...])
+    """
+```
+
+### Scripts 路径注入
+
+`MicroAgentFactory.build_node_prompt` 在 `## Task` 之后追加（仅当任一目录非空时）：
+
+```
+## Available scripts (call via bash tool)
+- Private (workflow-specific): /abs/path/workflows/<name>/scripts/
+- Shared (cross-workflow):     /abs/path/workflows/_shared/scripts/
+```
+
+bash 工具的 cwd 仍是用户 cwd；agent 用完整绝对路径调用脚本。
+
+### 设计决策
+
+- [x] 每 workflow 一目录，引用的 agent **各自复制一份**到 workflow 私有目录
+  - Why: 用户决定 — 隔离演化，避免一个 agent 被改动牵连所有引用者
+  - How: 迁移脚本对每个 workflow 引用的 agent 复制到 `workflows/<wf>/agents/`；后续版本可独立修改
+
+- [x] `_shared/agents/` 只放框架级通用 agent（v1 只有 `runner`）
+  - Why: 用户决定 — 共享池仅用于框架默认能力，业务 agent 不进
+  - How: `resolve_agent_md` 先查私有再查共享，未找到抛 `AgentNotFoundError`
+
+- [x] Scripts cwd 保持用户 cwd
+  - Why: 用户决定 — 沿用现有行为，避免破坏既有脚本调用约定
+  - How: prompt 注入完整绝对路径，让 agent 用绝对路径调用
+
+- [x] workflow.json 不含 `workflow_dir`/`agents_dir` 字段
+  - Why: 目录位置由 name 推导即可，避免迁移/拷贝后路径失效
+  - How: 反序列化时由调用方传入 `workflow_dir`，默认 `_WORKFLOWS_DIR / name`
 
 ---
 
@@ -993,14 +1103,18 @@ def write_agent_md(
 
 ### API 端点
 
-- `GET /api/agents/{name}/md?agents_dir=xxx` — 返回 `{"name", "md_content", "agents_dir"}`
-- `PUT /api/agents/{name}/md` — 更新 agent MD 文件，body: `{"agents_dir", "md_content"}`
+- `GET /api/agents/{name}/md?workflow=xxx` — 返回 `{"name", "md_content", "workflow", "source"}`，`source` 为 `"private"` 或 `"shared"`，表示实际命中的位置
+- `PUT /api/agents/{name}/md` — 更新 agent MD 文件，body: `{"workflow", "md_content", "target": "private"|"shared"}`，`target` 默认 `"private"`（写到 `workflows/<workflow>/agents/<name>.md`），`"shared"` 写到 `workflows/_shared/agents/<name>.md`
 
 ### 设计决策
 
 - [x] 写入后立即 re-parse 验证
   - Why: 防止写入无效 MD 导致后续工作流启动失败
   - How: PUT 端点写入后调用 parse_agent_md，解析失败返回 400
+
+- [x] query 参数从 `agents_dir` 改为 `workflow`
+  - Why: 目录化后 agent MD 不再有跨 workflow 共享的物理目录，按 workflow 名定位更直观
+  - How: 后端用 `resolve_agent_md(name, _WORKFLOWS_DIR / workflow)` 解析读取；写入时按 `target` 决定写入私有或共享池
 
 ---
 
