@@ -1,0 +1,25 @@
+{
+  "name": "eval_demo",
+  "agents": [
+    {
+      "name": "researcher",
+      "after": [],
+      "tools": [
+        "bash",
+        "web_search"
+      ],
+      "model": null,
+      "retries": 3,
+      "eval": true
+    },
+    {
+      "name": "writer",
+      "after": [
+        "researcher"
+      ],
+      "tools": null,
+      "model": null,
+      "retries": 3
+    }
+  ]
+}
