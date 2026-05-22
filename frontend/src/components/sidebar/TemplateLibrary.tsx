@@ -14,6 +14,8 @@ export function TemplateLibrary() {
   const [templates, setTemplates] = useState<SavedWorkflow[]>([]);
   const selectedTemplate = useWorkflowStore((s) => s.selectedTemplate);
   const setSelectedTemplate = useWorkflowStore((s) => s.setSelectedTemplate);
+  const previewTemplate = useWorkflowStore((s) => s.previewTemplate);
+  const clearPreview = useWorkflowStore((s) => s.clearPreview);
   const status = useWorkflowStore((s) => s.status);
 
   useEffect(() => {
@@ -35,7 +37,16 @@ export function TemplateLibrary() {
         return (
           <button
             key={wf.name}
-            onClick={() => !isDisabled && setSelectedTemplate(isSelected ? null : wf as unknown as Record<string, unknown>)}
+            onClick={() => {
+              if (isDisabled) return;
+              if (isSelected) {
+                setSelectedTemplate(null);
+                clearPreview();
+              } else {
+                setSelectedTemplate(wf as unknown as Record<string, unknown>);
+                previewTemplate(wf as unknown as Record<string, unknown>);
+              }
+            }}
             disabled={isDisabled}
             className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors ${
               isSelected
