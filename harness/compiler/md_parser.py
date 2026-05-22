@@ -43,6 +43,7 @@ class ParsedAgent(BaseModel):
     description: str | None = None
     on_pass: str | None = None
     on_fail: str | None = None
+    eval: bool = False
 
 
 def parse_agent_md(path: Path) -> ParsedAgent:
@@ -83,6 +84,7 @@ def parse_agent_md(path: Path) -> ParsedAgent:
         description=description,
         on_pass=post.metadata.get("on_pass"),
         on_fail=post.metadata.get("on_fail"),
+        eval=bool(post.metadata.get("eval", False)),
     )
 
 
