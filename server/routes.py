@@ -6,8 +6,14 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from harness.api import Agent, Workflow
-from harness.compiler.md_parser import parse_agent_md, write_agent_md
+from harness.api import Agent, Workflow, _WORKFLOWS_DIR
+from harness.compiler.md_parser import (
+    AgentNotFoundError,
+    _SHARED_AGENTS_DIR,
+    parse_agent_md,
+    resolve_agent_md,
+    write_agent_md,
+)
 from harness.compiler.dag_builder import build_dag
 from harness.engine.macro_graph import MacroGraphBuilder
 from harness.tools.registry import ToolRegistry
@@ -33,6 +39,19 @@ def _validate_agents_dir(agents_dir: str) -> Path:
     resolved = (Path(_ALLOWED_AGENTS_BASE) / agents_dir).resolve()
     if not str(resolved).startswith(str(_ALLOWED_AGENTS_BASE.resolve())):
         raise HTTPException(status_code=400, detail="agents_dir escapes allowed directory")
+    return resolved
+
+
+def _validate_workflow_dir(workflow: str) -> Path:
+    """Validate a workflow folder name and return its absolute path under workflows/.
+
+    Rejects path traversal. The directory does not need to exist (caller decides).
+    """
+    if not workflow or "/" in workflow or "\\" in workflow or workflow.startswith("."):
+        raise HTTPException(status_code=400, detail="invalid workflow name")
+    resolved = (_WORKFLOWS_DIR / workflow).resolve()
+    if not str(resolved).startswith(str(_WORKFLOWS_DIR.resolve())):
+        raise HTTPException(status_code=400, detail="workflow escapes workflows root")
     return resolved
 
 # In-memory storage (production: use database)
@@ -119,8 +138,33 @@ async def get_agent(name: str, agents_dir: str = "agents") -> AgentInfo:
 
 
 @router.get("/agents/{name}/md")
-async def get_agent_md(name: str, agents_dir: str = "agents") -> dict:
-    """Get the raw Markdown content of an agent definition."""
+async def get_agent_md(
+    name: str,
+    workflow: str | None = None,
+    agents_dir: str = "agents",
+) -> dict:
+    """Get the raw Markdown content of an agent definition.
+
+    Resolution order:
+      1. ``workflow`` query (new): use ``resolve_agent_md(name, workflows/<workflow>)``
+         which falls back to ``workflows/_shared/agents/`` if not found locally.
+      2. ``agents_dir`` query (legacy): direct file at ``<agents_dir>/<name>.md``.
+    """
+    if workflow is not None:
+        wf_dir = _validate_workflow_dir(workflow)
+        try:
+            md_path = resolve_agent_md(name, wf_dir)
+        except AgentNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        # Determine origin (private vs shared) for the client.
+        source = "private" if md_path.parent == wf_dir / "agents" else "shared"
+        return {
+            "name": name,
+            "md_content": md_path.read_text(),
+            "workflow": workflow,
+            "source": source,
+        }
+    # Legacy path
     agents_dir_path = _validate_agents_dir(agents_dir)
     md_path = agents_dir_path / f"{name}.md"
     if not md_path.exists():
@@ -130,22 +174,50 @@ async def get_agent_md(name: str, agents_dir: str = "agents") -> dict:
 
 @router.put("/agents/{name}/md")
 async def update_agent_md(name: str, request: Request) -> dict:
-    """Update an agent's Markdown file."""
+    """Update an agent's Markdown file.
+
+    Body fields:
+      - ``md_content`` (str, required)
+      - ``workflow`` (str, optional, new) + ``target`` ("private"|"shared", default
+        "private"): write to ``workflows/<workflow>/agents/<name>.md`` or
+        ``workflows/_shared/agents/<name>.md``.
+      - ``agents_dir`` (str, legacy): write to ``<agents_dir>/<name>.md`` if the
+        file already exists there.
+    """
     body = await request.json()
-    agents_dir = body.get("agents_dir", "agents")
     md_content = body.get("md_content", "")
-    agents_dir_path = _validate_agents_dir(agents_dir)
-    md_path = agents_dir_path / f"{name}.md"
-    if not md_path.exists():
-        raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
+    workflow = body.get("workflow")
+    target = body.get("target", "private")
+
+    if workflow is not None:
+        if target not in ("private", "shared"):
+            raise HTTPException(status_code=400, detail="target must be 'private' or 'shared'")
+        if target == "private":
+            wf_dir = _validate_workflow_dir(workflow)
+            md_path = wf_dir / "agents" / f"{name}.md"
+        else:
+            md_path = _SHARED_AGENTS_DIR / f"{name}.md"
+        md_path.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        # Legacy path — require existing file at agents_dir/<name>.md
+        agents_dir = body.get("agents_dir", "agents")
+        agents_dir_path = _validate_agents_dir(agents_dir)
+        md_path = agents_dir_path / f"{name}.md"
+        if not md_path.exists():
+            raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
+
     # Validate before writing — write to temp file, parse, then rename
-    import tempfile
     tmp = md_path.with_suffix(".tmp")
     try:
         tmp.write_text(md_content)
         parsed = parse_agent_md(tmp)
         tmp.replace(md_path)
-        return {"status": "ok", "name": parsed.name, "description": parsed.description}
+        return {
+            "status": "ok",
+            "name": parsed.name,
+            "description": parsed.description,
+            "path": str(md_path),
+        }
     except Exception as e:
         tmp.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=f"Invalid agent MD: {e}")
@@ -315,17 +387,38 @@ async def create_workflow(
 
     workflow_id = str(uuid.uuid4())
 
-    # Convert AgentDef to Agent
-    agents = [Agent(name=a.name, after=a.after, on_pass=a.on_pass, on_fail=a.on_fail) for a in request.agents]
+    # Convert AgentDef to Agent (including new eval field)
+    agents = [
+        Agent(
+            name=a.name,
+            after=a.after,
+            on_pass=a.on_pass,
+            on_fail=a.on_fail,
+            eval=a.eval,
+        )
+        for a in request.agents
+    ]
 
-    # Create Workflow instance
-    workflow = Workflow(
-        name=request.name,
-        agents=agents,
-        agents_dir=request.agents_dir,
-        tool_registry=ToolRegistry(),
-        event_bus=event_bus,
-    )
+    # Resolve workflow_dir: prefer explicit `workflow` field; else derive from name.
+    if request.workflow:
+        wf_dir = _validate_workflow_dir(request.workflow)
+        workflow = Workflow(
+            name=request.name,
+            agents=agents,
+            workflow_dir=wf_dir,
+            tool_registry=ToolRegistry(),
+            event_bus=event_bus,
+        )
+    else:
+        # Legacy back-compat: caller passed agents_dir; Workflow.__init__ will
+        # derive workflow_dir from it.
+        workflow = Workflow(
+            name=request.name,
+            agents=agents,
+            agents_dir=request.agents_dir,
+            tool_registry=ToolRegistry(),
+            event_bus=event_bus,
+        )
 
     # Store workflow
     from datetime import datetime, timezone

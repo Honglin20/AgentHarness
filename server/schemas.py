@@ -11,12 +11,16 @@ class AgentDef(BaseModel):
     after: list[str] = Field(default_factory=list)
     on_pass: str | None = None
     on_fail: str | None = None
+    eval: bool = False
 
 
 class CreateWorkflowRequest(BaseModel):
     """Request to create and start a workflow."""
     name: str
     agents: list[AgentDef]
+    # New (preferred): workflow directory name (under workflows/). If omitted, derived from `name`.
+    workflow: str | None = None
+    # Legacy: kept for back-compat with old clients. Deprecated.
     agents_dir: str = "agents"
     inputs: dict = Field(default_factory=dict)
 
