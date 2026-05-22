@@ -130,7 +130,7 @@ class MacroGraphBuilder:
         for agent_name in execution_order:
             agent_def = agent_map[agent_name]
             parsed = parsed_agents[agent_name]
-            node_func = self._make_node_func(agent_def, parsed, dep_map)
+            node_func = self._make_node_func(agent_def, parsed, dep_map, workflow_dir)
             graph.add_node(agent_name, node_func)
 
         # Add edges from START to root nodes
@@ -199,7 +199,7 @@ class MacroGraphBuilder:
 
         return final_tool_names, model, retries, result_type
 
-    def _make_node_func(self, agent_def, parsed, dep_map):
+    def _make_node_func(self, agent_def, parsed, dep_map, workflow_dir):
         """Create an async LangGraph node function for an agent."""
         micro_factory = self.micro_factory
         bus = self.event_bus
