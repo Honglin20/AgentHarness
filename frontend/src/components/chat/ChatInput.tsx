@@ -27,18 +27,18 @@ export default function ChatInput({ sendAnswer, sendStopAndRegenerate, startWork
   const isIdle = status === "idle";
   const canStartWorkflow = isIdle && !!selectedTemplate && !!startWorkflow;
 
-  // Find the most recent agent message that's still streaming
+  // Find the most recent agent message that's still streaming or interrupted
   const streamingAgent = (() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
-      if (m.type === "agent" && m.status === "streaming") {
-        return { agentName: m.agentName ?? m.nodeId ?? "agent", content: m.content };
+      if (m.type === "agent" && (m.status === "streaming" || m.status === "interrupted")) {
+        return { agentName: m.agentName ?? m.nodeId ?? "agent", content: m.content, status: m.status };
       }
     }
     return null;
   })();
 
-  const showStop = !!streamingAgent && !!sendStopAndRegenerate && !hasPendingQuestion;
+  const showStop = !!streamingAgent && streamingAgent.status === "streaming" && !!sendStopAndRegenerate && !hasPendingQuestion;
 
   useEffect(() => {
     if (pendingQuestionId || canStartWorkflow) {
@@ -62,6 +62,8 @@ export default function ChatInput({ sendAnswer, sendStopAndRegenerate, startWork
 
   const handleStop = useCallback(() => {
     if (!streamingAgent || !sendStopAndRegenerate) return;
+    // Immediately mark agent as interrupted locally to prevent race conditions
+    useConversationStore.getState().interruptAgentMessage(streamingAgent.agentName);
     sendStopAndRegenerate(streamingAgent.agentName, streamingAgent.content, value);
     if (value.trim()) {
       useConversationStore.getState().addUserMessage(value);

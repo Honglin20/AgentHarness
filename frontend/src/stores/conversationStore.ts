@@ -9,7 +9,7 @@ export interface ConversationMessage {
   toolName?: string;
   toolArgs?: Record<string, unknown>;
   toolResult?: string;
-  status?: "streaming" | "done" | "error";
+  status?: "streaming" | "done" | "error" | "interrupted";
   durationMs?: number;
   timestamp: number;
 }
@@ -30,6 +30,8 @@ export interface ConversationState {
   addAgentQuestion: (questionId: string, question: string, agentName: string) => void;
   addUserMessage: (content: string) => void;
   clearPendingQuestion: (questionId: string) => void;
+  interruptAgentMessage: (agentName: string) => void;
+  resumeAgentMessage: (nodeId: string, agentName: string) => void;
   reset: () => void;
 }
 
@@ -96,7 +98,7 @@ export const useConversationStore = create<ConversationState>()((set) => ({
   completeAgentMessage: (nodeId, agentName, durationMs) =>
     set((state) => {
       const idx = state.messages.findLastIndex(
-        (m) => m.nodeId === nodeId && m.type === "agent" && m.status === "streaming"
+        (m) => m.nodeId === nodeId && m.type === "agent" && (m.status === "streaming" || m.status === "interrupted")
       );
       if (idx === -1) return state;
 
@@ -113,7 +115,7 @@ export const useConversationStore = create<ConversationState>()((set) => ({
   failAgentMessage: (nodeId, agentName, error, durationMs) =>
     set((state) => {
       const idx = state.messages.findLastIndex(
-        (m) => m.nodeId === nodeId && m.type === "agent" && m.status === "streaming"
+        (m) => m.nodeId === nodeId && m.type === "agent" && (m.status === "streaming" || m.status === "interrupted")
       );
       if (idx === -1) return state;
 
@@ -197,6 +199,30 @@ export const useConversationStore = create<ConversationState>()((set) => ({
         ? { pendingQuestionId: null, pendingQuestionAgent: null }
         : state
     ),
+
+  interruptAgentMessage: (agentName) =>
+    set((state) => {
+      const idx = state.messages.findLastIndex(
+        (m) => m.type === "agent" && m.status === "streaming" && (m.agentName === agentName || m.nodeId === agentName)
+      );
+      if (idx === -1) return state;
+
+      const messages = [...state.messages];
+      messages[idx] = { ...messages[idx], status: "interrupted" };
+      return { messages };
+    }),
+
+  resumeAgentMessage: (nodeId, agentName) =>
+    set((state) => {
+      const idx = state.messages.findLastIndex(
+        (m) => m.type === "agent" && m.status === "interrupted" && (m.nodeId === nodeId || m.agentName === agentName)
+      );
+      if (idx === -1) return state;
+
+      const messages = [...state.messages];
+      messages[idx] = { ...messages[idx], status: "streaming" };
+      return { messages };
+    }),
 
   reset: () => {
     msgCounter = 0;

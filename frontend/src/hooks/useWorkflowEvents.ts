@@ -175,9 +175,8 @@ function dispatchEvent(event: WSEvent): void {
     }
 
     case "workflow.resumed": {
-      // Agent resumed after interrupt — no special UI action needed,
-      // text_delta events will continue flowing
-      useConversationStore.getState().addSystemMessage("Workflow resumed");
+      const p = event.payload as { workflow_id: string; node_id: string; directive?: string };
+      useConversationStore.getState().resumeAgentMessage(p.node_id, "");
       break;
     }
   }
