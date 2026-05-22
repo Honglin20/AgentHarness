@@ -1610,8 +1610,105 @@ elif message.get("type") == "agent.stop_and_regenerate":
 
 ---
 
-## §Eval — 评估节点接口
+## §Eval — EvalJudge 评估节点接口
 
-> Phase 4 敲定
+> Phase 5 敲定（2026-05-22）
 
-（待 Phase 3 完成后讨论）
+### 用法
+
+```python
+from harness.api import Agent, Workflow
+from harness.extensions.eval import EvalJudge, ReviewDecision
+
+wf = Workflow("research", agents=[
+    Agent("researcher", eval=True),
+    Agent("writer", after=["researcher"]),
+]).use(EvalJudge(judge_model=None, max_retries=2))
+```
+
+`Agent.eval: bool = False` — API + MD frontmatter 均可标记。
+
+### GraphMutator 行为（build time）
+
+对每个 `eval=True` 的 agent `X`：
+
+1. 创建虚拟 Agent `_judge_X`（`after=["X"]`, `result_type=ReviewDecision`）
+2. 下游 `D = {Y : X in Y.after}` 的 `after` 中 `X` 替换为 `_judge_X`
+3. `_judge_X.on_fail = X`（回环）；`_judge_X.on_pass` 指向下游（单下游直接指；多下游走 `_judge_X_passthrough` fan-out）
+4. `_judge_X` 标记 `_eval_target = X.name`，便于运行时识别
+
+### ReviewDecision
+
+```python
+class ReviewDecision(BaseModel):
+    decision: Literal["pass", "fail"]
+    reason: str
+    score: float | None = None    # 可选，非 None 时自动 emit line chart
+```
+
+### Pass 时透传 outputs
+
+下游 Y 看到的是 X 的原始输出，不是 ReviewDecision。
+
+```python
+# _judge_X 节点返回
+{
+    "outputs": {judge_name: state["outputs"][target_name]},   # 透传
+    "metadata": {judge_name: {"judgment": ..., "score_history": [...]}},
+}
+```
+
+下游从 `outputs[_judge_X]` 拿到 X 的原始输出。`build_node_prompt` 做"显示名重写"：prompt 里 `_judge_X` 显示为 `X`。
+
+### 回环时注入 critique
+
+`build_node_prompt` 检测 metadata 中 X 的下游 judge 有 `judgment` 且 `decision="fail"` 时，额外注入：
+
+```
+## Previous judgment (from _judge_X)
+- decision: fail
+- reason: <critique>
+```
+
+### Judge prompt 三段式组装（lazy first-call）
+
+1. **预制头**：评测员角色说明 + 评测标准
+2. **自动总结**（lazy 生成，缓存）：`summarizer.py` 首次运行调 LLM 总结 X 的 MD，写入 `.eval_cache/_judge_<X>_summary.md`，SHA256 验证
+3. **框架注入**：现有 `build_node_prompt` 行为（Task + upstream output）
+
+### 评分可视化
+
+`review.score is not None` → EventBus emit `chart.render` 事件，`score_history` 累计在 `metadata[judge_name]["score_history"]`，前端按同 label+title 刷新折线图。
+
+### Judge 错误处理
+
+```python
+try:
+    review = await run_judge_agent(...)
+except Exception as e:
+    return {"errors": {judge_name: str(e)}}    # 不写 outputs → 下游中断
+```
+
+Judge 失败当节点失败处理，不静默。
+
+### 设计决策
+
+- [x] GraphMutator 而非 Middleware — 需要新增图边（回环），Middleware 无法加节点
+  - Why: 用户声明 `eval=True`，框架在 build time 改造 DAG；运行时引擎无差别执行
+  - How: `EvalJudge.mutate(workflow)` 扫描 + 改造 agents 列表
+
+- [x] Pass 时 outputs 透传 — 下游拿到 X 原始输出而非 ReviewDecision
+  - Why: 用户强调 — pass 时下游不需要看 judgment 结构
+  - How: `outputs[judge_name] = outputs[target_name]`;judgment 写 metadata
+
+- [x] Lazy 总结 + SHA256 缓存 — 避免每次 judge 都重跑总结
+  - Why: X 的 MD 不常变，缓存节约 token 和延迟
+  - How: `.eval_cache/` 目录，key = SHA256[:16] of MD content；MD 变 → 缓存失效
+
+- [x] Judge 错误当节点失败 — 不静默放过
+  - Why: 用户决定 — judge 可靠性是要求，静默 "pass" 会掩盖问题
+  - How: exception 写 errors dict，前端红色显示
+
+- [x] 多下游用 passthrough 节点 fan-out — 改动小，语义清晰
+  - Why: `_judge_X` 只有一个 on_pass 出口，多个下游需 hub
+  - How: 插入 `_judge_X_passthrough`(no-op)，fan-out 到所有 D
