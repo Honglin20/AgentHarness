@@ -395,16 +395,24 @@ class MacroGraphBuilder:
                         while not isinstance(node, End):
                             if pydantic_agent.is_model_request_node(node):
                                 async with node.stream(agent_run.ctx) as stream:
-                                    async for chunk in stream.stream_text(delta=True):
-                                        if bus:
+                                    prev_text = ""
+                                    async for response in stream.stream_response():
+                                        # Extract full text from TextPart objects in the response
+                                        current_text = "".join(
+                                            p.content for p in response.parts
+                                            if getattr(p, 'part_kind', None) == 'text'
+                                        )
+                                        delta = current_text[len(prev_text):]
+                                        prev_text = current_text
+                                        if delta and bus:
                                             bus.emit("agent.text_delta", {
                                                 "workflow_id": wid,
                                                 "node_id": agent_def.name,
                                                 "agent_name": agent_def.name,
-                                                "text": chunk,
+                                                "text": delta,
                                             })
                                             if ext_ctx is not None and hasattr(bus, "run_hooks"):
-                                                await bus.run_hooks("on_llm_delta", ext_ctx, chunk)
+                                                await bus.run_hooks("on_llm_delta", ext_ctx, delta)
                                         if wid and _has_pending_stop_regen(wid, agent_def.name):
                                             stop_regen = _consume_stop_regen(wid)
                                             break
