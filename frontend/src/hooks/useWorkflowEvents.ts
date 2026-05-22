@@ -22,6 +22,7 @@ import { useOutputStore } from "@/stores/outputStore";
 import { useChartStore } from "@/stores/chartStore";
 import { useToolCallStore, nextToolCallId } from "@/stores/toolCallStore";
 import { useConversationStore } from "@/stores/conversationStore";
+import { useAgentIOStore } from "@/stores/agentIOStore";
 import { computeRunSummary } from "@/lib/summary/runSummary";
 
 // Track the current workflow to filter stale replayed events
@@ -98,6 +99,10 @@ function dispatchEvent(event: WSEvent): void {
       const p = event.payload as unknown as NodeCompletedPayload;
       useWorkflowStore.getState().handleNodeCompleted(p);
       useConversationStore.getState().completeAgentMessage(p.node_id, p.agent_name, p.duration_ms);
+      // Store agent I/O data for viewer
+      if (p.input_prompt || p.output_result) {
+        useAgentIOStore.getState().setAgentIO(p.node_id, p.input_prompt ?? "", p.output_result);
+      }
       break;
     }
 

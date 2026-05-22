@@ -69,6 +69,8 @@ export interface NodeCompletedPayload {
   duration_ms: number;
   status: string;
   token_usage?: TokenUsage;
+  input_prompt?: string;
+  output_result?: Record<string, unknown>;
 }
 
 export interface NodeFailedPayload {
