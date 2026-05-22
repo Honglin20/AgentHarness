@@ -643,21 +643,11 @@ class MacroGraphBuilder:
 
             duration_ms = int((time.time() - start_time) * 1000)
 
-            # 4. Score history + chart emission
+            # 4. Score history (chart emission handled by EvalChartPlugin)
             prev_meta = state.get(STATE_METADATA, {}).get(judge_name, {})
             score_history = list(prev_meta.get("score_history", []))
             if review.score is not None:
                 score_history.append(review.score)
-                if bus:
-                    bus.emit("chart.render", {
-                        "node_id": judge_name,
-                        "chart_type": "line",
-                        "data": [{"iteration": i + 1, "score": s} for i, s in enumerate(score_history)],
-                        "x": "iteration",
-                        "y": "score",
-                        "label": "Eval Scores",
-                        "title": f"{target_name} quality",
-                    })
 
             # 5. Passthrough outputs + judgment in metadata
             iter_update = {}
