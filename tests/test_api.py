@@ -1,4 +1,4 @@
-from harness.api import Agent, WorkflowResult, NodeTrace
+from harness.api import Agent, AgentResult, WorkflowResult, NodeTrace
 
 
 def test_agent_creation():
@@ -8,7 +8,7 @@ def test_agent_creation():
     assert agent.tools is None
     assert agent.model is None
     assert agent.retries == 3
-    assert agent.result_type is None
+    assert agent.result_type is AgentResult
 
 
 def test_agent_with_all_fields():
@@ -31,6 +31,35 @@ def test_agent_with_all_fields():
     assert agent.model == "claude-sonnet-4-6"
     assert agent.retries == 5
     assert agent.result_type is MyResult
+
+
+def test_agent_default_result_type_is_agent_result():
+    agent = Agent("x", after=[])
+    assert agent.result_type is AgentResult
+
+
+def test_agent_explicit_result_type_not_overridden():
+    from pydantic import BaseModel
+
+    class CustomResult(BaseModel):
+        data: str
+
+    agent = Agent("y", after=[], result_type=CustomResult)
+    assert agent.result_type is CustomResult
+
+
+def test_agent_result_model_fields():
+    result = AgentResult(summary="done", details="all good")
+    assert result.summary == "done"
+    assert result.details == "all good"
+
+
+def test_agent_result_summary_required():
+    from pydantic import ValidationError
+    import pytest
+
+    with pytest.raises(ValidationError):
+        AgentResult()
 
 
 def test_node_trace():

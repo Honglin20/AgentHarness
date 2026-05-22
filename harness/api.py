@@ -42,6 +42,12 @@ def _extract_description(agent_name: str, workflow_dir: Path) -> str:
     return ""
 
 
+class AgentResult(BaseModel):
+    """Default result_type. Forces separation of conclusion from process."""
+    summary: str
+    details: str | None = None
+
+
 class Agent:
     """Declarative agent definition."""
 
@@ -62,7 +68,7 @@ class Agent:
         self.tools = tools
         self.model = model
         self.retries = retries
-        self.result_type = result_type
+        self.result_type = result_type if result_type is not None else AgentResult
         self.on_pass = on_pass
         self.on_fail = on_fail
         self.eval = eval
