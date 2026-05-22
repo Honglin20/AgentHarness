@@ -175,6 +175,12 @@ class Bus:
             coros.append(self._safe_invoke(hook, method, args))
         await asyncio.gather(*coros, return_exceptions=False)
 
+        # Flush side effects from NodeCtx to WS layer
+        if args and isinstance(args[0], NodeCtx):
+            for effect in args[0]._side_effects:
+                self.emit(effect["type"], effect["payload"])
+            args[0]._side_effects.clear()
+
     async def _safe_invoke(self, hook: BaseHook, method: str, args: tuple) -> None:
         try:
             fn = getattr(hook, method, None)
