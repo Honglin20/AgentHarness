@@ -103,6 +103,7 @@ export function AgentBrowser() {
           onOpenChange={(o) => !o && setEditAgent(null)}
           agentName={editAgent.name}
           agentsDir={agentsDir}
+          workflowName={!isReplay && workflowName ? workflowName : undefined}
           readOnlyContent={editAgent.snapshotMd}
         />
       )}

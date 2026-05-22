@@ -25,12 +25,23 @@ export type EventType =
   | "workflow.resumed";
 
 // Workflow events
+export interface WorkflowAgentDef {
+  name: string;
+  after?: string[];
+  eval?: boolean;
+}
+
 export interface WorkflowStartedPayload {
   workflow_id: string;
   name: string;
   inputs?: Record<string, unknown>;
   dag?: { nodes: string[]; edges: [string, string][] };
+  /** Legacy — path under project root holding agent MD files. */
   agents_dir?: string;
+  /** New — name of the workflow directory under workflows/. */
+  workflow?: string;
+  /** Full agent specs including per-agent flags such as `eval`. */
+  agents?: WorkflowAgentDef[];
 }
 
 export interface WorkflowCompletedPayload {
