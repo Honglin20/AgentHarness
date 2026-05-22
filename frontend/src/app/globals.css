@@ -75,3 +75,8 @@
     @apply bg-background text-foreground;
   }
 }
+
+.markdown-body {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}

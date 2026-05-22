@@ -203,7 +203,7 @@ export function CenterPanel() {
         </div>
       )}
 
-      <div className="flex-1 min-h-0 overflow-hidden">
+      <div className="min-w-0 flex-1 overflow-hidden">
         {isIdle && !isReplay ? (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-muted-foreground">Ready to start {(selectedTemplate as Record<string, unknown>)?.name as string}</p>
