@@ -10,6 +10,7 @@ import { useViewStore } from "@/stores/viewStore";
 import { ConversationTab } from "@/components/conversation/ConversationTab";
 import ResultsTab from "@/components/results/ResultsTab";
 import ChatInput from "@/components/chat/ChatInput";
+import { DAGPreview } from "@/components/dag/DAGPreview";
 import { useWorkflowEvents, setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
 import type { ConversationMessage } from "@/stores/conversationStore";
 
@@ -17,7 +18,7 @@ type Tab = "conversation" | "results";
 
 interface SavedWorkflow {
   name: string;
-  agents: { name: string; after: string[]; on_pass?: string; on_fail?: string }[];
+  agents: { name: string; after: string[]; on_pass?: string; on_fail?: string; description?: string }[];
   agents_dir?: string;
   dag: { nodes: string[]; edges: [string, string][] };
 }
@@ -34,10 +35,20 @@ export function CenterPanel() {
   const selectedTemplate = useWorkflowStore((s) => s.selectedTemplate);
   const setSelectedTemplate = useWorkflowStore((s) => s.setSelectedTemplate);
   const setWorkflow = useWorkflowStore((s) => s.setWorkflow);
+  const dag = useWorkflowStore((s) => s.dag);
   const activeView = useViewStore((s) => s.activeView);
 
   const isReplay = activeView.type === "replay";
   const isIdle = !isReplay && status === "idle" && nodeCount === 0;
+  const agentDescriptions = useMemo(() => {
+    if (!selectedTemplate) return {};
+    const wf = selectedTemplate as unknown as SavedWorkflow;
+    const descMap: Record<string, string> = {};
+    for (const a of wf.agents) {
+      if (a.description) descMap[a.name] = a.description;
+    }
+    return descMap;
+  }, [selectedTemplate]);
   const { sendAnswer, sendStopAndRegenerate } = useWorkflowEvents(workflowId);
 
   // When a new live workflow starts, snap back to Conversation so users don't
@@ -138,7 +149,15 @@ export function CenterPanel() {
                 return (
                   <button
                     key={wf.name}
-                    onClick={() => setSelectedTemplate(wf as unknown as Record<string, unknown>)}
+                    onClick={() => {
+                      if (!isSelected) {
+                        setSelectedTemplate(wf as unknown as Record<string, unknown>);
+                        useWorkflowStore.getState().previewTemplate(wf as unknown as Record<string, unknown>);
+                      } else {
+                        setSelectedTemplate(null);
+                        useWorkflowStore.getState().clearPreview();
+                      }
+                    }}
                     className={`flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors ${
                       isSelected
                         ? "border-blue-400 bg-blue-50"
@@ -205,9 +224,21 @@ export function CenterPanel() {
 
       <div className="min-w-0 flex-1 overflow-hidden">
         {isIdle && !isReplay ? (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-muted-foreground">Ready to start {(selectedTemplate as Record<string, unknown>)?.name as string}</p>
-          </div>
+          dag ? (
+            <div className="flex h-full flex-col">
+              <div className="flex-1">
+                <DAGPreview
+                  dag={dag}
+                  agentDescriptions={agentDescriptions}
+                />
+              </div>
+              <div className="shrink-0 border-t border-app-border px-4 py-2 text-center">
+                <p className="text-xs text-muted-foreground">
+                  Ready to start <span className="font-medium">{(selectedTemplate as Record<string, unknown>)?.name as string}</span>
+                </p>
+              </div>
+            </div>
+          ) : null
         ) : activeTab === "conversation" ? (
           isReplay ? (
             <ConversationTab messages={replayMessages} autoScroll={false} />
