@@ -7,6 +7,7 @@ from typing import Type
 from pydantic import BaseModel
 from pydantic_ai import Agent as PydanticAgent
 
+from harness.api import AgentResult
 from harness.tools.deps import AgentDeps
 from harness.constants import DEFAULT_MODEL
 from harness.engine.llm import LLMClient
@@ -51,10 +52,11 @@ class MicroAgentFactory:
 
         resolved_tools = self.tool_registry.resolve(tools, exclude=exclude_tools)
 
+        effective_result_type = result_type if result_type is not None else AgentResult
         client = LLMClient(model=agent_model) if model else LLMClient()
         agent = client.agent(
             system_prompt=prompt,
-            output_type=result_type or str,
+            output_type=effective_result_type,
             retries=retries,
             tools=resolved_tools,
             deps_type=AgentDeps,
