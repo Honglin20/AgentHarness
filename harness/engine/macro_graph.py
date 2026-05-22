@@ -12,6 +12,8 @@ from pydantic_graph import End
 from harness.api import Agent
 from harness.compiler.dag_builder import build_dag
 from harness.compiler.md_parser import parse_agent_md, resolve_agent_md
+from harness.extensions.eval.decisions import ReviewDecision as EvalReviewDecision
+from harness.extensions.eval.summarizer import summarize_target
 from harness.constants import STATE_ERRORS, STATE_INPUTS, STATE_METADATA, STATE_OUTPUTS
 from harness.extensions.base import NodeCtx, RejectAction, RetryAction, WorkflowCtx
 from harness.engine.micro_agent import MicroAgentFactory
@@ -102,8 +104,13 @@ class MacroGraphBuilder:
         workflow_dir = workflow.workflow_dir
 
         # Parse all agent MD files via resolve_agent_md (private first, shared fallback)
+        # Skip synthetic judge/passthrough nodes (no MD on disk)
         parsed_agents = {}
         for agent in agents:
+            if getattr(agent, "_eval_target", None) is not None:
+                continue  # _judge_X — no MD file
+            if "_passthrough" in agent.name:
+                continue  # passthrough node — no MD file
             md_path = resolve_agent_md(agent.name, workflow_dir)
             parsed = parse_agent_md(md_path)
             parsed_agents[agent.name] = parsed
@@ -129,8 +136,17 @@ class MacroGraphBuilder:
         # Add nodes (async node functions)
         for agent_name in execution_order:
             agent_def = agent_map[agent_name]
-            parsed = parsed_agents[agent_name]
-            node_func = self._make_node_func(agent_def, parsed, dep_map, workflow_dir)
+            eval_target = getattr(agent_def, "_eval_target", None)
+            is_passthrough = "_passthrough" in agent_name
+
+            if eval_target is not None:
+                # Judge node — special handler
+                node_func = self._make_judge_node_func(agent_def, eval_target, dep_map, workflow_dir)
+            elif is_passthrough:
+                node_func = self._make_passthrough_node_func(agent_def)
+            else:
+                parsed = parsed_agents[agent_name]
+                node_func = self._make_node_func(agent_def, parsed, dep_map, workflow_dir)
             graph.add_node(agent_name, node_func)
 
         # Add edges from START to root nodes
@@ -154,9 +170,17 @@ class MacroGraphBuilder:
                 targets["pass"] = agent.on_pass if agent.on_pass is not None else END
                 targets["fail"] = agent.on_fail if agent.on_fail is not None else END
 
+                # Judge nodes route from metadata, normal nodes from outputs
+                is_judge = getattr(agent, "_eval_target", None) is not None
+                router = (
+                    lambda state, an=agent.name: _route_judgment(state, an)
+                    if is_judge
+                    else lambda state, an=agent.name: _route_decision(state, an)
+                )
+
                 graph.add_conditional_edges(
                     agent.name,
-                    lambda state, an=agent.name: _route_decision(state, an),
+                    router,
                     targets,
                 )
 
@@ -249,6 +273,16 @@ class MacroGraphBuilder:
                 if dep_name in outputs:
                     upstream_outputs[dep_name] = outputs[dep_name]
 
+            # Extract critique from judge metadata (if this agent is retrying after a fail)
+            critique = None
+            metadata = state.get(STATE_METADATA, {})
+            for dep_name in upstream_names:
+                if dep_name.startswith("_judge_"):
+                    judge_meta = metadata.get(dep_name, {})
+                    judgment = judge_meta.get("judgment", {})
+                    if judgment.get("decision") == "fail":
+                        critique = judgment.get("reason", "")
+
             # Build deps for this agent
             deps = AgentDeps(agent_name=agent_def.name)
 
@@ -257,6 +291,7 @@ class MacroGraphBuilder:
                 inputs=state.get(STATE_INPUTS, {}),
                 upstream_outputs=upstream_outputs,
                 workflow_dir=workflow_dir,
+                critique=critique,
             )
 
             # === Extension hook/middleware: before_node ===
@@ -509,6 +544,178 @@ class MacroGraphBuilder:
                 }
 
         return node_func
+
+    def _make_judge_node_func(self, agent_def, target_name, dep_map, workflow_dir):
+        """Create an async LangGraph node function for an _judge_X node.
+
+        The judge evaluates the target agent's output and returns a ReviewDecision.
+        On pass: outputs[judge_name] = outputs[target_name] (passthrough).
+        Judgment is stored in metadata, not outputs, so the routing fn can read it.
+        """
+        bus = self.event_bus
+        builder_self = self
+        max_iterations = self.max_iterations
+
+        async def judge_func(state: HarnessState) -> dict:
+            start_time = time.time()
+            judge_name = agent_def.name
+
+            # Check iteration count for loop termination
+            iter_key = f"{judge_name}_loop"
+            current_count = state.get("iteration_counts", {}).get(iter_key, 0)
+            if current_count >= max_iterations:
+                if bus:
+                    bus.emit("node.failed", {
+                        "workflow_id": builder_self.workflow_id,
+                        "node_id": judge_name,
+                        "agent_name": judge_name,
+                        "error": f"Max eval retries ({max_iterations}) reached",
+                        "duration_ms": 0,
+                        "attempt": current_count + 1,
+                        "will_retry": False,
+                    })
+                return {
+                    STATE_OUTPUTS: {},
+                    STATE_ERRORS: {judge_name: f"Max eval retries ({max_iterations}) exceeded"},
+                    STATE_METADATA: {},
+                    "iteration_counts": {iter_key: current_count},
+                }
+
+            if bus:
+                bus.emit("node.started", {
+                    "workflow_id": builder_self.workflow_id,
+                    "node_id": judge_name,
+                    "agent_name": judge_name,
+                    "attempt": current_count + 1,
+                })
+
+            # 1. Lazy-summarize the target agent's MD
+            try:
+                target_md_path = resolve_agent_md(target_name, workflow_dir)
+                target_md = target_md_path.read_text()
+                summary = summarize_target(target_name, target_md, workflow_dir)
+            except Exception:
+                summary = "(summary unavailable)"
+
+            # 2. Build judge system prompt (three-part)
+            judge_prompt = (
+                "你是一个评测员。以下是上一个 agent 的任务和任务结果,你来判断它是否完成。\n\n"
+                f"## 上游 agent 的任务与红线(自动总结)\n{summary}\n\n"
+                "## 评测标准\n"
+                "- decision: 'pass' 或 'fail'\n"
+                "- reason: 具体评语\n"
+                "- score: 0.0-1.0 之间的浮点数(可选)\n"
+            )
+
+            # 3. Get target's output and run judge
+            target_output = state.get(STATE_OUTPUTS, {}).get(target_name, "")
+            user_msg = f"## Output from {target_name}\n{target_output}"
+
+            try:
+                from harness.engine.llm import LLMClient
+                client = LLMClient(model=agent_def.model)
+                judge_agent = client.agent(
+                    system_prompt=judge_prompt,
+                    output_type=EvalReviewDecision,
+                    retries=1,
+                    tools=[],
+                    deps_type=AgentDeps,
+                )
+                result = await judge_agent.run(user_msg, deps=AgentDeps(agent_name=judge_name))
+                review = result.output
+            except Exception as e:
+                duration_ms = int((time.time() - start_time) * 1000)
+                if bus:
+                    bus.emit("node.failed", {
+                        "workflow_id": builder_self.workflow_id,
+                        "node_id": judge_name,
+                        "agent_name": judge_name,
+                        "error": str(e),
+                        "duration_ms": duration_ms,
+                        "attempt": current_count + 1,
+                        "will_retry": False,
+                    })
+                return {
+                    STATE_OUTPUTS: {},
+                    STATE_ERRORS: {judge_name: str(e)},
+                    STATE_METADATA: {judge_name: {"duration_ms": duration_ms}},
+                }
+
+            duration_ms = int((time.time() - start_time) * 1000)
+
+            # 4. Score history + chart emission
+            prev_meta = state.get(STATE_METADATA, {}).get(judge_name, {})
+            score_history = list(prev_meta.get("score_history", []))
+            if review.score is not None:
+                score_history.append(review.score)
+                if bus:
+                    bus.emit("chart.render", {
+                        "node_id": judge_name,
+                        "chart_type": "line",
+                        "data": [{"iteration": i + 1, "score": s} for i, s in enumerate(score_history)],
+                        "x": "iteration",
+                        "y": "score",
+                        "label": "Eval Scores",
+                        "title": f"{target_name} quality",
+                    })
+
+            # 5. Passthrough outputs + judgment in metadata
+            iter_update = {}
+            if review.decision == "fail" and agent_def.on_fail is not None:
+                iter_update[iter_key] = current_count + 1
+
+            if bus:
+                bus.emit("node.completed", {
+                    "workflow_id": builder_self.workflow_id,
+                    "node_id": judge_name,
+                    "agent_name": judge_name,
+                    "duration_ms": duration_ms,
+                    "status": "success",
+                })
+
+            result_dict = {
+                STATE_OUTPUTS: {judge_name: target_output},  # passthrough
+                STATE_ERRORS: {},
+                STATE_METADATA: {judge_name: {
+                    "duration_ms": duration_ms,
+                    "judgment": review.model_dump(),
+                    "score_history": score_history,
+                    "target": target_name,
+                }},
+            }
+            if iter_update:
+                result_dict["iteration_counts"] = iter_update
+
+            return result_dict
+
+        return judge_func
+
+    def _make_passthrough_node_func(self, agent_def):
+        """Create a no-op node function for _judge_X_passthrough nodes.
+
+        It just passes the state through — the real output is already in
+        outputs[_judge_X] (the target's original output, passthrough'd).
+        """
+        async def passthrough_func(state: HarnessState) -> dict:
+            # No-op: outputs already set by the judge node via passthrough.
+            return {
+                STATE_OUTPUTS: {},
+                STATE_ERRORS: {},
+                STATE_METADATA: {},
+            }
+        return passthrough_func
+
+
+def _route_judgment(state: HarnessState, judge_name: str) -> str:
+    """Route based on the judgment stored in metadata (not outputs).
+
+    Judge nodes store their ReviewDecision in metadata[judge_name].judgment,
+    so the routing fn must read from there rather than from outputs.
+    """
+    metadata = state.get(STATE_METADATA, {})
+    judgment = metadata.get(judge_name, {}).get("judgment", {})
+    decision = judgment.get("decision", "pass")
+    return decision if decision in ("pass", "fail") else "pass"
 
 
 def _route_decision(state: HarnessState, agent_name: str) -> str:

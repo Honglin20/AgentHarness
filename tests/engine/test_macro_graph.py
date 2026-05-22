@@ -1,13 +1,14 @@
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from harness.engine.macro_graph import MacroGraphBuilder
 from harness.api import Agent
 
 
-def _make_workflow(agents, agents_dir="tests/compiler/fixtures"):
+def _make_workflow(agents, workflow_dir=None):
     wf = MagicMock()
     wf.agents = agents
-    wf.agents_dir = agents_dir
+    wf.workflow_dir = workflow_dir or Path(__file__).resolve().parent.parent / "compiler" / "fixtures"
     return wf
 
 
