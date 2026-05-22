@@ -256,6 +256,7 @@ class MacroGraphBuilder:
             context = micro_factory.build_node_prompt(
                 inputs=state.get(STATE_INPUTS, {}),
                 upstream_outputs=upstream_outputs,
+                workflow_dir=workflow_dir,
             )
 
             # === Extension hook/middleware: before_node ===

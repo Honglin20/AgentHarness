@@ -92,8 +92,8 @@ export function ConversationTab({ messages: messagesProp, autoScroll = true }: C
     setCollapsed((prev) => ({ ...prev, [id]: !(prev[id] ?? false) }));
 
   return (
-    <ScrollArea className="h-full">
-      <div className="flex flex-col gap-3 p-4">
+    <ScrollArea className="h-full w-full">
+      <div className="flex min-w-0 flex-col gap-3 p-4">
         {blocks.map((b, i) => {
           if (b.kind === "standalone") {
             const m = b.message;
@@ -114,7 +114,7 @@ export function ConversationTab({ messages: messagesProp, autoScroll = true }: C
           const isCollapsed = collapsed[id] ?? false;
           const itemCount = 1 + b.tools.length;
           return (
-            <div key={id} className="flex flex-col gap-2">
+            <div key={id} className="flex min-w-0 flex-col gap-2">
               <AgentMessage
                 message={b.head}
                 collapsed={isCollapsed}

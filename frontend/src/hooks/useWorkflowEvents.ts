@@ -22,6 +22,7 @@ import { useOutputStore } from "@/stores/outputStore";
 import { useChartStore } from "@/stores/chartStore";
 import { useToolCallStore, nextToolCallId } from "@/stores/toolCallStore";
 import { useConversationStore } from "@/stores/conversationStore";
+import { computeRunSummary } from "@/lib/summary/runSummary";
 
 // Track the current workflow to filter stale replayed events
 let _activeWorkflowId: string | null = null;
@@ -76,6 +77,7 @@ function dispatchEvent(event: WSEvent): void {
       useWorkflowStore
         .getState()
         .handleWorkflowCompleted(p);
+      computeRunSummary();
       // Persist conversation + charts to backend
       _saveConversation(payloadWid);
       _saveCharts(payloadWid);
@@ -165,6 +167,7 @@ function dispatchEvent(event: WSEvent): void {
         status: "failed",
       });
       useOutputStore.getState().setWorkflowError(p.error);
+      computeRunSummary();
       // Persist conversation + charts to backend
       _saveConversation(p.workflow_id);
       _saveCharts(p.workflow_id);

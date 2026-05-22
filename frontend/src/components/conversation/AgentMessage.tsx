@@ -40,21 +40,21 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
   const showCollapsed = collapsed && !isStreaming;
 
   return (
-    <div className="flex flex-col gap-1 py-1">
-      <div className="flex items-center gap-2">
+    <div className="flex min-w-0 flex-col gap-1 py-1">
+      <div className="flex min-w-0 items-center gap-2">
         {agentName && (
-          <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${badgeClass}`}>
+          <span className={`inline-flex max-w-[40%] shrink items-center truncate rounded-md px-2 py-0.5 text-xs font-medium ${badgeClass}`}>
             {agentName}
           </span>
         )}
         {durationMs != null && (
-          <span className="text-xs text-muted-foreground">{formatDuration(durationMs)}</span>
+          <span className="shrink-0 text-xs text-muted-foreground">{formatDuration(durationMs)}</span>
         )}
         {!isStreaming && hasMore && (
           <button
             type="button"
             onClick={onToggleCollapse}
-            className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-app-text-primary"
+            className="ml-auto inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-app-text-primary"
             aria-expanded={!collapsed}
             aria-label={collapsed ? "Expand agent section" : "Collapse agent section"}
           >
@@ -63,7 +63,7 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
             />
             {collapsed
               ? sectionItemCount > 1
-                ? `Show (${sectionItemCount} items)`
+                ? `Show (${sectionItemCount})`
                 : `Show ${lineCount} lines`
               : "Collapse"}
           </button>
@@ -76,13 +76,13 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
         <button
           type="button"
           onClick={onToggleCollapse}
-          className="truncate text-left text-sm text-muted-foreground hover:text-app-text-primary"
+          className="block w-full min-w-0 truncate text-left text-sm text-muted-foreground hover:text-app-text-primary"
           title="Click to expand"
         >
           {preview || "(empty output)"}
         </button>
       ) : (
-        <div className="text-sm">
+        <div className="min-w-0 text-sm">
           <MarkdownText>{text}</MarkdownText>
           {isStreaming && <span className="animate-pulse">▎</span>}
         </div>
