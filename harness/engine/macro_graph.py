@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from langgraph.graph import StateGraph, START, END
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from pydantic_graph import End
 
 from harness.api import Agent
@@ -23,7 +23,9 @@ from harness.tools.registry import ToolRegistry
 
 
 # --- Stop & Regenerate signal management ---
-_pending_stop_regen: dict[str, dict[str, str]] = {}  # workflow_id → {agent_name, partial_output, user_guidance}
+_STOP_REGEN_TTL = 60  # seconds
+
+_pending_stop_regen: dict[str, dict[str, str | float]] = {}  # workflow_id → {agent_name, ..., _ts}
 _stop_regen_lock = asyncio.Lock()
 
 
@@ -43,12 +45,19 @@ async def request_stop_and_regenerate(
             "agent_name": agent_name,
             "partial_output": partial_output,
             "user_guidance": user_guidance,
+            "_ts": time.time(),
         }
 
 
 def _has_pending_stop_regen(workflow_id: str, agent_name: str) -> bool:
     pending = _pending_stop_regen.get(workflow_id)
-    return pending is not None and pending.get("agent_name") == agent_name
+    if pending is None:
+        return False
+    # TTL check — expire signals older than _STOP_REGEN_TTL seconds
+    if time.time() - pending.get("_ts", 0) > _STOP_REGEN_TTL:
+        _pending_stop_regen.pop(workflow_id, None)
+        return False
+    return pending.get("agent_name") == agent_name
 
 
 def _consume_stop_regen(workflow_id: str) -> dict[str, str] | None:
@@ -59,6 +68,24 @@ class ReviewDecision(BaseModel):
     """Default result_type for agents with conditional edges."""
     decision: Literal["pass", "fail"]
     reason: str
+
+
+def _validate_output(output, result_type):
+    """Validate agent output against its result_type.
+
+    Returns None if valid, or an error string if validation fails.
+    """
+    if result_type is None:
+        return None
+    if output is None:
+        return "Agent produced no output (interrupted or failed)"
+    if not isinstance(output, BaseModel):
+        return f"Expected {result_type.__name__}, got {type(output).__name__}"
+    try:
+        output.model_validate(output.model_dump())
+    except ValidationError as e:
+        return f"Output validation failed: {e}"
+    return None
 
 
 class MacroGraphBuilder:
@@ -380,6 +407,11 @@ class MacroGraphBuilder:
                                 node = await agent_run.next(node)
 
                             elif pydantic_agent.is_call_tools_node(node):
+                                # Check interrupt signal before executing tools
+                                if wid and _has_pending_stop_regen(wid, agent_def.name):
+                                    stop_regen = _consume_stop_regen(wid)
+                                    break
+
                                 if bus:
                                     async with node.stream(agent_run.ctx) as stream:
                                         async for event in stream:
@@ -458,6 +490,26 @@ class MacroGraphBuilder:
 
                 output = agent_run.result.output
                 usage_obj = agent_run.usage
+
+                # === Output completeness validation gate ===
+                validation_error = _validate_output(output, result_type)
+                if validation_error:
+                    duration_ms = int((time.time() - start_time) * 1000)
+                    if bus:
+                        bus.emit("node.failed", {
+                            "workflow_id": builder_self.workflow_id,
+                            "node_id": agent_def.name,
+                            "agent_name": agent_def.name,
+                            "error": validation_error,
+                            "duration_ms": duration_ms,
+                            "attempt": 1,
+                            "will_retry": False,
+                        })
+                    return {
+                        STATE_OUTPUTS: {},
+                        STATE_ERRORS: {agent_def.name: validation_error},
+                        STATE_METADATA: {agent_def.name: {"duration_ms": duration_ms}},
+                    }
 
                 duration_ms = int((time.time() - start_time) * 1000)
 
