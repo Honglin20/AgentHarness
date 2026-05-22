@@ -219,6 +219,29 @@ render_chart(data, chart_type="table")
 
 ## Extensions
 
+The extension system defines three types, distinguished by **what they can affect**:
+
+| | Main data flow | Side-channel artifacts | DAG structure |
+|---|---|---|---|
+| **Hook / Plugin** | Read-only | Read-write (via `ctx.emit`) | No |
+| **Middleware** | Read-write | Read-write (via `ctx.emit`) | No |
+| **GraphMutator** | No | No | Read-write |
+
+- **Hook** — observe lifecycle and produce artifacts (charts, traces, metrics). Cannot modify the workflow. Runs concurrently, never blocks. Safe to add without risk.
+- **Middleware** — mutate or reject the agent execution path (compact messages, enforce guardrails, inject memory). Runs sequentially in priority order. Can abort or retry a node.
+- **GraphMutator** — rewrite the DAG at compile time (insert evaluator nodes, expand agents into sub-graphs). Runs once before execution starts.
+
+All extensions are registered via `workflow.use()`:
+
+```python
+wf = (
+    Workflow("name", agents=[...])
+    .use(EvalJudge())              # GraphMutator
+    .use(AutoCompact())            # Middleware
+    .use(EvalChartPlugin())        # Hook / Plugin
+)
+```
+
 ### EvalJudge — Auto-evaluate agent output
 
 Mark any agent with `eval=True` and register `EvalJudge` to automatically insert
@@ -242,7 +265,44 @@ How it works:
 - **Lazy summarization**: auto-summarizes the target agent's MD for the judge prompt (cached by SHA256)
 - **Pass → passthrough**: output flows downstream with `_judge_X` rewritten to display name `X`
 - **Fail → retry**: target agent re-runs with `## Previous judgment` critique injected
-- **Score chart**: emits `chart.render` events for real-time score tracking in the UI
+
+### Plugins — Built-in Hook extensions
+
+Plugins are `BaseHook` subclasses that produce observational artifacts via `ctx.emit()`.
+They never modify the main data flow. Enable them declaratively — not listed = not active.
+
+```python
+from harness.api import Agent, Workflow
+from harness.extensions.eval import EvalJudge
+from harness.extensions.plugins import (
+    EvalChartPlugin,
+    AgentTracePlugin,
+    ReasoningVizPlugin,
+    PerfMetricsPlugin,
+)
+
+wf = (
+    Workflow("reviewed", agents=[
+        Agent("researcher", after=[], eval=True),
+        Agent("writer", after=["researcher"]),
+    ])
+    .use(EvalJudge())
+    .use(EvalChartPlugin())       # judge score → line chart
+    .use(AgentTracePlugin())      # execution trace events
+    .use(ReasoningVizPlugin())    # chain-of-thought visualization
+    .use(PerfMetricsPlugin())     # token usage bar charts
+)
+```
+
+| Plugin | Trigger | Output |
+|--------|---------|--------|
+| `EvalChartPlugin` | `on_node_end` for `_judge_*` nodes | `chart.render` line chart of score history |
+| `AgentTracePlugin` | `on_node_end` for every node | `trace.step` event with agent name + status |
+| `ReasoningVizPlugin` | `on_node_end` when chain-of-thought detected | `reasoning.render` with extracted reasoning steps |
+| `PerfMetricsPlugin` | `on_node_end` when token_usage in metadata | `chart.render` bar chart of token usage |
+
+**Writing custom plugins:** Add a file to `harness/extensions/plugins/`, subclass `BaseHook`,
+and call `ctx.emit(event_type, payload)` in `on_node_end`. No engine changes needed.
 
 ## REST API
 
@@ -274,6 +334,8 @@ How it works:
 | `node.failed` | Agent node failed (includes error) |
 | `agent.text_delta` | Streaming LLM output chunk |
 | `chart.render` | Chart data ready for frontend |
+| `trace.step` | Agent execution trace event (from AgentTracePlugin) |
+| `reasoning.render` | Chain-of-thought visualization data (from ReasoningVizPlugin) |
 | `chat.question` | Agent is asking the user a question |
 | `chat.answer` | User's response to an agent question |
 
@@ -321,7 +383,7 @@ How it works:
 │   │   ├── engine/          macro_graph, micro_agent
 │   │   ├── tools/           chart, bash, sub_agent, ask_human
 │   │   ├── compiler/        DAG builder, markdown parser
-│   │   └── extensions/      EvalJudge, AutoCompact, FileMemory...
+│   │   └── extensions/      EvalJudge, AutoCompact, Plugins...
 │   ├── server/              FastAPI app, routes, WebSocket, EventBus
 │   └── agents/              Agent markdown definitions (*.md)
 ├── frontend/                Next.js 14 Web UI
