@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useCallback } from "react";
+import { useMemo } from "react";
 import { ReactFlow, Background, Controls, MiniMap } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { Node, Edge } from "@xyflow/react";
@@ -22,7 +22,7 @@ export function DAGPreview({ dag, agentDescriptions = {}, onEditAgent }: DAGPrev
     return dag.nodes.map((name, i) => ({
       id: name,
       type: "preview",
-      position: { x: i * 220, y: 0 },
+      position: { x: i * 260, y: 0 },
       data: {
         label: name,
         description: agentDescriptions[name] ?? "",
@@ -38,17 +38,23 @@ export function DAGPreview({ dag, agentDescriptions = {}, onEditAgent }: DAGPrev
         source,
         target,
         type: "smoothstep",
+        style: { stroke: '#94a3b8', strokeWidth: 1.5 },
+        animated: true,
       })
     );
     for (const ce of dag.conditional_edges ?? []) {
+      const isFail = ce.label === "fail";
       edgeList.push({
         id: `ce-${ce.from}-${ce.to}`,
         source: ce.from,
         target: ce.to,
         type: "smoothstep",
         label: ce.label,
-        style: { stroke: ce.label === "fail" ? "#ef4444" : "#22c55e" },
-        labelStyle: { fill: ce.label === "fail" ? "#ef4444" : "#22c55e", fontWeight: 600, fontSize: 10 },
+        style: { stroke: isFail ? '#f87171' : '#4ade80', strokeWidth: 1.5 },
+        labelStyle: { fill: isFail ? '#ef4444' : '#22c55e', fontWeight: 600, fontSize: 10 },
+        labelBgStyle: { fill: '#fff', fillOpacity: 0.85 },
+        labelBgPadding: [4, 2] as [number, number],
+        labelBgBorderRadius: 4,
       });
     }
     return edgeList;
@@ -61,19 +67,23 @@ export function DAGPreview({ dag, agentDescriptions = {}, onEditAgent }: DAGPrev
         edges={edges}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.3 }}
+        fitViewOptions={{ padding: 0.4 }}
         proOptions={{ hideAttribution: true }}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={false}
       >
-        <Background color="#e5e7eb" gap={20} size={1} />
-        <Controls showInteractive={false} />
+        <Background color="#e2e8f0" gap={24} size={1} />
+        <Controls
+          showInteractive={false}
+          className="!border-slate-200 !shadow-sm !rounded-lg"
+        />
         <MiniMap
           nodeStrokeWidth={3}
+          nodeColor="#cbd5e1"
           pannable
           zoomable
-          style={{ border: "1px solid #e5e7eb" }}
+          className="!border-slate-200 !shadow-sm !rounded-lg"
         />
       </ReactFlow>
     </div>

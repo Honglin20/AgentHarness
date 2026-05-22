@@ -50,7 +50,10 @@ export function AgentEditorModal({
       ? `/api/agents/${encodeURIComponent(agentName)}/md?workflow=${encodeURIComponent(workflowName!)}`
       : `/api/agents/${encodeURIComponent(agentName)}/md`;
     fetch(url)
-      .then((r) => r.json())
+      .then(async (r) => {
+        if (!r.ok) throw new Error(await r.text());
+        return r.json();
+      })
       .then((data) => {
         setMdContent(data.md_content ?? "");
         setOriginalContent(data.md_content ?? "");
@@ -61,7 +64,7 @@ export function AgentEditorModal({
           setSource(null);
         }
       })
-      .catch(() => setError("Failed to load agent"));
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load agent"));
   }, [open, agentName, workflowName, useNewLayout, isReadOnly, readOnlyContent]);
 
   const isDirty = mdContent !== originalContent;
