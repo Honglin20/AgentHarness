@@ -56,6 +56,8 @@ function useDisplayedAgents(): {
 
 export function AgentBrowser() {
   const { agents, workflowName, isReplay } = useDisplayedAgents();
+  const selectedTemplate = useWorkflowStore((s) => s.selectedTemplate);
+  const effectiveWorkflowName = workflowName ?? ((selectedTemplate as Record<string, unknown> | null)?.name as string | undefined);
   const [editAgent, setEditAgent] = useState<DisplayedAgent | null>(null);
   const [diffAgent, setDiffAgent] = useState<string | null>(null);
 
@@ -98,16 +100,16 @@ export function AgentBrowser() {
           open={!!editAgent}
           onOpenChange={(o) => !o && setEditAgent(null)}
           agentName={editAgent.name}
-          workflowName={!isReplay && workflowName ? workflowName : undefined}
+          workflowName={!isReplay && effectiveWorkflowName ? effectiveWorkflowName : undefined}
           readOnlyContent={editAgent.snapshotMd}
         />
       )}
-      {diffAgent && workflowName && (
+      {diffAgent && effectiveWorkflowName && (
         <AgentDiffModal
           open={!!diffAgent}
           onOpenChange={(o) => !o && setDiffAgent(null)}
           agentName={diffAgent}
-          workflowName={workflowName}
+          workflowName={effectiveWorkflowName}
         />
       )}
     </div>

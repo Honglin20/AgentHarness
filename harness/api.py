@@ -140,6 +140,7 @@ class Workflow:
         tool_registry: ToolRegistry | None = None,
         event_bus: Any | None = None,
         max_iterations: int = 3,
+        checkpointer: Any | None = None,
     ):
         self.name = name
         self.agents = agents
@@ -162,6 +163,7 @@ class Workflow:
         self.tool_registry = tool_registry or ToolRegistry()
         self._event_bus = event_bus
         self.max_iterations = max_iterations
+        self.checkpointer = checkpointer
         self._compiled = None
         self._builder: Any | None = None  # MacroGraphBuilder, set by compile()
         self._mcp_setup_done = False
@@ -198,7 +200,10 @@ class Workflow:
         )
         graph = builder.build(self)
         self._builder = builder
-        self._compiled = graph.compile()
+        compile_kwargs = {}
+        if self.checkpointer is not None:
+            compile_kwargs["checkpointer"] = self.checkpointer
+        self._compiled = graph.compile(**compile_kwargs)
         return self._compiled
 
     def use(self, extension) -> "Workflow":
@@ -299,6 +304,7 @@ class Workflow:
         data: dict,
         workflow_dir: Path | None = None,
         agents_dir: str | None = None,
+        checkpointer: Any | None = None,
     ) -> Workflow:
         agents = [Agent.from_dict(a) for a in data.get("agents", [])]
         return cls(
@@ -306,6 +312,7 @@ class Workflow:
             agents=agents,
             workflow_dir=workflow_dir,
             agents_dir=agents_dir,
+            checkpointer=checkpointer,
         )
 
     def run(self, inputs: dict, ui: bool = False) -> WorkflowResult:
@@ -356,10 +363,15 @@ class Workflow:
         # Open browser
         webbrowser.open(f"http://localhost:3000?workflow={wid}")
 
-    async def arun(self, inputs: dict) -> WorkflowResult:
+    async def arun(self, inputs: dict, config: dict | None = None) -> WorkflowResult:
         """Run the workflow asynchronously. For callers already in an async context.
 
         Caller is responsible for MCP lifecycle (call setup/cleanup if needed).
+
+        Args:
+            inputs: Task input dict.
+            config: LangGraph run config. If checkpointer is set and no config
+                provided, uses ``{'configurable': {'thread_id': self.name}}``.
         """
         if self.mcp_servers and not self._mcp_setup_done:
             raise RuntimeError(
@@ -377,7 +389,10 @@ class Workflow:
             STATE_METADATA: {},
         }
 
-        final_state = await self._compiled.ainvoke(initial_state)
+        if config is None and self.checkpointer is not None:
+            config = {"configurable": {"thread_id": self.name}}
+
+        final_state = await self._compiled.ainvoke(initial_state, config=config)
         return self._build_result(final_state)
 
     async def setup(self):

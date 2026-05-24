@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
-import { Settings, Key, Cpu, Globe, X, RotateCcw, Square, Timer } from "lucide-react";
+import { Settings, Key, Cpu, Globe, X, RotateCcw, Square, Timer, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -88,9 +88,19 @@ export function HeaderBar() {
     try {
       await fetch(`${API_BASE}/api/workflows/${workflowId}/cancel`, { method: "POST" });
     } catch {}
-    resetWorkflow();
     setStopping(false);
-  }, [workflowId, resetWorkflow]);
+  }, [workflowId]);
+
+  const handleResume = useCallback(async () => {
+    if (!workflowId) return;
+    try {
+      await fetch(`${API_BASE}/api/runs/${workflowId}/resume`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+    } catch {}
+  }, [workflowId]);
 
   const handleNew = resetWorkflow;
 
@@ -128,15 +138,15 @@ export function HeaderBar() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 gap-1.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+            className="h-7 gap-1.5 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-50"
             onClick={handleStop}
             disabled={stopping}
           >
             <Square className="h-3.5 w-3.5" />
-            {stopping ? "Stopping..." : "Stop"}
+            {stopping ? "Pausing..." : "Pause"}
           </Button>
         )}
-        {isActive && !isRunning && (
+        {isActive && !isRunning && status !== "paused" && (
           <Button
             variant="ghost"
             size="sm"
@@ -145,6 +155,17 @@ export function HeaderBar() {
           >
             <RotateCcw className="h-3.5 w-3.5" />
             New Workflow
+          </Button>
+        )}
+        {status === "paused" && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1.5 text-xs text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+            onClick={handleResume}
+          >
+            <Play className="h-3.5 w-3.5" />
+            Resume
           </Button>
         )}
         <Button

@@ -129,6 +129,9 @@ export interface ChartPayload {
     | "optimal_line"
     | "heatmap"
     | "box"
+    | "bubble"
+    | "area"
+    | "radar"
     | "table";
   data: Record<string, unknown>[];
   columns: string[];
@@ -137,6 +140,7 @@ export interface ChartPayload {
   label: string;
   title: string;
   hue?: string;
+  size?: string;
   pareto_direction?: "max" | "min";
   optimal_line?: "max" | "min";
 }

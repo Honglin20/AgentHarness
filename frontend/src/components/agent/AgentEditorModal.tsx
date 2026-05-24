@@ -10,9 +10,8 @@ interface AgentEditorModalProps {
   onOpenChange: (open: boolean) => void;
   agentName: string;
   /**
-   * Name of the workflow directory under workflows/. Used for the
-   * workflow-aware endpoints (private-first lookup with shared fallback)
-   * and exposes a "Save target" toggle for private vs shared.
+   * Name of the workflow directory under workflows/.
+   * Required for loading/saving agent MD. When absent, only readOnlyContent is shown.
    */
   workflowName?: string;
   /** When provided, show this content read-only (e.g. replay snapshot). Save/Reset hidden. */
@@ -37,7 +36,7 @@ export function AgentEditorModal({
   const [saveTarget, setSaveTarget] = useState<SaveTarget>("private");
 
   const isReadOnly = readOnlyContent != null;
-  const useNewLayout = Boolean(workflowName);
+  const canEdit = Boolean(workflowName);
 
   useEffect(() => {
     if (!open || !agentName) return;
@@ -46,9 +45,8 @@ export function AgentEditorModal({
       setOriginalContent(readOnlyContent ?? "");
       return;
     }
-    const url = useNewLayout
-      ? `/api/agents/${encodeURIComponent(agentName)}/md?workflow=${encodeURIComponent(workflowName!)}`
-      : `/api/agents/${encodeURIComponent(agentName)}/md`;
+    if (!workflowName) return;
+    const url = `/api/agents/${encodeURIComponent(agentName)}/md?workflow=${encodeURIComponent(workflowName)}`;
     fetch(url)
       .then(async (r) => {
         if (!r.ok) {
@@ -74,16 +72,15 @@ export function AgentEditorModal({
         }
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load agent"));
-  }, [open, agentName, workflowName, useNewLayout, isReadOnly, readOnlyContent]);
+  }, [open, agentName, workflowName, isReadOnly, readOnlyContent]);
 
   const isDirty = mdContent !== originalContent;
 
   const handleSave = useCallback(async () => {
+    if (!workflowName) return;
     setSaving(true); setError("");
     try {
-      const body = useNewLayout
-        ? { workflow: workflowName, target: saveTarget, md_content: mdContent }
-        : { md_content: mdContent };
+      const body = { workflow: workflowName, target: saveTarget, md_content: mdContent };
       const r = await fetch(`/api/agents/${encodeURIComponent(agentName)}/md`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -91,13 +88,13 @@ export function AgentEditorModal({
       });
       if (!r.ok) throw new Error(await r.text());
       setOriginalContent(mdContent);
-      if (useNewLayout) setSource(saveTarget);
+      setSource(saveTarget);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     } finally { setSaving(false); }
-  }, [agentName, workflowName, useNewLayout, saveTarget, mdContent]);
+  }, [agentName, workflowName, saveTarget, mdContent]);
 
   const handleReset = useCallback(() => { setMdContent(originalContent); }, [originalContent]);
 
@@ -112,7 +109,7 @@ export function AgentEditorModal({
                 SNAPSHOT · read-only
               </span>
             )}
-            {!isReadOnly && useNewLayout && source && (
+            {!isReadOnly && canEdit && source && (
               <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                 source: {source}
               </span>
@@ -125,33 +122,31 @@ export function AgentEditorModal({
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-1 flex-col overflow-hidden" style={{ height: "calc(85vh - 140px)" }}>
-          {!isReadOnly && (
+          {!isReadOnly && canEdit && (
             <div className="flex items-center justify-end gap-1 border-b px-1 pb-1">
-              {useNewLayout && (
-                <div className="mr-auto flex items-center gap-2 text-[11px] text-muted-foreground">
-                  <span>Save to:</span>
-                  <label className="flex items-center gap-1">
-                    <input
-                      type="radio"
-                      name="save-target"
-                      value="private"
-                      checked={saveTarget === "private"}
-                      onChange={() => setSaveTarget("private")}
-                    />
-                    private
-                  </label>
-                  <label className="flex items-center gap-1">
-                    <input
-                      type="radio"
-                      name="save-target"
-                      value="shared"
-                      checked={saveTarget === "shared"}
-                      onChange={() => setSaveTarget("shared")}
-                    />
-                    shared (_shared/)
-                  </label>
-                </div>
-              )}
+              <div className="mr-auto flex items-center gap-2 text-[11px] text-muted-foreground">
+                <span>Save to:</span>
+                <label className="flex items-center gap-1">
+                  <input
+                    type="radio"
+                    name="save-target"
+                    value="private"
+                    checked={saveTarget === "private"}
+                    onChange={() => setSaveTarget("private")}
+                  />
+                  private
+                </label>
+                <label className="flex items-center gap-1">
+                  <input
+                    type="radio"
+                    name="save-target"
+                    value="shared"
+                    checked={saveTarget === "shared"}
+                    onChange={() => setSaveTarget("shared")}
+                  />
+                  shared (_shared/)
+                </label>
+              </div>
               {isDirty && (
                 <Button variant="ghost" size="sm" className="h-6 gap-1 text-xs" onClick={handleReset}>
                   <RotateCcw className="h-3 w-3" />Reset

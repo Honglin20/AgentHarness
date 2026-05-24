@@ -6,5 +6,7 @@ class AgentDeps(BaseModel):
     workdir: str = "."
     agent_name: str = ""
     depth: int = 0
+    workflow_id: str = ""
+    node_id: str = ""
 
     model_config = {"extra": "allow"}

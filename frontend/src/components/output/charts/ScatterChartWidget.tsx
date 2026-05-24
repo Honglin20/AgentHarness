@@ -12,18 +12,13 @@ import {
   ZAxis,
 } from "recharts";
 import type { ChartPayload } from "@/types/events";
-
-const CHART_COLORS = [
-  "#3B82F6", "#10B981", "#F59E0B", "#8B5CF6",
-  "#EC4899", "#06B6D4", "#F97316", "#84CC16",
-];
+import { PALETTE, AXIS_TICK, TOOLTIP_STYLE, LEGEND_STYLE, CHART_MARGIN, GRID_PROPS } from "./chartTheme";
 
 export default function ScatterChartWidget({ chart }: { chart: ChartPayload }) {
   const { data, x, y, hue, title } = chart;
   const xKey = x ?? "x";
   const yKey = y ?? "y";
 
-  // If hue provided, render multiple scatter sets
   if (hue) {
     const hueValues = Array.from(new Set(data.map((d) => String(d[hue]))));
     const scatterSets = hueValues.map((val) =>
@@ -37,26 +32,20 @@ export default function ScatterChartWidget({ chart }: { chart: ChartPayload }) {
         <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
         <div className="aspect-[4/3] w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <ScatterChart margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
-              <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: "#6B7280" }} name={xKey} />
-              <YAxis dataKey={yKey} tick={{ fontSize: 11, fill: "#6B7280" }} name={yKey} />
+            <ScatterChart margin={CHART_MARGIN}>
+              <CartesianGrid {...GRID_PROPS} />
+              <XAxis dataKey={xKey} tick={AXIS_TICK} name={xKey} />
+              <YAxis dataKey={yKey} tick={AXIS_TICK} name={yKey} />
               <ZAxis range={[36, 36]} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "white",
-                  borderRadius: 6,
-                  border: "1px solid #E5E7EB",
-                  fontSize: 12,
-                }}
-              />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ strokeDasharray: "3 3" }} />
+              <Legend wrapperStyle={LEGEND_STYLE} />
               {hueValues.map((val, i) => (
                 <Scatter
                   key={val}
                   name={val}
                   data={scatterSets[i]}
-                  fill={CHART_COLORS[i % CHART_COLORS.length]}
+                  fill={PALETTE[i % PALETTE.length]}
+                  fillOpacity={0.8}
                 />
               ))}
             </ScatterChart>
@@ -73,20 +62,13 @@ export default function ScatterChartWidget({ chart }: { chart: ChartPayload }) {
       <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
       <div className="aspect-[4/3] w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <ScatterChart margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
-            <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: "#6B7280" }} name={xKey} />
-            <YAxis dataKey={yKey} tick={{ fontSize: 11, fill: "#6B7280" }} name={yKey} />
+          <ScatterChart margin={CHART_MARGIN}>
+            <CartesianGrid {...GRID_PROPS} />
+            <XAxis dataKey={xKey} tick={AXIS_TICK} name={xKey} />
+            <YAxis dataKey={yKey} tick={AXIS_TICK} name={yKey} />
             <ZAxis range={[36, 36]} />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: "white",
-                borderRadius: 6,
-                border: "1px solid #E5E7EB",
-                fontSize: 12,
-              }}
-            />
-            <Scatter data={scatterData} fill={CHART_COLORS[0]} />
+            <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ strokeDasharray: "3 3" }} />
+            <Scatter data={scatterData} fill={PALETTE[0]} fillOpacity={0.8} />
           </ScatterChart>
         </ResponsiveContainer>
       </div>

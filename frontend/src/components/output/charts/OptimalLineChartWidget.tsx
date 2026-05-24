@@ -14,6 +14,7 @@ import {
   ComposedChart,
 } from "recharts";
 import type { ChartPayload } from "@/types/events";
+import { PALETTE, NEUTRAL, AXIS_TICK, TOOLTIP_STYLE, LEGEND_STYLE, CHART_MARGIN, GRID_PROPS } from "./chartTheme";
 
 function computeOptimalLine(
   points: { x: number; y: number }[],
@@ -39,9 +40,8 @@ export default function OptimalLineChartWidget({ chart }: { chart: ChartPayload 
   }));
 
   const optimalLine = computeOptimalLine(points, direction);
-  const lineColor = direction === "max" ? "#3B82F6" : "#EF4444";
+  const lineColor = direction === "max" ? PALETTE[0] : PALETTE[2];
 
-  // Merge scatter and line data for ComposedChart
   const merged = points.map((p, i) => ({
     x: p.x,
     scatter: p.y,
@@ -53,20 +53,13 @@ export default function OptimalLineChartWidget({ chart }: { chart: ChartPayload 
       <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
       <div className="aspect-[4/3] w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={merged} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
-            <XAxis dataKey="x" tick={{ fontSize: 11, fill: "#6B7280" }} name={xKey} />
-            <YAxis tick={{ fontSize: 11, fill: "#6B7280" }} />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: "white",
-                borderRadius: 6,
-                border: "1px solid #E5E7EB",
-                fontSize: 12,
-              }}
-            />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Scatter name="Data Points" dataKey="scatter" fill="#9CA3AF" fillOpacity={0.6} />
+          <ComposedChart data={merged} margin={CHART_MARGIN}>
+            <CartesianGrid {...GRID_PROPS} />
+            <XAxis dataKey="x" tick={AXIS_TICK} name={xKey} />
+            <YAxis tick={AXIS_TICK} />
+            <Tooltip contentStyle={TOOLTIP_STYLE} />
+            <Legend wrapperStyle={LEGEND_STYLE} />
+            <Scatter name="Data Points" dataKey="scatter" fill={NEUTRAL} fillOpacity={0.5} />
             <Line
               name={`Optimal (${direction})`}
               dataKey="optimal"

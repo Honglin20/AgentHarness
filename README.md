@@ -1,279 +1,328 @@
 # AgentHarness
 
-Dual-engine AI agent workflow framework — LangGraph + Pydantic AI.
+> 双引擎 AI Agent 工作流框架 — LangGraph + Pydantic AI
 
-Define multi-agent workflows in Python, execute with a single `wf.run()`, and visualize in real-time via the built-in Web UI.
+定义多 Agent 工作流，一行 `wf.run()` 执行，Web UI 实时可视化。
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 ---
 
-## Installation
+## 安装
 
-### Prerequisites
+### 前置要求
 
 - Python 3.10+
-- Node.js 18+ and npm (for MCP filesystem tools + Web UI)
-- An LLM API key — any provider Pydantic AI supports (OpenAI, Anthropic, DeepSeek, Groq, etc.)
-- MCP filesystem server (for `read_file`, `write_file`, etc.)
+- Node.js 18+ 和 npm（用于 MCP 文件系统工具 + Web UI）
+- LLM API Key（支持 OpenAI、Anthropic、DeepSeek、Groq 等 Pydantic AI 支持的模型）
 
 ```bash
+# 安装 MCP 文件系统工具（可选，提供 read_file/write_file 等工具）
 npm install -g @modelcontextprotocol/server-filesystem
 ```
 
-> The framework auto-connects to this MCP server on startup to provide filesystem tools.
-> If it's not installed, a warning is printed and the workflow continues with the built-in
-> `bash` and `sub_agent` tools only.
-
-### Setup
+### 一键安装
 
 ```bash
-# Clone
 git clone https://github.com/Honglin20/AgentHarness.git
 cd AgentHarness
-
-# One command — installs everything (macOS / Linux / Windows)
-python install.py
+python install.py          # 交互模式，会提示输入 API Key
+python install.py --quick  # 非交互模式
 ```
 
-This installs: Python dependencies, Node.js dependencies, MCP filesystem server, and prompts
-for your API key. Use `python install.py --quick` for non-interactive mode.
-
-### Verify
-
-```bash
-python -c "
-from harness.api import Agent, Workflow
-
-result = Workflow('hello', agents=[Agent('analyzer', after=[])]).run(
-    {'task': 'Say hello in exactly 3 words.'}
-)
-print(result.outputs['analyzer'])
-print(result.trace[0])
-"
-# Hello world!
-# agent_name='analyzer' status='success' duration_ms=1545 token_usage=TokenUsage(input=1550, output=7, total=1557)
-```
-
----
-
-## Quick Start
-
-### CLI Mode
+### 验证
 
 ```python
 from harness.api import Agent, Workflow
 
-# Define
-wf = Workflow("code_review", agents=[
-    Agent("analyzer", after=[]),
-    Agent("planner", after=["analyzer"]),
-    Agent("reviewer", after=["planner"]),
-])
-
-# Save for reuse
-wf.save()   # → workflows/code_review.json
-
-# Run (synchronous, no await)
-result = wf.run({"task": "Review: def div(a,b): return a/b"})
-
-# Inspect
-for t in result.trace:
-    print(f"{t.agent_name}: {t.status} {t.duration_ms}ms "
-          f"tokens={t.token_usage.input}/{t.token_usage.output}/{t.token_usage.total}")
+result = Workflow("hello", agents=[Agent("analyzer", after=[])]).run(
+    {"task": "用一句话解释什么是 AI Agent。"}
+)
+print(result.outputs["analyzer"])
 ```
 
-### UI Mode
-
-```bash
-# 1. Save a workflow
-python examples/06_agent_to_ui.py
-
-# 2. Start backend + frontend
-bash examples/launch_ui.sh
-
-# 3. Open http://localhost:3000
-#    → Select "code_review" from dropdown
-#    → Enter task → Run → Watch in real time
-```
-
-### API Key Configuration
+### API Key 配置
 
 ```python
 from harness.config import configure, get_config
 
-# Programmatic
-configure(api_key="sk-...", model="openai:gpt-4o", persist=True)
+configure(api_key="sk-...", model="openai:gpt-4o", persist=True)  # 保存到 .env
 print(get_config())
-
-# Via REST
-# POST /api/config {"api_key":"sk-...", "model":"openai:gpt-4o"}
-# Or use the ⚙ Settings panel in the Web UI header bar
 ```
 
-Key resolution order: `.env` file → `ANTHROPIC_AUTH_TOKEN` env var → `ANTHROPIC_API_KEY` env var.
+Key 解析顺序：`.env` 文件 → `ANTHROPIC_AUTH_TOKEN` 环境变量 → `ANTHROPIC_API_KEY` 环境变量。
+
+也可以通过 REST API 或 Web UI 设置面板配置：
+```bash
+POST /api/config {"api_key":"sk-...", "model":"openai:gpt-4o"}
+```
 
 ---
 
-## API Reference
-
-### Agent
+## 快速开始
 
 ```python
-from harness.api import Agent
+from harness.api import Agent, Workflow
 
-Agent(
-    name: str,                          # must match agents/<name>.md
-    after: list[str] = [],             # upstream dependencies
-    tools: list[str] | None = None,    # None = all available, [] = none, ["bash"] = bash only
-    model: str | None = None,          # reads HARNESS_MODEL env var
-    retries: int = 3,                  # Pydantic AI retry count
-    eval: bool = False,               # mark for auto-evaluation by EvalJudge
-)
+# 定义工作流
+wf = Workflow("code_review", agents=[
+    Agent("analyzer", after=[]),
+    Agent("planner",  after=["analyzer"]),
+    Agent("reviewer", after=["planner"]),
+])
+
+# 保存（可选，保存后可在 UI 中选择）
+wf.save()
+
+# 运行
+result = wf.run({"task": "审查这段代码: def div(a,b): return a/b"})
+
+# 查看结果
+for t in result.trace:
+    print(f"{t.agent_name}: {t.status} {t.duration_ms}ms")
 ```
 
-Agent prompts live in `agents/<name>.md`:
+> 完整示例: [examples/01_minimal.py](examples/01_minimal.py)
+
+---
+
+## Workflow 模式
+
+Workflow 由多个 Agent 组成，Agent 之间的依赖关系（`after`）决定了 DAG 结构。
+LangGraph 自动根据 DAG 调度执行：没有依赖关系的 Agent 并行运行，有依赖的依次执行。
+
+### 串行流水线
+
+最基础的模式：Agent 依次执行，上游输出自动传递给下游。
+
+```
+analyzer → planner → reviewer
+```
+
+```python
+wf = Workflow("code_review", agents=[
+    Agent("analyzer", after=[]),
+    Agent("planner",  after=["analyzer"]),
+    Agent("reviewer", after=["planner"]),
+])
+```
+
+> 完整示例: [examples/02_serial_pipeline.py](examples/02_serial_pipeline.py)
+
+### 并行执行
+
+多个 Agent 同时启动，结果由下游 Agent 合并。
+
+```
+researcher_a ──┐
+                ├── synthesizer
+researcher_b ──┘
+```
+
+```python
+wf = Workflow("parallel_research", agents=[
+    Agent("researcher_a", after=[]),
+    Agent("researcher_b", after=[]),
+    Agent("synthesizer",  after=["researcher_a", "researcher_b"]),
+])
+```
+
+`researcher_a` 和 `researcher_b` 没有依赖关系，LangGraph 自动并行执行。
+`synthesizer` 等待两者都完成后才启动，此时可通过 `upstream_outputs` 访问两者的输出。
+
+> 完整示例: [examples/03_parallel.py](examples/03_parallel.py)
+
+### 条件路由
+
+根据 Agent 输出决定下一步走哪个分支。
+
+```
+analyzer → classifier
+                ├─ pass → summary
+                └─ fail → debugger
+```
+
+```python
+wf = Workflow("conditional_route", agents=[
+    Agent("analyzer",    after=[]),
+    Agent("classifier",  after=["analyzer"], on_pass="summary", on_fail="debugger"),
+    Agent("summary",     after=[]),
+    Agent("debugger",    after=[], tools=["bash"]),
+])
+```
+
+通过 `on_pass` 和 `on_fail` 参数定义条件边。
+Agent 的输出需要包含 `decision` 字段（`"pass"` 或 `"fail"`），
+框架据此路由到对应节点。
+
+> 完整示例: [examples/04_conditional_routing.py](examples/04_conditional_routing.py)
+
+### 回环重试
+
+有两种方式实现"写代码 → 审查 → 不通过则重写"的循环。
+
+#### 方式一：DAG 级回环
+
+```
+coder → reviewer
+           ├─ pass → END
+           └─ fail → coder（注入审查意见，重试）
+```
+
+```python
+wf = Workflow("loop_retry", agents=[
+    Agent("coder",    after=[], tools=["bash"]),
+    Agent("reviewer", after=["coder"], on_fail="coder"),
+])
+```
+
+通过 `on_fail` 指回 `coder`，形成 DAG 级别的循环。
+不通过时审查意见自动注入 coder 的上下文，重新执行。默认最多重试 3 次。
+
+特点：每次重试是完整的 DAG 节点执行，全局可见。
+
+> 完整示例: [examples/05_loop_retry.py](examples/05_loop_retry.py)
+
+#### 方式二：sub_agent 工具级迭代
+
+```
+coder → reviewer_agent（内部通过 sub_agent 迭代）
+```
+
+```python
+wf = Workflow("coder_review_loop", agents=[
+    Agent("coder",          after=[], tools=["bash"]),
+    Agent("reviewer_agent", after=["coder"], tools=["sub_agent"]),
+])
+```
+
+reviewer_agent 在单次执行中使用 `sub_agent` 工具委托子 Agent 修复代码，
+循环直到通过。对 DAG 来说只有两个节点。
+
+特点：迭代是某个 Agent 的内部行为，DAG 更简洁。
+
+> 完整示例: [examples/06_sub_agent_loop.py](examples/06_sub_agent_loop.py)
+
+### 人机协作
+
+Agent 在执行过程中通过 `ask_human` 工具向用户提问，等待回答后继续。
+
+```
+analyzer → decision_maker（ask_human → 等待 → 继续）
+```
+
+```python
+wf = Workflow("ask_human_demo", agents=[
+    Agent("analyzer",       after=[], tools=["bash"]),
+    Agent("decision_maker", after=["analyzer"], tools=["ask_human"]),
+])
+```
+
+注意：`ask_human` 需要通过 Web UI 使用（依赖 WebSocket 实时交互）。
+
+> 完整示例: [examples/07_ask_human.py](examples/07_ask_human.py)
+
+---
+
+## 工具系统
+
+每个 Agent 可配置可使用的工具。工具决定了 Agent 能做什么。
+
+```python
+Agent("coder", after=[], tools=["bash"])          # 只能用 bash
+Agent("writer", after=[])                          # 无工具限制（默认）
+Agent("analyst", after=[], tools=[])               # 不使用任何工具
+```
+
+| 工具 | 来源 | 说明 |
+|------|------|------|
+| `bash` | 内置 | 执行 shell 命令 |
+| `sub_agent` | 内置 | 委托子 Agent 执行任务（最大深度 1） |
+| `ask_human` | 内置 | 向用户提问，等待回答（需要 UI） |
+| `read_file`, `write_file` 等 | MCP | 文件系统操作（需要安装 MCP server） |
+
+Agent 的行为和工具配置也可以通过 `agents/<name>.md` 文件定义：
 
 ```markdown
 ---
-name: analyzer
-model: openai:gpt-4o      # optional — defaults to HARNESS_MODEL env var
-retries: 2
-eval: true               # optional — enables auto-judge (EvalJudge)
-tools:               # optional — limits the tools available to this agent
+name: coder
+tools:
   - bash
+  - sub_agent
+retries: 3
 ---
-You are a code analysis expert. Analyze the task and produce findings.
+你是一个程序员。根据任务要求编写代码，使用 bash 工具验证。
 ```
 
-### Workflow
+---
 
-```python
-from harness.api import Workflow
+## 扩展系统
 
-wf = Workflow(
-    name: str,
-    agents: list[Agent],
-    workflow_dir: Path | None = None,  # auto-resolved to workflows/<name>/
-)
+扩展系统提供三层抽象，按 **能做什么** 区分：
 
-wf.save()                      # → workflows/<name>/workflow.json
-wf.compile()                   # → langgraph CompiledStateGraph
-result = wf.run(inputs: dict, ui: bool = False)            # sync, blocks until done
-result = await wf.arun(inputs: dict)                       # async (for existing event loops)
-
-Workflow.load("code_review")   # restore from workflows/<name>/
-Workflow.list_saved()          # → [{"name":"...", "dag":{...}, "agents":[...]}]
-```
-
-### WorkflowResult
-
-```python
-result = wf.run({"task": "..."})
-
-result.outputs: dict[str, str]    # {"analyzer": "...", "planner": "..."}
-result.errors: dict[str, str]     # {} on success
-result.trace: list[NodeTrace]     # per-node execution record
-
-# NodeTrace
-trace[0].agent_name               # "analyzer"
-trace[0].status                   # "success" | "failed" | "skipped"
-trace[0].duration_ms              # 1545
-trace[0].error                    # None | "error message"
-trace[0].token_usage              # TokenUsage | None
-trace[0].token_usage.input        # 1550
-trace[0].token_usage.output       # 7
-trace[0].token_usage.total        # 1557
-```
-
-### Chart
-
-```python
-from harness.tools.chart import render_chart
-
-data = [{"iter": 1, "score": 0.3}, {"iter": 2, "score": 0.5}]
-
-render_chart(data, chart_type="line",  x="iter", y="score", label="Training")
-render_chart(data, chart_type="bar",   x="iter", y="score")
-render_chart(data, chart_type="scatter", x="iter", y="score", hue="method")
-render_chart(data, chart_type="pareto", x="iter", y="score", pareto_direction="max")
-render_chart(data, chart_type="optimal_line", x="iter", y="score", optimal_line="max")
-render_chart(data, chart_type="heatmap", x="iter", y="score")
-render_chart(data, chart_type="box",   x="iter", y="score")
-render_chart(data, chart_type="table")
-
-# Dual-channel delivery:
-#  - Same process → EventBus (instant)
-#  - Subprocess  → HTTP POST /api/charts (reads HARNESS_API_URL env var)
-```
-
-## Tools
-
-| Tool | Source | Description |
-|------|--------|-------------|
-| `bash` | Built-in | Execute shell commands |
-| `sub_agent` | Built-in | Delegate to a temporary agent (max depth 1) |
-| `ask_human` | Built-in | Ask the user a question, wait for response (UI only) |
-| `read_file`, `write_file`, etc. | MCP | Filesystem tools (via `@modelcontextprotocol/server-filesystem`) |
-
-## Extensions
-
-The extension system defines three types, distinguished by **what they can affect**:
-
-| | Main data flow | Side-channel artifacts | DAG structure |
+| | 主数据流 | 副产物 | DAG 结构 |
 |---|---|---|---|
-| **Hook / Plugin** | Read-only | Read-write (via `ctx.emit`) | No |
-| **Middleware** | Read-write | Read-write (via `ctx.emit`) | No |
-| **GraphMutator** | No | No | Read-write |
+| **Hook** | 只读 | 读写（`ctx.emit`） | 不能 |
+| **Middleware** | 读写 | 读写（`ctx.emit`） | 不能 |
+| **GraphMutator** | 不能 | 不能 | 读写 |
 
-- **Hook** — observe lifecycle and produce artifacts (charts, traces, metrics). Cannot modify the workflow. Runs concurrently, never blocks. Safe to add without risk.
-- **Middleware** — mutate or reject the agent execution path (compact messages, enforce guardrails, inject memory). Runs sequentially in priority order. Can abort or retry a node.
-- **GraphMutator** — rewrite the DAG at compile time (insert evaluator nodes, expand agents into sub-graphs). Runs once before execution starts.
+- **Hook** — 观察生命周期，产生副产物（图表、追踪、指标）。不修改任何数据，并发执行，不阻塞。
+- **Middleware** — 修改或拒绝 Agent 执行（压缩对话、注入记忆、预算控制）。按优先级顺序执行，可抛出 `RejectAction` 中止或 `RetryAction` 重试。
+- **GraphMutator** — 编译时改写 DAG（插入评审节点、展开子图）。执行前运行一次。
 
-All extensions are registered via `workflow.use()`:
+所有扩展通过 `wf.use()` 链式注册：
 
 ```python
 wf = (
     Workflow("name", agents=[...])
-    .use(EvalJudge())              # GraphMutator
-    .use(AutoCompact())            # Middleware
-    .use(EvalChartPlugin())        # Hook / Plugin
+    .use(EvalJudge())           # GraphMutator
+    .use(AutoCompact())         # Middleware
+    .use(EvalChartPlugin())     # Hook
 )
 ```
 
-### EvalJudge — Auto-evaluate agent output
+### 内置扩展
 
-Mark any agent with `eval=True` and register `EvalJudge` to automatically insert
-a judge node that evaluates the agent's output and routes based on pass/fail.
+#### EvalJudge — 自动评审（GraphMutator）
+
+给需要评审的 Agent 标记 `eval=True`，注册 `EvalJudge` 即可自动插入评审节点。
 
 ```python
-from harness.api import Agent, Workflow
 from harness.extensions.eval import EvalJudge
 
 wf = (
     Workflow("reviewed", agents=[
         Agent("researcher", after=[], eval=True),
-        Agent("writer", after=["researcher"]),
+        Agent("writer",     after=["researcher"]),
     ])
     .use(EvalJudge(max_retries=2))
 )
 ```
 
-How it works:
-- **DAG rewrite**: inserts `_judge_<name>` nodes after each `eval=True` agent
-- **Lazy summarization**: auto-summarizes the target agent's MD for the judge prompt (cached by SHA256)
-- **Pass → passthrough**: output flows downstream with `_judge_X` rewritten to display name `X`
-- **Fail → retry**: target agent re-runs with `## Previous judgment` critique injected
+工作原理：
+- 编译时：在每个 `eval=True` 的 Agent 后自动插入 `_judge_<name>` 节点
+- 评审节点自动总结目标 Agent 的提示词，构建评审标准
+- Pass：输出直接传递给下游
+- Fail：将批评意见注入目标 Agent 上下文，重新执行
 
-### Plugins — Built-in Hook extensions
+> 完整示例: [examples/08_eval_judge.py](examples/08_eval_judge.py)
 
-Plugins are `BaseHook` subclasses that produce observational artifacts via `ctx.emit()`.
-They never modify the main data flow. Enable them declaratively — not listed = not active.
+#### AutoCompact — 自动压缩对话（Middleware）
+
+当对话历史超过 token 阈值时，自动压缩历史消息，避免超出上下文窗口。
 
 ```python
-from harness.api import Agent, Workflow
-from harness.extensions.eval import EvalJudge
+from harness.extensions.compact.auto_compact import AutoCompact
+
+wf = Workflow(...).use(AutoCompact(threshold_tokens=8000))
+```
+
+#### 内置 Plugins（Hook）
+
+Plugins 是 `BaseHook` 子类，通过 `ctx.emit()` 产生观测副产物。
+
+```python
 from harness.extensions.plugins import (
     EvalChartPlugin,
     AgentTracePlugin,
@@ -282,145 +331,337 @@ from harness.extensions.plugins import (
 )
 
 wf = (
-    Workflow("reviewed", agents=[
-        Agent("researcher", after=[], eval=True),
-        Agent("writer", after=["researcher"]),
-    ])
-    .use(EvalJudge())
-    .use(EvalChartPlugin())       # judge score → line chart
-    .use(AgentTracePlugin())      # execution trace events
-    .use(ReasoningVizPlugin())    # chain-of-thought visualization
-    .use(PerfMetricsPlugin())     # token usage bar charts
+    Workflow(...)
+    .use(EvalChartPlugin())       # 评审分数 → 折线图
+    .use(AgentTracePlugin())      # 执行追踪事件
+    .use(ReasoningVizPlugin())    # 思维链可视化
+    .use(PerfMetricsPlugin())     # Token 用量柱状图
 )
 ```
 
-| Plugin | Trigger | Output |
-|--------|---------|--------|
-| `EvalChartPlugin` | `on_node_end` for `_judge_*` nodes | `chart.render` line chart of score history |
-| `AgentTracePlugin` | `on_node_end` for every node | `trace.step` event with agent name + status |
-| `ReasoningVizPlugin` | `on_node_end` when chain-of-thought detected | `reasoning.render` with extracted reasoning steps |
-| `PerfMetricsPlugin` | `on_node_end` when token_usage in metadata | `chart.render` bar chart of token usage |
+| Plugin | 触发条件 | 输出 |
+|--------|---------|------|
+| `EvalChartPlugin` | `_judge_*` 节点完成 | `chart.render` 评分折线图 |
+| `AgentTracePlugin` | 任意节点完成 | `trace.step` 事件 |
+| `ReasoningVizPlugin` | 检测到思维链 | `reasoning.render` 可视化数据 |
+| `PerfMetricsPlugin` | 有 token_usage 数据 | `chart.render` 用量柱状图 |
 
-**Writing custom plugins:** Add a file to `harness/extensions/plugins/`, subclass `BaseHook`,
-and call `ctx.emit(event_type, payload)` in `on_node_end`. No engine changes needed.
+> 组合扩展示例: [examples/11_all_extensions.py](examples/11_all_extensions.py)
+
+### 自定义扩展
+
+#### 自定义 Hook
+
+Hook 用于观察和记录，不修改数据。适合做日志、指标、持久化。
+
+```python
+from harness.extensions.base import BaseHook, NodeCtx
+
+class MyLogger(BaseHook):
+    name = "my-logger"
+
+    async def on_node_end(self, ctx: NodeCtx, output) -> None:
+        print(f"[{ctx.agent_name}] 完成，输出 {len(str(output))} 字符")
+        ctx.emit("custom.event", {"agent": ctx.agent_name, "output_len": len(str(output))})
+
+wf = Workflow(...).use(MyLogger())
+```
+
+#### 自定义 Middleware
+
+Middleware 用于修改数据流。适合做内容过滤、注入上下文、预算控制。
+
+```python
+from harness.extensions.base import BaseMiddleware, NodeCtx, RejectAction
+
+class PrefixMiddleware(BaseMiddleware):
+    name = "prefix"
+    priority = 30  # 数字越小越先执行
+
+    async def before_node(self, ctx: NodeCtx) -> NodeCtx | RejectAction:
+        # 修改 Agent 的输入提示
+        ctx.prompt = f"[系统注入] 当前时间: {__import__('datetime').datetime.now()}\n\n{ctx.prompt}"
+        return ctx
+
+wf = Workflow(...).use(PrefixMiddleware())
+```
+
+#### 自定义 GraphMutator
+
+GraphMutator 在编译时改写 DAG。适合插入新节点、修改依赖关系。
+
+```python
+from harness.extensions.base import BaseGraphMutator
+
+class DoubleCheck(BaseGraphMutator):
+    name = "double-check"
+
+    def mutate(self, workflow):
+        # 在每个 Agent 后插入一个验证节点
+        new_agents = []
+        for agent in workflow.agents:
+            new_agents.append(agent)
+            check = Agent(f"verify_{agent.name}", after=[agent.name])
+            new_agents.append(check)
+        workflow.agents = new_agents
+        return workflow
+
+wf = Workflow(...).use(DoubleCheck())
+```
+
+---
+
+## Chart 可视化
+
+Agent 通过 `bash` 执行的脚本中可以调用 `render_chart()` 推送图表到 UI。
+
+### 基础图表
+
+```python
+from harness.tools.chart import render_chart
+
+data = [{"iter": 1, "score": 0.3, "loss": 0.9, "method": "A"},
+        {"iter": 2, "score": 0.5, "loss": 0.7, "method": "A"},
+        {"iter": 3, "score": 0.7, "loss": 0.4, "method": "B"}]
+
+render_chart(data, chart_type="line",  x="iter", y="score", hue="method")
+render_chart(data, chart_type="bar",   x="iter", y="loss",  hue="method")
+render_chart(data, chart_type="scatter", x="iter", y="score", hue="method")
+render_chart(data, chart_type="area",  x="iter", y="score", hue="method")
+```
+
+### 高级图表
+
+```python
+# 气泡图 — 第三维度控制气泡大小
+render_chart(bubble_data, chart_type="bubble", x="x", y="y", size="weight", hue="group")
+
+# 帕累托前沿 — 多目标优化
+render_chart(data, chart_type="pareto", x="cost", y="quality", pareto_direction="max")
+
+# 最优线 — 追踪历史最优值
+render_chart(data, chart_type="optimal_line", x="iter", y="score", optimal_line="max")
+
+# 雷达图 — 多维模型对比
+render_chart(radar_data, chart_type="radar", x="metric", y="score", hue="model")
+```
+
+### 统计与数据
+
+```python
+# 箱线图 — 分组分布对比
+render_chart(data, chart_type="box", x="group", y="value")
+
+# 热力图 — 矩阵可视化
+render_chart(matrix_data, chart_type="heatmap", x="col", y="row")
+
+# 数据表格 — 可排序
+render_chart(data, chart_type="table")
+```
+
+### 支持的全部图表类型
+
+| 类型 | `chart_type` | 说明 | 特有参数 |
+|------|-------------|------|---------|
+| 折线图 | `line` | 趋势变化，支持 `hue` 多线 | — |
+| 柱状图 | `bar` | 分类对比，支持 `hue` 分组 | — |
+| 散点图 | `scatter` | 相关性分析，支持 `hue` 分色 | — |
+| 面积图 | `area` | 趋势+量感，支持 `hue` 多层 | — |
+| 气泡图 | `bubble` | 三维关系（x, y, 大小） | `size` |
+| 帕累托图 | `pareto` | 多目标最优前沿 | `pareto_direction` |
+| 最优线 | `optimal_line` | 追踪历史最优值 | `optimal_line` |
+| 雷达图 | `radar` | 多维度对比 | — |
+| 箱线图 | `box` | 分布统计 | — |
+| 热力图 | `heatmap` | 矩阵强度可视化 | — |
+| 数据表格 | `table` | 可排序数据表 | — |
+
+图表通过 EventBus → WebSocket → 前端实时渲染。
+
+> 完整示例: [examples/09_charts.py](examples/09_charts.py)
+
+---
+
+## 持久化与 UI
+
+### 保存与加载
+
+```python
+# 保存工作流定义
+wf.save()                    # → workflows/<name>/workflow.json
+
+# 加载已保存的工作流
+wf2 = Workflow.load("code_review")
+
+# 列出所有已保存的工作流
+for w in Workflow.list_saved():
+    print(w["name"], w["dag"]["nodes"])
+```
+
+### Web UI
+
+```bash
+# 方式一：启动脚本（自动构建前端 + 启动后端）
+bash examples/launch_ui.sh
+
+# 方式二：直接启动后端（前端已构建）
+python -m uvicorn server.app:app --host 0.0.0.0 --port 8000
+```
+
+打开 http://localhost:8000，选择工作流 → 输入任务 → 运行 → 实时查看 DAG、流式输出、Token 追踪。
+
+> 完整示例: [examples/10_save_load_ui.py](examples/10_save_load_ui.py)
+
+---
+
+## API 参考
+
+### Agent
+
+```python
+Agent(
+    name: str,                          # 对应 agents/<name>.md
+    after: list[str] = [],             # 上游依赖
+    tools: list[str] | None = None,    # None=全部可用, []=无, ["bash"]=仅 bash
+    model: str | None = None,          # 默认读 HARNESS_MODEL
+    retries: int = 3,                  # 重试次数
+    eval: bool = False,               # 标记为需要 EvalJudge 评审
+    on_pass: str | None = None,       # 条件边：通过时跳转到的节点
+    on_fail: str | None = None,       # 条件边：失败时跳转到的节点
+)
+```
+
+### Workflow
+
+```python
+wf = Workflow(name, agents=[...])
+wf.save()                        # → workflows/<name>/workflow.json
+wf.compile()                     # → LangGraph CompiledStateGraph
+result = wf.run(inputs)          # 同步运行
+result = await wf.arun(inputs)   # 异步运行
+wf.use(extension)                # 注册扩展，返回 self（链式调用）
+wf = Workflow.load("name")       # 从文件加载
+Workflow.list_saved()            # 列出所有已保存工作流
+```
+
+### WorkflowResult
+
+```python
+result.outputs    # dict[str, Any]   agent_name → 输出
+result.errors     # dict[str, str]   agent_name → 错误信息
+result.trace      # list[NodeTrace]  每个 agent 的执行记录
+
+# NodeTrace
+trace[0].agent_name    # str
+trace[0].status        # "success" | "failed" | "skipped"
+trace[0].duration_ms   # int
+trace[0].error         # str | None
+trace[0].token_usage   # TokenUsage | None
+trace[0].token_usage.input    # int
+trace[0].token_usage.output   # int
+trace[0].token_usage.total    # int
+```
+
+---
 
 ## REST API
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/health` | Health check |
-| `GET` | `/api/agents` | List available agents |
-| `GET` | `/api/agents/{name}` | Get agent definition |
-| `GET` | `/api/tools` | List registered tools |
-| `GET` | `/api/config` | Get current config (key masked) |
-| `POST` | `/api/config` | Set API key / model |
-| `GET` | `/api/workflows/definitions` | List saved workflows |
-| `POST` | `/api/workflows` | Create & start a workflow |
-| `GET` | `/api/workflows/{id}` | Get workflow status |
-| `GET` | `/api/workflows/{id}/dag` | Get DAG structure (for React Flow) |
-| `GET` | `/api/workflows/{id}/trace` | Get execution trace |
-| `POST` | `/api/workflows/{id}/cancel` | Cancel a running workflow |
-| `POST` | `/api/charts` | Chart HTTP fallback (subprocess) |
-| `WS` | `/ws/workflows/{id}` | Real-time event stream |
+| Method | Path | 说明 |
+|--------|------|------|
+| `GET` | `/health` | 健康检查 |
+| `GET` | `/api/agents` | 列出可用 Agent |
+| `GET` | `/api/agents/{name}` | 获取 Agent 定义 |
+| `GET` | `/api/tools` | 列出已注册工具 |
+| `GET` | `/api/config` | 获取配置（Key 已脱敏） |
+| `POST` | `/api/config` | 设置 API Key / Model |
+| `GET` | `/api/workflows/definitions` | 列出已保存工作流 |
+| `POST` | `/api/workflows` | 创建并启动工作流 |
+| `GET` | `/api/workflows/{id}` | 获取工作流状态 |
+| `GET` | `/api/workflows/{id}/dag` | 获取 DAG 结构 |
+| `GET` | `/api/workflows/{id}/trace` | 获取执行追踪 |
+| `POST` | `/api/workflows/{id}/cancel` | 取消工作流 |
+| `GET` | `/api/runs` | 列出历史运行 |
+| `POST` | `/api/runs/{id}/rerun` | 重新运行 |
+| `POST` | `/api/runs/{id}/resume` | 从检查点恢复 |
+| `POST` | `/api/charts` | Chart HTTP 回调 |
+| `WS` | `/ws/workflows/{id}` | 实时事件流 |
 
-## WebSocket Events
+---
 
-| Event | Description |
-|-------|-------------|
-| `workflow.started` | Workflow began execution (includes DAG) |
-| `workflow.completed` | All nodes finished |
-| `node.started` | Agent node started |
-| `node.completed` | Agent node finished (includes token_usage) |
-| `node.failed` | Agent node failed (includes error) |
-| `agent.text_delta` | Streaming LLM output chunk |
-| `chart.render` | Chart data ready for frontend |
-| `trace.step` | Agent execution trace event (from AgentTracePlugin) |
-| `reasoning.render` | Chain-of-thought visualization data (from ReasoningVizPlugin) |
-| `chat.question` | Agent is asking the user a question |
-| `chat.answer` | User's response to an agent question |
-
-## Architecture
+## 架构
 
 ```
-┌─ User Code ──────────────────────────────┐
-│                                           │
-│  wf = Workflow("name", agents=[...])      │
-│  wf.save()                                │
-│  result = wf.run({"task": "..."})         │
-│  result = wf.run({...}, ui=True)          │
-│                                           │
-└──────────────┬────────────────────────────┘
+┌─ 用户代码 ─────────────────────────────────┐
+│                                             │
+│  wf = Workflow("name", agents=[...])        │
+│  wf.save()                                  │
+│  result = wf.run({"task": "..."})           │
+│                                             │
+└──────────────┬──────────────────────────────┘
                │
                ▼
-┌─ Backend (Python / FastAPI) ──────────────┐
-│                                           │
-│  api.py           Agent, Workflow, Result │
-│  engine/          LangGraph + Pydantic AI │
-│  tools/           bash, sub_agent, chart  │
-│  server/          REST + WebSocket        │
-│                                           │
-└──────────────┬────────────────────────────┘
+┌─ 后端 (Python / FastAPI) ──────────────────┐
+│                                             │
+│  harness/api.py      Agent, Workflow, Result│
+│  harness/engine/     LangGraph + Pydantic AI│
+│  harness/tools/      bash, sub_agent, chart │
+│  harness/extensions/ EvalJudge, Plugins...  │
+│  server/             REST + WebSocket       │
+│                                             │
+└──────────────┬──────────────────────────────┘
                │ EventBus / WebSocket
                ▼
-┌─ Frontend (Next.js 14) ──────────────────┐
-│                                           │
-│  DAG Panel       React Flow visualization │
-│  Output Panel    Streaming Markdown       │
-│  Chat Panel      ask_human interaction    │
-│  Trace Panel     Per-node token tracking  │
-│  Charts          Recharts + custom SVG    │
-│                                           │
-└───────────────────────────────────────────┘
+┌─ 前端 (Next.js 14) ────────────────────────┐
+│                                             │
+│  DAG 面板       React Flow 可视化           │
+│  输出面板       流式 Markdown 渲染           │
+│  Chat 面板      ask_human 交互              │
+│  追踪面板       节点级 Token 统计            │
+│  图表面板       Recharts + 自定义 SVG       │
+│                                             │
+└─────────────────────────────────────────────┘
 ```
 
-## Project Structure
+## 项目结构
 
 ```
 .
 ├── harness/
-│   │   ├── api.py           Agent, Workflow, WorkflowResult
-│   │   ├── config.py        configure(), .env auto-loading
-│   │   ├── engine/          macro_graph, micro_agent
-│   │   ├── tools/           chart, bash, sub_agent, ask_human
-│   │   ├── compiler/        DAG builder, markdown parser
-│   │   └── extensions/      EvalJudge, AutoCompact, Plugins...
-│   ├── server/              FastAPI app, routes, WebSocket, EventBus
-│   └── agents/              Agent markdown definitions (*.md)
-├── frontend/                Next.js 14 Web UI
-│   └── src/components/
-│       ├── dag/             DAG visualization
-│       ├── output/          WorkflowLauncher, StreamingText, charts
-│       ├── chat/            ask_human message UI
-│       ├── trace/           Trace table with token tracking
-│       └── layout/          Header, panels
-├── examples/                Runnable examples
-├── workflows/               Per-workflow directories
-│   ├── <name>/              Each workflow is a directory:
-│   │   ├── workflow.json    Agent definitions + DAG
-│   │   ├── agents/          Private agent MDs (overrides _shared)
-│   │   └── scripts/         Private scripts (injected into prompts)
-│   └── _shared/             Shared pool (fallback for agents/ + scripts/)
-│       ├── agents/
-│       └── scripts/
-└── tests/
+│   ├── api.py              Agent, Workflow, WorkflowResult
+│   ├── config.py           configure(), .env 自动加载
+│   ├── engine/             LangGraph 状态图 + Pydantic AI 执行
+│   ├── tools/              bash, sub_agent, ask_human, chart
+│   ├── compiler/           DAG 构建, Markdown 解析
+│   └── extensions/         EvalJudge, AutoCompact, Plugins...
+├── server/                 FastAPI 应用, 路由, WebSocket, EventBus
+├── frontend/               Next.js 14 Web UI
+├── workflows/              工作流定义目录
+│   ├── <name>/
+│   │   ├── workflow.json   Agent 定义 + DAG
+│   │   ├── agents/         私有 Agent 提示词（覆盖 _shared）
+│   │   └── scripts/        私有脚本（注入到提示词）
+│   └── _shared/            共享资源（Agent 和脚本的后备）
+├── examples/               可运行的示例（01-11）
+└── tests/                  测试
 ```
 
-## Examples
+## 示例索引
 
-Each file is standalone — run directly with `python examples/<file>`.
-
-| # | File | Description | Needs LLM |
-|---|------|-------------|-----------|
-| 1 | `01_quickstart.py` | Minimal: define → run → print result | yes |
-| 2 | `02_save_load.py` | Save, list, load, run | yes |
-| 3 | `03_pipeline.py` | 3-agent chain with full trace output | yes |
-| 4 | `04_chart_demo.py` | All 8 chart types | no |
-| 5 | `05_trace_demo.py` | Mocked demo showing data structures | no |
-| 6 | `06_agent_to_ui.py` | Define → save → then launch UI separately | no |
-| 10 | `10_eval_judge.py` | EvalJudge: auto-evaluate agent output with retry | yes |
+| # | 文件 | 模式 | 需要 LLM |
+|---|------|------|----------|
+| 1 | `01_minimal.py` | 单 Agent | 是 |
+| 2 | `02_serial_pipeline.py` | 串行流水线 | 是 |
+| 3 | `03_parallel.py` | 并行 + 合并 | 是 |
+| 4 | `04_conditional_routing.py` | 条件路由 | 是 |
+| 5 | `05_loop_retry.py` | DAG 级回环 | 是 |
+| 6 | `06_sub_agent_loop.py` | sub_agent 迭代 | 是 |
+| 7 | `07_ask_human.py` | 人机协作（需 UI） | 是 |
+| 8 | `08_eval_judge.py` | EvalJudge 自动评审 | 是 |
+| 9 | `09_charts.py` | Chart 可视化（需 UI） | 是 |
+| 10 | `10_save_load_ui.py` | 持久化 + UI | 是 |
+| 11 | `11_all_extensions.py` | 组合扩展 | 是 |
 
 ---
 
-## License
+## 许可证
 
 MIT

@@ -47,18 +47,22 @@ export default function WorkflowLauncher() {
       .then((r) => r.json())
       .then((data: SavedWorkflow[]) => setSaved(data))
       .catch(() => {});
-    // Load available agents
-    fetch(`${API_BASE}/api/agents`)
+    // Load available agents (needs workflow context; skip for ad-hoc mode)
+    // Will reload when selectedWf changes (see below effect)
+  }, []);
+
+  // When a saved workflow is picked, auto-select its agents and load agent list
+  useEffect(() => {
+    if (!selectedWf) {
+      setAgents([]);
+      return;
+    }
+    const wf = saved.find((s) => s.name === selectedWf);
+    if (wf) setSelected(new Set(wf.dag.nodes));
+    fetch(`${API_BASE}/api/agents?workflow=${encodeURIComponent(selectedWf)}`)
       .then((r) => r.json())
       .then((data: AgentInfo[]) => setAgents(data))
       .catch(() => {});
-  }, []);
-
-  // When a saved workflow is picked, auto-select its agents
-  useEffect(() => {
-    if (!selectedWf) return;
-    const wf = saved.find((s) => s.name === selectedWf);
-    if (wf) setSelected(new Set(wf.dag.nodes));
   }, [selectedWf, saved]);
 
   const toggleAgent = useCallback((name: string) => {
@@ -92,6 +96,7 @@ export default function WorkflowLauncher() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: selectedWf || agentList.join(" → "),
+          workflow: selectedWf || agentList.join(" → "),
           agents,
           inputs: { task: task.trim() },
         }),

@@ -18,10 +18,7 @@ class CreateWorkflowRequest(BaseModel):
     """Request to create and start a workflow."""
     name: str
     agents: list[AgentDef]
-    # New (preferred): workflow directory name (under workflows/). If omitted, derived from `name`.
-    workflow: str | None = None
-    # Legacy: kept for back-compat with old clients. Deprecated.
-    agents_dir: str = "agents"
+    workflow: str
     inputs: dict = Field(default_factory=dict)
 
 
@@ -82,3 +79,16 @@ class RunDetail(BaseModel):
     created_at: str
     dag: dict | None = None  # {nodes, edges, conditional_edges} — needed so replay view can render the DAG identically to live view
     chart_groups: dict | None = None  # {groups: {label: ChartGroup}, groupOrder: [labels]} — snapshot of frontend chartStore so Results tab replays
+
+
+class CheckpointInfo(BaseModel):
+    """A single checkpoint within a workflow run."""
+    checkpoint_id: str
+    thread_id: str
+    next_nodes: list[str] = []
+    values: dict[str, Any] = {}
+
+
+class ResumeRequest(BaseModel):
+    """Request to resume a workflow from a checkpoint."""
+    checkpoint_id: str | None = None  # None = latest non-final checkpoint

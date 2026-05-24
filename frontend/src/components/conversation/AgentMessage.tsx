@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronRight, FileInput, FileOutput } from "lucide-react";
+import { ChevronRight, FileInput, FileOutput, Coins } from "lucide-react";
 import type { ConversationMessage } from "@/stores/conversationStore";
 import { useAgentIOStore } from "@/stores/agentIOStore";
+import { useWorkflowStore } from "@/stores/workflowStore";
 import { formatDuration } from "@/components/output/status-config";
 import { MarkdownText } from "./MarkdownText";
 import {
@@ -35,6 +36,39 @@ function firstNonEmptyLine(s: string): string {
   return "";
 }
 
+function formatTokenCount(n?: number): string {
+  if (n == null) return "";
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
+
+function formatOutputAsMd(output: unknown): string {
+  if (output == null) return "";
+  if (typeof output === "string") return output;
+
+  if (typeof output === "object" && !Array.isArray(output)) {
+    const obj = output as Record<string, unknown>;
+    const lines: string[] = [];
+    if (obj.summary) lines.push(String(obj.summary));
+    if (obj.details) lines.push("", String(obj.details));
+
+    // If there are other fields beyond summary/details, render them as a table
+    const extra = Object.entries(obj).filter(
+      ([k]) => k !== "summary" && k !== "details"
+    );
+    if (extra.length > 0) {
+      lines.push("", "| Field | Value |", "|-------|-------|");
+      for (const [k, v] of extra) {
+        const val = typeof v === "object" ? JSON.stringify(v) : String(v);
+        lines.push(`| ${k} | ${val} |`);
+      }
+    }
+    if (lines.length > 0) return lines.join("\n");
+  }
+
+  return JSON.stringify(output, null, 2);
+}
+
 type IOTab = "input" | "output";
 
 export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItemCount }: AgentMessageProps) {
@@ -45,6 +79,8 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
 
   const agentIO = useAgentIOStore((s) => nodeId ? s.data[nodeId] : undefined);
   const hasIO = isDone && agentIO && (agentIO.inputPrompt || agentIO.outputResult != null);
+  const nodeState = useWorkflowStore((s) => nodeId ? s.nodes[nodeId] : undefined);
+  const tokenUsage = nodeState?.tokenUsage;
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<IOTab>("input");
@@ -71,23 +107,31 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
         {durationMs != null && (
           <span className="shrink-0 text-xs text-muted-foreground">{formatDuration(durationMs)}</span>
         )}
+        {tokenUsage && tokenUsage.total > 0 && (
+          <span className="shrink-0 inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs text-amber-600 bg-amber-500/10" title={`${tokenUsage.input} in / ${tokenUsage.output} out`}>
+            <Coins className="h-3 w-3" />
+            {formatTokenCount(tokenUsage.total)}
+          </span>
+        )}
         {hasIO && (
           <>
             <button
               type="button"
               onClick={() => openSheet("input")}
-              className="shrink-0 inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-xs text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10 transition-colors"
+              className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10 transition-colors"
               title="查看输入"
             >
-              <FileInput className="h-3 w-3" />
+              <FileInput className="h-3.5 w-3.5" />
+              <span className="text-[10px]">In</span>
             </button>
             <button
               type="button"
               onClick={() => openSheet("output")}
-              className="shrink-0 inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-xs text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10 transition-colors"
+              className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10 transition-colors"
               title="查看输出"
             >
-              <FileOutput className="h-3 w-3" />
+              <FileOutput className="h-3.5 w-3.5" />
+              <span className="text-[10px]">Out</span>
             </button>
           </>
         )}
@@ -137,17 +181,34 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
                 {activeTab === "input" ? "输入" : "输出"} — {agentName}
               </SheetTitle>
             </SheetHeader>
-            <div className="mt-4 rounded-md border border-app-border bg-gray-50 p-3">
+            <div className="mt-4 space-y-3">
               {activeTab === "input" ? (
-                <pre className="whitespace-pre-wrap break-words text-xs font-mono text-app-text-primary">
-                  {agentIO.inputPrompt || "(empty)"}
-                </pre>
+                <div className="rounded-md border border-app-border bg-gray-50 p-3 space-y-3">
+                  {agentIO.systemPrompt && (
+                    <div>
+                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">System</p>
+                      <div className="prose prose-sm max-w-none text-xs">
+                        <MarkdownText>{agentIO.systemPrompt}</MarkdownText>
+                      </div>
+                    </div>
+                  )}
+                  <div>
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">User Context</p>
+                    <div className="prose prose-sm max-w-none text-xs">
+                      <MarkdownText>{agentIO.inputPrompt || "(empty)"}</MarkdownText>
+                    </div>
+                  </div>
+                </div>
               ) : (
-                <pre className="whitespace-pre-wrap break-words text-xs font-mono text-app-text-primary">
-                  {agentIO.outputResult != null
-                    ? JSON.stringify(agentIO.outputResult, null, 2)
-                    : "(empty)"}
-                </pre>
+                <div className="rounded-md border border-app-border bg-gray-50 p-3">
+                  {agentIO.outputResult != null ? (
+                    <div className="prose prose-sm max-w-none text-xs">
+                      <MarkdownText>{formatOutputAsMd(agentIO.outputResult)}</MarkdownText>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">(empty)</p>
+                  )}
+                </div>
               )}
             </div>
           </SheetContent>

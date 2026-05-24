@@ -24,13 +24,48 @@ The engine is a state machine. At every transition it asks the Bus
 two questions:
 
 1. "Anyone want to **change** what's about to happen?" → Middleware
-2. "Anyone want to **know** what's about to happen?" → Hooks
+2. "Anyone want to **know** what's about to happen?" → Hooks / Plugins
 
 Plus, before the state machine even starts, it asks:
 
 3. "Anyone want to **rewrite the graph itself**?" → GraphMutator
 
 The bus answers, the engine acts. Extensions are the answers.
+
+## Why three types — not two, not four
+
+The three-way split is grounded in **what each type can affect**, not just
+"what it can do":
+
+| | Main data flow | Side-channel artifacts | DAG structure |
+|---|---|---|---|
+| Hook / Plugin | Read-only | Read-write | No |
+| Middleware | Read-write | Read-write | No |
+| GraphMutator | No | No | Read-write |
+
+**Hook and Middleware are NOT merged** because the "cannot modify main data
+flow" constraint gives Hook a distinct safety guarantee: registering a Hook
+can never break the workflow. This matters for Plugins (chart rendering,
+metrics, tracing) — users trust that `.use(EvalChartPlugin())` is
+zero-risk.
+
+**Hook is not a fourth type** — Plugins are just Hooks with side-channel
+emit capability. Same base class, same registration, same dispatch. The
+only addition is `ctx.emit()` for producing charts, events, and other
+observational artifacts.
+
+### Why not merge Hook into Middleware?
+
+A Middleware that doesn't mutate ctx/output is functionally equivalent to a
+Hook. But the **contract distinction** matters:
+
+- Hook failures are isolated (concurrent, swallow exceptions, never block).
+- Middleware failures can short-circuit the chain (RejectAction / RetryAction).
+- Hook registration carries the implicit promise: "this is safe to add."
+- Middleware registration carries the implicit promise: "this may alter behavior."
+
+Blurring that line would force users to audit every extension for side effects.
+The three-type model makes the capability boundary explicit.
 
 ## What you'll never do
 

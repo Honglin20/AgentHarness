@@ -8,29 +8,26 @@ export default function HeatmapWidget({ chart }: { chart: ChartPayload }) {
   const xKey = x ?? "x";
   const yKey = y ?? "y";
 
-  // Extract unique x and y labels
   const xLabels = Array.from(new Set(data.map((d) => String(d[xKey]))));
   const yLabels = Array.from(new Set(data.map((d) => String(d[yKey]))));
 
-  // Find min/max value for color scaling
   const values = data.map((d) => Number(d.value ?? d.v ?? 0));
   const minVal = Math.min(...values);
   const maxVal = Math.max(...values);
   const range = maxVal - minVal || 1;
 
-  // Build lookup map: "x,y" -> value
   const valueMap = new Map<string, number>();
   data.forEach((d) => {
     const key = `${String(d[xKey])},${String(d[yKey])}`;
     valueMap.set(key, Number(d.value ?? d.v ?? 0));
   });
 
-  // Color interpolation: blue (#3B82F6) for low, red (#EF4444) for high
+  // Professional sequential palette: pale steel → deep indigo
   function getColor(val: number): string {
     const t = (val - minVal) / range;
-    const r = Math.round(59 + (239 - 59) * t);
-    const g = Math.round(130 + (68 - 130) * t);
-    const b = Math.round(246 + (68 - 246) * t);
+    const r = Math.round(237 + (67 - 237) * t);
+    const g = Math.round(242 + (56 - 242) * t);
+    const b = Math.round(251 + (120 - 251) * t);
     return `rgb(${r},${g},${b})`;
   }
 
@@ -45,7 +42,6 @@ export default function HeatmapWidget({ chart }: { chart: ChartPayload }) {
       <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
       <div className="aspect-[4/3] w-full overflow-auto">
         <svg width={svgWidth} height={svgHeight} className="block">
-          {/* Column labels (x) */}
           {xLabels.map((xl, i) => (
             <text
               key={xl}
@@ -53,12 +49,11 @@ export default function HeatmapWidget({ chart }: { chart: ChartPayload }) {
               y={labelHeight - 6}
               textAnchor="middle"
               fontSize={9}
-              fill="#6B7280"
+              fill="#64748B"
             >
               {xl.length > 6 ? xl.slice(0, 6) + "..." : xl}
             </text>
           ))}
-          {/* Row labels (y) */}
           {yLabels.map((yl, i) => (
             <text
               key={yl}
@@ -66,12 +61,11 @@ export default function HeatmapWidget({ chart }: { chart: ChartPayload }) {
               y={labelHeight + i * cellSize + cellSize / 2 + 3}
               textAnchor="end"
               fontSize={9}
-              fill="#6B7280"
+              fill="#64748B"
             >
               {yl.length > 8 ? yl.slice(0, 8) + "..." : yl}
             </text>
           ))}
-          {/* Cells */}
           {yLabels.map((yl, yi) =>
             xLabels.map((xl, xi) => {
               const val = valueMap.get(`${xl},${yl}`);
@@ -84,7 +78,7 @@ export default function HeatmapWidget({ chart }: { chart: ChartPayload }) {
                   width={cellSize - 1}
                   height={cellSize - 1}
                   fill={getColor(val)}
-                  rx={2}
+                  rx={3}
                 >
                   <title>{`${xl}, ${yl}: ${val}`}</title>
                 </rect>
@@ -92,13 +86,12 @@ export default function HeatmapWidget({ chart }: { chart: ChartPayload }) {
             }),
           )}
         </svg>
-        {/* Color legend */}
         <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
           <span>{minVal.toFixed(1)}</span>
           <div
             className="h-2 flex-1 rounded"
             style={{
-              background: "linear-gradient(to right, #3B82F6, #EF4444)",
+              background: "linear-gradient(to right, #EDF2FB, #4338CA)",
             }}
           />
           <span>{maxVal.toFixed(1)}</span>

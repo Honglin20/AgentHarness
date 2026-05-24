@@ -42,6 +42,7 @@ export function CenterPanel() {
   const isReplay = activeView.type === "replay";
   const isIdle = !isReplay && status === "idle" && nodeCount === 0;
   const workflowName = useWorkflowStore((s) => s.workflowName);
+  const effectiveWorkflowName = workflowName ?? ((selectedTemplate as Record<string, unknown> | null)?.name as string | undefined);
   const agentDescriptions = useMemo(() => {
     if (!selectedTemplate) return {};
     const wf = selectedTemplate as unknown as SavedWorkflow;
@@ -224,7 +225,7 @@ export function CenterPanel() {
         </div>
       )}
 
-      <div className="min-w-0 flex-1">
+      <div className="h-0 min-w-0 flex-1 overflow-hidden">
         {isIdle && !isReplay ? (
           dag ? (
             <div className="flex h-full flex-col">
@@ -273,7 +274,7 @@ export function CenterPanel() {
         open={editAgentName !== null}
         onOpenChange={(o) => !o && setEditAgentName(null)}
         agentName={editAgentName ?? ""}
-        workflowName={workflowName ?? undefined}
+        workflowName={effectiveWorkflowName}
       />
     </div>
   );

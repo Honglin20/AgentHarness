@@ -38,7 +38,8 @@ export default function ChatInput({ sendAnswer, sendStopAndRegenerate, startWork
     return null;
   })();
 
-  const showStop = !!streamingAgent && streamingAgent.status === "streaming" && !!sendStopAndRegenerate && !hasPendingQuestion;
+  const isRunning = status === "running";
+  const showStop = isRunning && !!sendStopAndRegenerate && !hasPendingQuestion;
 
   useEffect(() => {
     if (pendingQuestionId || canStartWorkflow) {
@@ -61,15 +62,16 @@ export default function ChatInput({ sendAnswer, sendStopAndRegenerate, startWork
   }, [value, pendingQuestionId, hasPendingQuestion, sendAnswer, startWorkflow, selectedTemplate, canStartWorkflow]);
 
   const handleStop = useCallback(() => {
-    if (!streamingAgent || !sendStopAndRegenerate) return;
-    // Immediately mark agent as interrupted locally to prevent race conditions
-    useConversationStore.getState().interruptAgentMessage(streamingAgent.agentName);
-    sendStopAndRegenerate(streamingAgent.agentName, streamingAgent.content, value);
-    if (value.trim()) {
-      useConversationStore.getState().addUserMessage(value);
+    if (!sendStopAndRegenerate) return;
+    const agentName = streamingAgent?.agentName ?? "";
+    const partialContent = streamingAgent?.content ?? "";
+    if (streamingAgent) {
+      useConversationStore.getState().interruptAgentMessage(agentName);
     }
+    // Send empty guidance = just stop, no regenerate
+    sendStopAndRegenerate(agentName, partialContent, "");
     setValue("");
-  }, [streamingAgent, sendStopAndRegenerate, value]);
+  }, [streamingAgent, sendStopAndRegenerate]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -85,12 +87,12 @@ export default function ChatInput({ sendAnswer, sendStopAndRegenerate, startWork
     [showStop, handleStop, handleSend]
   );
 
-  if (!alwaysVisible && !hasPendingQuestion && !canStartWorkflow && !showStop) return null;
+  if (!alwaysVisible && !hasPendingQuestion && !canStartWorkflow && !isRunning) return null;
 
   const getPlaceholder = () => {
     if (hasPendingQuestion && pendingQuestionAgent) return `回答 ${pendingQuestionAgent} 的问题...`;
     if (canStartWorkflow) return `输入任务启动 ${(selectedTemplate as Record<string, unknown>).name as string}...`;
-    if (showStop) return `指导 ${streamingAgent!.agentName} 重新生成（可留空直接停止）...`;
+    if (showStop) return streamingAgent ? `指导 ${streamingAgent.agentName} 重新生成（可留空直接停止）...` : "点击 Stop 停止运行...";
     return "Message...";
   };
 
@@ -108,13 +110,11 @@ export default function ChatInput({ sendAnswer, sendStopAndRegenerate, startWork
       {showStop ? (
         <Button
           size="sm"
-          variant="destructive"
           onClick={handleStop}
-          className="h-8 shrink-0 gap-1 px-3"
-          aria-label="Stop and regenerate"
+          className="h-8 w-8 shrink-0 rounded-full bg-red-600 hover:bg-red-700 text-white p-0"
+          aria-label="Stop"
         >
-          <Square className="h-3.5 w-3.5 fill-current" />
-          Stop
+          <Square className="h-3 w-3 fill-current" />
         </Button>
       ) : (
         <Button

@@ -16,16 +16,19 @@ Do you need to modify the DAG itself
         └── no  → Hook
 ```
 
-## Hook — observe only
+## Hook — observe + side-channel artifacts
 
-Use when you only want to **read**: log to a file, send a metric, write
-to a trace exporter, persist something for later. Cannot stop the
-workflow, cannot change the prompt, cannot delay anything.
+Use when you only want to **read** the workflow's state and optionally
+**produce observational artifacts** (charts, metrics, traces, logs).
+Cannot stop the workflow, cannot change the prompt, cannot delay anything.
 
 - Concurrent: all hooks for the same event fire via `asyncio.gather`.
 - Exceptions are caught, logged, and emitted as `ext.error`. Your hook
   failing never breaks the workflow.
 - Slow hooks slow down the engine — keep them quick or off-load.
+- **Side-channel emit**: hooks can call `ctx.emit(event_type, payload)`
+  to produce charts, metrics, or other artifacts without touching the
+  main data flow. See `07_observability.md` for the full protocol.
 
 ## Middleware — mutate or reject
 
