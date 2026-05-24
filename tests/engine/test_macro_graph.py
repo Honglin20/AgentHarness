@@ -4,8 +4,6 @@ from unittest.mock import MagicMock
 from harness.api import Agent, AgentResult
 from harness.engine.macro_graph import (
     MacroGraphBuilder,
-    _has_pending_stop_regen,
-    _pending_stop_regen,
     _validate_output,
     request_stop_and_regenerate,
 )
@@ -78,24 +76,26 @@ def test_stop_regen_signal_ttl_expiry():
     import asyncio
     import time
 
-    _pending_stop_regen.clear()
+    builder = MacroGraphBuilder()
+    builder.workflow_id = "test_wf_ttl"
+    builder._pending_stop_regen.clear()
 
     asyncio.get_event_loop().run_until_complete(
-        request_stop_and_regenerate("test_wf_ttl", "agent_a", "partial", "guidance")
+        builder.request_stop_and_regenerate("agent_a", "partial", "guidance")
     )
 
     # Fresh signal should be detected
-    assert _has_pending_stop_regen("test_wf_ttl", "agent_a") is True
+    assert builder._has_pending_stop_regen("test_wf_ttl", "agent_a") is True
 
     # Manually backdate the timestamp to simulate expiry
-    _pending_stop_regen["test_wf_ttl"]["_ts"] = time.time() - 61
+    builder._pending_stop_regen["test_wf_ttl"]["_ts"] = time.time() - 61
 
     # Should be expired
-    assert _has_pending_stop_regen("test_wf_ttl", "agent_a") is False
+    assert builder._has_pending_stop_regen("test_wf_ttl", "agent_a") is False
     # Signal should be cleaned up
-    assert "test_wf_ttl" not in _pending_stop_regen
+    assert "test_wf_ttl" not in builder._pending_stop_regen
 
-    _pending_stop_regen.clear()
+    builder._pending_stop_regen.clear()
 
 
 def test_node_completed_event_includes_io_fields():

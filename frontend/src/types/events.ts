@@ -12,12 +12,14 @@ export type EventType =
   | "workflow.started"
   | "workflow.completed"
   | "workflow.error"
+  | "workflow.cancelled"
   | "node.started"
   | "node.completed"
   | "node.failed"
   | "agent.text_delta"
   | "agent.tool_call"
   | "agent.tool_result"
+  | "agent.tool_output_delta"
   | "chart.render"
   | "chat.question"
   | "chat.answer"
@@ -36,9 +38,7 @@ export interface WorkflowStartedPayload {
   name: string;
   inputs?: Record<string, unknown>;
   dag?: { nodes: string[]; edges: [string, string][] };
-  /** Legacy — path under project root holding agent MD files. */
-  agents_dir?: string;
-  /** New — name of the workflow directory under workflows/. */
+  /** Name of the workflow directory under workflows/. */
   workflow?: string;
   /** Full agent specs including per-agent flags such as `eval`. */
   agents?: WorkflowAgentDef[];
@@ -70,6 +70,7 @@ export interface NodeCompletedPayload {
   status: string;
   token_usage?: TokenUsage;
   input_prompt?: string;
+  system_prompt?: string;
   output_result?: Record<string, unknown>;
 }
 
@@ -101,6 +102,14 @@ export interface AgentToolResultPayload {
   agent_name: string;
   tool_name: string;
   result: unknown;
+}
+
+export interface AgentToolOutputDeltaPayload {
+  node_id: string;
+  agent_name: string;
+  tool_name: string;
+  line: string;
+  stream: "stdout" | "stderr";
 }
 
 // Chart rendering event
@@ -148,12 +157,15 @@ export interface EventPayloadMap {
   "workflow.started": WorkflowStartedPayload;
   "workflow.completed": WorkflowCompletedPayload;
   "workflow.error": { workflow_id: string; error: string };
+  "workflow.cancelled": { workflow_id: string };
+  "workflow.resumed": { workflow_id: string; node_id: string; directive?: string };
   "node.started": NodeStartedPayload;
   "node.completed": NodeCompletedPayload;
   "node.failed": NodeFailedPayload;
   "agent.text_delta": AgentTextDeltaPayload;
   "agent.tool_call": AgentToolCallPayload;
   "agent.tool_result": AgentToolResultPayload;
+  "agent.tool_output_delta": AgentToolOutputDeltaPayload;
   "chart.render": ChartRenderPayload;
   "chat.question": ChatQuestionPayload;
   "chat.answer": ChatAnswerPayload;

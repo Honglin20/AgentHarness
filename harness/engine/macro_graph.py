@@ -8,8 +8,6 @@ from typing import Any, Literal
 
 from langgraph.graph import StateGraph, START, END
 from pydantic import BaseModel, ValidationError
-from pydantic_graph import End
-
 from harness.api import Agent
 from harness.compiler.dag_builder import build_dag
 from harness.compiler.md_parser import parse_agent_md, resolve_agent_md
@@ -17,6 +15,7 @@ from harness.extensions.eval.decisions import ReviewDecision as EvalReviewDecisi
 from harness.extensions.eval.summarizer import summarize_target
 from harness.constants import STATE_ERRORS, STATE_INPUTS, STATE_METADATA, STATE_OUTPUTS
 from harness.extensions.base import NodeCtx, RejectAction, RetryAction, WorkflowCtx
+from harness.engine.llm_executor import LLMExecutor
 from harness.engine.micro_agent import MicroAgentFactory
 from harness.engine.state import HarnessState
 from harness.tools.deps import AgentDeps
@@ -31,8 +30,10 @@ def _get_stop_regen_ttl() -> int:
     except ValueError:
         return 60
 
-_pending_stop_regen: dict[str, dict[str, str | float]] = {}  # workflow_id → {agent_name, ..., _ts}
-_stop_regen_lock = asyncio.Lock()
+
+# Registry of active builders keyed by workflow_id, used by the module-level
+# request_stop_and_regenerate shim to forward to the correct builder instance.
+_active_builders: dict[str, "MacroGraphBuilder"] = {}  # populated after class def
 
 
 async def request_stop_and_regenerate(
@@ -41,33 +42,15 @@ async def request_stop_and_regenerate(
     partial_output: str,
     user_guidance: str,
 ) -> None:
-    """Called from WebSocket handler when user requests stop + regenerate.
+    """Module-level shim: forwards to the active builder's instance method.
 
-    Aborts the agent's current streaming LLM call, then restarts the same agent
-    with a new prompt built from (partial_output + user_guidance).
+    Kept for backward compatibility with ws_handler imports.
     """
-    async with _stop_regen_lock:
-        _pending_stop_regen[workflow_id] = {
-            "agent_name": agent_name,
-            "partial_output": partial_output,
-            "user_guidance": user_guidance,
-            "_ts": time.time(),
-        }
-
-
-def _has_pending_stop_regen(workflow_id: str, agent_name: str) -> bool:
-    pending = _pending_stop_regen.get(workflow_id)
-    if pending is None:
-        return False
-    # TTL check — expire signals older than configured TTL seconds
-    if time.time() - pending.get("_ts", 0) > _get_stop_regen_ttl():
-        _pending_stop_regen.pop(workflow_id, None)
-        return False
-    return pending.get("agent_name") == agent_name
-
-
-def _consume_stop_regen(workflow_id: str) -> dict[str, str] | None:
-    return _pending_stop_regen.pop(workflow_id, None)
+    builder = _active_builders.get(workflow_id)
+    if builder is not None:
+        await builder.request_stop_and_regenerate(
+            agent_name, partial_output, user_guidance,
+        )
 
 
 class ReviewDecision(BaseModel):
@@ -107,6 +90,11 @@ class MacroGraphBuilder:
         self.event_bus = event_bus
         self.max_iterations = max_iterations
         self.workflow_id: str | None = None  # Set by runner before execution
+        self.agent_io: dict[str, dict] = {}  # Collected per-node I/O for persistence
+
+        # Stop-and-regenerate signal state (instance-scoped)
+        self._pending_stop_regen: dict[str, dict[str, str | float]] = {}
+        self._stop_regen_lock = asyncio.Lock()
 
         # Register event-bus-dependent tools when event_bus is available
         if event_bus and "ask_human" not in self.tool_registry.list_tools():
@@ -114,6 +102,49 @@ class MacroGraphBuilder:
             self.tool_registry.register("ask_human", AskHumanToolFactory(event_bus=event_bus))
 
         self.micro_factory = MicroAgentFactory(tool_registry=self.tool_registry)
+
+    # ---- Stop & Regenerate instance methods ----
+
+    async def request_stop_and_regenerate(
+        self,
+        agent_name: str,
+        partial_output: str,
+        user_guidance: str,
+    ) -> None:
+        """Request stop + regenerate for a specific agent in this workflow."""
+        wid = self.workflow_id or ""
+        async with self._stop_regen_lock:
+            self._pending_stop_regen[wid] = {
+                "agent_name": agent_name,
+                "partial_output": partial_output,
+                "user_guidance": user_guidance,
+                "_ts": time.time(),
+            }
+
+    def _has_pending_stop_regen(self, workflow_id: str, agent_name: str) -> bool:
+        pending = self._pending_stop_regen.get(workflow_id)
+        if pending is None:
+            return False
+        if time.time() - pending.get("_ts", 0) > _get_stop_regen_ttl():
+            self._pending_stop_regen.pop(workflow_id, None)
+            return False
+        return pending.get("agent_name") == agent_name
+
+    def _consume_stop_regen(self, workflow_id: str) -> dict[str, str] | None:
+        return self._pending_stop_regen.pop(workflow_id, None)
+
+    def register_active(self) -> None:
+        """Register this builder as the active one for its workflow_id.
+
+        Called by runner after setting workflow_id.  Enables the module-level
+        request_stop_and_regenerate shim to forward signals here.
+        """
+        if self.workflow_id:
+            _active_builders[self.workflow_id] = self
+
+    def unregister_active(self) -> None:
+        if self.workflow_id:
+            _active_builders.pop(self.workflow_id, None)
 
     def build(self, workflow) -> StateGraph:
         """Build a LangGraph StateGraph from a Workflow definition.
@@ -205,11 +236,10 @@ class MacroGraphBuilder:
 
                 # Judge nodes route from metadata, normal nodes from outputs
                 is_judge = getattr(agent, "_eval_target", None) is not None
-                router = (
-                    lambda state, an=agent.name: _route_judgment(state, an)
-                    if is_judge
-                    else lambda state, an=agent.name: _route_decision(state, an)
-                )
+                if is_judge:
+                    router = lambda state, an=agent.name: _route_judgment(state, an)
+                else:
+                    router = lambda state, an=agent.name: _route_decision(state, an)
 
                 graph.add_conditional_edges(
                     agent.name,
@@ -317,7 +347,8 @@ class MacroGraphBuilder:
                         critique = judgment.get("reason", "")
 
             # Build deps for this agent
-            deps = AgentDeps(agent_name=agent_def.name)
+            wid = builder_self.workflow_id or ""
+            deps = AgentDeps(agent_name=agent_def.name, workflow_id=wid, node_id=agent_def.name)
 
             # Build the context (user message) — system prompt is already set via md_prompt
             context = micro_factory.build_node_prompt(
@@ -379,105 +410,66 @@ class MacroGraphBuilder:
                 deps=deps,
             )
 
-            # Run the Pydantic AI agent (async)
-            # Use iter() instead of run_stream() so that tool calls are fully executed.
-            # run_stream() treats the first text output as "final result" and skips
-            # subsequent tool calls (pydantic_ai end_strategy='early' default).
+            # Run the Pydantic AI agent via LLMExecutor
             try:
-                stop_regen: dict[str, str] | None = None
-                wid = builder_self.workflow_id if bus else None
+                wid = builder_self.workflow_id or ""
 
-                async def _run_agent(user_context: str):
-                    """Run agent via iter() — executes tools fully, streams text + tool events."""
-                    nonlocal stop_regen
-                    async with pydantic_agent.iter(user_context, deps=deps) as agent_run:
-                        node = agent_run.next_node
-                        while not isinstance(node, End):
-                            if pydantic_agent.is_model_request_node(node):
-                                async with node.stream(agent_run.ctx) as stream:
-                                    prev_text = ""
-                                    async for response in stream.stream_response():
-                                        # Extract full text from TextPart objects in the response
-                                        current_text = "".join(
-                                            p.content for p in response.parts
-                                            if getattr(p, 'part_kind', None) == 'text'
-                                        )
-                                        delta = current_text[len(prev_text):]
-                                        prev_text = current_text
-                                        if delta and bus:
-                                            bus.emit("agent.text_delta", {
-                                                "workflow_id": wid,
-                                                "node_id": agent_def.name,
-                                                "agent_name": agent_def.name,
-                                                "text": delta,
-                                            })
-                                            if ext_ctx is not None and hasattr(bus, "run_hooks"):
-                                                await bus.run_hooks("on_llm_delta", ext_ctx, delta)
-                                        if wid and _has_pending_stop_regen(wid, agent_def.name):
-                                            stop_regen = _consume_stop_regen(wid)
-                                            break
-                                if stop_regen:
-                                    break
-                                node = await agent_run.next(node)
+                # Build interrupt callback: combines has_pending + consume
+                def _check_interrupt(wf_id: str, ag_name: str) -> dict | None:
+                    if not wf_id or not builder_self._has_pending_stop_regen(wf_id, ag_name):
+                        return None
+                    return builder_self._consume_stop_regen(wf_id)
 
-                            elif pydantic_agent.is_call_tools_node(node):
-                                # Check interrupt signal before executing tools
-                                if wid and _has_pending_stop_regen(wid, agent_def.name):
-                                    stop_regen = _consume_stop_regen(wid)
-                                    break
+                # Lazily import to avoid hard dep on bash tool at module level
+                def _get_cancel_fn():
+                    try:
+                        from harness.tools.bash import cancel_process
+                        return cancel_process
+                    except ImportError:
+                        return None
 
-                                if bus:
-                                    async with node.stream(agent_run.ctx) as stream:
-                                        async for event in stream:
-                                            ek = getattr(event, 'event_kind', '')
-                                            if ek == 'function_tool_call':
-                                                part = event.part
-                                                bus.emit("agent.tool_call", {
-                                                    "workflow_id": wid,
-                                                    "node_id": agent_def.name,
-                                                    "agent_name": agent_def.name,
-                                                    "tool_name": part.tool_name,
-                                                    "tool_args": part.args if hasattr(part, 'args') else {},
-                                                })
-                                            elif ek == 'function_tool_result':
-                                                part = event.part
-                                                bus.emit("agent.tool_result", {
-                                                    "workflow_id": wid,
-                                                    "node_id": agent_def.name,
-                                                    "agent_name": agent_def.name,
-                                                    "tool_name": part.tool_name,
-                                                    "result": str(part.content) if hasattr(part, 'content') else "",
-                                                })
-                                                if ext_ctx is not None and hasattr(bus, "run_hooks"):
-                                                    from harness.extensions.base import ToolCtx
-                                                    tctx = ToolCtx(
-                                                        node=ext_ctx,
-                                                        tool_name=part.tool_name,
-                                                        tool_args={},
-                                                    )
-                                                    await bus.run_hooks(
-                                                        "on_tool_call",
-                                                        tctx,
-                                                        str(part.content) if hasattr(part, "content") else "",
-                                                    )
-                                else:
-                                    async with node.stream(agent_run.ctx) as stream:
-                                        async for _ in stream:
-                                            pass
-                                node = await agent_run.next(node)
-
-                            else:
-                                node = await agent_run.next(node)
-
-                        return agent_run
-
-                agent_run = await _run_agent(context)
+                executor = LLMExecutor(
+                    pydantic_agent,
+                    deps,
+                    event_bus=bus,
+                    workflow_id=wid,
+                    node_id=agent_def.name,
+                    agent_name=agent_def.name,
+                    ext_ctx=ext_ctx,
+                    check_interrupt=_check_interrupt,
+                    cancel_fn=_get_cancel_fn(),
+                )
+                exec_result = await executor.run(context)
+                agent_run = exec_result.agent_run
+                stop_regen = exec_result.stop_regen
 
                 if stop_regen:
                     partial = stop_regen.get("partial_output", "") or ""
                     guidance = stop_regen.get("user_guidance", "") or ""
+                    # No guidance = pure stop — use partial text as output and continue
                     if not guidance.strip():
-                        guidance = "请基于此重新整理思路。"
+                        output = partial if partial.strip() else "(stopped)"
+                        stop_regen = None
+                        duration_ms = int((time.time() - start_time) * 1000)
+                        node_meta = {"duration_ms": duration_ms}
+                        if bus:
+                            event_payload = {
+                                "workflow_id": builder_self.workflow_id,
+                                "node_id": agent_def.name,
+                                "agent_name": agent_def.name,
+                                "duration_ms": duration_ms,
+                                "status": "success",
+                                "input_prompt": context,
+                                "system_prompt": parsed.prompt,
+                                "output_result": {"summary": output, "details": None},
+                            }
+                            bus.emit("node.completed", event_payload)
+                        result_dict = {
+                            STATE_OUTPUTS: {agent_def.name: output},
+                            STATE_ERRORS: {},
+                            STATE_METADATA: {agent_def.name: node_meta},
+                        }
+                        return result_dict
 
                     bus.emit("agent.text_delta", {
                         "workflow_id": wid,
@@ -493,7 +485,10 @@ class MacroGraphBuilder:
                     parts.append("请基于上述部分回复与用户指导，重新生成完整回答。")
                     new_context = "\n\n".join(parts)
 
-                    agent_run = await _run_agent(new_context)
+                    retry_result = await executor.run(new_context)
+                    agent_run = retry_result.agent_run
+                    # stop_regen from retry is ignored — it's a fresh run
+                    stop_regen = None
 
                     bus.emit("workflow.resumed", {
                         "workflow_id": wid,
@@ -558,7 +553,13 @@ class MacroGraphBuilder:
                 if token_usage:
                     node_meta["token_usage"] = token_usage
 
-                # Emit node.completed event
+                # Emit node.completed event + collect I/O for persistence
+                io_data = {
+                    "input_prompt": context,
+                    "system_prompt": parsed.prompt,
+                    "output_result": output.model_dump() if isinstance(output, BaseModel) else str(output),
+                }
+                builder_self.agent_io[agent_def.name] = io_data
                 if bus:
                     event_payload = {
                         "workflow_id": builder_self.workflow_id,
@@ -566,8 +567,7 @@ class MacroGraphBuilder:
                         "agent_name": agent_def.name,
                         "duration_ms": duration_ms,
                         "status": "success",
-                        "input_prompt": context,
-                        "output_result": output.model_dump() if isinstance(output, BaseModel) else str(output),
+                        **io_data,
                     }
                     if token_usage:
                         event_payload["token_usage"] = token_usage

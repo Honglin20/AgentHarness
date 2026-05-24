@@ -22,7 +22,7 @@ export interface WorkflowState {
   // Current workflow
   workflowId: string | null;
   workflowName: string | null;
-  status: "idle" | "running" | "completed" | "failed" | "cancelled";
+  status: "idle" | "running" | "completed" | "failed" | "cancelled" | "paused";
 
   // Node states keyed by node_id
   nodes: Record<string, NodeState>;
@@ -33,10 +33,14 @@ export interface WorkflowState {
   selectedNodeId: string | null;
   selectedTemplate: Record<string, unknown> | null;
 
+  // Active workflow filter — prevents stale replayed events from polluting state
+  activeWorkflowId: string | null;
+
   // Actions
   setWorkflow: (id: string, name: string, dag?: unknown) => void;
   setSelectedNode: (id: string | null) => void;
   setSelectedTemplate: (template: Record<string, unknown> | null) => void;
+  setActiveWorkflowId: (id: string | null) => void;
   reset: () => void;
   previewTemplate: (template: Record<string, unknown>) => void;
   clearPreview: () => void;
@@ -60,6 +64,7 @@ const initialState = {
 export const useWorkflowStore = create<WorkflowState>()((set) => ({
   selectedNodeId: null as string | null,
   selectedTemplate: null as Record<string, unknown> | null,
+  activeWorkflowId: null as string | null,
   ...initialState,
 
   setWorkflow: (id, name, dag) =>
@@ -76,7 +81,9 @@ export const useWorkflowStore = create<WorkflowState>()((set) => ({
 
   setSelectedTemplate: (template) => set({ selectedTemplate: template }),
 
-  reset: () => set({ ...initialState, selectedNodeId: null, selectedTemplate: null }),
+  setActiveWorkflowId: (id) => set({ activeWorkflowId: id }),
+
+  reset: () => set({ ...initialState, selectedNodeId: null, selectedTemplate: null, activeWorkflowId: null }),
 
   previewTemplate: (template) =>
     set({
@@ -100,7 +107,11 @@ export const useWorkflowStore = create<WorkflowState>()((set) => ({
 
   handleWorkflowCompleted: (payload) =>
     set({
-      status: payload.status === "failed" ? "failed" : "completed",
+      status: payload.status === "failed"
+        ? ("failed" as const)
+        : payload.status === "paused"
+          ? ("paused" as const)
+          : ("completed" as const),
     }),
 
   handleNodeStarted: (payload) =>
