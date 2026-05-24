@@ -32,4 +32,5 @@ class PerfMetricsPlugin(BaseHook):
             "y": "total_tokens",
             "label": "Token Usage",
             "title": f"{ctx.agent_name} token usage",
+            "category": "analysis",
         })

@@ -37,4 +37,5 @@ class EvalChartPlugin(BaseHook):
             "y": "score",
             "label": "Eval Scores",
             "title": f"{target_name} quality",
+            "category": "analysis",
         })

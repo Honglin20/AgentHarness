@@ -1,4 +1,3 @@
-from harness.extensions.eval.decisions import ReviewDecision
-from harness.extensions.eval.judge import EvalJudge
+from harness.extensions.eval.decisions import EvalJudge
 
-__all__ = ["ReviewDecision", "EvalJudge"]
+__all__ = ["EvalJudge"]

@@ -54,6 +54,8 @@ def render_chart(
     hue: str | None = None,
     size: str | None = None,
     pareto_direction: str | None = None,
+    pareto_x_direction: str | None = None,
+    pareto_y_direction: str | None = None,
     optimal_line: str | None = None,
     node_id: str = "",
 ) -> str:
@@ -75,6 +77,8 @@ def render_chart(
         hue: Color-grouping column name.
         size: Bubble size column name (only for chart_type="bubble").
         pareto_direction: "max" or "min" (only for chart_type="pareto").
+        pareto_x_direction: "max" or "min" — override x-axis direction for pareto.
+        pareto_y_direction: "max" or "min" — override y-axis direction for pareto.
         optimal_line: "max" or "min" (only for chart_type="optimal_line").
         node_id: Identifier of the calling agent/node.
 
@@ -94,8 +98,13 @@ def render_chart(
         "hue": hue,
     }
 
-    if chart_type == "pareto" and pareto_direction:
-        chart_payload["pareto_direction"] = pareto_direction
+    if chart_type == "pareto":
+        if pareto_direction:
+            chart_payload["pareto_direction"] = pareto_direction
+        if pareto_x_direction:
+            chart_payload["pareto_x_direction"] = pareto_x_direction
+        if pareto_y_direction:
+            chart_payload["pareto_y_direction"] = pareto_y_direction
     if chart_type == "optimal_line" and optimal_line:
         chart_payload["optimal_line"] = optimal_line
     if chart_type == "bubble" and size:

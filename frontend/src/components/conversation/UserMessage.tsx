@@ -9,7 +9,7 @@ interface UserMessageProps {
 export function UserMessage({ message }: UserMessageProps) {
   return (
     <div className="flex justify-end">
-      <div className="max-w-[80%] rounded-2xl bg-blue-500 px-4 py-2 text-sm text-white">
+      <div className="max-w-[80%] rounded-2xl bg-primary px-4 py-2 text-sm text-primary-foreground">
         {message.content}
       </div>
     </div>

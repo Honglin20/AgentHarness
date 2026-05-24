@@ -51,9 +51,9 @@ export function FileContentView({ content, filePath }: FileContentViewProps) {
   const lines = content.split("\n");
 
   return (
-    <div className="rounded-md border border-app-border overflow-hidden text-[11px] font-mono">
+    <div className="rounded-md border border-app-border overflow-hidden text-xs font-mono">
       {filePath && (
-        <div className="bg-muted/50 px-2 py-1 text-[10px] font-medium text-muted-foreground border-b border-app-border truncate">
+        <div className="bg-muted/50 px-2 py-1 text-xs font-medium text-muted-foreground border-b border-app-border truncate">
           {filePath}
         </div>
       )}
@@ -65,7 +65,7 @@ export function FileContentView({ content, filePath }: FileContentViewProps) {
             </span>
             <code
               ref={i === 0 ? codeRef : undefined}
-              className="pl-2 whitespace-pre text-[11px] leading-[18px] flex-1 min-w-0"
+              className="pl-2 whitespace-pre text-xs leading-[18px] flex-1 min-w-0"
             >
               {line || " "}
             </code>

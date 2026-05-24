@@ -73,7 +73,7 @@ results.append(render_chart(time_series,
     chart_type="area", x="iter", y="score", hue="method",
     label="Overview", title="Score area (stacked by method)"))
 
-# 6. 帕累托图 — 多目标最优前沿
+# 6. 帕累托图 — 多目标最优前沿（x: 越小越好, y: 越大越好）
 results.append(render_chart([
     {"cost": 10, "quality": 0.5},
     {"cost": 20, "quality": 0.8},
@@ -82,8 +82,9 @@ results.append(render_chart([
     {"cost": 25, "quality": 0.85},
     {"cost": 40, "quality": 0.95},
     {"cost": 35, "quality": 0.7},
-], chart_type="pareto", x="cost", y="quality", pareto_direction="max",
-    label="Advanced", title="Quality vs Cost (Pareto front)"))
+], chart_type="pareto", x="cost", y="quality",
+    pareto_x_direction="min", pareto_y_direction="max",
+    label="Advanced", title="Min Cost & Max Quality (Pareto)"))
 
 # 7. 最优线图 — 追踪历史最优
 results.append(render_chart(time_series,
@@ -138,4 +139,4 @@ results.append(render_chart(time_series,
     label="Data", title="Raw Data"))
 
 print("\n".join(results))
-print(f"\nDone — {len(results)} charts rendered (11 types).")
+print(f"\nDone — {len(results)} charts rendered (12 types).")

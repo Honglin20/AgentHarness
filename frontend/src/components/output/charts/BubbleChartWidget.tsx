@@ -12,13 +12,16 @@ import {
   ZAxis,
 } from "recharts";
 import type { ChartPayload } from "@/types/events";
-import { PALETTE, AXIS_TICK, TOOLTIP_STYLE, LEGEND_STYLE, CHART_MARGIN, GRID_PROPS } from "./chartTheme";
+import { PALETTE, LEGEND_STYLE, CHART_MARGIN, BOX_FILL_OPACITY, BOX_STROKE_WIDTH, getGridProps, getAxisTick, getTooltipStyle } from "./chartTheme";
 
 export default function BubbleChartWidget({ chart }: { chart: ChartPayload }) {
   const { data, x, y, size, hue, title } = chart as ChartPayload & { size?: string };
   const xKey = x ?? "x";
   const yKey = y ?? "y";
   const sizeKey = size ?? "size";
+  const gridProps = getGridProps();
+  const axisTick = getAxisTick();
+  const tooltipStyle = getTooltipStyle();
 
   if (hue) {
     const hueValues = Array.from(new Set(data.map((d) => String(d[hue]))));
@@ -38,11 +41,11 @@ export default function BubbleChartWidget({ chart }: { chart: ChartPayload }) {
         <div className="aspect-[4/3] w-full">
           <ResponsiveContainer width="100%" height="100%">
             <ScatterChart margin={CHART_MARGIN}>
-              <CartesianGrid {...GRID_PROPS} />
-              <XAxis dataKey={xKey} tick={AXIS_TICK} name={xKey} type="number" />
-              <YAxis dataKey={yKey} tick={AXIS_TICK} name={yKey} type="number" />
+              <CartesianGrid {...gridProps} />
+              <XAxis dataKey={xKey} tick={axisTick} name={xKey} type="number" />
+              <YAxis dataKey={yKey} tick={axisTick} name={yKey} type="number" />
               <ZAxis dataKey="z" range={[50, 400]} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ strokeDasharray: "3 3" }} />
+              <Tooltip contentStyle={tooltipStyle} cursor={{ strokeDasharray: "3 3" }} />
               <Legend wrapperStyle={LEGEND_STYLE} />
               {hueValues.map((val, i) => (
                 <Scatter
@@ -50,7 +53,9 @@ export default function BubbleChartWidget({ chart }: { chart: ChartPayload }) {
                   name={val}
                   data={bubbleSets[i]}
                   fill={PALETTE[i % PALETTE.length]}
-                  fillOpacity={0.65}
+                  fillOpacity={BOX_FILL_OPACITY}
+                  stroke={PALETTE[i % PALETTE.length]}
+                  strokeWidth={BOX_STROKE_WIDTH}
                 />
               ))}
             </ScatterChart>
@@ -72,12 +77,18 @@ export default function BubbleChartWidget({ chart }: { chart: ChartPayload }) {
       <div className="aspect-[4/3] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <ScatterChart margin={CHART_MARGIN}>
-            <CartesianGrid {...GRID_PROPS} />
-            <XAxis dataKey={xKey} tick={AXIS_TICK} name={xKey} type="number" />
-            <YAxis dataKey={yKey} tick={AXIS_TICK} name={yKey} type="number" />
+            <CartesianGrid {...gridProps} />
+            <XAxis dataKey={xKey} tick={axisTick} name={xKey} type="number" />
+            <YAxis dataKey={yKey} tick={axisTick} name={yKey} type="number" />
             <ZAxis dataKey="z" range={[50, 400]} />
-            <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ strokeDasharray: "3 3" }} />
-            <Scatter data={bubbleData} fill={PALETTE[0]} fillOpacity={0.65} />
+            <Tooltip contentStyle={tooltipStyle} cursor={{ strokeDasharray: "3 3" }} />
+            <Scatter
+              data={bubbleData}
+              fill={PALETTE[0]}
+              fillOpacity={BOX_FILL_OPACITY}
+              stroke={PALETTE[0]}
+              strokeWidth={BOX_STROKE_WIDTH}
+            />
           </ScatterChart>
         </ResponsiveContainer>
       </div>

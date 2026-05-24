@@ -1,5 +1,6 @@
 """REST API routes."""
 
+import json
 import uuid
 from pathlib import Path
 
@@ -21,11 +22,17 @@ from server.schemas import (
     AgentDef,
     AgentInfo,
     CheckpointInfo,
+    CreateBatchRequest,
+    CreateBatchResponse,
     CreateWorkflowRequest,
     CreateWorkflowResponse,
     HealthResponse,
     ResumeRequest,
     RunDetail,
+    BatchRunSummary,
+    BenchmarkDef,
+    BenchmarkRunSummary,
+    RunBenchmarkRequest,
     ToolInfo,
     WorkflowStatusResponse,
 )
@@ -392,26 +399,20 @@ async def update_run_charts(run_id: str, request: Request) -> dict:
     return {"status": "ok"}
 
 
-@router.post("/workflows", response_model=CreateWorkflowResponse)
-async def create_workflow(
-    request: CreateWorkflowRequest,
-    event_bus = Depends(get_event_bus),
+async def _create_and_start_workflow(
+    name: str,
+    agents_defs: list[AgentDef],
+    workflow_name: str,
+    inputs: dict,
+    event_bus,
+    batch_id: str | None = None,
 ) -> CreateWorkflowResponse:
-    """Create and start a workflow."""
-    # Block concurrent workflows — only one at a time
-    from server.runner import get_runner
-    runner = get_runner()
-    if runner.running_count > 0:
-        raise HTTPException(status_code=409, detail="A workflow is already running. Wait for it to complete or cancel it first.")
+    """Core logic: create a Workflow, compile it, and submit to runner.
 
-    # Clear EventBus replay buffer so the new WS subscriber doesn't receive
-    # stale events from prior runs (e.g. ghost charts, replayed workflow.started
-    # that would overwrite _activeWorkflowId on the client).
-    event_bus.clear_buffer()
-
+    Shared by create_workflow (single run) and create_batch (batch run).
+    """
     workflow_id = str(uuid.uuid4())
 
-    # Convert AgentDef to Agent (including new eval field)
     agents = [
         Agent(
             name=a.name,
@@ -420,21 +421,17 @@ async def create_workflow(
             on_fail=a.on_fail,
             eval=a.eval,
         )
-        for a in request.agents
+        for a in agents_defs
     ]
 
-    # Resolve workflow_dir from explicit `workflow` field.
-    if not request.workflow:
-        raise HTTPException(status_code=400, detail="workflow is required")
-    wf_dir = _validate_workflow_dir(request.workflow)
+    wf_dir = _validate_workflow_dir(workflow_name)
 
-    # Inject checkpointer for SQLite-backed checkpoints
     from harness.checkpoint import get_checkpoint_manager
     checkpoint_mgr = get_checkpoint_manager()
     checkpointer = await checkpoint_mgr.get_checkpointer()
 
     workflow = Workflow(
-        name=request.name,
+        name=name,
         agents=agents,
         workflow_dir=wf_dir,
         tool_registry=ToolRegistry(),
@@ -442,7 +439,12 @@ async def create_workflow(
         checkpointer=checkpointer,
     )
 
-    # Store workflow
+    from harness.extensions.eval import EvalJudge
+
+    has_eval = any(a.eval for a in agents)
+    if has_eval:
+        workflow.use(EvalJudge(max_retries=2))
+
     from datetime import datetime, timezone
     from server.runner import _build_agents_snapshot
     repo = get_repository()
@@ -450,15 +452,13 @@ async def create_workflow(
         "workflow": workflow,
         "status": "running",
         "result": None,
-        "inputs": request.inputs,
-        "thread_id": workflow_id,  # for checkpoint resume
+        "inputs": inputs,
+        "thread_id": workflow_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        # Take agents_snapshot at workflow START so that mid-run .md edits don't
-        # pollute history. The persisted record will use this exact snapshot.
         "agents_snapshot": _build_agents_snapshot(workflow),
+        "batch_id": batch_id,
     })
 
-    # Build DAG for React Flow
     node_order = build_dag(agents)
     edges: list[list[str]] = []
     conditional_edges: list[dict] = []
@@ -470,28 +470,332 @@ async def create_workflow(
                 conditional_edges.append({"from": a.name, "to": a.on_pass, "label": "pass"})
             if a.on_fail is not None:
                 conditional_edges.append({"from": a.name, "to": a.on_fail, "label": "fail"})
-    repo.put_dag(workflow_id, {"nodes": node_order, "edges": edges, "conditional_edges": conditional_edges})
+    dag = {"nodes": node_order, "edges": edges, "conditional_edges": conditional_edges}
+    repo.put_dag(workflow_id, dag)
 
-    # Emit workflow.started event (actual execution managed by WorkflowRunner)
     event_bus.emit("workflow.started", {
         "workflow_id": workflow_id,
         "name": workflow.name,
-        "inputs": request.inputs,
-        "dag": {"nodes": node_order, "edges": edges, "conditional_edges": conditional_edges},
-        "workflow": request.workflow or request.name,
+        "inputs": inputs,
+        "dag": dag,
+        "workflow": workflow_name,
+        "batch_id": batch_id,
     })
 
-    # Submit to runner (pass thread_id config for checkpointer)
     from server.runner import get_runner
     runner = get_runner()
     run_config = {"configurable": {"thread_id": workflow_id}}
-    await runner.submit(workflow_id, workflow, request.inputs, event_bus, config=run_config)
+    await runner.submit(workflow_id, workflow, inputs, event_bus, config=run_config)
 
     return CreateWorkflowResponse(
         workflow_id=workflow_id,
         status="running",
-        dag={"nodes": node_order, "edges": edges, "conditional_edges": conditional_edges},
+        dag=dag,
     )
+
+
+@router.post("/workflows", response_model=CreateWorkflowResponse)
+async def create_workflow(
+    request: CreateWorkflowRequest,
+    event_bus = Depends(get_event_bus),
+) -> CreateWorkflowResponse:
+    """Create and start a single workflow."""
+    from server.runner import get_runner
+    runner = get_runner()
+    if runner.running_count >= runner.max_concurrent:
+        raise HTTPException(status_code=409, detail=f"Max {runner.max_concurrent} concurrent workflows. Wait for one to finish.")
+    if runner.running_count == 0:
+        event_bus.clear_buffer()
+
+    if not request.workflow:
+        raise HTTPException(status_code=400, detail="workflow is required")
+
+    return await _create_and_start_workflow(
+        name=request.name,
+        agents_defs=request.agents,
+        workflow_name=request.workflow,
+        inputs=request.inputs,
+        event_bus=event_bus,
+    )
+
+
+@router.post("/batch", response_model=CreateBatchResponse)
+async def create_batch(
+    request: CreateBatchRequest,
+    event_bus = Depends(get_event_bus),
+) -> CreateBatchResponse:
+    """Create and start a batch of workflow runs with different inputs.
+
+    Each item in `items` becomes an independent workflow run.
+    All runs share the same workflow definition (agents + prompts).
+    """
+    from server.runner import get_runner
+    runner = get_runner()
+    if runner.running_count == 0:
+        event_bus.clear_buffer()
+
+    if not request.workflow:
+        raise HTTPException(status_code=400, detail="workflow is required")
+    if not request.items:
+        raise HTTPException(status_code=400, detail="items must not be empty")
+
+    batch_id = str(uuid.uuid4())
+    runs: list[BatchRunSummary] = []
+
+    for item in request.items:
+        if runner.running_count >= runner.max_concurrent:
+            runs.append(BatchRunSummary(
+                workflow_id="",
+                label=item.label,
+                status="pending",
+                error="Max concurrent limit reached; queued for later",
+            ))
+            continue
+
+        result = await _create_and_start_workflow(
+            name=request.name,
+            agents_defs=request.agents,
+            workflow_name=request.workflow,
+            inputs=item.inputs,
+            event_bus=event_bus,
+            batch_id=batch_id,
+        )
+        runs.append(BatchRunSummary(
+            workflow_id=result.workflow_id,
+            label=item.label,
+            status="running",
+        ))
+
+    # Store batch metadata
+    repo = get_repository()
+    repo.put_batch(batch_id, {
+        "batch_id": batch_id,
+        "name": request.name,
+        "workflow": request.workflow,
+        "runs": {r.workflow_id: {"label": r.label, "status": r.status} for r in runs if r.workflow_id},
+    })
+
+    return CreateBatchResponse(batch_id=batch_id, runs=runs)
+
+
+@router.get("/batch/{batch_id}", response_model=CreateBatchResponse)
+async def get_batch_status(batch_id: str) -> CreateBatchResponse:
+    """Get the status of all runs in a batch."""
+    repo = get_repository()
+    batch = repo.get_batch(batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+
+    runs: list[BatchRunSummary] = []
+    for wid, meta in batch.get("runs", {}).items():
+        data = repo.get(wid)
+        if data:
+            status = data["status"]
+            result = data.get("result")
+            error = None
+            score = None
+            if status == "failed" and result:
+                error = result.get("errors", {}).get("_workflow")
+            if result:
+                outputs = result.get("outputs", {})
+                for key, val in outputs.items():
+                    if isinstance(val, dict) and "score" in val:
+                        score = val["score"]
+                        break
+            runs.append(BatchRunSummary(
+                workflow_id=wid,
+                label=meta.get("label", ""),
+                status=status,
+                score=score,
+                error=error,
+            ))
+        else:
+            runs.append(BatchRunSummary(
+                workflow_id=wid,
+                label=meta.get("label", ""),
+                status=meta.get("status", "unknown"),
+            ))
+
+    return CreateBatchResponse(batch_id=batch_id, runs=runs)
+
+
+# ---------------------------------------------------------------------------
+# Benchmark endpoints
+# ---------------------------------------------------------------------------
+
+from harness.benchmark_store import BenchmarkStore as _BenchmarkStore
+
+
+def _get_benchmark_store() -> _BenchmarkStore:
+    return _BenchmarkStore()
+
+
+@router.get("/benchmarks")
+async def list_benchmarks() -> list[dict]:
+    """List all saved benchmarks."""
+    return _get_benchmark_store().list_benchmarks()
+
+
+@router.post("/benchmarks")
+async def create_benchmark(body: BenchmarkDef) -> dict:
+    """Create a new benchmark."""
+    store = _get_benchmark_store()
+    tasks = [t.model_dump() for t in body.tasks]
+    path = store.save_benchmark(body.name, tasks, description=body.description)
+    return {"name": body.name, "path": str(path)}
+
+
+@router.get("/benchmarks/{name}")
+async def get_benchmark(name: str) -> dict:
+    """Get benchmark definition."""
+    store = _get_benchmark_store()
+    bm = store.load_benchmark(name)
+    if not bm:
+        raise HTTPException(status_code=404, detail="Benchmark not found")
+    return bm
+
+
+@router.put("/benchmarks/{name}")
+async def update_benchmark(name: str, body: BenchmarkDef) -> dict:
+    """Update benchmark tasks."""
+    store = _get_benchmark_store()
+    existing = store.load_benchmark(name)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Benchmark not found")
+    tasks = [t.model_dump() for t in body.tasks]
+    store.save_benchmark(name, tasks, description=body.description)
+    return {"name": name, "tasks": len(tasks)}
+
+
+@router.delete("/benchmarks/{name}")
+async def delete_benchmark(name: str) -> dict:
+    """Delete a benchmark and all its results."""
+    store = _get_benchmark_store()
+    if not store.delete_benchmark(name):
+        raise HTTPException(status_code=404, detail="Benchmark not found")
+    return {"deleted": name}
+
+
+@router.post("/benchmarks/{name}/run", response_model=BenchmarkRunSummary)
+async def run_benchmark(
+    name: str,
+    body: RunBenchmarkRequest,
+    event_bus=Depends(get_event_bus),
+) -> BenchmarkRunSummary:
+    """Run a benchmark with a specific workflow.
+
+    Creates one workflow run per task, tracks progress, and persists results.
+    """
+    store = _get_benchmark_store()
+    bm = store.load_benchmark(name)
+    if not bm:
+        raise HTTPException(status_code=404, detail="Benchmark not found")
+
+    # Load workflow definition
+    wf_dir = _validate_workflow_dir(body.workflow)
+    wf_json = wf_dir / "workflow.json"
+    if not wf_json.exists():
+        raise HTTPException(status_code=404, detail=f"Workflow '{body.workflow}' not found")
+    wf_data = json.loads(wf_json.read_text())
+    agents_defs = [AgentDef(**a) for a in wf_data.get("agents", [])]
+
+    # Use batch API to create all runs
+    batch_req = CreateBatchRequest(
+        name=name,
+        agents=agents_defs,
+        workflow=body.workflow,
+        items=[
+            {"label": t["label"], "inputs": t.get("inputs", {"task": t["label"]})}
+            for t in bm["tasks"]
+        ],
+    )
+    batch_resp = await create_batch(batch_req, event_bus=event_bus)
+
+    # Build result record
+    run_id = batch_resp.batch_id
+    from datetime import datetime, timezone
+    task_results = []
+    for i, run in enumerate(batch_resp.runs):
+        task_results.append({
+            "task_id": bm["tasks"][i].get("id", f"task_{i + 1}"),
+            "label": run.label,
+            "status": run.status,
+            "workflow_id": run.workflow_id,
+        })
+
+    result = {
+        "run_id": run_id,
+        "benchmark_name": name,
+        "workflow_name": body.workflow,
+        "status": "running",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "task_results": task_results,
+    }
+    store.save_result(name, result)
+
+    return BenchmarkRunSummary(
+        run_id=run_id,
+        benchmark_name=name,
+        workflow_name=body.workflow,
+        status="running",
+        created_at=result["created_at"],
+        task_results=[],
+    )
+
+
+@router.get("/benchmarks/{name}/results")
+async def list_benchmark_results(name: str) -> list[dict]:
+    """List all run results for a benchmark."""
+    store = _get_benchmark_store()
+    results = store.list_results(name)
+    if not results and not store.load_benchmark(name):
+        raise HTTPException(status_code=404, detail="Benchmark not found")
+    return results
+
+
+@router.get("/benchmarks/{name}/results/{run_id}")
+async def get_benchmark_result(name: str, run_id: str) -> dict:
+    """Get a specific benchmark run result with aggregated scores."""
+    store = _get_benchmark_store()
+    result = store.get_result(run_id, benchmark_name=name)
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    # Enrich with live status from repository
+    repo = get_repository()
+    task_results = result.get("task_results", [])
+    scores = []
+    for tr in task_results:
+        wid = tr.get("workflow_id", "")
+        if wid:
+            data = repo.get(wid)
+            if data:
+                tr["status"] = data["status"]
+                wf_result = data.get("result")
+                if wf_result:
+                    outputs = wf_result.get("outputs", {})
+                    # Extract eval_judge scores from judge node outputs
+                    for key, val in outputs.items():
+                        if key.startswith("_judge_") and isinstance(val, dict):
+                            judgment = val.get("_judgment", {})
+                            score = judgment.get("score")
+                            if score is not None:
+                                tr["score"] = score
+                                scores.append(score)
+                                break
+
+    # Compute summary
+    if scores:
+        result["avg_score"] = sum(scores) / len(scores)
+
+    # Check if all tasks completed
+    all_done = all(
+        tr.get("status") in ("completed", "failed")
+        for tr in task_results
+    )
+    result["status"] = "completed" if all_done else "running"
+
+    return result
 
 
 @router.get("/workflows/{workflow_id}", response_model=WorkflowStatusResponse)
@@ -619,13 +923,14 @@ async def resume_run(
         if config is None:
             raise HTTPException(status_code=400, detail="No resumable checkpoint found")
 
-    # Block if already running
+    # Block if already at capacity
     from server.runner import get_runner
     runner = get_runner()
-    if runner.running_count > 0:
-        raise HTTPException(status_code=409, detail="A workflow is already running")
+    if runner.running_count >= runner.max_concurrent:
+        raise HTTPException(status_code=409, detail=f"Max {runner.max_concurrent} concurrent workflows. Wait for one to finish.")
 
-    event_bus.clear_buffer()
+    if runner.running_count == 0:
+        event_bus.clear_buffer()
 
     # Emit resumed event
     event_bus.emit("workflow.started", {
@@ -660,13 +965,14 @@ async def rerun(
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
 
-    # Block concurrent workflows
+    # Block concurrent workflows at capacity
     from server.runner import get_runner
     runner = get_runner()
-    if runner.running_count > 0:
-        raise HTTPException(status_code=409, detail="A workflow is already running")
+    if runner.running_count >= runner.max_concurrent:
+        raise HTTPException(status_code=409, detail=f"Max {runner.max_concurrent} concurrent workflows. Wait for one to finish.")
 
-    event_bus.clear_buffer()
+    if runner.running_count == 0:
+        event_bus.clear_buffer()
 
     workflow_name = run["workflow_name"]
     inputs = run.get("inputs", {})
@@ -697,6 +1003,13 @@ async def rerun(
         event_bus=event_bus,
         checkpointer=checkpointer,
     )
+
+    # Auto-register extensions based on agent flags
+    from harness.extensions.eval import EvalJudge
+
+    has_eval = any(getattr(a, "eval", False) for a in agents)
+    if has_eval:
+        workflow.use(EvalJudge(max_retries=2))
 
     from datetime import datetime, timezone
     from server.runner import _build_agents_snapshot

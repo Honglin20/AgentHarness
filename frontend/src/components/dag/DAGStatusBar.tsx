@@ -306,7 +306,7 @@ export default function DAGStatusBar({ dag: dagProp, nodes: nodesProp, interacti
               y={n.cy + NODE_RADIUS + 10}
               textAnchor="middle"
               fontSize={10}
-              fill="#374151"
+              fill="hsl(var(--foreground))"
             >
               {n.label}
             </text>

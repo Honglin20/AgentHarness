@@ -1,4 +1,4 @@
-from harness.extensions.eval import ReviewDecision
+from harness.engine.macro_graph import ReviewDecision
 
 
 def test_score_optional_default_none():

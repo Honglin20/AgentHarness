@@ -51,10 +51,16 @@ export interface WorkflowCompletedPayload {
 }
 
 // Node lifecycle events
+export interface ToolBrief {
+  name: string;
+  description: string;
+}
+
 export interface NodeStartedPayload {
   node_id: string;
   agent_name: string;
   attempt: number;
+  tools?: ToolBrief[];
 }
 
 export interface TokenUsage {
@@ -142,7 +148,10 @@ export interface ChartPayload {
   hue?: string;
   size?: string;
   pareto_direction?: "max" | "min";
+  pareto_x_direction?: "max" | "min";
+  pareto_y_direction?: "max" | "min";
   optimal_line?: "max" | "min";
+  category?: string;
 }
 
 // Chat events (human-in-the-loop)

@@ -92,3 +92,78 @@ class CheckpointInfo(BaseModel):
 class ResumeRequest(BaseModel):
     """Request to resume a workflow from a checkpoint."""
     checkpoint_id: str | None = None  # None = latest non-final checkpoint
+
+
+# --- Batch execution ---
+
+class BatchRunItem(BaseModel):
+    """A single item in a batch run."""
+    label: str
+    inputs: dict = Field(default_factory=dict)
+
+
+class CreateBatchRequest(BaseModel):
+    """Request to create a batch of workflow runs."""
+    name: str
+    agents: list[AgentDef]
+    workflow: str
+    items: list[BatchRunItem]
+
+
+class BatchRunSummary(BaseModel):
+    """Summary of a single run within a batch."""
+    workflow_id: str
+    label: str
+    status: str = "pending"  # pending | running | completed | failed
+    score: float | None = None
+    error: str | None = None
+
+
+class CreateBatchResponse(BaseModel):
+    """Response to batch creation."""
+    batch_id: str
+    runs: list[BatchRunSummary] = []
+
+
+# --- Benchmark ---
+
+class BenchmarkTask(BaseModel):
+    """A single task in a benchmark."""
+    id: str = ""
+    label: str
+    inputs: dict = Field(default_factory=dict)
+
+
+class BenchmarkDef(BaseModel):
+    """Benchmark definition."""
+    name: str
+    description: str = ""
+    tasks: list[BenchmarkTask] = []
+
+
+class RunBenchmarkRequest(BaseModel):
+    """Request to run a benchmark with a specific workflow."""
+    workflow: str
+
+
+class BenchmarkTaskResult(BaseModel):
+    """Result of a single task within a benchmark run."""
+    task_id: str
+    label: str
+    status: str = "pending"
+    score: float | None = None
+    duration_ms: int = 0
+    token_usage: dict | None = None
+    charts: list[dict] = []
+    error: str | None = None
+
+
+class BenchmarkRunSummary(BaseModel):
+    """Summary of a full benchmark run."""
+    run_id: str
+    benchmark_name: str
+    workflow_name: str
+    status: str = "running"
+    created_at: str = ""
+    task_results: list[BenchmarkTaskResult] = []
+    avg_score: float | None = None

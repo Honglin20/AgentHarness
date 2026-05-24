@@ -105,12 +105,12 @@ export function AgentEditorModal({
           <DialogTitle className="text-sm">
             Agent: <span className="font-mono text-blue-600">{agentName}</span>
             {isReadOnly && (
-              <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                 SNAPSHOT · read-only
               </span>
             )}
             {!isReadOnly && canEdit && source && (
-              <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                 source: {source}
               </span>
             )}
@@ -124,7 +124,7 @@ export function AgentEditorModal({
         <div className="flex flex-1 flex-col overflow-hidden" style={{ height: "calc(85vh - 140px)" }}>
           {!isReadOnly && canEdit && (
             <div className="flex items-center justify-end gap-1 border-b px-1 pb-1">
-              <div className="mr-auto flex items-center gap-2 text-[11px] text-muted-foreground">
+              <div className="mr-auto flex items-center gap-2 text-xs text-muted-foreground">
                 <span>Save to:</span>
                 <label className="flex items-center gap-1">
                   <input
@@ -161,7 +161,7 @@ export function AgentEditorModal({
             value={mdContent}
             onChange={(e) => !isReadOnly && setMdContent(e.target.value)}
             readOnly={isReadOnly}
-            className="flex-1 resize-none rounded border border-input bg-gray-50 p-3 font-mono text-xs leading-relaxed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="flex-1 resize-none rounded border border-input bg-muted p-3 font-mono text-xs leading-relaxed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             spellCheck={false}
           />
         </div>

@@ -5,6 +5,7 @@ import type {
   NodeStartedPayload,
   NodeCompletedPayload,
   NodeFailedPayload,
+  ToolBrief,
 } from "@/types/events";
 
 export interface NodeState {
@@ -16,6 +17,7 @@ export interface NodeState {
   attempt?: number;
   willRetry?: boolean;
   tokenUsage?: { input: number; output: number; total: number };
+  tools?: ToolBrief[];
 }
 
 export interface WorkflowState {
@@ -123,6 +125,7 @@ export const useWorkflowStore = create<WorkflowState>()((set) => ({
           name: payload.agent_name,
           status: "running",
           attempt: payload.attempt,
+          tools: payload.tools,
         },
       },
     })),

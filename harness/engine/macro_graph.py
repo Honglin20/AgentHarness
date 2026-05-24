@@ -11,7 +11,7 @@ from pydantic import BaseModel, ValidationError
 from harness.api import Agent
 from harness.compiler.dag_builder import build_dag
 from harness.compiler.md_parser import parse_agent_md, resolve_agent_md
-from harness.extensions.eval.decisions import ReviewDecision as EvalReviewDecision
+from harness.extensions.eval.decisions import EvalJudge
 from harness.extensions.eval.summarizer import summarize_target
 from harness.constants import STATE_ERRORS, STATE_INPUTS, STATE_METADATA, STATE_OUTPUTS
 from harness.extensions.base import NodeCtx, RejectAction, RetryAction, WorkflowCtx
@@ -57,6 +57,7 @@ class ReviewDecision(BaseModel):
     """Default result_type for agents with conditional edges."""
     decision: Literal["pass", "fail"]
     reason: str
+    score: float | None = None
 
 
 def _validate_output(output, result_type):
@@ -188,6 +189,8 @@ class MacroGraphBuilder:
 
         # Merge on_pass/on_fail from parsed MD into agent defs
         for agent in agents:
+            if agent.name not in parsed_agents:
+                continue
             parsed = parsed_agents[agent.name]
             if agent.on_pass is None and parsed.on_pass is not None:
                 agent.on_pass = parsed.on_pass
@@ -322,11 +325,14 @@ class MacroGraphBuilder:
 
             # Emit node.started event (legacy WS path)
             if bus:
+                # Build tool info for UI display (no resolve overhead)
+                tool_info = micro_factory.tool_registry.get_tool_info(final_tool_names)
                 bus.emit("node.started", {
                     "workflow_id": builder_self.workflow_id,
                     "node_id": agent_def.name,
                     "agent_name": agent_def.name,
                     "attempt": 1,
+                    "tools": tool_info,
                 })
 
             # Gather upstream outputs
@@ -339,12 +345,25 @@ class MacroGraphBuilder:
             # Extract critique from judge metadata (if this agent is retrying after a fail)
             critique = None
             metadata = state.get(STATE_METADATA, {})
+
+            # Check upstream deps (normal case: downstream of a judge)
             for dep_name in upstream_names:
                 if dep_name.startswith("_judge_"):
                     judge_meta = metadata.get(dep_name, {})
                     judgment = judge_meta.get("judgment", {})
                     if judgment.get("decision") == "fail":
                         critique = judgment.get("reason", "")
+
+            # Check eval retry: target→judge→fail→target loop
+            # The target agent's after=[] won't include _judge_X, so scan metadata.
+            if critique is None:
+                for meta_key, meta_val in metadata.items():
+                    if meta_key.startswith("_judge_") and isinstance(meta_val, dict):
+                        if meta_val.get("target") == agent_def.name:
+                            judgment = meta_val.get("judgment", {})
+                            if judgment.get("decision") == "fail":
+                                critique = judgment.get("reason", "")
+                                break
 
             # Build deps for this agent
             wid = builder_self.workflow_id or ""
@@ -522,6 +541,24 @@ class MacroGraphBuilder:
 
                 duration_ms = int((time.time() - start_time) * 1000)
 
+                # Extract token usage (before hooks so plugins can read it)
+                token_usage = None
+                try:
+                    token_usage = {
+                        "input": usage_obj.input_tokens,
+                        "output": usage_obj.output_tokens,
+                        "total": usage_obj.total_tokens,
+                    }
+                except Exception:
+                    pass
+
+                # Write token_usage + duration_ms into ext_ctx.metadata so
+                # hooks (e.g. PerfMetricsPlugin) can emit charts.
+                if ext_ctx is not None:
+                    ext_ctx.metadata.setdefault(agent_def.name, {})["duration_ms"] = duration_ms
+                    if token_usage:
+                        ext_ctx.metadata.setdefault(agent_def.name, {})["token_usage"] = token_usage
+
                 # === Extension hook/middleware: after_node ===
                 # NOTE: RetryAction is recognized but not yet executed in P1.
                 # The plan is to wire it into the LangGraph conditional-edge
@@ -537,17 +574,6 @@ class MacroGraphBuilder:
                     else:
                         _, output = mw_result  # tuple of (ctx, possibly-mutated output)
                     await bus.run_hooks("on_node_end", ext_ctx, output)
-
-                # Extract token usage
-                token_usage = None
-                try:
-                    token_usage = {
-                        "input": usage_obj.input_tokens,
-                        "output": usage_obj.output_tokens,
-                        "total": usage_obj.total_tokens,
-                    }
-                except Exception:
-                    pass
 
                 node_meta = {"duration_ms": duration_ms}
                 if token_usage:
@@ -650,41 +676,46 @@ class MacroGraphBuilder:
                 }
 
             if bus:
+                # Judge has no external tools — resolve empty list
                 bus.emit("node.started", {
                     "workflow_id": builder_self.workflow_id,
                     "node_id": judge_name,
                     "agent_name": judge_name,
                     "attempt": current_count + 1,
+                    "tools": [],
                 })
 
-            # 1. Lazy-summarize the target agent's MD
+            # 1. Read judge system prompt from MD file (user-editable)
+            judge_prompt = _default_judge_prompt(target_name)
+            try:
+                md_path = resolve_agent_md(judge_name, workflow_dir)
+                parsed = parse_agent_md(md_path)
+                judge_prompt = parsed.prompt
+            except Exception:
+                pass  # fallback to default
+
+            # 2. Lazy-summarize the target agent's MD (injected as context, not in system prompt)
+            summary = "(summary unavailable)"
             try:
                 target_md_path = resolve_agent_md(target_name, workflow_dir)
                 target_md = target_md_path.read_text()
                 summary = summarize_target(target_name, target_md, workflow_dir)
             except Exception:
-                summary = "(summary unavailable)"
+                pass
 
-            # 2. Build judge system prompt (three-part)
-            judge_prompt = (
-                "你是一个评测员。以下是上一个 agent 的任务和任务结果,你来判断它是否完成。\n\n"
-                f"## 上游 agent 的任务与红线(自动总结)\n{summary}\n\n"
-                "## 评测标准\n"
-                "- decision: 'pass' 或 'fail'\n"
-                "- reason: 具体评语\n"
-                "- score: 0.0-1.0 之间的浮点数(可选)\n"
-            )
-
-            # 3. Get target's output and run judge
+            # 3. Build user message: target summary + target output
             target_output = state.get(STATE_OUTPUTS, {}).get(target_name, "")
-            user_msg = f"## Output from {target_name}\n{target_output}"
+            user_msg = (
+                f"## 上游 agent「{target_name}」的任务与红线\n{summary}\n\n"
+                f"## Output from {target_name}\n{target_output}"
+            )
 
             try:
                 from harness.engine.llm import LLMClient
                 client = LLMClient(model=agent_def.model)
                 judge_agent = client.agent(
                     system_prompt=judge_prompt,
-                    output_type=EvalReviewDecision,
+                    output_type=ReviewDecision,
                     retries=1,
                     tools=[],
                     deps_type=AgentDeps,
@@ -711,11 +742,23 @@ class MacroGraphBuilder:
 
             duration_ms = int((time.time() - start_time) * 1000)
 
-            # 4. Score history (chart emission handled by EvalChartPlugin)
+            # 4. Score history + chart emission
             prev_meta = state.get(STATE_METADATA, {}).get(judge_name, {})
             score_history = list(prev_meta.get("score_history", []))
             if review.score is not None:
                 score_history.append(review.score)
+                # Emit chart directly (judge nodes bypass the hook system)
+                if bus:
+                    bus.emit("chart.render", {
+                        "node_id": judge_name,
+                        "chart_type": "line",
+                        "data": [{"iteration": i + 1, "score": s} for i, s in enumerate(score_history)],
+                        "x": "iteration",
+                        "y": "score",
+                        "label": "Eval Scores",
+                        "title": f"{target_name} quality",
+                        "category": "analysis",
+                    })
 
             # 5. Passthrough outputs + judgment in metadata
             iter_update = {}
@@ -731,8 +774,16 @@ class MacroGraphBuilder:
                     "status": "success",
                 })
 
+            # Include judgment metadata in the output so downstream consumers
+            # (benchmark score extraction, REST API) can access it.
+            if isinstance(target_output, dict):
+                judge_output = dict(target_output)
+            else:
+                judge_output = target_output.model_dump() if hasattr(target_output, "model_dump") else {"value": str(target_output)}
+            judge_output["_judgment"] = review.model_dump()
+
             result_dict = {
-                STATE_OUTPUTS: {judge_name: target_output},  # passthrough
+                STATE_OUTPUTS: {judge_name: judge_output},
                 STATE_ERRORS: {},
                 STATE_METADATA: {judge_name: {
                     "duration_ms": duration_ms,
@@ -762,6 +813,17 @@ class MacroGraphBuilder:
                 STATE_METADATA: {},
             }
         return passthrough_func
+
+
+def _default_judge_prompt(target_name: str) -> str:
+    """Fallback judge prompt when no MD file is found."""
+    return (
+        "你是一个评测员。你的任务是评估上游 agent 的输出质量。\n\n"
+        "## 评测标准\n"
+        "- decision: 'pass' 或 'fail'\n"
+        "- reason: 具体评语\n"
+        "- score: 0.0-1.0 之间的浮点数(可选)\n"
+    )
 
 
 def _route_judgment(state: HarnessState, judge_name: str) -> str:

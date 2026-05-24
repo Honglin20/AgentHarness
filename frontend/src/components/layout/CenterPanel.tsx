@@ -5,17 +5,24 @@ import { LayoutTemplate } from "lucide-react";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useOutputStore } from "@/stores/outputStore";
 import { useChatStore } from "@/stores/chatStore";
-import { useChartStore } from "@/stores/chartStore";
+import { useChartStore, filterGroupsByCategory } from "@/stores/chartStore";
 import { useViewStore } from "@/stores/viewStore";
+import { useBatchStore } from "@/stores/batchStore";
+import { Logo } from "@/components/ui/logo";
 import { ConversationTab } from "@/components/conversation/ConversationTab";
 import ResultsTab from "@/components/results/ResultsTab";
+import AnalysisTab from "@/components/analysis/AnalysisTab";
 import ChatInput from "@/components/chat/ChatInput";
 import { DAGPreview } from "@/components/dag/DAGPreview";
 import { AgentEditorModal } from "@/components/agent/AgentEditorModal";
 import { useWorkflowEvents, setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
+import BenchmarkEditor from "@/components/benchmark/BenchmarkEditor";
+import BenchmarkRunner from "@/components/benchmark/BenchmarkRunner";
+import BenchmarkCompare from "@/components/benchmark/BenchmarkCompare";
 import type { ConversationMessage } from "@/stores/conversationStore";
 
-type Tab = "conversation" | "results";
+type Tab = "conversation" | "results" | "analysis";
+type BenchmarkView = "editor" | "runner" | "compare";
 
 interface SavedWorkflow {
   name: string;
@@ -23,16 +30,25 @@ interface SavedWorkflow {
   dag: { nodes: string[]; edges: [string, string][] };
 }
 
-export function CenterPanel() {
+interface Props {
+  activeBenchmark?: string | null;
+}
+
+export function CenterPanel({ activeBenchmark }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("conversation");
   const [templates, setTemplates] = useState<SavedWorkflow[]>([]);
   const [editAgentName, setEditAgentName] = useState<string | null>(null);
+  const [benchmarkView, setBenchmarkView] = useState<BenchmarkView>("runner");
+  const [benchmarkData, setBenchmarkData] = useState<Record<string, unknown> | null>(null);
 
   const status = useWorkflowStore((s) => s.status);
   const nodeCount = useWorkflowStore((s) => Object.keys(s.nodes).length);
   const workflowId = useWorkflowStore((s) => s.workflowId);
   const workflowError = useOutputStore((s) => s.workflowError);
   const liveResultCount = useChartStore((s) => s.groupOrder.length);
+  const liveAnalysisCount = useChartStore(
+    (s) => filterGroupsByCategory(s.groups, s.groupOrder, "analysis").order.length,
+  );
   const selectedTemplate = useWorkflowStore((s) => s.selectedTemplate);
   const setSelectedTemplate = useWorkflowStore((s) => s.setSelectedTemplate);
   const setWorkflow = useWorkflowStore((s) => s.setWorkflow);
@@ -83,6 +99,14 @@ export function CenterPanel() {
     ? (activeView.run.chart_groups?.groupOrder.length ?? 0)
     : liveResultCount;
 
+  const analysisCount = isReplay
+    ? filterGroupsByCategory(
+        activeView.run.chart_groups?.groups ?? {},
+        activeView.run.chart_groups?.groupOrder ?? [],
+        "analysis",
+      ).order.length
+    : liveAnalysisCount;
+
   // Fetch templates for the landing page cards
   useState(() => {
     fetch("/api/workflows/definitions")
@@ -90,6 +114,37 @@ export function CenterPanel() {
       .then((data: SavedWorkflow[]) => setTemplates(data))
       .catch(() => {});
   });
+
+  // Fetch benchmark data when activeBenchmark changes
+  useEffect(() => {
+    if (!activeBenchmark) {
+      setBenchmarkData(null);
+      return;
+    }
+    fetch(`/api/benchmarks/${encodeURIComponent(activeBenchmark)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        setBenchmarkData(data);
+        setBenchmarkView("runner");
+      })
+      .catch(() => setBenchmarkData(null));
+  }, [activeBenchmark]);
+
+  const handleSaveBenchmark = useCallback(async (name: string, tasks: { label: string; inputs: Record<string, string> }[], description: string) => {
+    const r = await fetch("/api/benchmarks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, description, tasks }),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    // Reload benchmark data and switch to runner view
+    const data = await (await fetch(`/api/benchmarks/${encodeURIComponent(name)}`)).json();
+    setBenchmarkData(data);
+    setBenchmarkView("runner");
+  }, []);
+
+  const activeBatchId = useBatchStore((s) => s.activeBatchId);
+  const batchRunning = activeBatchId !== null;
 
   const startWorkflow = useCallback(async (template: unknown, task: string) => {
     const t = template as Record<string, unknown>;
@@ -124,6 +179,77 @@ export function CenterPanel() {
     }
   }, [setWorkflow]);
 
+  // Benchmark view — takes over the center panel when a benchmark is selected
+  if (activeBenchmark && benchmarkData) {
+    return (
+      <div className="flex h-full flex-col overflow-hidden bg-app-bg-primary">
+        <div className="flex shrink-0 items-center gap-2 border-b border-app-border px-2 pt-1">
+          <button
+            onClick={() => setBenchmarkView("runner")}
+            className={`rounded-t px-3 py-1.5 text-xs font-medium transition-colors ${
+              benchmarkView === "runner"
+                ? "bg-app-bg-primary text-app-text-primary border-b-2 border-blue-500"
+                : "text-muted-foreground hover:text-app-text-primary"
+            }`}
+          >
+            Run
+          </button>
+          <button
+            onClick={() => setBenchmarkView("compare")}
+            className={`rounded-t px-3 py-1.5 text-xs font-medium transition-colors ${
+              benchmarkView === "compare"
+                ? "bg-app-bg-primary text-app-text-primary border-b-2 border-blue-500"
+                : "text-muted-foreground hover:text-app-text-primary"
+            }`}
+          >
+            Compare
+          </button>
+          <button
+            onClick={() => setBenchmarkView("editor")}
+            className={`rounded-t px-3 py-1.5 text-xs font-medium transition-colors ${
+              benchmarkView === "editor"
+                ? "bg-app-bg-primary text-app-text-primary border-b-2 border-blue-500"
+                : "text-muted-foreground hover:text-app-text-primary"
+            }`}
+          >
+            Edit
+          </button>
+          <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+            BENCHMARK · {activeBenchmark}
+          </span>
+        </div>
+        <div className="flex-1 overflow-auto">
+          {benchmarkView === "runner" && (
+            <BenchmarkRunner
+              benchmark={benchmarkData as { name: string; description?: string; tasks: { id: string; label: string; inputs: Record<string, string> }[] }}
+              onBack={() => setBenchmarkView("compare")}
+            />
+          )}
+          {benchmarkView === "compare" && (
+            <BenchmarkCompare benchmarkName={activeBenchmark} />
+          )}
+          {benchmarkView === "editor" && (
+            <BenchmarkEditor
+              initialName={activeBenchmark}
+              initialTasks={((benchmarkData as Record<string, unknown>).tasks as { label: string; inputs: Record<string, string> }[]) ?? []}
+              initialDescription={((benchmarkData as Record<string, unknown>).description as string) ?? ""}
+              onSave={handleSaveBenchmark}
+            />
+          )}
+        </div>
+        {batchRunning && (
+          <div className="shrink-0">
+            <ChatInput
+              sendAnswer={sendAnswer}
+              sendStopAndRegenerate={sendStopAndRegenerate}
+              alwaysVisible
+            />
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (workflowError && !isReplay) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 bg-app-bg-primary p-6">
@@ -140,10 +266,12 @@ export function CenterPanel() {
     return (
       <div className="flex flex-1 flex-col items-center justify-center bg-app-bg-primary px-4">
         <div className="w-full max-w-2xl">
-          <h2 className="mb-1 text-center text-lg font-semibold text-app-text-primary">TARS</h2>
-          <p className="mb-6 text-center text-xs text-muted-foreground">
-            Choose a workflow template, then describe your task
-          </p>
+          <div className="mb-2 flex flex-col items-center gap-2">
+            <Logo size="lg" className="text-primary" />
+            <p className="text-sm text-muted-foreground">
+              Choose a workflow template, then describe your task
+            </p>
+          </div>
 
           {templates.length > 0 && (
             <div className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -161,17 +289,17 @@ export function CenterPanel() {
                         useWorkflowStore.getState().clearPreview();
                       }
                     }}
-                    className={`flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors ${
+                    className={`flex flex-col items-start gap-1.5 rounded-lg border p-4 text-left transition-colors ${
                       isSelected
-                        ? "border-blue-400 bg-blue-50"
-                        : "border-app-border bg-white hover:border-gray-300 hover:bg-gray-50"
+                        ? "border-accent bg-accent/10"
+                        : "border-app-border bg-background hover:border-gray-300 hover:bg-muted"
                     }`}
                   >
-                    <div className="flex items-center gap-1.5">
-                      <LayoutTemplate className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span className="text-xs font-medium text-app-text-primary">{wf.name}</span>
+                    <div className="flex items-center gap-2">
+                      <LayoutTemplate className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium text-app-text-primary">{wf.name}</span>
                     </div>
-                    <span className="text-[10px] text-muted-foreground">
+                    <span className="text-xs text-muted-foreground">
                       {wf.dag.nodes.length} agent{wf.dag.nodes.length !== 1 ? "s" : ""}
                     </span>
                   </button>
@@ -217,8 +345,18 @@ export function CenterPanel() {
           >
             Results{resultCount > 0 ? ` ·${resultCount}` : ""}
           </button>
+          <button
+            onClick={() => setActiveTab("analysis")}
+            className={`rounded-t px-3 py-1.5 text-xs font-medium transition-colors ${
+              activeTab === "analysis"
+                ? "bg-app-bg-primary text-app-text-primary border-b-2 border-blue-500"
+                : "text-muted-foreground hover:text-app-text-primary"
+            }`}
+          >
+            Analysis{analysisCount > 0 ? ` ·${analysisCount}` : ""}
+          </button>
           {isReplay && (
-            <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+            <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
               REPLAY · {activeView.run.workflow_name}
             </span>
           )}
@@ -248,6 +386,15 @@ export function CenterPanel() {
             <ConversationTab messages={replayMessages} autoScroll={false} />
           ) : (
             <ConversationTab />
+          )
+        ) : activeTab === "analysis" ? (
+          isReplay ? (
+            <AnalysisTab
+              groups={activeView.run.chart_groups?.groups ?? {}}
+              groupOrder={activeView.run.chart_groups?.groupOrder ?? []}
+            />
+          ) : (
+            <AnalysisTab />
           )
         ) : isReplay ? (
           <ResultsTab

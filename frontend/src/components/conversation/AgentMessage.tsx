@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { ChevronRight, FileInput, FileOutput, Coins } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { ChevronRight, FileInput, FileOutput, Coins, Wrench } from "lucide-react";
 import type { ConversationMessage } from "@/stores/conversationStore";
+import type { ToolBrief } from "@/types/events";
 import { useAgentIOStore } from "@/stores/agentIOStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { formatDuration } from "@/components/output/status-config";
@@ -71,6 +72,57 @@ function formatOutputAsMd(output: unknown): string {
 
 type IOTab = "input" | "output";
 
+function ToolsBadge({ tools }: { tools: ToolBrief[] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-violet-500 hover:bg-violet-500/10 transition-colors"
+      >
+        <Wrench className="h-3 w-3" />
+        {tools.length > 0 ? `${tools.length} tool${tools.length > 1 ? "s" : ""}` : "no tools"}
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-1 w-72 rounded-lg border border-app-border bg-background shadow-lg">
+          <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b border-app-border">
+            Available Tools
+          </div>
+          <div className="max-h-64 overflow-y-auto p-1">
+            {tools.map((t) => (
+              <div key={t.name} className="flex flex-col gap-0.5 rounded px-2 py-1.5 hover:bg-muted/50">
+                <span className="font-mono text-xs font-medium text-app-text-primary">{t.name}</span>
+                {t.description && (
+                  <span className="text-xs text-muted-foreground leading-snug">{t.description}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItemCount }: AgentMessageProps) {
   const { agentName, content, status, durationMs, nodeId } = message;
   const badgeClass = AGENT_STATUS_BADGE_BG[status ?? "done"] ?? AGENT_STATUS_BADGE_BG.done;
@@ -81,6 +133,7 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
   const hasIO = isDone && agentIO && (agentIO.inputPrompt || agentIO.outputResult != null);
   const nodeState = useWorkflowStore((s) => nodeId ? s.nodes[nodeId] : undefined);
   const tokenUsage = nodeState?.tokenUsage;
+  const tools = nodeState?.tools;
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<IOTab>("input");
@@ -122,7 +175,7 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
               title="查看输入"
             >
               <FileInput className="h-3.5 w-3.5" />
-              <span className="text-[10px]">In</span>
+              <span className="text-xs">In</span>
             </button>
             <button
               type="button"
@@ -131,9 +184,12 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
               title="查看输出"
             >
               <FileOutput className="h-3.5 w-3.5" />
-              <span className="text-[10px]">Out</span>
+              <span className="text-xs">Out</span>
             </button>
           </>
+        )}
+        {tools != null && tools.length > 0 && (
+          <ToolsBadge tools={tools} />
         )}
         {!isStreaming && hasMore && (
           <button
@@ -183,24 +239,24 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
             </SheetHeader>
             <div className="mt-4 space-y-3">
               {activeTab === "input" ? (
-                <div className="rounded-md border border-app-border bg-gray-50 p-3 space-y-3">
+                <div className="rounded-md border border-app-border bg-muted p-3 space-y-3">
                   {agentIO.systemPrompt && (
                     <div>
-                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">System</p>
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">System</p>
                       <div className="prose prose-sm max-w-none text-xs">
                         <MarkdownText>{agentIO.systemPrompt}</MarkdownText>
                       </div>
                     </div>
                   )}
                   <div>
-                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">User Context</p>
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">User Context</p>
                     <div className="prose prose-sm max-w-none text-xs">
                       <MarkdownText>{agentIO.inputPrompt || "(empty)"}</MarkdownText>
                     </div>
                   </div>
                 </div>
               ) : (
-                <div className="rounded-md border border-app-border bg-gray-50 p-3">
+                <div className="rounded-md border border-app-border bg-muted p-3">
                   {agentIO.outputResult != null ? (
                     <div className="prose prose-sm max-w-none text-xs">
                       <MarkdownText>{formatOutputAsMd(agentIO.outputResult)}</MarkdownText>

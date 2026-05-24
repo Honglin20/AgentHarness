@@ -11,12 +11,15 @@ import {
   CartesianGrid,
 } from "recharts";
 import type { ChartPayload } from "@/types/events";
-import { PALETTE, AXIS_TICK, TOOLTIP_STYLE, LEGEND_STYLE, CHART_MARGIN, GRID_PROPS } from "./chartTheme";
+import { PALETTE, LEGEND_STYLE, CHART_MARGIN, BOX_FILL_OPACITY, BOX_STROKE_WIDTH, getGridProps, getAxisTick, getTooltipStyle } from "./chartTheme";
 
 export default function AreaChartWidget({ chart }: { chart: ChartPayload }) {
   const { data, x, y, hue, title } = chart;
   const xKey = x ?? "x";
   const yKey = y ?? "y";
+  const gridProps = getGridProps();
+  const axisTick = getAxisTick();
+  const tooltipStyle = getTooltipStyle();
 
   if (hue) {
     const hueValues = Array.from(new Set(data.map((d) => String(d[hue]))));
@@ -35,10 +38,10 @@ export default function AreaChartWidget({ chart }: { chart: ChartPayload }) {
         <div className="aspect-[4/3] w-full">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={pivotedData} margin={CHART_MARGIN}>
-              <CartesianGrid {...GRID_PROPS} />
-              <XAxis dataKey={xKey} tick={AXIS_TICK} />
-              <YAxis tick={AXIS_TICK} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} />
+              <CartesianGrid {...gridProps} />
+              <XAxis dataKey={xKey} tick={axisTick} />
+              <YAxis tick={axisTick} />
+              <Tooltip contentStyle={tooltipStyle} />
               <Legend wrapperStyle={LEGEND_STYLE} />
               {hueValues.map((val, i) => (
                 <Area
@@ -46,8 +49,8 @@ export default function AreaChartWidget({ chart }: { chart: ChartPayload }) {
                   dataKey={val}
                   stroke={PALETTE[i % PALETTE.length]}
                   fill={PALETTE[i % PALETTE.length]}
-                  fillOpacity={0.15}
-                  strokeWidth={2}
+                  fillOpacity={BOX_FILL_OPACITY}
+                  strokeWidth={BOX_STROKE_WIDTH}
                   type="monotone"
                 />
               ))}
@@ -64,16 +67,16 @@ export default function AreaChartWidget({ chart }: { chart: ChartPayload }) {
       <div className="aspect-[4/3] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={CHART_MARGIN}>
-            <CartesianGrid {...GRID_PROPS} />
-            <XAxis dataKey={xKey} tick={AXIS_TICK} />
-            <YAxis tick={AXIS_TICK} />
-            <Tooltip contentStyle={TOOLTIP_STYLE} />
+            <CartesianGrid {...gridProps} />
+            <XAxis dataKey={xKey} tick={axisTick} />
+            <YAxis tick={axisTick} />
+            <Tooltip contentStyle={tooltipStyle} />
             <Area
               dataKey={yKey}
               stroke={PALETTE[0]}
               fill={PALETTE[0]}
-              fillOpacity={0.15}
-              strokeWidth={2}
+              fillOpacity={BOX_FILL_OPACITY}
+              strokeWidth={BOX_STROKE_WIDTH}
               type="monotone"
             />
           </AreaChart>

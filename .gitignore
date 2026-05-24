@@ -10,3 +10,6 @@ node_modules/
 runs/
 .backup_pre_migration/
 .eval_cache/
+.next/
+*.png
+!frontend/public/*.png

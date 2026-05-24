@@ -86,7 +86,7 @@ export function ConversationTab({ messages: messagesProp, autoScroll = true }: C
 
   return (
     <div ref={scrollRef} className="h-full overflow-y-auto">
-      <div className="flex min-w-0 flex-col gap-3 p-4">
+      <div className="flex min-w-0 flex-col gap-4 p-6">
         {blocks.map((b, i) => {
           if (b.kind === "tool_group") {
             return <ToolCallGroup key={`tg-${i}`} tools={b.tools} />;

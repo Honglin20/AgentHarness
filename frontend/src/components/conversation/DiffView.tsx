@@ -15,9 +15,9 @@ export function DiffView({ oldText, newText, fileName, mode }: DiffViewProps) {
   if (mode === "create" || !oldText) {
     const lines = newText.split("\n");
     return (
-      <div className="rounded-md border border-app-border overflow-hidden text-[11px] font-mono">
+      <div className="rounded-md border border-app-border overflow-hidden text-xs font-mono">
         {fileName && (
-          <div className="bg-emerald-500/10 px-2 py-1 text-[10px] font-medium text-emerald-700 border-b border-app-border">
+          <div className="bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-700 border-b border-app-border">
             + {fileName}
           </div>
         )}
@@ -40,9 +40,9 @@ export function DiffView({ oldText, newText, fileName, mode }: DiffViewProps) {
   const maxLen = Math.max(oldLines.length, newLines.length);
 
   return (
-    <div className="rounded-md border border-app-border overflow-hidden text-[11px] font-mono">
+    <div className="rounded-md border border-app-border overflow-hidden text-xs font-mono">
       {fileName && (
-        <div className="bg-blue-500/10 px-2 py-1 text-[10px] font-medium text-blue-700 border-b border-app-border">
+        <div className="bg-blue-500/10 px-2 py-1 text-xs font-medium text-blue-700 border-b border-app-border">
           ~ {fileName}
         </div>
       )}

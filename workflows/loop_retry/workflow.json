@@ -1,0 +1,24 @@
+{
+  "name": "loop_retry",
+  "agents": [
+    {
+      "name": "coder",
+      "after": [],
+      "tools": [
+        "bash"
+      ],
+      "model": null,
+      "retries": 3
+    },
+    {
+      "name": "reviewer",
+      "after": [
+        "coder"
+      ],
+      "tools": null,
+      "model": null,
+      "retries": 3,
+      "on_fail": "coder"
+    }
+  ]
+}

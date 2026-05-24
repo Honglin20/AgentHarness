@@ -143,7 +143,7 @@ export default function WorkflowLauncher() {
           </div>
         )}
         {selectedWfData && (
-          <p className="mt-1.5 text-[10px] text-muted-foreground">
+          <p className="mt-1.5 text-xs text-muted-foreground">
             {selectedWfData.dag.nodes.join(" → ")}
           </p>
         )}
@@ -171,7 +171,7 @@ export default function WorkflowLauncher() {
           ))}
         </div>
         {!selectedWf && selected.size > 0 && (
-          <p className="mt-1.5 text-[10px] text-muted-foreground">
+          <p className="mt-1.5 text-xs text-muted-foreground">
             {Array.from(selected).join(" → ")}
           </p>
         )}

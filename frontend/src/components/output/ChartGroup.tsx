@@ -49,14 +49,14 @@ export default function ChartGroup({ group, onToggleCollapse }: ChartGroupProps)
               }}
             >
               {chartEntries.map((chart) => (
-                <div key={chart.title} className="min-w-0 rounded border border-app-border bg-white p-3">
+                <div key={chart.title} className="min-w-0 rounded border border-app-border bg-background p-3">
                   <ChartWidget chart={chart} />
                 </div>
               ))}
             </div>
           )}
           {group.table && (
-            <div className="mt-4 overflow-auto rounded border border-app-border bg-white">
+            <div className="mt-4 overflow-auto rounded border border-app-border bg-background">
               <DataTable columns={group.table.columns} rows={group.table.rows} />
             </div>
           )}

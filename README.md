@@ -267,24 +267,24 @@ retries: 3
 | **Middleware** | 读写 | 读写（`ctx.emit`） | 不能 |
 | **GraphMutator** | 不能 | 不能 | 读写 |
 
-- **Hook** — 观察生命周期，产生副产物（图表、追踪、指标）。不修改任何数据，并发执行，不阻塞。
+- **Hook** — 观察生命周期，产生副产物（图表、追踪、指标）。不修改任何数据，并发执行，不阻塞。**内置 Hook 自动加载，无需 `.use()`。**
 - **Middleware** — 修改或拒绝 Agent 执行（压缩对话、注入记忆、预算控制）。按优先级顺序执行，可抛出 `RejectAction` 中止或 `RetryAction` 重试。
 - **GraphMutator** — 编译时改写 DAG（插入评审节点、展开子图）。执行前运行一次。
 
-所有扩展通过 `wf.use()` 链式注册：
+Middleware 和 GraphMutator 通过 `wf.use()` 注册：
 
 ```python
 wf = (
     Workflow("name", agents=[...])
     .use(EvalJudge())           # GraphMutator
     .use(AutoCompact())         # Middleware
-    .use(EvalChartPlugin())     # Hook
 )
+# Hook plugins (EvalChartPlugin, PerfMetricsPlugin 等) 自动加载，无需手动注册
 ```
 
 ### 内置扩展
 
-#### EvalJudge — 自动评审（GraphMutator）
+#### EvalJudge — 自动评审 + 评分 + 重试（GraphMutator）
 
 给需要评审的 Agent 标记 `eval=True`，注册 `EvalJudge` 即可自动插入评审节点。
 
@@ -292,19 +292,30 @@ wf = (
 from harness.extensions.eval import EvalJudge
 
 wf = (
-    Workflow("reviewed", agents=[
-        Agent("researcher", after=[], eval=True),
-        Agent("writer",     after=["researcher"]),
+    Workflow("eval_code_quality", agents=[
+        Agent("coder",    after=[], eval=True, tools=["bash"]),
+        Agent("reviewer", after=["coder"]),
     ])
     .use(EvalJudge(max_retries=2))
 )
 ```
 
+编译时 DAG 变化：
+```
+原始:  coder → reviewer
+改写:  coder → _judge_coder → reviewer
+                  │
+                fail → coder（注入批评意见，重试最多 max_retries 次）
+```
+
 工作原理：
 - 编译时：在每个 `eval=True` 的 Agent 后自动插入 `_judge_<name>` 节点
-- 评审节点自动总结目标 Agent 的提示词，构建评审标准
-- Pass：输出直接传递给下游
-- Fail：将批评意见注入目标 Agent 上下文，重新执行
+- 自动生成 `_judge_<name>.md` 到 workflow 的 agents 目录，用户可通过 Agent Editor 自定义评审标准
+- 运行时：从 MD 读取 system prompt，自动注入目标 Agent 的任务总结 + 实际输出
+- 评审输出 `ReviewDecision`：`pass/fail` + `reason` + `score`（0.0-1.0，可选）
+- Pass：原始输出透传给下游（下游看不到 ReviewDecision）
+- Fail：将 reason 注入目标 Agent 上下文，重新执行
+- Score：通过 `EvalChartPlugin`（自动加载）实时推送到 UI 折线图
 
 > 完整示例: [examples/08_eval_judge.py](examples/08_eval_judge.py)
 
@@ -318,33 +329,18 @@ from harness.extensions.compact.auto_compact import AutoCompact
 wf = Workflow(...).use(AutoCompact(threshold_tokens=8000))
 ```
 
-#### 内置 Plugins（Hook）
+#### 内置 Plugins（Hook）— 自动加载
 
-Plugins 是 `BaseHook` 子类，通过 `ctx.emit()` 产生观测副产物。
+Plugins 是 `BaseHook` 子类，通过 `ctx.emit()` 产生观测副产物。**所有内置 Hook 在 compile 时自动注册，无需手动 `.use()`。** 新增 Hook plugin 会自动被发现并加载。
 
-```python
-from harness.extensions.plugins import (
-    EvalChartPlugin,
-    AgentTracePlugin,
-    ReasoningVizPlugin,
-    PerfMetricsPlugin,
-)
-
-wf = (
-    Workflow(...)
-    .use(EvalChartPlugin())       # 评审分数 → 折线图
-    .use(AgentTracePlugin())      # 执行追踪事件
-    .use(ReasoningVizPlugin())    # 思维链可视化
-    .use(PerfMetricsPlugin())     # Token 用量柱状图
-)
-```
+如需禁用某个 Hook，在 compile 前调用 `bus.unregister("plugin-name")`。
 
 | Plugin | 触发条件 | 输出 |
 |--------|---------|------|
-| `EvalChartPlugin` | `_judge_*` 节点完成 | `chart.render` 评分折线图 |
+| `EvalChartPlugin` | `_judge_*` 节点完成 | `chart.render` 评分折线图 → UI Analysis tab |
 | `AgentTracePlugin` | 任意节点完成 | `trace.step` 事件 |
 | `ReasoningVizPlugin` | 检测到思维链 | `reasoning.render` 可视化数据 |
-| `PerfMetricsPlugin` | 有 token_usage 数据 | `chart.render` 用量柱状图 |
+| `PerfMetricsPlugin` | 有 token_usage 数据 | `chart.render` 用量柱状图 → UI Analysis tab |
 
 > 组合扩展示例: [examples/11_all_extensions.py](examples/11_all_extensions.py)
 
@@ -481,6 +477,64 @@ render_chart(data, chart_type="table")
 
 ---
 
+## Benchmark 批量评测
+
+Benchmark 是一组持久化的测试任务，可一键用任意 Workflow 跑全部任务，收集分数并对比结果。
+
+### 创建 Benchmark
+
+```python
+from harness.benchmark_store import BenchmarkStore
+
+BenchmarkStore().save_benchmark("code-review-v1", tasks=[
+    {"label": "审查 auth.ts 的安全性", "inputs": {"task": "审查 auth.ts"}},
+    {"label": "审查 api.ts 的错误处理", "inputs": {"task": "审查 api.ts"}},
+    {"label": "审查 utils.ts 的性能", "inputs": {"task": "审查 utils.ts"}},
+])
+```
+
+### 通过 API 运行
+
+```bash
+curl -X POST http://localhost:8001/api/benchmarks/code-review-v1/run \
+  -H 'Content-Type: application/json' \
+  -d '{"workflow": "eval_code_quality"}'
+```
+
+### 通过 UI 运行
+
+1. 侧边栏 Benchmarks 区点击 benchmark 名称
+2. 选择一个 Workflow
+3. 点击 Run Benchmark
+4. 查看 Checklist 进度 → 点击单个任务查看详情
+5. Compare Tab 查看对比：Score / Charts / Workflow / History
+
+### 对比维度
+
+| 维度 | 说明 |
+|------|------|
+| **Scores** | 同一 Workflow 在不同 Task 上的分数柱状图 |
+| **Charts** | 各 Task 生成的图表按类型分组并排展示 |
+| **Workflows** | 同一 Benchmark 跑不同 Workflow，分组柱状图对比 |
+| **History** | 同 Benchmark + Workflow 的分数随时间变化趋势 |
+
+### REST API
+
+| Method | Path | 说明 |
+|--------|------|------|
+| `GET` | `/api/benchmarks` | 列出所有 Benchmark |
+| `POST` | `/api/benchmarks` | 创建 Benchmark |
+| `GET` | `/api/benchmarks/{name}` | 获取定义 |
+| `PUT` | `/api/benchmarks/{name}` | 更新任务列表 |
+| `DELETE` | `/api/benchmarks/{name}` | 删除 |
+| `POST` | `/api/benchmarks/{name}/run` | 用指定 Workflow 运行 |
+| `GET` | `/api/benchmarks/{name}/results` | 所有运行历史 |
+| `GET` | `/api/benchmarks/{name}/results/{run_id}` | 单次结果详情 |
+
+> 完整示例: [examples/12_benchmark.py](examples/12_benchmark.py)
+
+---
+
 ## 持久化与 UI
 
 ### 保存与加载
@@ -575,6 +629,13 @@ trace[0].token_usage.total    # int
 | `POST` | `/api/config` | 设置 API Key / Model |
 | `GET` | `/api/workflows/definitions` | 列出已保存工作流 |
 | `POST` | `/api/workflows` | 创建并启动工作流 |
+| `POST` | `/api/batch` | 批量启动多个工作流 |
+| `GET` | `/api/batch/{batch_id}` | 查询批量运行状态 |
+| `GET` | `/api/benchmarks` | 列出所有 Benchmark |
+| `POST` | `/api/benchmarks` | 创建 Benchmark |
+| `GET` | `/api/benchmarks/{name}` | 获取 Benchmark 定义 |
+| `POST` | `/api/benchmarks/{name}/run` | 运行 Benchmark |
+| `GET` | `/api/benchmarks/{name}/results` | 运行历史 |
 | `GET` | `/api/workflows/{id}` | 获取工作流状态 |
 | `GET` | `/api/workflows/{id}/dag` | 获取 DAG 结构 |
 | `GET` | `/api/workflows/{id}/trace` | 获取执行追踪 |
@@ -630,18 +691,28 @@ trace[0].token_usage.total    # int
 │   ├── config.py           configure(), .env 自动加载
 │   ├── engine/             LangGraph 状态图 + Pydantic AI 执行
 │   ├── tools/              bash, sub_agent, ask_human, chart
-│   ├── compiler/           DAG 构建, Markdown 解析
-│   └── extensions/         EvalJudge, AutoCompact, Plugins...
+│   ├── compiler/           DAG 构建, Markdown 解析, Agent 查找
+│   └── extensions/         扩展系统（Hook / Middleware / GraphMutator）
+│       ├── eval/           EvalJudge: 自动评审 + 评分 + 重试
+│       ├── compact/        AutoCompact: 对话压缩
+│       └── plugins/        内置 Hook（EvalChart, Trace, Perf...）
 ├── server/                 FastAPI 应用, 路由, WebSocket, EventBus
 ├── frontend/               Next.js 14 Web UI
 ├── workflows/              工作流定义目录
 │   ├── <name>/
-│   │   ├── workflow.json   Agent 定义 + DAG
-│   │   ├── agents/         私有 Agent 提示词（覆盖 _shared）
-│   │   └── scripts/        私有脚本（注入到提示词）
-│   └── _shared/            共享资源（Agent 和脚本的后备）
-├── examples/               可运行的示例（01-11）
-└── tests/                  测试
+│   │   ├── workflow.json   Agent 定义 + DAG 拓扑
+│   │   ├── agents/         私有 Agent 提示词（优先级 > _shared）
+│   │   └── scripts/        私有脚本（路径注入到 Agent prompt）
+│   └── _shared/
+│       ├── agents/         共享 Agent（v1: runner.md）
+│       └── scripts/        跨 Workflow 共享脚本
+├── benchmarks/             Benchmark 评测定义 + 结果
+│   └── <name>/
+│       ├── benchmark.json  任务列表
+│       └── results/        运行历史（含分数 + 图表）
+├── examples/               可运行的示例（01-12）
+├── tests/                  测试
+└── docs/plans/             设计文档
 ```
 
 ## 示例索引
@@ -655,10 +726,11 @@ trace[0].token_usage.total    # int
 | 5 | `05_loop_retry.py` | DAG 级回环 | 是 |
 | 6 | `06_sub_agent_loop.py` | sub_agent 迭代 | 是 |
 | 7 | `07_ask_human.py` | 人机协作（需 UI） | 是 |
-| 8 | `08_eval_judge.py` | EvalJudge 自动评审 | 是 |
+| 8 | `08_eval_judge.py` | EvalJudge 自动评审 + 评分 + 重试 | 是 |
 | 9 | `09_charts.py` | Chart 可视化（需 UI） | 是 |
 | 10 | `10_save_load_ui.py` | 持久化 + UI | 是 |
 | 11 | `11_all_extensions.py` | 组合扩展 | 是 |
+| 12 | `12_benchmark.py` | Benchmark 批量评测 | 是 |
 
 ---
 

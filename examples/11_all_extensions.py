@@ -2,14 +2,14 @@
 
 本示例展示如何在同一个 Workflow 上组合使用多种扩展:
 
-  - EvalJudge（GraphMutator）: 自动评审 agent 输出
+  - EvalJudge（GraphMutator）: 自动评审 agent 输出 + 自动生成 judge MD
   - AutoCompact（Middleware）: 对话过长时自动压缩历史消息
-  - EvalChartPlugin（Hook）: 将评审分数渲染为折线图
+  - Hook 插件（自动加载）: EvalChart 折线图 + PerfMetrics Token 消耗图
 
-扩展执行顺序:
-  1. 编译时: GraphMutator 改写 DAG
-  2. 运行时: Middleware 依次处理（按注册顺序）
-  3. 运行时: Hook 并发执行（不阻塞主流程）
+扩展分类:
+  - GraphMutator: 编译时改写 DAG，需要 .use() 注册
+  - Middleware:   运行时依次处理消息，需要 .use() 注册
+  - Hook:         运行时并发执行，自动加载（无需 .use()）
 
 用法:
     python examples/11_all_extensions.py            # 保存并运行
@@ -20,7 +20,6 @@ import sys
 from harness.api import Agent, Workflow
 from harness.extensions.eval import EvalJudge
 from harness.extensions.compact.auto_compact import AutoCompact
-from harness.extensions.plugins.eval_chart import EvalChartPlugin
 
 wf = (
     Workflow("full_extensions", agents=[
@@ -29,7 +28,6 @@ wf = (
     ])
     .use(EvalJudge(max_retries=1))
     .use(AutoCompact(threshold_tokens=8000))
-    .use(EvalChartPlugin())
 )
 wf.save()
 
@@ -37,9 +35,9 @@ if "--save" in sys.argv:
     print(f"已保存: workflows/{wf.name}/")
     print()
     print("扩展组合:")
-    print("  EvalJudge    (GraphMutator) → 自动插入评审节点")
+    print("  EvalJudge    (GraphMutator) → 自动插入评审节点 + 生成 judge MD")
     print("  AutoCompact  (Middleware)   → 长对话自动压缩")
-    print("  EvalChart    (Hook)         → 评审分数折线图")
+    print("  Hook 插件    (自动加载)     → EvalChart + PerfMetrics")
     print()
     print("启动 UI:")
     print("  bash examples/launch_ui.sh")

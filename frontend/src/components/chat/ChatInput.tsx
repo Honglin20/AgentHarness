@@ -97,7 +97,7 @@ export default function ChatInput({ sendAnswer, sendStopAndRegenerate, startWork
   };
 
   return (
-    <div className="flex items-center gap-2 border-t border-app-border px-3 py-2 bg-white">
+    <div className="flex items-center gap-2 border-t border-app-border px-3 py-2 bg-background">
       <Input
         ref={inputRef}
         value={value}

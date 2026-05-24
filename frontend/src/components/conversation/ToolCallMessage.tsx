@@ -22,25 +22,27 @@ function truncate(str: string, maxLen: number): string {
 
 function previewArgs(toolName: string | undefined, args: unknown): string {
   if (args == null) return "";
-  if (typeof args === "string") return truncate(args, 80);
-  if (typeof args !== "object") return truncate(String(args), 80);
+  if (typeof args === "string") return truncate(args, 60);
+  if (typeof args !== "object") return truncate(String(args), 60);
   try {
     const entries = Object.entries(args as Record<string, unknown>);
     if (entries.length === 0) return "";
     if (toolName === "bash" && entries[0]?.[0] === "command") {
-      return truncate(String(entries[0][1]), 100);
+      return "$ " + truncate(String(entries[0][1]), 58);
     }
-    // For file tools, show the path
     if ((toolName === "read_file" || toolName === "write_file" || toolName === "edit_file") && entries[0]?.[0] === "path") {
-      return truncate(String(entries[0][1]), 100);
+      return truncate(String(entries[0][1]), 60);
+    }
+    if (toolName === "sub_agent" && entries[0]?.[0] === "agent_name") {
+      return truncate(String(entries[0][1]), 60);
     }
     const parts = entries.map(([k, v]) => {
       const valStr = typeof v === "string" ? v : JSON.stringify(v);
-      return `${k}=${truncate(valStr ?? "", 40)}`;
+      return `${k}=${truncate(valStr ?? "", 30)}`;
     });
-    return truncate(parts.join(", "), 80);
+    return truncate(parts.join(", "), 60);
   } catch {
-    return truncate(JSON.stringify(args), 80);
+    return truncate(JSON.stringify(args), 60);
   }
 }
 
@@ -86,7 +88,7 @@ function renderToolResult(toolName: string | undefined, toolArgs: unknown, toolR
   }
 
   return (
-    <pre className="overflow-x-auto whitespace-pre-wrap text-[11px]">{toolResult}</pre>
+    <pre className="overflow-x-auto whitespace-pre-wrap text-xs">{toolResult}</pre>
   );
 }
 
@@ -97,13 +99,14 @@ export function ToolCallMessage({ message }: ToolCallMessageProps) {
   const argsPreview = previewArgs(toolName, toolArgs);
   const [open, setOpen] = useState(false);
 
+  // Streaming → auto-expand; Done → auto-collapse
   useEffect(() => {
-    if (isDone) setOpen(true);
-  }, [isDone]);
+    if (isRunning && toolStreamingOutput) setOpen(true);
+  }, [isRunning, toolStreamingOutput]);
 
   useEffect(() => {
-    if (isRunning && toolStreamingOutput && !open) setOpen(true);
-  }, [isRunning, toolStreamingOutput, open]);
+    if (isDone) setOpen(false);
+  }, [isDone]);
 
   const isFileTool = toolName === "write_file" || toolName === "edit_file" || toolName === "read_file";
 
@@ -120,40 +123,40 @@ export function ToolCallMessage({ message }: ToolCallMessageProps) {
           )}
           <span className="font-medium text-muted-foreground">{toolName}</span>
           {argsPreview && (
-            <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
+            <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
               {argsPreview}
             </span>
           )}
           {isDone && toolDurationMs != null && (
-            <span className="shrink-0 text-[10px] text-muted-foreground">
+            <span className="shrink-0 text-xs text-muted-foreground">
               {formatDuration(toolDurationMs)}
             </span>
           )}
-          <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+          <span className="ml-auto shrink-0 text-xs text-muted-foreground">
             {open ? "▲" : "▼"}
           </span>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <div className="mt-1 rounded-md border border-app-border bg-muted/30 p-2 text-xs">
+          <div className="mt-1 rounded-md border border-app-border bg-muted/30 p-2 text-xs max-h-80 overflow-y-auto">
             {toolArgs != null && !isFileTool && (
               <div className="mb-1.5">
-                <div className="mb-0.5 text-[10px] font-medium text-muted-foreground">Args</div>
-                <pre className="overflow-x-auto whitespace-pre-wrap text-[11px]">
+                <div className="mb-0.5 text-xs font-medium text-muted-foreground">Args</div>
+                <pre className="overflow-x-auto whitespace-pre-wrap text-xs max-h-32 overflow-y-auto">
                   {formatArgsBlock(toolArgs)}
                 </pre>
               </div>
             )}
             {isRunning && toolStreamingOutput && (
               <div>
-                <div className="mb-0.5 text-[10px] font-medium text-muted-foreground">Output</div>
-                <pre className="overflow-x-auto overflow-y-auto whitespace-pre-wrap text-[11px] bg-black/5 rounded p-2 max-h-64">
+                <div className="mb-0.5 text-xs font-medium text-muted-foreground">Output</div>
+                <pre className="overflow-x-auto overflow-y-auto whitespace-pre-wrap text-xs bg-black/5 rounded p-2 max-h-64">
                   {toolStreamingOutput}
                 </pre>
               </div>
             )}
             {toolResult !== undefined && (
               <div>
-                <div className="mb-0.5 text-[10px] font-medium text-muted-foreground">Result</div>
+                <div className="mb-0.5 text-xs font-medium text-muted-foreground">Result</div>
                 {renderToolResult(toolName, toolArgs, toolResult)}
               </div>
             )}

@@ -193,6 +193,11 @@ class Workflow:
         if not self.tool_registry.list_tools():
             self.tool_registry = default_tool_registry()
 
+        # Auto-register built-in Hook plugins (idempotent)
+        if self._event_bus is not None:
+            from harness.extensions.plugins import register_default_hooks
+            register_default_hooks(self._event_bus)
+
         builder = MacroGraphBuilder(
             tool_registry=self.tool_registry,
             event_bus=self._event_bus,

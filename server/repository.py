@@ -19,6 +19,7 @@ class WorkflowRepository:
     def __init__(self) -> None:
         self._workflows: dict[str, dict[str, Any]] = {}
         self._dag_cache: dict[str, dict] = {}
+        self._batches: dict[str, dict[str, Any]] = {}
 
     # ---- workflow CRUD ----
 
@@ -64,6 +65,27 @@ class WorkflowRepository:
     def clear(self) -> None:
         self._workflows.clear()
         self._dag_cache.clear()
+        self._batches.clear()
+
+    # ---- batch storage ----
+
+    def put_batch(self, batch_id: str, data: dict[str, Any]) -> None:
+        self._batches[batch_id] = data
+
+    def get_batch(self, batch_id: str) -> dict[str, Any] | None:
+        return self._batches.get(batch_id)
+
+    def update_batch_run_status(
+        self, batch_id: str, workflow_id: str, status: str, **kwargs
+    ) -> None:
+        """Update a single run's status within a batch."""
+        batch = self._batches.get(batch_id)
+        if batch is None:
+            return
+        runs = batch.get("runs", {})
+        if workflow_id in runs:
+            runs[workflow_id]["status"] = status
+            runs[workflow_id].update(kwargs)
 
 
 # Singleton

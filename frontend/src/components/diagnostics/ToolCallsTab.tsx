@@ -63,18 +63,18 @@ function ToolCallRow({ record }: { record: ToolCallRecord }) {
             <span className="text-xs font-medium text-app-text-primary">
               {record.toolName}
             </span>
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               {record.agentName}
             </span>
-            <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+            <span className="ml-auto shrink-0 text-xs text-muted-foreground">
               {formatTime(record.timestamp)}
             </span>
           </div>
-          <div className="mt-0.5 truncate text-[11px] text-muted-foreground font-mono">
+          <div className="mt-0.5 truncate text-xs text-muted-foreground font-mono">
             {truncateArgs(record.args)}
           </div>
           {record.result !== undefined && (
-            <div className="mt-0.5 truncate text-[11px] text-emerald-600 font-mono">
+            <div className="mt-0.5 truncate text-xs text-emerald-600 font-mono">
               {truncateResult(record.result)}
             </div>
           )}
@@ -83,19 +83,19 @@ function ToolCallRow({ record }: { record: ToolCallRecord }) {
       {open && (
         <div className="space-y-2 border-t border-app-border bg-app-bg-secondary px-3 py-2">
           <div>
-            <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-1">
+            <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-1">
               Arguments
             </div>
-            <pre className="overflow-x-auto rounded bg-white p-2 text-[11px] font-mono">
+            <pre className="overflow-x-auto rounded bg-background p-2 text-xs font-mono">
               {formatArgsBlock(record.args)}
             </pre>
           </div>
           {record.result !== undefined && (
             <div>
-              <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-1">
+              <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-1">
                 Result
               </div>
-              <pre className="overflow-x-auto rounded bg-white p-2 text-[11px] font-mono">
+              <pre className="overflow-x-auto rounded bg-background p-2 text-xs font-mono">
                 {record.result}
               </pre>
             </div>
@@ -137,7 +137,7 @@ export default function ToolCallsTab({
         <div className="flex items-center gap-1 border-b border-app-border px-3 py-1.5">
           <button
             className={cn(
-              "rounded px-2 py-0.5 text-[11px]",
+              "rounded px-2 py-0.5 text-xs",
               !filter ? "bg-blue-500 text-white" : "text-muted-foreground hover:text-app-text-primary"
             )}
             onClick={() => setFilter(null)}
@@ -148,7 +148,7 @@ export default function ToolCallsTab({
             <button
               key={id}
               className={cn(
-                "rounded px-2 py-0.5 text-[11px]",
+                "rounded px-2 py-0.5 text-xs",
                 filter === id ? "bg-blue-500 text-white" : "text-muted-foreground hover:text-app-text-primary"
               )}
               onClick={() => setFilter(id)}

@@ -84,8 +84,8 @@ export function DAGPreview({ dag, agentDescriptions = {}, onEditAgent }: DAGPrev
         source,
         target,
         type: "smoothstep",
-        style: { stroke: "#cbd5e1", strokeWidth: 1.5 },
-        markerEnd: { type: "arrowclosed" as const, width: 16, height: 16, color: "#cbd5e1" },
+        style: { stroke: "hsl(var(--border))", strokeWidth: 1.5 },
+        markerEnd: { type: "arrowclosed" as const, width: 16, height: 16, color: "hsl(var(--border))" },
       }),
     );
 
@@ -100,7 +100,7 @@ export function DAGPreview({ dag, agentDescriptions = {}, onEditAgent }: DAGPrev
         label: ce.label,
         style: { stroke: color, strokeWidth: 1.5 },
         labelStyle: { fill: isFail ? "#ef4444" : "#22c55e", fontWeight: 600, fontSize: 10 },
-        labelBgStyle: { fill: "#fff", fillOpacity: 0.9 },
+        labelBgStyle: { fill: "hsl(var(--background))", fillOpacity: 0.9 },
         labelBgPadding: [4, 2] as [number, number],
         labelBgBorderRadius: 4,
         markerEnd: { type: "arrowclosed" as const, width: 16, height: 16, color },
@@ -129,17 +129,17 @@ export function DAGPreview({ dag, agentDescriptions = {}, onEditAgent }: DAGPrev
         nodesConnectable={false}
         elementsSelectable={false}
       >
-        <Background color="#e2e8f0" gap={20} size={1} />
+        <Background color="hsl(var(--border))" gap={20} size={1} />
         <Controls
           showInteractive={false}
-          className="!border-slate-200 !shadow-sm !rounded-lg"
+          className="!border-border !shadow-sm !rounded-lg"
         />
         {showMiniMap && (
           <MiniMap
             nodeStrokeWidth={3}
             zoomable
             pannable
-            className="!border-slate-200 !shadow-sm !rounded-lg"
+            className="!border-border !shadow-sm !rounded-lg"
           />
         )}
         <FitViewOnUpdate nodes={nodes} />

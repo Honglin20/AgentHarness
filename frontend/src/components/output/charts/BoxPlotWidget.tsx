@@ -2,7 +2,7 @@
 
 import React from "react";
 import type { ChartPayload } from "@/types/events";
-import { PALETTE } from "./chartTheme";
+import { PALETTE, BOX_FILL_OPACITY, BOX_STROKE_WIDTH, BOX_RADIUS, getGridStroke, getAxisTick } from "./chartTheme";
 
 interface BoxStats {
   min: number;
@@ -25,6 +25,8 @@ export default function BoxPlotWidget({ chart }: { chart: ChartPayload }) {
   const { data, columns, title } = chart;
   const hue = chart.hue;
   const yKey = chart.y ?? "y";
+  const gridStroke = getGridStroke();
+  const axisTick = getAxisTick();
 
   let groups: { name: string; values: number[] }[];
 
@@ -77,14 +79,14 @@ export default function BoxPlotWidget({ chart }: { chart: ChartPayload }) {
       <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
       <div className="aspect-[4/3] w-full overflow-auto">
         <svg width={svgWidth} height={svgHeight} className="block">
-          <line x1={plotLeft} y1={plotTop} x2={plotLeft} y2={plotBottom} stroke="#CBD5E1" />
+          <line x1={plotLeft} y1={plotTop} x2={plotLeft} y2={plotBottom} stroke={gridStroke} />
           {[yMin, (yMin + yMax) / 2, yMax].map((val, i) => (
             <React.Fragment key={i}>
-              <line x1={plotLeft - 4} y1={scaleY(val)} x2={plotLeft} y2={scaleY(val)} stroke="#64748B" />
-              <text x={plotLeft - 8} y={scaleY(val) + 3} textAnchor="end" fontSize={9} fill="#64748B">
+              <line x1={plotLeft - 4} y1={scaleY(val)} x2={plotLeft} y2={scaleY(val)} stroke={axisTick.fill} />
+              <text x={plotLeft - 8} y={scaleY(val) + 3} textAnchor="end" fontSize={axisTick.fontSize} fill={axisTick.fill}>
                 {val.toFixed(1)}
               </text>
-              <line x1={plotLeft} y1={scaleY(val)} x2={plotRight} y2={scaleY(val)} stroke="#E8ECF1" strokeDasharray="3 3" />
+              <line x1={plotLeft} y1={scaleY(val)} x2={plotRight} y2={scaleY(val)} stroke={gridStroke} strokeDasharray="3 3" />
             </React.Fragment>
           ))}
           {stats.map((s, i) => {
@@ -93,22 +95,22 @@ export default function BoxPlotWidget({ chart }: { chart: ChartPayload }) {
             const color = PALETTE[i % PALETTE.length];
             return (
               <React.Fragment key={i}>
-                <line x1={cx} y1={scaleY(s.min)} x2={cx} y2={scaleY(s.max)} stroke={color} strokeWidth={1.5} />
-                <line x1={cx - halfBox * 0.4} y1={scaleY(s.min)} x2={cx + halfBox * 0.4} y2={scaleY(s.min)} stroke={color} strokeWidth={1.5} />
-                <line x1={cx - halfBox * 0.4} y1={scaleY(s.max)} x2={cx + halfBox * 0.4} y2={scaleY(s.max)} stroke={color} strokeWidth={1.5} />
+                <line x1={cx} y1={scaleY(s.min)} x2={cx} y2={scaleY(s.max)} stroke={color} strokeWidth={BOX_STROKE_WIDTH} />
+                <line x1={cx - halfBox * 0.4} y1={scaleY(s.min)} x2={cx + halfBox * 0.4} y2={scaleY(s.min)} stroke={color} strokeWidth={BOX_STROKE_WIDTH} />
+                <line x1={cx - halfBox * 0.4} y1={scaleY(s.max)} x2={cx + halfBox * 0.4} y2={scaleY(s.max)} stroke={color} strokeWidth={BOX_STROKE_WIDTH} />
                 <rect
                   x={cx - halfBox}
                   y={scaleY(s.q3)}
                   width={boxWidth}
                   height={scaleY(s.q1) - scaleY(s.q3)}
                   fill={color}
-                  fillOpacity={0.2}
+                  fillOpacity={BOX_FILL_OPACITY}
                   stroke={color}
-                  strokeWidth={1.5}
-                  rx={3}
+                  strokeWidth={BOX_STROKE_WIDTH}
+                  rx={BOX_RADIUS}
                 />
                 <line x1={cx - halfBox} y1={scaleY(s.median)} x2={cx + halfBox} y2={scaleY(s.median)} stroke={color} strokeWidth={2.5} />
-                <text x={cx} y={plotBottom + 16} textAnchor="middle" fontSize={9} fill="#64748B">
+                <text x={cx} y={plotBottom + 16} textAnchor="middle" fontSize={axisTick.fontSize} fill={axisTick.fill}>
                   {groups[i].name.length > 8 ? groups[i].name.slice(0, 8) + "..." : groups[i].name}
                 </text>
               </React.Fragment>
