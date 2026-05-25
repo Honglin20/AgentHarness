@@ -12,7 +12,7 @@ interface TaskResult {
   task_id: string;
   label: string;
   status: string;
-  score: number | null;
+  score: number | null | undefined;
   duration_ms?: number;
   token_usage?: { input: number; output: number; total: number };
   charts?: ChartPayload[];
@@ -26,7 +26,7 @@ interface BenchmarkResult {
   status: string;
   created_at: string;
   task_results: TaskResult[];
-  avg_score: number | null;
+  avg_score: number | null | undefined;
 }
 
 interface Props {
@@ -42,12 +42,16 @@ export default function BenchmarkCompare({ benchmarkName }: Props) {
     fetch(`/api/benchmarks/${encodeURIComponent(benchmarkName)}/results`)
       .then((r) => r.json())
       .then((data: BenchmarkResult[]) => {
-        setResults(data);
-        // Auto-select last 2 for workflow comparison
-        if (data.length >= 2) {
-          setSelectedRuns([data[0].run_id, data[1].run_id]);
-        } else if (data.length === 1) {
-          setSelectedRuns([data[0].run_id]);
+        // Sort by created_at descending (newest first)
+        const sorted = [...data].sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+        );
+        setResults(sorted);
+        // Auto-select 2 most recent runs for workflow comparison
+        if (sorted.length >= 2) {
+          setSelectedRuns([sorted[0].run_id, sorted[1].run_id]);
+        } else if (sorted.length === 1) {
+          setSelectedRuns([sorted[0].run_id]);
         }
       })
       .catch(() => {});
@@ -108,7 +112,7 @@ export default function BenchmarkCompare({ benchmarkName }: Props) {
 // ---- Tab: Scores ----
 
 function ScoresTab({ result }: { result: BenchmarkResult }) {
-  const tasks = result.task_results.filter((t) => t.score !== null);
+  const tasks = result.task_results.filter((t) => t.score != null);
   if (tasks.length === 0) {
     return <p className="text-sm text-muted-foreground">No scores available. Run with an eval-enabled workflow.</p>;
   }
@@ -148,7 +152,7 @@ function ScoresTab({ result }: { result: BenchmarkResult }) {
           {result.task_results.map((t) => (
             <tr key={t.task_id} className="border-b border-app-border/50">
               <td className="py-1.5 pr-4 font-medium">{t.label}</td>
-              <td className="py-1.5 pr-4">{t.score !== null ? t.score.toFixed(2) : "-"}</td>
+              <td className="py-1.5 pr-4">{t.score != null ? t.score.toFixed(2) : "-"}</td>
               <td className="py-1.5 pr-4">{t.duration_ms ? `${(t.duration_ms / 1000).toFixed(1)}s` : "-"}</td>
               <td className="py-1.5">
                 {t.status === "completed" ? (
@@ -223,7 +227,20 @@ function WorkflowsTab({
     return <p className="text-sm text-muted-foreground">Select runs to compare.</p>;
   }
 
-  // Build grouped bar chart: each task, each workflow as a different bar
+  // Build unique labels for each selected run (disambiguate same workflow_name)
+  const runLabels: Record<string, string> = {};
+  selected.forEach((r, i) => {
+    const date = new Date(r.created_at).toLocaleDateString();
+    // If multiple runs share the same workflow_name, add index
+    const sameName = selected.filter((s) => s.workflow_name === r.workflow_name);
+    if (sameName.length > 1) {
+      runLabels[r.run_id] = `${r.workflow_name} #${sameName.indexOf(r) + 1} (${date})`;
+    } else {
+      runLabels[r.run_id] = `${r.workflow_name} (${date})`;
+    }
+  });
+
+  // Build grouped bar chart: each task, each run as a different bar
   const allLabels = new Set<string>();
   for (const r of selected) {
     for (const t of r.task_results) {
@@ -231,51 +248,63 @@ function WorkflowsTab({
     }
   }
 
+  const yKeys = selected.map((r) => runLabels[r.run_id]);
+
   const data = Array.from(allLabels).map((label) => {
     const row: Record<string, unknown> = { x: label.length > 15 ? label.slice(0, 15) + "..." : label };
     for (const r of selected) {
       const task = r.task_results.find((t) => t.label === label);
-      row[r.workflow_name] = task?.score ?? 0;
+      row[runLabels[r.run_id]] = task?.score ?? 0;
     }
     return row;
   });
 
-  const workflowNames = selected.map((r) => r.workflow_name);
   const chart: ChartPayload = {
     chart_type: "bar",
     data,
-    columns: ["x", ...workflowNames],
+    columns: ["x", ...yKeys],
     x: "x",
-    y: workflowNames[0],
+    y: yKeys[0],
     hue: undefined,
     label: "Score",
-    title: "Workflow Comparison",
+    title: "Run Comparison",
     category: "analysis",
   };
+
+  // Check if any selected run has scores
+  const hasScores = selected.some((r) =>
+    r.task_results.some((t) => t.score != null)
+  );
 
   return (
     <div className="flex flex-col gap-4">
       {/* Run selector */}
       <div className="flex flex-wrap gap-2">
-        {results.map((r) => (
-          <button
-            key={r.run_id}
-            onClick={() => onToggleRun(r.run_id)}
-            className={`rounded-full px-3 py-1 text-xs transition-colors ${
-              selectedRuns.includes(r.run_id)
-                ? "bg-blue-500/20 text-blue-500 border border-blue-500/30"
-                : "bg-muted text-muted-foreground border border-transparent"
-            }`}
-          >
-            {r.workflow_name} ({new Date(r.created_at).toLocaleDateString()})
-          </button>
-        ))}
+        {results.map((r, i) => {
+          const date = new Date(r.created_at).toLocaleDateString();
+          return (
+            <button
+              key={r.run_id}
+              onClick={() => onToggleRun(r.run_id)}
+              className={`rounded-full px-3 py-1 text-xs transition-colors ${
+                selectedRuns.includes(r.run_id)
+                  ? "bg-blue-500/20 text-blue-500 border border-blue-500/30"
+                  : "bg-muted text-muted-foreground border border-transparent"
+              }`}
+            >
+              Run {i + 1} ({date})
+            </button>
+          );
+        })}
       </div>
 
-      {selected.length > 0 && (
+      {selected.length > 0 && hasScores && (
         <div className="h-64">
           <BarChartWidget chart={chart} />
         </div>
+      )}
+      {!hasScores && selected.length > 0 && (
+        <p className="text-sm text-muted-foreground">No scores available yet. Runs may still be in progress.</p>
       )}
 
       {/* Comparison table */}
@@ -284,7 +313,7 @@ function WorkflowsTab({
           <tr className="border-b border-app-border text-left text-muted-foreground">
             <th className="pb-1 pr-4">Task</th>
             {selected.map((r) => (
-              <th key={r.run_id} className="pb-1 pr-4">{r.workflow_name}</th>
+              <th key={r.run_id} className="pb-1 pr-4">{runLabels[r.run_id]}</th>
             ))}
           </tr>
         </thead>
@@ -296,7 +325,7 @@ function WorkflowsTab({
                 const task = r.task_results.find((t) => t.label === label);
                 return (
                   <td key={r.run_id} className="py-1.5 pr-4">
-                    {task?.score !== null && task?.score !== undefined ? task.score.toFixed(2) : "-"}
+                    {task?.score != null ? task.score.toFixed(2) : "-"}
                   </td>
                 );
               })}
@@ -306,7 +335,7 @@ function WorkflowsTab({
             <td className="py-1.5 pr-4">Average</td>
             {selected.map((r) => (
               <td key={r.run_id} className="py-1.5 pr-4">
-                {r.avg_score?.toFixed(2) ?? "-"}
+                {r.avg_score != null ? (r.avg_score as number).toFixed(2) : "-"}
               </td>
             ))}
           </tr>
@@ -323,9 +352,14 @@ function HistoryTab({ results }: { results: BenchmarkResult[] }) {
     return <p className="text-sm text-muted-foreground">Need at least 2 runs to show history trend.</p>;
   }
 
+  // Sort chronologically (oldest first for the chart)
+  const sorted = [...results].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+  );
+
   // Group by workflow_name, show trend per workflow
   const byWorkflow: Record<string, BenchmarkResult[]> = {};
-  for (const r of results) {
+  for (const r of sorted) {
     if (!byWorkflow[r.workflow_name]) byWorkflow[r.workflow_name] = [];
     byWorkflow[r.workflow_name].push(r);
   }
@@ -333,15 +367,22 @@ function HistoryTab({ results }: { results: BenchmarkResult[] }) {
   return (
     <div className="flex flex-col gap-6">
       {Object.entries(byWorkflow).map(([wfName, runs]) => {
+        const scoredRuns = runs.filter((r) => r.avg_score != null);
+        if (scoredRuns.length < 2) {
+          return (
+            <div key={wfName}>
+              <h4 className="mb-2 text-xs font-semibold text-muted-foreground">{wfName}</h4>
+              <p className="text-xs text-muted-foreground">Need at least 2 scored runs to show trend.</p>
+            </div>
+          );
+        }
+
         const chart: ChartPayload = {
           chart_type: "line",
-          data: runs
-            .filter((r) => r.avg_score !== null)
-            .reverse()
-            .map((r) => ({
-              x: new Date(r.created_at).toLocaleDateString(),
-              y: r.avg_score,
-            })),
+          data: scoredRuns.map((r, i) => ({
+            x: `Run ${i + 1}`,
+            y: r.avg_score,
+          })),
           columns: ["x", "y"],
           x: "x",
           y: "y",
@@ -371,11 +412,11 @@ function HistoryTab({ results }: { results: BenchmarkResult[] }) {
           </tr>
         </thead>
         <tbody>
-          {results.map((r) => (
+          {sorted.map((r, i) => (
             <tr key={r.run_id} className="border-b border-app-border/50">
-              <td className="py-1.5 pr-4">{new Date(r.created_at).toLocaleDateString()}</td>
-              <td className="py-1.5 pr-4 font-medium">{r.workflow_name}</td>
-              <td className="py-1.5 pr-4">{r.avg_score?.toFixed(2) ?? "-"}</td>
+              <td className="py-1.5 pr-4">{new Date(r.created_at).toLocaleString()}</td>
+              <td className="py-1.5 pr-4 font-medium">Run {i + 1}</td>
+              <td className="py-1.5 pr-4">{r.avg_score != null ? (r.avg_score as number).toFixed(2) : "-"}</td>
               <td className="py-1.5 pr-4">
                 {r.task_results.filter((t) => t.status === "completed").length}/{r.task_results.length}
               </td>

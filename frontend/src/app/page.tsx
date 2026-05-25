@@ -14,6 +14,10 @@ export default function Home() {
     setActiveBenchmark((prev) => (prev === name ? null : name));
   }, []);
 
+  const handleLeaveBenchmark = useCallback(() => {
+    setActiveBenchmark(null);
+  }, []);
+
   return (
     <div className="flex h-screen flex-col">
       <HeaderBar />
@@ -22,6 +26,7 @@ export default function Home() {
           <Sidebar
             onSelectBenchmark={handleSelectBenchmark}
             selectedBenchmark={activeBenchmark}
+            onLeaveBenchmark={handleLeaveBenchmark}
           />
         </Panel>
         <Separator className="w-1 bg-app-border hover:bg-blue-400 transition-colors" />
