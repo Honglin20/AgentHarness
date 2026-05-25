@@ -62,13 +62,13 @@ export function TemplateLibrary() {
             }}
             className={`group flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors ${
               isSelected
-                ? "bg-blue-50 text-blue-700 font-medium"
-                : "text-app-text-primary hover:bg-gray-50"
+                ? "bg-accent/10 text-accent font-medium"
+                : "text-app-text-primary hover:bg-muted"
             } ${isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
           >
             <LayoutTemplate className="h-3 w-3 shrink-0" />
             <span className="flex-1 truncate">{wf.name}</span>
-            <span className="text-[10px] text-muted-foreground">{wf.dag.nodes.length}</span>
+            <span className="text-xs text-muted-foreground">{wf.dag.nodes.length}</span>
             {!isDisabled && (
               <button
                 onClick={(e) => handleDelete(e, wf.name)}

@@ -54,9 +54,30 @@ def _validate_workflow_dir(workflow: str) -> Path:
 
 
 def get_event_bus():
-    """Dependency to get EventBus from app state."""
+    """Legacy shim — returns global Bus.
+
+    Prefer creating a new Bus per workflow via _new_bus() below.
+    """
     from server.event_bus import get_event_bus
     return get_event_bus()
+
+
+def _new_bus():
+    """Create a fresh Bus with default hooks registered."""
+    from harness.extensions.bus import Bus
+    from harness.extensions.plugins import register_default_hooks
+    bus = Bus()
+    register_default_hooks(bus)
+    return bus
+
+
+def _get_bus_for_workflow(workflow_id: str):
+    """Retrieve the Bus bound to a specific workflow, or create a fallback with hooks."""
+    repo = get_repository()
+    data = repo.get(workflow_id)
+    if data and data.get("event_bus"):
+        return data["event_bus"]
+    return _new_bus()
 
 
 @router.get("/health")
@@ -248,16 +269,27 @@ async def list_tools() -> list[ToolInfo]:
 
 
 @router.post("/charts")
-async def chart_render(
-    request: Request,
-    event_bus = Depends(get_event_bus),
-) -> dict:
+async def chart_render(request: Request) -> dict:
     """Receive chart payload from render_chart() HTTP fallback and emit via EventBus."""
     body = await request.json()
     node_id = body.get("node_id", "")
     chart = body.get("chart", {})
 
-    event_bus.emit("chart.render", {
+    # Find the running workflow that owns this node_id
+    repo = get_repository()
+    for _wid, data in repo.all_running():
+        if node_id:
+            event_bus = data.get("event_bus")
+            if event_bus:
+                event_bus.emit("chart.render", {
+                    "node_id": node_id,
+                    "agent_name": node_id,
+                    "chart": chart,
+                })
+                return {"status": "ok"}
+
+    # Fallback: emit on global bus for backwards compat
+    get_event_bus().emit("chart.render", {
         "node_id": node_id,
         "agent_name": node_id,
         "chart": chart,
@@ -404,14 +436,17 @@ async def _create_and_start_workflow(
     agents_defs: list[AgentDef],
     workflow_name: str,
     inputs: dict,
-    event_bus,
     batch_id: str | None = None,
 ) -> CreateWorkflowResponse:
     """Core logic: create a Workflow, compile it, and submit to runner.
 
     Shared by create_workflow (single run) and create_batch (batch run).
+    Creates an isolated Bus per workflow for concurrency safety.
     """
     workflow_id = str(uuid.uuid4())
+
+    # Each workflow gets its own Bus — fully isolated events + extensions
+    event_bus = _new_bus()
 
     agents = [
         Agent(
@@ -457,6 +492,7 @@ async def _create_and_start_workflow(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "agents_snapshot": _build_agents_snapshot(workflow),
         "batch_id": batch_id,
+        "event_bus": event_bus,
     })
 
     node_order = build_dag(agents)
@@ -497,15 +533,12 @@ async def _create_and_start_workflow(
 @router.post("/workflows", response_model=CreateWorkflowResponse)
 async def create_workflow(
     request: CreateWorkflowRequest,
-    event_bus = Depends(get_event_bus),
 ) -> CreateWorkflowResponse:
     """Create and start a single workflow."""
     from server.runner import get_runner
     runner = get_runner()
     if runner.running_count >= runner.max_concurrent:
         raise HTTPException(status_code=409, detail=f"Max {runner.max_concurrent} concurrent workflows. Wait for one to finish.")
-    if runner.running_count == 0:
-        event_bus.clear_buffer()
 
     if not request.workflow:
         raise HTTPException(status_code=400, detail="workflow is required")
@@ -515,24 +548,21 @@ async def create_workflow(
         agents_defs=request.agents,
         workflow_name=request.workflow,
         inputs=request.inputs,
-        event_bus=event_bus,
     )
 
 
 @router.post("/batch", response_model=CreateBatchResponse)
 async def create_batch(
     request: CreateBatchRequest,
-    event_bus = Depends(get_event_bus),
 ) -> CreateBatchResponse:
     """Create and start a batch of workflow runs with different inputs.
 
     Each item in `items` becomes an independent workflow run.
     All runs share the same workflow definition (agents + prompts).
+    Each run gets its own isolated Bus.
     """
     from server.runner import get_runner
     runner = get_runner()
-    if runner.running_count == 0:
-        event_bus.clear_buffer()
 
     if not request.workflow:
         raise HTTPException(status_code=400, detail="workflow is required")
@@ -557,7 +587,6 @@ async def create_batch(
             agents_defs=request.agents,
             workflow_name=request.workflow,
             inputs=item.inputs,
-            event_bus=event_bus,
             batch_id=batch_id,
         )
         runs.append(BatchRunSummary(
@@ -680,7 +709,6 @@ async def delete_benchmark(name: str) -> dict:
 async def run_benchmark(
     name: str,
     body: RunBenchmarkRequest,
-    event_bus=Depends(get_event_bus),
 ) -> BenchmarkRunSummary:
     """Run a benchmark with a specific workflow.
 
@@ -709,7 +737,7 @@ async def run_benchmark(
             for t in bm["tasks"]
         ],
     )
-    batch_resp = await create_batch(batch_req, event_bus=event_bus)
+    batch_resp = await create_batch(batch_req)
 
     # Build result record
     run_id = batch_resp.batch_id
@@ -814,10 +842,7 @@ async def get_workflow(workflow_id: str) -> WorkflowStatusResponse:
 
 
 @router.post("/workflows/{workflow_id}/cancel")
-async def cancel_workflow(
-    workflow_id: str,
-    event_bus=Depends(get_event_bus),
-) -> dict:
+async def cancel_workflow(workflow_id: str) -> dict:
     """Pause a running workflow. Status becomes 'paused' and can be resumed."""
     if not get_repository().contains(workflow_id):
         raise HTTPException(status_code=404, detail="Workflow not found")
@@ -828,6 +853,7 @@ async def cancel_workflow(
     paused = await runner.cancel(workflow_id)
 
     if paused:
+        event_bus = _get_bus_for_workflow(workflow_id)
         event_bus.emit("workflow.cancelled", {"workflow_id": workflow_id})
 
     return {"status": "paused" if paused else "running"}
@@ -894,7 +920,6 @@ async def list_checkpoints(run_id: str) -> list[CheckpointInfo]:
 async def resume_run(
     run_id: str,
     request: ResumeRequest,
-    event_bus=Depends(get_event_bus),
 ) -> dict:
     """Resume a workflow from a checkpoint.
 
@@ -929,8 +954,8 @@ async def resume_run(
     if runner.running_count >= runner.max_concurrent:
         raise HTTPException(status_code=409, detail=f"Max {runner.max_concurrent} concurrent workflows. Wait for one to finish.")
 
-    if runner.running_count == 0:
-        event_bus.clear_buffer()
+    # Use the workflow's existing Bus (isolated per workflow)
+    event_bus = data.get("event_bus") or _new_bus()
 
     # Emit resumed event
     event_bus.emit("workflow.started", {
@@ -957,7 +982,6 @@ async def resume_run(
 @router.post("/runs/{run_id}/rerun", response_model=CreateWorkflowResponse)
 async def rerun(
     run_id: str,
-    event_bus=Depends(get_event_bus),
 ) -> CreateWorkflowResponse:
     """Re-run a previous run with the same workflow config and inputs."""
     from harness.run_store import RunStore
@@ -970,9 +994,6 @@ async def rerun(
     runner = get_runner()
     if runner.running_count >= runner.max_concurrent:
         raise HTTPException(status_code=409, detail=f"Max {runner.max_concurrent} concurrent workflows. Wait for one to finish.")
-
-    if runner.running_count == 0:
-        event_bus.clear_buffer()
 
     workflow_name = run["workflow_name"]
     inputs = run.get("inputs", {})
@@ -989,6 +1010,9 @@ async def rerun(
     ]
 
     new_id = str(uuid.uuid4())
+
+    # Create isolated Bus for this rerun
+    event_bus = _new_bus()
 
     # Inject checkpointer
     from harness.checkpoint import get_checkpoint_manager
@@ -1022,6 +1046,7 @@ async def rerun(
         "thread_id": new_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "agents_snapshot": _build_agents_snapshot(workflow),
+        "event_bus": event_bus,
     })
 
     # Build DAG from snapshot or recompute

@@ -72,13 +72,13 @@ export function AgentBrowser() {
   return (
     <div className="flex flex-col">
       {agents.map((agent) => (
-        <div key={agent.name} className="group flex items-center gap-1.5 px-3 py-1.5 hover:bg-gray-50">
+        <div key={agent.name} className="group flex items-center gap-1.5 px-3 py-1.5 hover:bg-muted">
           <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
           <span className="flex-1 truncate text-xs text-app-text-primary">{agent.name}</span>
           <div className="hidden gap-0.5 group-hover:flex">
             <button
               onClick={() => setEditAgent(agent)}
-              className="rounded p-0.5 text-muted-foreground hover:bg-gray-200 hover:text-app-text-primary"
+              className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-app-text-primary"
               title={isReplay ? "View (read-only — snapshot)" : "Edit"}
             >
               <Pencil className="h-3 w-3" />
@@ -86,7 +86,7 @@ export function AgentBrowser() {
             {!isReplay && workflowName && (
               <button
                 onClick={() => setDiffAgent(agent.name)}
-                className="rounded p-0.5 text-muted-foreground hover:bg-gray-200 hover:text-app-text-primary"
+                className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-app-text-primary"
                 title="Diff"
               >
                 <GitCompare className="h-3 w-3" />

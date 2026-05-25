@@ -27,12 +27,13 @@ def cancel_process(workflow_id: str) -> None:
 
 
 def _emit_line(workflow_id: str, node_id: str, agent_name: str, line: str, stream: str) -> None:
-    """Fire-and-forget: push a tool output delta event via the global Bus."""
+    """Fire-and-forget: push a tool output delta event via the workflow's Bus."""
     if not workflow_id:
         return
     try:
-        from harness.extensions.bus import get_bus
-        bus = get_bus()
+        from server.repository import get_repository
+        data = get_repository().get(workflow_id)
+        bus = data.get("event_bus") if data else None
         if bus:
             bus.emit("agent.tool_output_delta", {
                 "workflow_id": workflow_id,

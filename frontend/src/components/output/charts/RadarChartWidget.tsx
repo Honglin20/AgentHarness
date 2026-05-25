@@ -11,12 +11,15 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import type { ChartPayload } from "@/types/events";
-import { PALETTE, TOOLTIP_STYLE, LEGEND_STYLE } from "./chartTheme";
+import { PALETTE, LEGEND_STYLE, BOX_FILL_OPACITY, BOX_STROKE_WIDTH, getGridStroke, getAxisTick, getTooltipStyle } from "./chartTheme";
 
 export default function RadarChartWidget({ chart }: { chart: ChartPayload }) {
   const { data, x, y, hue, title } = chart;
   const xKey = x ?? "dimension";
   const yKey = y ?? "value";
+  const gridStroke = getGridStroke();
+  const axisTick = getAxisTick();
+  const tooltipStyle = getTooltipStyle();
 
   if (hue) {
     const hueValues = Array.from(new Set(data.map((d) => String(d[hue]))));
@@ -40,10 +43,10 @@ export default function RadarChartWidget({ chart }: { chart: ChartPayload }) {
         <div className="aspect-square w-full max-w-[400px] mx-auto">
           <ResponsiveContainer width="100%" height="100%">
             <RadarChart data={pivoted} cx="50%" cy="50%" outerRadius="75%">
-              <PolarGrid stroke="#CBD5E1" />
-              <PolarAngleAxis dataKey={xKey} tick={{ fontSize: 10, fill: "#64748B" }} />
-              <PolarRadiusAxis tick={{ fontSize: 9, fill: "#94A3B8" }} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} />
+              <PolarGrid stroke={gridStroke} />
+              <PolarAngleAxis dataKey={xKey} tick={{ fontSize: 10, fill: axisTick.fill }} />
+              <PolarRadiusAxis tick={{ fontSize: 9, fill: axisTick.fill }} />
+              <Tooltip contentStyle={tooltipStyle} />
               <Legend wrapperStyle={LEGEND_STYLE} />
               {hueValues.map((val, i) => (
                 <Radar
@@ -52,8 +55,8 @@ export default function RadarChartWidget({ chart }: { chart: ChartPayload }) {
                   dataKey={val}
                   stroke={PALETTE[i % PALETTE.length]}
                   fill={PALETTE[i % PALETTE.length]}
-                  fillOpacity={0.15}
-                  strokeWidth={2}
+                  fillOpacity={BOX_FILL_OPACITY}
+                  strokeWidth={BOX_STROKE_WIDTH}
                 />
               ))}
             </RadarChart>
@@ -69,16 +72,16 @@ export default function RadarChartWidget({ chart }: { chart: ChartPayload }) {
       <div className="aspect-square w-full max-w-[400px] mx-auto">
         <ResponsiveContainer width="100%" height="100%">
           <RadarChart data={data} cx="50%" cy="50%" outerRadius="75%">
-            <PolarGrid stroke="#CBD5E1" />
-            <PolarAngleAxis dataKey={xKey} tick={{ fontSize: 10, fill: "#64748B" }} />
-            <PolarRadiusAxis tick={{ fontSize: 9, fill: "#94A3B8" }} />
-            <Tooltip contentStyle={TOOLTIP_STYLE} />
+            <PolarGrid stroke={gridStroke} />
+            <PolarAngleAxis dataKey={xKey} tick={{ fontSize: 10, fill: axisTick.fill }} />
+            <PolarRadiusAxis tick={{ fontSize: 9, fill: axisTick.fill }} />
+            <Tooltip contentStyle={tooltipStyle} />
             <Radar
               dataKey={yKey}
               stroke={PALETTE[0]}
               fill={PALETTE[0]}
-              fillOpacity={0.15}
-              strokeWidth={2}
+              fillOpacity={BOX_FILL_OPACITY}
+              strokeWidth={BOX_STROKE_WIDTH}
             />
           </RadarChart>
         </ResponsiveContainer>

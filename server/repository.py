@@ -42,6 +42,12 @@ class WorkflowRepository:
         if result is not None:
             data["result"] = result
 
+    def remove_event_bus(self, workflow_id: str) -> None:
+        """Drop the Bus reference so it can be garbage-collected."""
+        data = self._workflows.get(workflow_id)
+        if data and "event_bus" in data:
+            del data["event_bus"]
+
     def contains(self, workflow_id: str) -> bool:
         return workflow_id in self._workflows
 

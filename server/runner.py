@@ -267,6 +267,9 @@ class WorkflowRunner:
                 # Unregister builder from global signal map
                 if workflow._builder is not None:
                     workflow._builder.unregister_active()
+                # Release Bus reference so it can be garbage-collected
+                from server.repository import get_repository
+                get_repository().remove_event_bus(workflow_id)
                 # Clean up
                 async with self._lock:
                     if workflow_id in self._running:

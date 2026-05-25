@@ -12,7 +12,7 @@ from harness.engine.micro_agent import MicroAgentFactory
 from harness.engine.state import HarnessState
 from harness.constants import STATE_METADATA, STATE_OUTPUTS, STATE_INPUTS, STATE_ERRORS
 from harness.tools.registry import ToolRegistry
-from harness.extensions.eval.decisions import ReviewDecision
+from harness.engine.macro_graph import ReviewDecision
 
 
 # --- _route_judgment ---

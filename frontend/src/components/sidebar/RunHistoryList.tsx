@@ -11,7 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 const STATUS_ICON: Record<string, React.ReactNode> = {
   completed: <CheckCircle className="h-3 w-3 text-emerald-500" />,
   failed: <XCircle className="h-3 w-3 text-red-500" />,
-  cancelled: <XCircle className="h-3 w-3 text-gray-400" />,
+  cancelled: <XCircle className="h-3 w-3 text-muted-foreground" />,
   paused: <Pause className="h-3 w-3 text-amber-500" />,
 };
 
@@ -147,7 +147,7 @@ export function RunHistoryList() {
     <ScrollArea className="h-full">
       {grouped.map(([wfName, wfRuns]) => (
         <div key={wfName} className="mb-1">
-          <div className="sticky top-0 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="sticky top-0 bg-background px-3 py-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {wfName}
           </div>
           {wfRuns.map((run) => {
@@ -163,14 +163,14 @@ export function RunHistoryList() {
               <div
                 key={run.run_id}
                 onClick={() => handleClickRun(run)}
-                className={`group flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left hover:bg-gray-50 ${
-                  isSelected ? "bg-blue-50" : ""
+                className={`group flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left hover:bg-muted ${
+                  isSelected ? "bg-blue-50 dark:bg-blue-900/40" : ""
                 }`}
               >
                 <span className="flex h-3 w-3 shrink-0 items-center justify-center">
                   {isRunning ? <LiveDot /> : (STATUS_ICON[run.status] ?? STATUS_ICON.completed)}
                 </span>
-                <span className="flex-1 truncate text-xs text-app-text-primary">
+                <span className={`flex-1 truncate text-xs ${isSelected ? "text-blue-700 dark:text-blue-200" : "text-app-text-primary"}`}>
                   {run.inputs?.task ? String(run.inputs.task).slice(0, 30) : run.run_id.slice(0, 8)}
                 </span>
                 {isRunning && (
@@ -201,7 +201,7 @@ export function RunHistoryList() {
                     >
                       <RotateCcw className="h-3 w-3" />
                     </button>
-                    <span className="text-[10px] text-muted-foreground">{formatTime(run.created_at)}</span>
+                    <span className="text-xs text-muted-foreground">{formatTime(run.created_at)}</span>
                     <button
                       onClick={(e) => handleDeleteRun(e, run.run_id)}
                       className="rounded p-0.5 text-muted-foreground opacity-0 transition hover:bg-red-100 hover:text-red-500 group-hover:opacity-100"

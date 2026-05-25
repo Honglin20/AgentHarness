@@ -12,12 +12,15 @@ import {
   ZAxis,
 } from "recharts";
 import type { ChartPayload } from "@/types/events";
-import { PALETTE, AXIS_TICK, TOOLTIP_STYLE, LEGEND_STYLE, CHART_MARGIN, GRID_PROPS } from "./chartTheme";
+import { PALETTE, LEGEND_STYLE, CHART_MARGIN, BOX_FILL_OPACITY, getGridProps, getAxisTick, getTooltipStyle } from "./chartTheme";
 
 export default function ScatterChartWidget({ chart }: { chart: ChartPayload }) {
   const { data, x, y, hue, title } = chart;
   const xKey = x ?? "x";
   const yKey = y ?? "y";
+  const gridProps = getGridProps();
+  const axisTick = getAxisTick();
+  const tooltipStyle = getTooltipStyle();
 
   if (hue) {
     const hueValues = Array.from(new Set(data.map((d) => String(d[hue]))));
@@ -33,19 +36,20 @@ export default function ScatterChartWidget({ chart }: { chart: ChartPayload }) {
         <div className="aspect-[4/3] w-full">
           <ResponsiveContainer width="100%" height="100%">
             <ScatterChart margin={CHART_MARGIN}>
-              <CartesianGrid {...GRID_PROPS} />
-              <XAxis dataKey={xKey} tick={AXIS_TICK} name={xKey} />
-              <YAxis dataKey={yKey} tick={AXIS_TICK} name={yKey} />
+              <CartesianGrid {...gridProps} />
+              <XAxis dataKey={xKey} tick={axisTick} name={xKey} />
+              <YAxis dataKey={yKey} tick={axisTick} name={yKey} />
               <ZAxis range={[36, 36]} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ strokeDasharray: "3 3" }} />
+              <Tooltip contentStyle={tooltipStyle} cursor={{ strokeDasharray: "3 3" }} />
               <Legend wrapperStyle={LEGEND_STYLE} />
               {hueValues.map((val, i) => (
                 <Scatter
                   key={val}
                   name={val}
                   data={scatterSets[i]}
-                  fill={PALETTE[i % PALETTE.length]}
-                  fillOpacity={0.8}
+                  fill="none"
+                  stroke={PALETTE[i % PALETTE.length]}
+                  strokeWidth={1.5}
                 />
               ))}
             </ScatterChart>
@@ -63,12 +67,17 @@ export default function ScatterChartWidget({ chart }: { chart: ChartPayload }) {
       <div className="aspect-[4/3] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <ScatterChart margin={CHART_MARGIN}>
-            <CartesianGrid {...GRID_PROPS} />
-            <XAxis dataKey={xKey} tick={AXIS_TICK} name={xKey} />
-            <YAxis dataKey={yKey} tick={AXIS_TICK} name={yKey} />
+            <CartesianGrid {...gridProps} />
+            <XAxis dataKey={xKey} tick={axisTick} name={xKey} />
+            <YAxis dataKey={yKey} tick={axisTick} name={yKey} />
             <ZAxis range={[36, 36]} />
-            <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ strokeDasharray: "3 3" }} />
-            <Scatter data={scatterData} fill={PALETTE[0]} fillOpacity={0.8} />
+            <Tooltip contentStyle={tooltipStyle} cursor={{ strokeDasharray: "3 3" }} />
+            <Scatter
+              data={scatterData}
+              fill="none"
+              stroke={PALETTE[0]}
+              strokeWidth={1.5}
+            />
           </ScatterChart>
         </ResponsiveContainer>
       </div>

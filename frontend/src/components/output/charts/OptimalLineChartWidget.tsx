@@ -1,9 +1,7 @@
 "use client";
 
 import {
-  ScatterChart,
   Scatter,
-  LineChart,
   Line,
   XAxis,
   YAxis,
@@ -14,7 +12,7 @@ import {
   ComposedChart,
 } from "recharts";
 import type { ChartPayload } from "@/types/events";
-import { PALETTE, NEUTRAL, AXIS_TICK, TOOLTIP_STYLE, LEGEND_STYLE, CHART_MARGIN, GRID_PROPS } from "./chartTheme";
+import { PALETTE, POSITIVE, NEUTRAL, LEGEND_STYLE, CHART_MARGIN, getGridProps, getAxisTick, getTooltipStyle } from "./chartTheme";
 
 function computeOptimalLine(
   points: { x: number; y: number }[],
@@ -23,9 +21,19 @@ function computeOptimalLine(
   const sorted = [...points].sort((a, b) => a.x - b.x);
   let accum = sorted[0].y;
   return sorted.map((p) => {
+    const prev = accum;
     accum = direction === "max" ? Math.max(accum, p.y) : Math.min(accum, p.y);
-    return { x: p.x, y: accum };
+    return { x: p.x, y: accum, isNewRecord: accum !== prev };
   });
+}
+
+function OptimalDot(props: any) {
+  const { cx, cy, payload } = props;
+  if (cx == null || cy == null) return null;
+  const isRecord = payload?.isRecord;
+  const color = isRecord ? POSITIVE : NEUTRAL;
+  const r = isRecord ? 4 : 3;
+  return <circle cx={cx} cy={cy} r={r} fill={color} stroke="#fff" strokeWidth={1} />;
 }
 
 export default function OptimalLineChartWidget({ chart }: { chart: ChartPayload }) {
@@ -33,6 +41,9 @@ export default function OptimalLineChartWidget({ chart }: { chart: ChartPayload 
   const xKey = x ?? "x";
   const yKey = y ?? "y";
   const direction = optimal_line ?? "max";
+  const gridProps = getGridProps();
+  const axisTick = getAxisTick();
+  const tooltipStyle = getTooltipStyle();
 
   const points = data.map((d) => ({
     x: Number(d[xKey]),
@@ -42,10 +53,11 @@ export default function OptimalLineChartWidget({ chart }: { chart: ChartPayload 
   const optimalLine = computeOptimalLine(points, direction);
   const lineColor = direction === "max" ? PALETTE[0] : PALETTE[2];
 
-  const merged = points.map((p, i) => ({
+  const merged = optimalLine.map((p, i) => ({
     x: p.x,
-    scatter: p.y,
-    optimal: optimalLine[i]?.y,
+    scatter: points[i]?.y,
+    optimal: p.y,
+    isRecord: p.isNewRecord,
   }));
 
   return (
@@ -54,10 +66,10 @@ export default function OptimalLineChartWidget({ chart }: { chart: ChartPayload 
       <div className="aspect-[4/3] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={merged} margin={CHART_MARGIN}>
-            <CartesianGrid {...GRID_PROPS} />
-            <XAxis dataKey="x" tick={AXIS_TICK} name={xKey} />
-            <YAxis tick={AXIS_TICK} />
-            <Tooltip contentStyle={TOOLTIP_STYLE} />
+            <CartesianGrid {...gridProps} />
+            <XAxis dataKey="x" tick={axisTick} name={xKey} />
+            <YAxis tick={axisTick} />
+            <Tooltip contentStyle={tooltipStyle} />
             <Legend wrapperStyle={LEGEND_STYLE} />
             <Scatter name="Data Points" dataKey="scatter" fill={NEUTRAL} fillOpacity={0.5} />
             <Line
@@ -65,7 +77,7 @@ export default function OptimalLineChartWidget({ chart }: { chart: ChartPayload 
               dataKey="optimal"
               stroke={lineColor}
               strokeWidth={2}
-              dot={false}
+              dot={<OptimalDot />}
               type="stepAfter"
             />
           </ComposedChart>
