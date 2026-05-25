@@ -108,7 +108,7 @@ class BenchmarkStore:
         if not rdir.exists():
             return []
         results = []
-        for f in sorted(rdir.glob("*.json"), reverse=True):
+        for f in rdir.glob("*.json"):
             try:
                 data = json.loads(f.read_text())
                 if workflow_name and data.get("workflow_name") != workflow_name:
@@ -116,6 +116,7 @@ class BenchmarkStore:
                 results.append(data)
             except (json.JSONDecodeError, KeyError):
                 continue
+        results.sort(key=lambda r: r.get("created_at", ""), reverse=True)
         return results
 
     def get_result(self, run_id: str, benchmark_name: str | None = None) -> dict | None:

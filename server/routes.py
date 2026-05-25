@@ -275,25 +275,35 @@ async def chart_render(request: Request) -> dict:
     node_id = body.get("node_id", "")
     chart = body.get("chart", {})
 
-    # Find the running workflow that owns this node_id
     repo = get_repository()
-    for _wid, data in repo.all_running():
-        if node_id:
-            event_bus = data.get("event_bus")
-            if event_bus:
-                event_bus.emit("chart.render", {
-                    "node_id": node_id,
-                    "agent_name": node_id,
-                    "chart": chart,
-                })
-                return {"status": "ok"}
-
-    # Fallback: emit on global bus for backwards compat
-    get_event_bus().emit("chart.render", {
+    event_payload = {
         "node_id": node_id,
         "agent_name": node_id,
         "chart": chart,
-    })
+    }
+
+    # Try to find the specific workflow whose nodes include this node_id
+    for _wid, data in repo.all_running():
+        workflow = data.get("workflow")
+        if workflow and node_id:
+            # Check if this node_id matches any agent in this workflow
+            if any(a.name == node_id for a in workflow.agents):
+                event_bus = data.get("event_bus")
+                if event_bus:
+                    event_bus.emit("chart.render", event_payload)
+                    return {"status": "ok"}
+
+    # If node_id is empty or no specific match, try the active (last-started) running workflow
+    running = list(repo.all_running())
+    if running:
+        _wid, data = running[-1]
+        event_bus = data.get("event_bus")
+        if event_bus:
+            event_bus.emit("chart.render", event_payload)
+            return {"status": "ok"}
+
+    # Fallback: emit on global bus for backwards compat
+    get_event_bus().emit("chart.render", event_payload)
 
     return {"status": "ok"}
 
@@ -385,7 +395,7 @@ async def get_run(run_id: str) -> RunDetail:
             "status": data["status"],
             "inputs": data.get("inputs", {}),
             "result": data.get("result"),
-            "conversation": [],
+            "conversation": data.get("conversation", []),
             "created_at": data.get("created_at", ""),
             "dag": repo.get_dag(run_id),
         }
@@ -395,21 +405,31 @@ async def get_run(run_id: str) -> RunDetail:
 
 @router.patch("/runs/{run_id}/conversation")
 async def update_run_conversation(run_id: str, request: Request) -> dict:
-    """Update conversation messages for a persisted run."""
+    """Update conversation messages for a run — persisted or in-memory."""
     body = await request.json()
     conversation = body.get("conversation", [])
+
+    # Try persisted run first
     from harness.run_store import RunStore
     store = RunStore()
     run = store.get_run(run_id)
-    if not run:
-        raise HTTPException(status_code=404, detail="Run not found")
-    run["conversation"] = conversation
-    path = store._safe_path(run_id)
-    if not path:
-        raise HTTPException(status_code=400, detail="Invalid run_id")
-    import json
-    path.write_text(json.dumps(run, indent=2, ensure_ascii=False))
-    return {"status": "ok"}
+    if run:
+        run["conversation"] = conversation
+        path = store._safe_path(run_id)
+        if not path:
+            raise HTTPException(status_code=400, detail="Invalid run_id")
+        import json
+        path.write_text(json.dumps(run, indent=2, ensure_ascii=False))
+        return {"status": "ok"}
+
+    # For in-memory running workflows, store conversation in repository
+    repo = get_repository()
+    data = repo.get(run_id)
+    if data is not None:
+        data["conversation"] = conversation
+        return {"status": "ok"}
+
+    raise HTTPException(status_code=404, detail="Run not found")
 
 
 @router.patch("/runs/{run_id}/charts")
@@ -773,44 +793,72 @@ async def run_benchmark(
 
 @router.get("/benchmarks/{name}/results")
 async def list_benchmark_results(name: str) -> list[dict]:
-    """List all run results for a benchmark."""
+    """List all run results for a benchmark, enriched with live scores."""
     store = _get_benchmark_store()
     results = store.list_results(name)
     if not results and not store.load_benchmark(name):
         raise HTTPException(status_code=404, detail="Benchmark not found")
+
+    repo = get_repository()
+    for result in results:
+        _enrich_benchmark_result(result, repo, store, name)
+
     return results
 
 
-@router.get("/benchmarks/{name}/results/{run_id}")
-async def get_benchmark_result(name: str, run_id: str) -> dict:
-    """Get a specific benchmark run result with aggregated scores."""
-    store = _get_benchmark_store()
-    result = store.get_result(run_id, benchmark_name=name)
-    if not result:
-        raise HTTPException(status_code=404, detail="Result not found")
+def _enrich_benchmark_result(result: dict, repo, store=None, benchmark_name: str = "") -> None:
+    """Enrich a benchmark result with live scores, charts, and status from the repository.
 
-    # Enrich with live status from repository
-    repo = get_repository()
+    Persists enriched data back to disk so it survives server restarts.
+    """
     task_results = result.get("task_results", [])
+    changed = False
     scores = []
+
     for tr in task_results:
         wid = tr.get("workflow_id", "")
-        if wid:
-            data = repo.get(wid)
-            if data:
-                tr["status"] = data["status"]
-                wf_result = data.get("result")
-                if wf_result:
-                    outputs = wf_result.get("outputs", {})
-                    # Extract eval_judge scores from judge node outputs
-                    for key, val in outputs.items():
-                        if key.startswith("_judge_") and isinstance(val, dict):
-                            judgment = val.get("_judgment", {})
-                            score = judgment.get("score")
-                            if score is not None:
-                                tr["score"] = score
-                                scores.append(score)
-                                break
+        if not wid:
+            continue
+        data = repo.get(wid)
+        if not data:
+            continue
+
+        tr["status"] = data["status"]
+        changed = True
+
+        wf_result = data.get("result")
+        if not wf_result:
+            continue
+
+        outputs = wf_result.get("outputs", {})
+
+        # Extract scores: _judge_ prefix first, then fall back to any dict with a "score" key
+        score = None
+        for key, val in outputs.items():
+            if not isinstance(val, dict):
+                continue
+            if key.startswith("_judge_"):
+                judgment = val.get("_judgment", {})
+                score = judgment.get("score")
+            elif "score" in val:
+                score = val.get("score")
+            if score is not None:
+                break
+
+        if score is not None:
+            tr["score"] = score
+            scores.append(score)
+            changed = True
+
+        # Extract duration from trace
+        trace = wf_result.get("trace", [])
+        for entry in trace:
+            if entry.get("agent_name") == tr.get("label") or (trace and not tr.get("duration_ms")):
+                dur = entry.get("duration_ms")
+                if dur:
+                    tr["duration_ms"] = dur
+                    changed = True
+                break
 
     # Compute summary
     if scores:
@@ -822,6 +870,22 @@ async def get_benchmark_result(name: str, run_id: str) -> dict:
         for tr in task_results
     )
     result["status"] = "completed" if all_done else "running"
+
+    # Persist enriched data back to disk
+    if changed and store and benchmark_name:
+        store.save_result(benchmark_name, result)
+
+
+@router.get("/benchmarks/{name}/results/{run_id}")
+async def get_benchmark_result(name: str, run_id: str) -> dict:
+    """Get a specific benchmark run result with aggregated scores."""
+    store = _get_benchmark_store()
+    result = store.get_result(run_id, benchmark_name=name)
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    repo = get_repository()
+    _enrich_benchmark_result(result, repo, store, name)
 
     return result
 

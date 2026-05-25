@@ -8,6 +8,7 @@ import { useWorkflowStore } from "@/stores/workflowStore";
 import { useOutputStore } from "@/stores/outputStore";
 import { useChatStore } from "@/stores/chatStore";
 import { useChartStore } from "@/stores/chartStore";
+import { useConversationStore } from "@/stores/conversationStore";
 import { setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
 
 const API_BASE = "";
@@ -49,6 +50,26 @@ export default function BenchmarkRunner({ benchmark, onBack }: Props) {
   const completedCount = runs.filter((r) => r.status === "completed" || r.status === "failed").length;
   const allDone = runs.length > 0 && completedCount === runs.length;
 
+  // Sync batch status from server periodically while running
+  useEffect(() => {
+    if (!activeBatchId || !currentBatch || allDone) return;
+    const poll = setInterval(async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/batch/${activeBatchId}`);
+        if (!r.ok) return;
+        const data = await r.json();
+        for (const run of data.runs ?? []) {
+          useBatchStore.getState().updateRunStatus(
+            run.workflow_id,
+            run.status,
+            run.score,
+          );
+        }
+      } catch {}
+    }, 3000);
+    return () => clearInterval(poll);
+  }, [activeBatchId, currentBatch, allDone]);
+
   const runBenchmark = useCallback(async () => {
     if (!selectedWf) return;
     setRunning(true);
@@ -57,6 +78,7 @@ export default function BenchmarkRunner({ benchmark, onBack }: Props) {
     useOutputStore.getState().reset();
     useChatStore.getState().reset();
     useChartStore.getState().reset();
+    useConversationStore.getState().reset();
 
     try {
       const r = await fetch(`${API_BASE}/api/benchmarks/${encodeURIComponent(benchmark.name)}/run`, {
@@ -97,7 +119,7 @@ export default function BenchmarkRunner({ benchmark, onBack }: Props) {
     (wid: string) => {
       selectRun(wid);
       setActiveWorkflowId(wid);
-      // Reset UI stores for the new run
+      // Reset UI stores for the new run (but NOT conversationStore — setActiveWorkflowId handles restore)
       useOutputStore.getState().reset();
       useChatStore.getState().reset();
       useChartStore.getState().reset();

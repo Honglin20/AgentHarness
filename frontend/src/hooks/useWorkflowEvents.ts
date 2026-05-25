@@ -22,7 +22,7 @@ import { useChatStore } from "@/stores/chatStore";
 import { useOutputStore } from "@/stores/outputStore";
 import { useChartStore } from "@/stores/chartStore";
 import { useToolCallStore, nextToolCallId } from "@/stores/toolCallStore";
-import { useConversationStore } from "@/stores/conversationStore";
+import { useConversationStore, type ConversationMessage } from "@/stores/conversationStore";
 import { useAgentIOStore } from "@/stores/agentIOStore";
 import { useBatchStore } from "@/stores/batchStore";
 import { computeRunSummary } from "@/lib/summary/runSummary";
@@ -62,10 +62,11 @@ function _isBatchSelectedRun(wid: string | undefined): boolean {
   return wid === selectedRunId;
 }
 
-/** Save conversation messages to the backend for a completed/failed run. */
+/** Save conversation messages to the backend for a completed/failed/running run. */
 function _saveConversation(workflowId: string | undefined): void {
   if (!workflowId) return;
   const messages = useConversationStore.getState().messages;
+  if (messages.length === 0) return;
   fetch(`/api/runs/${workflowId}/conversation`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -73,6 +74,39 @@ function _saveConversation(workflowId: string | undefined): void {
   }).catch(() => {
     // Best-effort — don't block UI on failure
   });
+}
+
+/** Restore conversation messages from the backend for a running workflow. */
+async function _restoreConversation(workflowId: string): Promise<void> {
+  try {
+    const r = await fetch(`/api/runs/${workflowId}`);
+    if (!r.ok) return;
+    const data = await r.json();
+    const conversation = data.conversation;
+    if (Array.isArray(conversation) && conversation.length > 0) {
+      // Only restore if the current store is empty (avoid overwriting live data)
+      const current = useConversationStore.getState().messages;
+      if (current.length === 0) {
+        useConversationStore.setState({
+          messages: conversation.map((m: ConversationMessage, i: number) => ({
+            id: m.id ?? `restored-${i}`,
+            type: m.type,
+            nodeId: m.nodeId,
+            agentName: m.agentName,
+            content: m.content ?? "",
+            toolName: m.toolName,
+            toolArgs: m.toolArgs,
+            toolResult: m.toolResult,
+            status: m.status ?? "done",
+            durationMs: m.durationMs,
+            timestamp: m.timestamp ?? Date.now(),
+          })),
+        });
+      }
+    }
+  } catch {
+    // Best-effort
+  }
 }
 
 /** Save chartStore snapshot (groups + groupOrder) so the Results tab replays. */
@@ -103,11 +137,10 @@ function dispatchEvent(event: WSEvent): void {
     case "workflow.started": {
       const p = payload<WorkflowStartedPayload>(event);
       if (isBatch) {
-        // Batch: update batchStore only (already done in _handleBatchEvent)
+        // Batch: update workflowStore for the selected run only
         if (shouldRouteToUI) {
           useWorkflowStore.getState().setActiveWorkflowId(p.workflow_id);
           useWorkflowStore.getState().handleWorkflowStarted(p);
-          useConversationStore.getState().addSystemMessage("Workflow started: " + p.name);
         }
         break;
       }
@@ -280,9 +313,21 @@ function dispatchEvent(event: WSEvent): void {
   }
 }
 
-/** Set the active workflow ID before the WebSocket connects. */
+/** Set the active workflow ID. Saves the current workflow's conversation before switching. */
 export function setActiveWorkflowId(id: string | null) {
+  const currentId = useWorkflowStore.getState().activeWorkflowId;
+
+  // Save current workflow's conversation before switching away
+  if (currentId && currentId !== id) {
+    _saveConversation(currentId);
+  }
+
   useWorkflowStore.getState().setActiveWorkflowId(id);
+
+  // Restore conversation for the new workflow if it's already running
+  if (id && id !== currentId) {
+    _restoreConversation(id);
+  }
 }
 
 export function useWorkflowEvents(

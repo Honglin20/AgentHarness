@@ -18,9 +18,10 @@ interface BenchmarkItem {
 interface Props {
   onSelectBenchmark?: (name: string) => void;
   selectedBenchmark?: string | null;
+  onLeaveBenchmark?: () => void;
 }
 
-export function Sidebar({ onSelectBenchmark, selectedBenchmark }: Props) {
+export function Sidebar({ onSelectBenchmark, selectedBenchmark, onLeaveBenchmark }: Props) {
   const resetWorkflow = useResetWorkflow();
   const [compareOpen, setCompareOpen] = useState(false);
   const [benchmarks, setBenchmarks] = useState<BenchmarkItem[]>([]);
@@ -79,7 +80,7 @@ export function Sidebar({ onSelectBenchmark, selectedBenchmark }: Props) {
         <span className="text-xs font-semibold text-app-text-primary">History</span>
       </div>
       <div className="flex-1 overflow-hidden">
-        <RunHistoryList />
+        <RunHistoryList onLeaveBenchmark={onLeaveBenchmark} />
       </div>
 
       <Separator />

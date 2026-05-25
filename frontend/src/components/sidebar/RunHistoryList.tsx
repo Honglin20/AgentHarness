@@ -42,7 +42,7 @@ async function pauseWorkflow(runId: string): Promise<void> {
   }
 }
 
-export function RunHistoryList() {
+export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => void }) {
   const runs = useRunHistoryStore((s) => s.runs);
   const loading = useRunHistoryStore((s) => s.loading);
   const selectedRunId = useRunHistoryStore((s) => s.selectedRunId);
@@ -80,8 +80,13 @@ export function RunHistoryList() {
   }, [runs]);
 
   const handleClickRun = async (run: RunRecord) => {
+    // Leave benchmark view if we're in one
+    onLeaveBenchmark?.();
     selectRun(run.run_id);
-    if (run.status === "running" && run.run_id === liveWorkflowId) {
+    if (run.status === "running") {
+      // Switch to live view for this running workflow
+      setActiveWorkflowId(run.run_id);
+      setWorkflow(run.run_id, run.workflow_name, null);
       showLive();
       return;
     }

@@ -180,6 +180,9 @@ export function CenterPanel({ activeBenchmark }: Props) {
   }, [setWorkflow]);
 
   // Benchmark view — takes over the center panel when a benchmark is selected
+  const benchmarkSelectedRunId = useBatchStore((s) => s.selectedRunId);
+  const showBenchmarkDetail = benchmarkView === "runner" && batchRunning && benchmarkSelectedRunId;
+
   if (activeBenchmark && benchmarkData) {
     return (
       <div className="flex h-full flex-col overflow-hidden bg-app-bg-primary">
@@ -217,25 +220,58 @@ export function CenterPanel({ activeBenchmark }: Props) {
           <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
             BENCHMARK · {activeBenchmark}
           </span>
+          {showBenchmarkDetail && (
+            <>
+              <span className="text-muted-foreground">|</span>
+              <button
+                onClick={() => setActiveTab("conversation")}
+                className={`rounded-t px-3 py-1.5 text-xs font-medium transition-colors ${
+                  activeTab === "conversation"
+                    ? "bg-app-bg-primary text-app-text-primary border-b-2 border-blue-500"
+                    : "text-muted-foreground hover:text-app-text-primary"
+                }`}
+              >
+                Conversation
+              </button>
+              <button
+                onClick={() => setActiveTab("results")}
+                className={`rounded-t px-3 py-1.5 text-xs font-medium transition-colors ${
+                  activeTab === "results"
+                    ? "bg-app-bg-primary text-app-text-primary border-b-2 border-blue-500"
+                    : "text-muted-foreground hover:text-app-text-primary"
+                }`}
+              >
+                Results{liveResultCount > 0 ? ` ·${liveResultCount}` : ""}
+              </button>
+              <button
+                onClick={() => useBatchStore.getState().selectRun(null)}
+                className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground hover:text-app-text-primary"
+              >
+                Tasks
+              </button>
+            </>
+          )}
         </div>
-        <div className="flex-1 overflow-auto">
-          {benchmarkView === "runner" && (
+        <div className="flex-1 overflow-hidden">
+          {benchmarkView === "runner" && showBenchmarkDetail && activeTab === "conversation" ? (
+            <ConversationTab />
+          ) : benchmarkView === "runner" && showBenchmarkDetail && activeTab === "results" ? (
+            <ResultsTab />
+          ) : benchmarkView === "runner" ? (
             <BenchmarkRunner
               benchmark={benchmarkData as { name: string; description?: string; tasks: { id: string; label: string; inputs: Record<string, string> }[] }}
               onBack={() => setBenchmarkView("compare")}
             />
-          )}
-          {benchmarkView === "compare" && (
+          ) : benchmarkView === "compare" ? (
             <BenchmarkCompare benchmarkName={activeBenchmark} />
-          )}
-          {benchmarkView === "editor" && (
+          ) : benchmarkView === "editor" ? (
             <BenchmarkEditor
               initialName={activeBenchmark}
               initialTasks={((benchmarkData as Record<string, unknown>).tasks as { label: string; inputs: Record<string, string> }[]) ?? []}
               initialDescription={((benchmarkData as Record<string, unknown>).description as string) ?? ""}
               onSave={handleSaveBenchmark}
             />
-          )}
+          ) : null}
         </div>
         {batchRunning && (
           <div className="shrink-0">
