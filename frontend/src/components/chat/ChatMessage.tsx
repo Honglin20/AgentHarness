@@ -27,13 +27,13 @@ export default function ChatMessage({ message }: ChatMessageProps) {
         }`}
       >
         {isAgent && message.questionId && (
-          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          <div className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Question
           </div>
         )}
         <div className="text-sm">{message.content}</div>
         <div
-          className={`mt-1 text-[10px] ${
+          className={`mt-1 text-xs ${
             isAgent ? "text-muted-foreground" : "text-blue-100"
           }`}
         >

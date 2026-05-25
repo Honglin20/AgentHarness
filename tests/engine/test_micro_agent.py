@@ -77,3 +77,20 @@ def test_create_returns_pydantic_ai_agent():
         result_type=None,
     )
     assert isinstance(agent, PydanticAgent)
+
+
+def test_create_default_result_type_uses_agent_result():
+    """When result_type is not passed, factory should use AgentResult."""
+    from harness.api import AgentResult
+
+    factory = MicroAgentFactory()
+    agent = factory.create(
+        name="test",
+        prompt="You are a test agent.",
+        tools=[],
+        model="openai:gpt-4o",
+        retries=1,
+        result_type=None,
+    )
+    # Pydantic AI agent's output_type should be AgentResult, not str
+    assert agent._output_type is AgentResult

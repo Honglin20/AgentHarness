@@ -8,6 +8,9 @@ import ParetoChartWidget from "./charts/ParetoChartWidget";
 import OptimalLineChartWidget from "./charts/OptimalLineChartWidget";
 import HeatmapWidget from "./charts/HeatmapWidget";
 import BoxPlotWidget from "./charts/BoxPlotWidget";
+import BubbleChartWidget from "./charts/BubbleChartWidget";
+import AreaChartWidget from "./charts/AreaChartWidget";
+import RadarChartWidget from "./charts/RadarChartWidget";
 
 export default function ChartWidget({ chart }: { chart: ChartPayload }) {
   switch (chart.chart_type) {
@@ -25,6 +28,12 @@ export default function ChartWidget({ chart }: { chart: ChartPayload }) {
       return <HeatmapWidget chart={chart} />;
     case "box":
       return <BoxPlotWidget chart={chart} />;
+    case "bubble":
+      return <BubbleChartWidget chart={chart} />;
+    case "area":
+      return <AreaChartWidget chart={chart} />;
+    case "radar":
+      return <RadarChartWidget chart={chart} />;
     case "table":
       return null; // tables handled by ChartGroup
     default:

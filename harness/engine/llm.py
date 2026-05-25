@@ -5,6 +5,7 @@ All settings read from env vars with explicit-arg overrides.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 from typing import Any
 
@@ -12,6 +13,16 @@ import httpx
 from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
+
+
+def _is_deepseek(model_name: str, api_url: str) -> bool:
+    """Heuristic: model name starts with 'deepseek' or URL contains 'deepseek'."""
+    mn = model_name.lower()
+    if mn.startswith("deepseek"):
+        return True
+    if "deepseek" in api_url.lower():
+        return True
+    return False
 
 
 class LLMClient:
@@ -65,10 +76,21 @@ class LLMClient:
             provider_kwargs["base_url"] = self._api_url
 
         self._provider = OpenAIProvider(**provider_kwargs)
-        self._model = OpenAIChatModel(
-            model_name=self._model_name,
-            provider=self._provider,
-        )
+
+        # DeepSeek V4 / reasoner don't support tool_choice=required.
+        # OpenAIProvider doesn't know this, so override the profile.
+        model_kwargs: dict[str, Any] = {
+            "model_name": self._model_name,
+            "provider": self._provider,
+        }
+        if _is_deepseek(self._model_name, self._api_url):
+            base_profile = self._provider.model_profile(self._model_name)
+            if base_profile and getattr(base_profile, "openai_supports_tool_choice_required", True):
+                model_kwargs["profile"] = dataclasses.replace(
+                    base_profile, openai_supports_tool_choice_required=False
+                )
+
+        self._model = OpenAIChatModel(**model_kwargs)
 
     @property
     def model_name(self) -> str:

@@ -38,16 +38,27 @@ def test_tool_info():
 
 
 @pytest.mark.asyncio
-async def test_list_agents_from_fixtures(tmp_path):
-    """list_agents() scans fixtures directory."""
+async def test_list_agents_from_fixtures(tmp_path, monkeypatch):
+    """list_agents() scans workflow directory with private-first, shared-fallback."""
     from server.routes import list_agents
+    import server.routes as routes
 
-    # Create test agents dir
-    agents_dir = tmp_path / "agents"
-    agents_dir.mkdir()
+    # Monkeypatch _WORKFLOWS_DIR so _validate_workflow_dir resolves under tmp_path
+    workflows_dir = tmp_path / "workflows"
+    workflows_dir.mkdir()
+    monkeypatch.setattr(routes, "_WORKFLOWS_DIR", workflows_dir)
 
-    (agents_dir / "test1.md").write_text("""
----
+    # Monkeypatch _SHARED_AGENTS_DIR to empty dir to isolate test
+    shared_dir = tmp_path / "_shared_agents"
+    shared_dir.mkdir()
+    monkeypatch.setattr(routes, "_SHARED_AGENTS_DIR", shared_dir)
+
+    # Create a workflow with a private agent
+    wf_dir = workflows_dir / "test_wf"
+    agents_dir = wf_dir / "agents"
+    agents_dir.mkdir(parents=True)
+
+    (agents_dir / "test1.md").write_text("""---
 name: test1
 model: gpt-4
 ---
@@ -56,7 +67,7 @@ This is a test agent.
 
     (agents_dir / "test2.md").write_text("invalid content")
 
-    agents = await list_agents(agents_dir=str(agents_dir))
+    agents = await list_agents(workflow="test_wf")
 
     assert len(agents) == 1
     assert agents[0].name == "test1"

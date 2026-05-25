@@ -89,11 +89,53 @@ declared it.
 
 ## Open questions
 
-- [ ] What if the judge itself fails (LLM error)? v1: treat as "pass"
-  (don't block real progress on judge flakiness). Log it.
+- [x] What if the judge itself fails (LLM error)? — Treat as node failure (write
+  to `errors` dict, downstream skipped). Do NOT silently pass.
+  - Why: judge reliability is a requirement; silent pass masks real problems.
+  - How: exception caught → `return {"errors": {judge_name: str(e)}}`
 - [ ] User wants to *replace* the judge entirely, not just template — v2.
 
-## Acceptance
+## Pass 时透传 outputs
+
+`_judge_X` 节点写 `outputs[judge_name] = outputs[target_name]`，下游 Y 自动
+从 `outputs[_judge_X]` 拿到 X 的原始输出。
+
+judgment（ReviewDecision）写入 `metadata[judge_name]["judgment"]`，condition_fn
+从 metadata 读路由（不是从 outputs 读）。
+
+`build_node_prompt` 做"显示名重写"：upstream_outputs 中 key 名 `_judge_X`
+在 prompt 里渲染为 `X`，避免下游迷惑。
+
+## Lazy summarizer
+
+`harness/extensions/eval/summarizer.py`
+
+首次执行 judge 时调 LLM 总结 target agent 的 MD，缓存到
+`.eval_cache/_judge_<target>_summary.<sha256[:16]>.md`。
+
+- 缓存 key = SHA256 of target MD content（前 16 hex 字符）
+- MD 变 → key 变 → 缓存失效 → 重新总结
+- `.eval_cache/` 目录加 .gitignore
+
+## Score 字段
+
+`ReviewDecision.score: float | None = None`
+
+- score 非 None 时，`_judge_X` 节点自动 emit `chart.render` 事件
+- `score_history` 累计在 `metadata[judge_name]["score_history"]`，每次回环追加
+- 前端按 "Eval Scores" label + `{target_name} quality` title 自动刷新折线图
+
+## Judge 错误处理
+
+```python
+try:
+    review = await run_judge_agent(...)
+except Exception as e:
+    return {"errors": {judge_name: str(e)}}    # 不写 outputs → 下游中断
+```
+
+- `node.failed` 事件 emit，前端节点红色显示
+- 不静默当 "pass" — judge 可靠性是硬要求
 
 - A workflow with one agent marked `eval=True` produces a DAG with one
   extra node and the right edges; running it under a mocked LLM where

@@ -24,6 +24,12 @@ from harness.extensions.base import (
     Extension,
 )
 from harness.extensions.bus import Bus, get_bus
+from harness.extensions.plugins import (
+    EvalChartPlugin,
+    AgentTracePlugin,
+    ReasoningVizPlugin,
+    PerfMetricsPlugin,
+)
 
 __all__ = [
     "BaseHook",
@@ -37,4 +43,8 @@ __all__ = [
     "Extension",
     "Bus",
     "get_bus",
+    "EvalChartPlugin",
+    "AgentTracePlugin",
+    "ReasoningVizPlugin",
+    "PerfMetricsPlugin",
 ]

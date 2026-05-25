@@ -52,7 +52,10 @@ def render_chart(
     label: str = "default",
     title: str = "",
     hue: str | None = None,
+    size: str | None = None,
     pareto_direction: str | None = None,
+    pareto_x_direction: str | None = None,
+    pareto_y_direction: str | None = None,
     optimal_line: str | None = None,
     node_id: str = "",
 ) -> str:
@@ -65,13 +68,17 @@ def render_chart(
     Args:
         data: Row dicts (equivalent to DataFrame.to_dict("records")).
         chart_type: "line" | "bar" | "scatter" | "pareto" | "optimal_line"
-                    | "heatmap" | "box" | "table"
+                    | "heatmap" | "box" | "bubble" | "area" | "radar"
+                    | "table"
         x: X-axis column name.
         y: Y-axis column name.
         label: Group label for frontend collapsible sections.
         title: Chart title. Same label+title replaces existing chart (live update).
         hue: Color-grouping column name.
+        size: Bubble size column name (only for chart_type="bubble").
         pareto_direction: "max" or "min" (only for chart_type="pareto").
+        pareto_x_direction: "max" or "min" — override x-axis direction for pareto.
+        pareto_y_direction: "max" or "min" — override y-axis direction for pareto.
         optimal_line: "max" or "min" (only for chart_type="optimal_line").
         node_id: Identifier of the calling agent/node.
 
@@ -91,10 +98,17 @@ def render_chart(
         "hue": hue,
     }
 
-    if chart_type == "pareto" and pareto_direction:
-        chart_payload["pareto_direction"] = pareto_direction
+    if chart_type == "pareto":
+        if pareto_direction:
+            chart_payload["pareto_direction"] = pareto_direction
+        if pareto_x_direction:
+            chart_payload["pareto_x_direction"] = pareto_x_direction
+        if pareto_y_direction:
+            chart_payload["pareto_y_direction"] = pareto_y_direction
     if chart_type == "optimal_line" and optimal_line:
         chart_payload["optimal_line"] = optimal_line
+    if chart_type == "bubble" and size:
+        chart_payload["size"] = size
 
     event_payload = {
         "node_id": node_id,

@@ -39,28 +39,28 @@ function RunSide({ run, side }: { run: RunRecord | null; side: "left" | "right" 
     return (
       <div className="p-3 text-xs text-muted-foreground">
         No agents snapshot saved for this run.
-        <div className="mt-1 text-[10px]">(Pre-existing runs may lack snapshots; new runs will capture them at start.)</div>
+        <div className="mt-1 text-xs">(Pre-existing runs may lack snapshots; new runs will capture them at start.)</div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="rounded bg-gray-50 px-3 py-1.5 text-[10px] text-muted-foreground">
+      <div className="rounded bg-muted px-3 py-1.5 text-xs text-muted-foreground">
         <span className="font-semibold uppercase tracking-wider">{run.workflow_name}</span>
         {" · "}{formatStamp(run.created_at)}
         {run.inputs?.task ? ` · "${shortTask(run.inputs)}"` : ""}
       </div>
       {agents.map((a: AgentSnapshot) => (
-        <div key={a.name} className="rounded border border-app-border bg-gray-50">
-          <div className="flex items-center gap-2 border-b border-app-border bg-white px-3 py-1.5">
+        <div key={a.name} className="rounded border border-app-border bg-muted">
+          <div className="flex items-center gap-2 border-b border-app-border bg-background px-3 py-1.5">
             <FileText className="h-3 w-3 text-muted-foreground" />
             <span className="font-mono text-xs font-medium text-app-text-primary">{a.name}</span>
             {a.after.length > 0 && (
-              <span className="text-[10px] text-muted-foreground">after: {a.after.join(", ")}</span>
+              <span className="text-xs text-muted-foreground">after: {a.after.join(", ")}</span>
             )}
           </div>
-          <pre className="max-h-80 overflow-auto whitespace-pre-wrap p-3 font-mono text-[11px] leading-relaxed text-app-text-primary">
+          <pre className="max-h-80 overflow-auto whitespace-pre-wrap p-3 font-mono text-xs leading-relaxed text-app-text-primary">
             {a.md_content || "(empty)"}
           </pre>
         </div>
@@ -102,7 +102,7 @@ export function WorkflowCompareDialog({ open, onOpenChange }: WorkflowCompareDia
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="h-8 rounded border border-input bg-white px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      className="h-8 rounded border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
     >
       <option value="">— pick a history run —</option>
       {grouped.map(([wfName, wfRuns]) => (

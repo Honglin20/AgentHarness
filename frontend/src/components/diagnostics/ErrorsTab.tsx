@@ -34,17 +34,17 @@ export default function ErrorsTab({
               <span className="text-sm font-medium text-app-text-primary">
                 {node.name}
               </span>
-              <span className="ml-auto text-[10px] text-muted-foreground">
+              <span className="ml-auto text-xs text-muted-foreground">
                 {node.status === "retrying" ? `Retry #${node.attempt}` : "Failed"}
               </span>
             </div>
             {node.error && (
-              <pre className="mt-1.5 overflow-x-auto rounded bg-red-50 p-2 text-[11px] text-red-700 font-mono">
+              <pre className="mt-1.5 overflow-x-auto rounded bg-destructive/10 p-2 text-xs text-destructive font-mono">
                 {node.error}
               </pre>
             )}
             {node.durationMs != null && (
-              <div className="mt-1 text-[10px] text-muted-foreground">
+              <div className="mt-1 text-xs text-muted-foreground">
                 After {node.durationMs < 1000 ? `${node.durationMs}ms` : `${(node.durationMs / 1000).toFixed(1)}s`}
                 {node.willRetry && " · will retry"}
               </div>

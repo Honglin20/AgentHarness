@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi import APIRouter
 
-from server.event_bus import EventBus, get_event_bus
+from server.event_bus import EventBus
 
 router = APIRouter()
 
@@ -103,7 +103,15 @@ async def websocket_endpoint(
 ):
     """WebSocket endpoint for real-time workflow events."""
     manager = get_connection_manager()
-    event_bus = get_event_bus()
+
+    # Get the Bus bound to this specific workflow
+    from server.repository import get_repository
+    repo = get_repository()
+    data = repo.get(workflow_id)
+    event_bus = data.get("event_bus") if data else None
+    if not event_bus:
+        # Fallback: create a standalone Bus for completed/missing runs
+        event_bus = EventBus()
 
     sub_id = await manager.connect(workflow_id, websocket, event_bus)
 

@@ -36,6 +36,7 @@ export default function DiagnosticsPanel() {
         status: t.status === "success" ? "success" : "failed",
         durationMs: t.duration_ms,
         error: t.error ?? undefined,
+        tokenUsage: t.token_usage ?? undefined,
       };
     }
 

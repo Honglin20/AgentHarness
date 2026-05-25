@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 from harness.tools.bash import BashToolFactory
@@ -12,16 +13,29 @@ from harness.tools.chart import render_chart
 def _find_filesystem_server(
     extra_candidates: list[str | Path] | None = None,
 ) -> str | None:
-    """Find the filesystem MCP server binary path.
+    """Find the filesystem MCP server binary.
 
-    Returns None if not found — caller should fall back to npx.
+    Search order:
+      1. extra_candidates (caller overrides)
+      2. $PATH (``which mcp-server-filesystem``)
+      3. Common install locations
+      4. Returns None → caller falls back to ``npx``
     """
-    candidates = [
-        *(Path(p) for p in (extra_candidates or [])),
-        Path("/tmp/mcp-servers/node_modules/.bin/mcp-server-filesystem"),
+    # 1. Caller overrides
+    for p in (extra_candidates or []):
+        if Path(p).exists():
+            return str(p)
+
+    # 2. On $PATH
+    found = shutil.which("mcp-server-filesystem")
+    if found:
+        return found
+
+    # 3. Common install locations not on PATH
+    for p in [
         Path.home() / ".local/bin/mcp-server-filesystem",
-    ]
-    for p in candidates:
+        Path("/tmp/mcp-servers/node_modules/.bin/mcp-server-filesystem"),
+    ]:
         if p.exists():
             return str(p)
 

@@ -2,7 +2,7 @@ import pytest
 from pathlib import Path
 from harness.compiler.md_parser import parse_agent_md, ParsedAgent
 
-FIXTURES = Path(__file__).parent / "fixtures"
+FIXTURES = Path(__file__).parent / "fixtures" / "agents"
 
 
 def test_parse_full_frontmatter():

@@ -7,18 +7,41 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
+
 from server.event_bus import EventBus
+
+
+def _serialize_outputs(outputs: dict) -> dict:
+    """Convert BaseModel instances to dicts for JSON serialization."""
+    return {
+        k: v.model_dump() if isinstance(v, BaseModel) else v
+        for k, v in outputs.items()
+    }
 
 
 def _build_agents_snapshot(workflow) -> list[dict]:
     """Build a snapshot of agent definitions with their current MD content."""
-    agents_dir = Path(workflow.agents_dir)
+    from harness.compiler.md_parser import resolve_agent_md, AgentNotFoundError
+
+    workflow_dir = workflow.workflow_dir
     snapshot = []
     for agent_def in workflow.agents:
-        md_path = agents_dir / f"{agent_def.name}.md"
-        md_content = ""
-        if md_path.exists():
-            md_content = md_path.read_text()
+        if "_passthrough" in agent_def.name:
+            md_content = (
+                "---\n"
+                "auto_generated: true\n"
+                "---\n\n"
+                "(passthrough node — no prompt)"
+            )
+        else:
+            md_content = ""
+            try:
+                md_path = resolve_agent_md(agent_def.name, workflow_dir)
+                md_content = md_path.read_text()
+            except AgentNotFoundError:
+                pass
+
         snapshot.append({
             "name": agent_def.name,
             "after": agent_def.after,
@@ -46,6 +69,8 @@ class WorkflowRunner:
         workflow,
         inputs: dict,
         event_bus: EventBus,
+        config: dict | None = None,
+        resume: bool = False,
     ) -> None:
         """Submit a workflow to run in the background."""
         async with self._lock:
@@ -62,6 +87,8 @@ class WorkflowRunner:
                 workflow=workflow,
                 inputs=inputs,
                 event_bus=event_bus,
+                config=config,
+                resume=resume,
             )
         )
 
@@ -69,7 +96,7 @@ class WorkflowRunner:
             self._running[workflow_id] = task
 
     async def cancel(self, workflow_id: str) -> bool:
-        """Cancel a running workflow."""
+        """Pause a running workflow (sets status to 'paused')."""
         async with self._lock:
             if workflow_id not in self._running:
                 return False
@@ -84,16 +111,18 @@ class WorkflowRunner:
             except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
 
-            # Clean up
+            # Clean up runner state (keep entry for resume)
             del self._running[workflow_id]
             if workflow_id in self._cancelled:
                 self._cancelled.remove(workflow_id)
 
-            # Persist a cancelled record so the run shows up in history
-            from server.routes import _workflows, _dag_cache
-            data = _workflows.get(workflow_id)
+            # Persist as paused so the run stays in history and can be resumed
+            from server.repository import get_repository
+            repo = get_repository()
+            data = repo.get(workflow_id)
             if data is not None:
                 workflow = data["workflow"]
+                data["status"] = "paused"
                 from harness.run_store import RunStore
                 try:
                     RunStore().save(
@@ -101,10 +130,10 @@ class WorkflowRunner:
                         workflow_name=workflow.name,
                         agents_snapshot=data.get("agents_snapshot")
                             or _build_agents_snapshot(workflow),
-                        status="cancelled",
+                        status="paused",
                         inputs=data.get("inputs", {}),
                         result=None,
-                        dag=_dag_cache.get(workflow_id),
+                        dag=repo.get_dag(workflow_id),
                     )
                 except Exception:
                     pass
@@ -117,89 +146,130 @@ class WorkflowRunner:
         workflow,
         inputs: dict,
         event_bus: EventBus,
+        config: dict | None = None,
+        resume: bool = False,
     ) -> None:
         """Internal: execute workflow with cancellation check."""
         async with self._semaphore:
             try:
-                # workflow.started is already emitted by routes.py with the DAG.
-                # Do NOT emit a second one here — it would lack the DAG data
-                # and cause duplicate processing on the frontend.
-
                 # Check cancellation before starting
                 if await self._is_cancelled(workflow_id):
                     event_bus.emit("workflow.cancelled", {"workflow_id": workflow_id})
                     return
 
+                # Connect MCP servers and register their tools
+                await workflow.setup()
+
                 # Set workflow_id on builder for interrupt support
                 if workflow._builder is not None:
                     workflow._builder.workflow_id = workflow_id
+                    workflow._builder.register_active()
 
-                # Run workflow
-                result = await workflow.arun(inputs)
+                # Run workflow (resume from checkpoint or fresh start)
+                if resume and config:
+                    result = await workflow.arun(inputs=None, config=config)
+                else:
+                    result = await workflow.arun(inputs, config=config)
 
                 # Store result for REST endpoints
-                from server.routes import _workflows
-                if workflow_id in _workflows:
-                    _workflows[workflow_id]["status"] = "completed"
-                    _workflows[workflow_id]["result"] = {
-                        "outputs": result.outputs,
+                from server.repository import get_repository
+                repo = get_repository()
+
+                # Store result for REST endpoints
+                from server.repository import get_repository
+                repo = get_repository()
+                if repo.contains(workflow_id):
+                    repo.update_status(workflow_id, "completed", {
+                        "outputs": _serialize_outputs(result.outputs),
                         "errors": result.errors,
                         "trace": [t.model_dump() for t in result.trace],
-                    }
+                    })
+
+                    # Update batch status if this run belongs to a batch
+                    wf_data = repo.get(workflow_id)
+                    batch_id = wf_data.get("batch_id") if wf_data else None
+                    if batch_id:
+                        repo.update_batch_run_status(batch_id, workflow_id, "completed")
 
                 # Persist run to disk
                 from harness.run_store import RunStore
-                from server.routes import _dag_cache
+                _agent_io = workflow._builder.agent_io if workflow._builder else {}
+                data = repo.get(workflow_id)
                 RunStore().save(
                     run_id=workflow_id,
                     workflow_name=workflow.name,
-                    agents_snapshot=_workflows[workflow_id].get("agents_snapshot")
-                        or _build_agents_snapshot(workflow),
+                    agents_snapshot=data.get("agents_snapshot")
+                        or _build_agents_snapshot(workflow) if data else _build_agents_snapshot(workflow),
                     status="completed",
                     inputs=inputs,
-                    result=_workflows[workflow_id]["result"],
-                    dag=_dag_cache.get(workflow_id),
+                    result=data.get("result") if data else None,
+                    dag=repo.get_dag(workflow_id),
+                    agent_io=_agent_io,
                 )
 
                 # Emit completion
-                event_bus.emit("workflow.completed", {
+                completion_payload = {
                     "workflow_id": workflow_id,
-                    "outputs": result.outputs,
+                    "outputs": _serialize_outputs(result.outputs),
                     "errors": result.errors,
                     "trace": [t.model_dump() for t in result.trace],
-                })
+                }
+                if batch_id:
+                    completion_payload["batch_id"] = batch_id
+                event_bus.emit("workflow.completed", completion_payload)
 
             except Exception as e:
                 # Store error for REST endpoints
-                from server.routes import _workflows
-                if workflow_id in _workflows:
-                    _workflows[workflow_id]["status"] = "failed"
-                    _workflows[workflow_id]["result"] = {
+                from server.repository import get_repository
+                repo = get_repository()
+                if repo.contains(workflow_id):
+                    repo.update_status(workflow_id, "failed", {
                         "outputs": {},
                         "errors": {"_workflow": str(e)},
                         "trace": [],
-                    }
+                    })
+
+                    # Update batch status if this run belongs to a batch
+                    wf_data = repo.get(workflow_id)
+                    batch_id = wf_data.get("batch_id") if wf_data else None
+                    if batch_id:
+                        repo.update_batch_run_status(
+                            batch_id, workflow_id, "failed", error=str(e)
+                        )
 
                 # Persist failed run to disk
                 from harness.run_store import RunStore
-                from server.routes import _dag_cache
+                _agent_io = workflow._builder.agent_io if workflow._builder else {}
+                data = repo.get(workflow_id)
                 RunStore().save(
                     run_id=workflow_id,
                     workflow_name=workflow.name,
-                    agents_snapshot=_workflows[workflow_id].get("agents_snapshot")
-                        or _build_agents_snapshot(workflow),
+                    agents_snapshot=data.get("agents_snapshot")
+                        or _build_agents_snapshot(workflow) if data else _build_agents_snapshot(workflow),
                     status="failed",
                     inputs=inputs,
                     result=None,
-                    dag=_dag_cache.get(workflow_id),
+                    dag=repo.get_dag(workflow_id),
+                    agent_io=_agent_io,
                 )
 
-                event_bus.emit("workflow.error", {
+                error_payload = {
                     "workflow_id": workflow_id,
                     "error": str(e),
-                })
+                }
+                if batch_id:
+                    error_payload["batch_id"] = batch_id
+                event_bus.emit("workflow.error", error_payload)
 
             finally:
+                # Disconnect MCP servers
+                await workflow.cleanup()
+                # Unregister builder from global signal map
+                if workflow._builder is not None:
+                    workflow._builder.unregister_active()
+                # Release Bus reference so it can be garbage-collected
+                from server.repository import get_repository
+                get_repository().remove_event_bus(workflow_id)
                 # Clean up
                 async with self._lock:
                     if workflow_id in self._running:
@@ -216,6 +286,11 @@ class WorkflowRunner:
     def running_count(self) -> int:
         """Number of currently running workflows."""
         return len(self._running)
+
+    @property
+    def running_ids(self) -> list[str]:
+        """IDs of currently running workflows."""
+        return list(self._running.keys())
 
 
 # Singleton instance

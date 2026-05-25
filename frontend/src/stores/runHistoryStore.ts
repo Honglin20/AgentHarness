@@ -23,12 +23,19 @@ export interface ConversationMessage {
   timestamp?: number;
 }
 
+export interface AgentIORecord {
+  input_prompt: string;
+  system_prompt?: string;
+  output_result: unknown;
+}
+
 export interface RunRecord {
   run_id: string;
   workflow_name: string;
   agents_snapshot: AgentSnapshot[];
   status: string;
   inputs: Record<string, unknown>;
+  agent_io?: Record<string, AgentIORecord>;
   result: {
     outputs: Record<string, unknown>;
     errors: Record<string, string>;
@@ -37,6 +44,7 @@ export interface RunRecord {
       status: string;
       duration_ms: number;
       error: string | null;
+      token_usage?: { input: number; output: number; total: number } | null;
     }>;
   } | null;
   conversation: ConversationMessage[];

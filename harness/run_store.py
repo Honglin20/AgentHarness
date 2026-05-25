@@ -34,6 +34,7 @@ class RunStore:
         inputs: dict,
         result: dict | None,
         dag: dict | None = None,
+        agent_io: dict | None = None,
     ) -> Path:
         record = {
             "run_id": run_id,
@@ -45,6 +46,8 @@ class RunStore:
             "dag": dag,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
+        if agent_io:
+            record["agent_io"] = agent_io
         path = self._safe_path(run_id)
         if path is None:
             raise ValueError(f"Invalid run_id: {run_id}")

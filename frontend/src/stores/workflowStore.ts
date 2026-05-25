@@ -5,6 +5,7 @@ import type {
   NodeStartedPayload,
   NodeCompletedPayload,
   NodeFailedPayload,
+  ToolBrief,
 } from "@/types/events";
 
 export interface NodeState {
@@ -16,13 +17,14 @@ export interface NodeState {
   attempt?: number;
   willRetry?: boolean;
   tokenUsage?: { input: number; output: number; total: number };
+  tools?: ToolBrief[];
 }
 
 export interface WorkflowState {
   // Current workflow
   workflowId: string | null;
   workflowName: string | null;
-  status: "idle" | "running" | "completed" | "failed" | "cancelled";
+  status: "idle" | "running" | "completed" | "failed" | "cancelled" | "paused";
 
   // Node states keyed by node_id
   nodes: Record<string, NodeState>;
@@ -30,17 +32,20 @@ export interface WorkflowState {
   // DAG structure from backend
   dag: { nodes: string[]; edges: [string, string][]; conditional_edges?: { from: string; to: string; label: string }[] } | null;
 
-  // Agents directory for the current workflow
-  agentsDir: string;
-
   selectedNodeId: string | null;
   selectedTemplate: Record<string, unknown> | null;
 
+  // Active workflow filter — prevents stale replayed events from polluting state
+  activeWorkflowId: string | null;
+
   // Actions
-  setWorkflow: (id: string, name: string, dag?: unknown, agentsDir?: string) => void;
+  setWorkflow: (id: string, name: string, dag?: unknown) => void;
   setSelectedNode: (id: string | null) => void;
   setSelectedTemplate: (template: Record<string, unknown> | null) => void;
+  setActiveWorkflowId: (id: string | null) => void;
   reset: () => void;
+  previewTemplate: (template: Record<string, unknown>) => void;
+  clearPreview: () => void;
 
   // Event handlers
   handleWorkflowStarted: (payload: WorkflowStartedPayload) => void;
@@ -56,20 +61,19 @@ const initialState = {
   status: "idle" as const,
   nodes: {} as Record<string, NodeState>,
   dag: null as { nodes: string[]; edges: [string, string][] } | null,
-  agentsDir: "agents" as string,
 };
 
 export const useWorkflowStore = create<WorkflowState>()((set) => ({
   selectedNodeId: null as string | null,
   selectedTemplate: null as Record<string, unknown> | null,
+  activeWorkflowId: null as string | null,
   ...initialState,
 
-  setWorkflow: (id, name, dag, agentsDir) =>
+  setWorkflow: (id, name, dag) =>
     set({
       workflowId: id,
       workflowName: name,
       dag: (dag as WorkflowState["dag"]) ?? null,
-      agentsDir: agentsDir ?? "agents",
       status: "running",
       nodes: {},
       selectedNodeId: null,
@@ -79,7 +83,21 @@ export const useWorkflowStore = create<WorkflowState>()((set) => ({
 
   setSelectedTemplate: (template) => set({ selectedTemplate: template }),
 
-  reset: () => set({ ...initialState, selectedNodeId: null, selectedTemplate: null, agentsDir: "agents" }),
+  setActiveWorkflowId: (id) => set({ activeWorkflowId: id }),
+
+  reset: () => set({ ...initialState, selectedNodeId: null, selectedTemplate: null, activeWorkflowId: null }),
+
+  previewTemplate: (template) =>
+    set({
+      workflowName: (template.name as string) ?? null,
+      dag: (template.dag as WorkflowState["dag"]) ?? null,
+    }),
+
+  clearPreview: () =>
+    set({
+      workflowName: null,
+      dag: null,
+    }),
 
   handleWorkflowStarted: (payload) =>
     set((state) => ({
@@ -87,12 +105,15 @@ export const useWorkflowStore = create<WorkflowState>()((set) => ({
       workflowId: payload.workflow_id,
       workflowName: payload.name,
       dag: payload.dag ?? state.dag,
-      agentsDir: payload.agents_dir ?? state.agentsDir,
     })),
 
   handleWorkflowCompleted: (payload) =>
     set({
-      status: payload.status === "failed" ? "failed" : "completed",
+      status: payload.status === "failed"
+        ? ("failed" as const)
+        : payload.status === "paused"
+          ? ("paused" as const)
+          : ("completed" as const),
     }),
 
   handleNodeStarted: (payload) =>
@@ -104,6 +125,7 @@ export const useWorkflowStore = create<WorkflowState>()((set) => ({
           name: payload.agent_name,
           status: "running",
           attempt: payload.attempt,
+          tools: payload.tools,
         },
       },
     })),

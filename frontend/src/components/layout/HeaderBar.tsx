@@ -1,16 +1,33 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
-import { Settings, Key, Cpu, Globe, X, RotateCcw, Square } from "lucide-react";
+import { Settings, Key, Cpu, Globe, X, RotateCcw, Square, Timer, Play, Sun, Moon } from "lucide-react";
+import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { Logo } from "@/components/ui/logo";
 import { useWorkflowStore, type NodeState } from "@/stores/workflowStore";
 import { useViewStore } from "@/stores/viewStore";
 import { useResetWorkflow } from "@/hooks/useResetWorkflow";
 import DAGStatusBar from "@/components/dag/DAGStatusBar";
 
 const API_BASE = "";
+
+function ThemeToggle() {
+  const { theme, setTheme, resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={() => setTheme(isDark ? "light" : "dark")}
+      title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+    >
+      {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+    </Button>
+  );
+}
 
 export function HeaderBar() {
   const workflowId = useWorkflowStore((s) => s.workflowId);
@@ -24,6 +41,7 @@ export function HeaderBar() {
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [apiUrl, setApiUrl] = useState("");
+  const [stopRegenTtl, setStopRegenTtl] = useState("60");
   const [saved, setSaved] = useState(false);
   const [stopping, setStopping] = useState(false);
   const resetWorkflow = useResetWorkflow();
@@ -58,6 +76,7 @@ export function HeaderBar() {
         if (cfg.api_key_set) setApiKey(cfg.api_key_masked);
         if (cfg.model) setModel(cfg.model);
         if (cfg.api_url) setApiUrl(cfg.api_url);
+        if (cfg.stop_regen_ttl) setStopRegenTtl(cfg.stop_regen_ttl);
       }
     } catch {}
   }, []);
@@ -71,13 +90,14 @@ export function HeaderBar() {
           ...(apiKey && !apiKey.includes("*") ? { api_key: apiKey } : {}),
           ...(model ? { model } : {}),
           ...(apiUrl ? { api_url: apiUrl } : {}),
+          ...(stopRegenTtl ? { stop_regen_ttl: stopRegenTtl } : {}),
           persist: true,
         }),
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch {}
-  }, [apiKey, model, apiUrl]);
+  }, [apiKey, model, apiUrl, stopRegenTtl]);
 
   const handleStop = useCallback(async () => {
     if (!workflowId) return;
@@ -85,21 +105,31 @@ export function HeaderBar() {
     try {
       await fetch(`${API_BASE}/api/workflows/${workflowId}/cancel`, { method: "POST" });
     } catch {}
-    resetWorkflow();
     setStopping(false);
-  }, [workflowId, resetWorkflow]);
+  }, [workflowId]);
+
+  const handleResume = useCallback(async () => {
+    if (!workflowId) return;
+    try {
+      await fetch(`${API_BASE}/api/runs/${workflowId}/resume`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+    } catch {}
+  }, [workflowId]);
 
   const handleNew = resetWorkflow;
 
   return (
-    <header className="relative flex h-14 items-center gap-3 border-b px-4">
+    <header className="relative flex h-12 items-center gap-3 border-b px-4">
       <div className="relative z-10 flex shrink-0 items-center gap-3 bg-app-bg-primary">
         <button
           onClick={resetWorkflow}
-          className="text-sm font-semibold text-app-text-primary hover:text-blue-600 transition-colors"
+          className="text-primary hover:opacity-80 transition-opacity"
           title="Back to home / start a new workflow"
         >
-          TARS
+          <Logo size="sm" />
         </button>
         <Separator orientation="vertical" className="h-4" />
         <span className="max-w-[180px] truncate text-sm text-app-text-secondary">
@@ -108,7 +138,7 @@ export function HeaderBar() {
       </div>
 
       {dagProps && (
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-0 flex h-14 items-center justify-center">
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-0 flex h-12 items-center justify-center">
           <div className="pointer-events-auto max-w-[60%]">
             <DAGStatusBar
               dag={dagProps.dag}
@@ -125,15 +155,15 @@ export function HeaderBar() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 gap-1.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+            className="h-7 gap-1.5 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-50"
             onClick={handleStop}
             disabled={stopping}
           >
             <Square className="h-3.5 w-3.5" />
-            {stopping ? "Stopping..." : "Stop"}
+            {stopping ? "Pausing..." : "Pause"}
           </Button>
         )}
-        {isActive && !isRunning && (
+        {isActive && !isRunning && status !== "paused" && (
           <Button
             variant="ghost"
             size="sm"
@@ -144,6 +174,18 @@ export function HeaderBar() {
             New Workflow
           </Button>
         )}
+        {status === "paused" && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1.5 text-xs text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+            onClick={handleResume}
+          >
+            <Play className="h-3.5 w-3.5" />
+            Resume
+          </Button>
+        )}
+        <ThemeToggle />
         <Button
           variant="ghost"
           size="icon"
@@ -154,7 +196,7 @@ export function HeaderBar() {
       </div>
 
       {open && (
-        <div className="absolute right-2 top-14 z-50 w-80 rounded-lg border border-app-border bg-white p-4 shadow-lg">
+        <div className="absolute right-2 top-14 z-50 w-80 rounded-lg border border-app-border bg-background p-4 shadow-lg">
           <div className="mb-3 flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-app-text-secondary">
               Settings
@@ -195,9 +237,25 @@ export function HeaderBar() {
               <Input
                 value={apiUrl}
                 onChange={(e) => setApiUrl(e.target.value)}
-                placeholder="https://api.deepseek.com/anthropic"
+                placeholder="https://api.deepseek.com/v1"
                 className="h-8 text-xs"
               />
+            </div>
+            <div>
+              <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-app-text-secondary">
+                <Timer className="h-3 w-3" /> Stop Signal TTL (seconds)
+              </label>
+              <Input
+                type="number"
+                min={1}
+                value={stopRegenTtl}
+                onChange={(e) => setStopRegenTtl(e.target.value)}
+                placeholder="60"
+                className="h-8 text-xs"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Orphan stop-and-regenerate signals expire after this many seconds.
+              </p>
             </div>
             <Button
               size="sm"

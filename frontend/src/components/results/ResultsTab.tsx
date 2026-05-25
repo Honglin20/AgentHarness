@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { useChartStore, type ChartGroup } from "@/stores/chartStore";
+import { useChartStore, filterGroupsByCategory, type ChartGroup } from "@/stores/chartStore";
 import ChartWidget from "@/components/output/ChartWidget";
 import DataTable from "@/components/output/charts/DataTable";
 import {
@@ -22,8 +22,14 @@ export default function ResultsTab({ groups: groupsProp, groupOrder: groupOrderP
   const storeGroups = useChartStore((s) => s.groups);
   const storeGroupOrder = useChartStore((s) => s.groupOrder);
   const toggleCollapse = useChartStore((s) => s.toggleCollapse);
-  const groups = groupsProp ?? storeGroups;
-  const groupOrder = groupOrderProp ?? storeGroupOrder;
+
+  // Exclude analysis charts — those belong in AnalysisTab
+  const raw = groupsProp
+    ? filterGroupsByCategory(groupsProp, groupOrderProp ?? [], null)
+    : filterGroupsByCategory(storeGroups, storeGroupOrder, null);
+
+  const groups = raw.groups;
+  const groupOrder = raw.order;
 
   if (groupOrder.length === 0) {
     return (
@@ -83,7 +89,7 @@ export default function ResultsTab({ groups: groupsProp, groupOrder: groupOrderP
                         {chartEntries.map((chart) => (
                           <div
                             key={chart.title}
-                            className="min-h-[300px] min-w-0 rounded border border-app-border bg-white p-3"
+                            className="min-h-[300px] min-w-0 rounded border border-app-border bg-background p-3"
                           >
                             <ChartWidget chart={chart} />
                           </div>
@@ -91,7 +97,7 @@ export default function ResultsTab({ groups: groupsProp, groupOrder: groupOrderP
                       </div>
                     )}
                     {group.table && (
-                      <div className="mt-4 overflow-auto rounded border border-app-border bg-white">
+                      <div className="mt-4 overflow-auto rounded border border-app-border bg-background">
                         <DataTable
                           columns={group.table.columns}
                           rows={group.table.rows}

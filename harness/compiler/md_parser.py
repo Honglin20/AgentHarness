@@ -4,6 +4,36 @@ import frontmatter
 import yaml
 
 
+_BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+_SHARED_AGENTS_DIR = _BACKEND_DIR / "workflows" / "_shared" / "agents"
+
+
+class AgentNotFoundError(FileNotFoundError):
+    """Raised when an agent MD cannot be found in the workflow or shared pool."""
+
+    def __init__(self, name: str, searched: list[str]):
+        self.name = name
+        self.searched = searched
+        super().__init__(
+            f"Agent '{name}' not found. Searched:\n  - " + "\n  - ".join(searched)
+        )
+
+
+def resolve_agent_md(agent_name: str, workflow_dir: Path) -> Path:
+    """Locate an agent MD file: workflow-private first, then shared pool.
+
+    Returns the resolved Path. Raises AgentNotFoundError(name, searched=[...])
+    if neither location has the file.
+    """
+    local = workflow_dir / "agents" / f"{agent_name}.md"
+    if local.exists():
+        return local
+    shared = _SHARED_AGENTS_DIR / f"{agent_name}.md"
+    if shared.exists():
+        return shared
+    raise AgentNotFoundError(agent_name, searched=[str(local), str(shared)])
+
+
 class ParsedAgent(BaseModel):
     name: str
     prompt: str
@@ -13,6 +43,7 @@ class ParsedAgent(BaseModel):
     description: str | None = None
     on_pass: str | None = None
     on_fail: str | None = None
+    eval: bool = False
 
 
 def parse_agent_md(path: Path) -> ParsedAgent:
@@ -53,6 +84,7 @@ def parse_agent_md(path: Path) -> ParsedAgent:
         description=description,
         on_pass=post.metadata.get("on_pass"),
         on_fail=post.metadata.get("on_fail"),
+        eval=bool(post.metadata.get("eval", False)),
     )
 
 

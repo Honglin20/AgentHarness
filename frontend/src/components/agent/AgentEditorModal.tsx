@@ -9,19 +9,34 @@ interface AgentEditorModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   agentName: string;
-  agentsDir: string;
+  /**
+   * Name of the workflow directory under workflows/.
+   * Required for loading/saving agent MD. When absent, only readOnlyContent is shown.
+   */
+  workflowName?: string;
   /** When provided, show this content read-only (e.g. replay snapshot). Save/Reset hidden. */
   readOnlyContent?: string | null;
 }
 
-export function AgentEditorModal({ open, onOpenChange, agentName, agentsDir, readOnlyContent }: AgentEditorModalProps) {
+type SaveTarget = "private" | "shared";
+
+export function AgentEditorModal({
+  open,
+  onOpenChange,
+  agentName,
+  workflowName,
+  readOnlyContent,
+}: AgentEditorModalProps) {
   const [mdContent, setMdContent] = useState("");
   const [originalContent, setOriginalContent] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const [source, setSource] = useState<SaveTarget | null>(null);
+  const [saveTarget, setSaveTarget] = useState<SaveTarget>("private");
 
   const isReadOnly = readOnlyContent != null;
+  const canEdit = Boolean(workflowName);
 
   useEffect(() => {
     if (!open || !agentName) return;
@@ -30,30 +45,56 @@ export function AgentEditorModal({ open, onOpenChange, agentName, agentsDir, rea
       setOriginalContent(readOnlyContent ?? "");
       return;
     }
-    fetch(`/api/agents/${encodeURIComponent(agentName)}/md?agents_dir=${encodeURIComponent(agentsDir)}`)
-      .then((r) => r.json())
-      .then((data) => { setMdContent(data.md_content ?? ""); setOriginalContent(data.md_content ?? ""); })
-      .catch(() => setError("Failed to load agent"));
-  }, [open, agentName, agentsDir, isReadOnly, readOnlyContent]);
+    if (!workflowName) return;
+    const url = `/api/agents/${encodeURIComponent(agentName)}/md?workflow=${encodeURIComponent(workflowName)}`;
+    fetch(url)
+      .then(async (r) => {
+        if (!r.ok) {
+          const text = await r.text();
+          try {
+            const json = JSON.parse(text);
+            throw new Error(json.detail ?? text);
+          } catch (parseErr) {
+            if (parseErr instanceof SyntaxError) throw new Error(text);
+            throw parseErr;
+          }
+        }
+        return r.json();
+      })
+      .then((data) => {
+        setMdContent(data.md_content ?? "");
+        setOriginalContent(data.md_content ?? "");
+        if (data.source === "shared" || data.source === "private") {
+          setSource(data.source);
+          setSaveTarget(data.source);
+        } else {
+          setSource(null);
+        }
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load agent"));
+  }, [open, agentName, workflowName, isReadOnly, readOnlyContent]);
 
   const isDirty = mdContent !== originalContent;
 
   const handleSave = useCallback(async () => {
+    if (!workflowName) return;
     setSaving(true); setError("");
     try {
+      const body = { workflow: workflowName, target: saveTarget, md_content: mdContent };
       const r = await fetch(`/api/agents/${encodeURIComponent(agentName)}/md`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agents_dir: agentsDir, md_content: mdContent }),
+        body: JSON.stringify(body),
       });
       if (!r.ok) throw new Error(await r.text());
       setOriginalContent(mdContent);
+      setSource(saveTarget);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     } finally { setSaving(false); }
-  }, [agentName, agentsDir, mdContent]);
+  }, [agentName, workflowName, saveTarget, mdContent]);
 
   const handleReset = useCallback(() => { setMdContent(originalContent); }, [originalContent]);
 
@@ -64,8 +105,13 @@ export function AgentEditorModal({ open, onOpenChange, agentName, agentsDir, rea
           <DialogTitle className="text-sm">
             Agent: <span className="font-mono text-blue-600">{agentName}</span>
             {isReadOnly && (
-              <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                 SNAPSHOT · read-only
+              </span>
+            )}
+            {!isReadOnly && canEdit && source && (
+              <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                source: {source}
               </span>
             )}
           </DialogTitle>
@@ -76,8 +122,31 @@ export function AgentEditorModal({ open, onOpenChange, agentName, agentsDir, rea
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-1 flex-col overflow-hidden" style={{ height: "calc(85vh - 140px)" }}>
-          {!isReadOnly && (
+          {!isReadOnly && canEdit && (
             <div className="flex items-center justify-end gap-1 border-b px-1 pb-1">
+              <div className="mr-auto flex items-center gap-2 text-xs text-muted-foreground">
+                <span>Save to:</span>
+                <label className="flex items-center gap-1">
+                  <input
+                    type="radio"
+                    name="save-target"
+                    value="private"
+                    checked={saveTarget === "private"}
+                    onChange={() => setSaveTarget("private")}
+                  />
+                  private
+                </label>
+                <label className="flex items-center gap-1">
+                  <input
+                    type="radio"
+                    name="save-target"
+                    value="shared"
+                    checked={saveTarget === "shared"}
+                    onChange={() => setSaveTarget("shared")}
+                  />
+                  shared (_shared/)
+                </label>
+              </div>
               {isDirty && (
                 <Button variant="ghost" size="sm" className="h-6 gap-1 text-xs" onClick={handleReset}>
                   <RotateCcw className="h-3 w-3" />Reset
@@ -92,7 +161,7 @@ export function AgentEditorModal({ open, onOpenChange, agentName, agentsDir, rea
             value={mdContent}
             onChange={(e) => !isReadOnly && setMdContent(e.target.value)}
             readOnly={isReadOnly}
-            className="flex-1 resize-none rounded border border-input bg-gray-50 p-3 font-mono text-xs leading-relaxed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="flex-1 resize-none rounded border border-input bg-muted p-3 font-mono text-xs leading-relaxed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             spellCheck={false}
           />
         </div>

@@ -45,3 +45,12 @@ class ToolRegistry:
 
     def list_tools(self) -> list[str]:
         return list(self._factories.keys())
+
+    def get_tool_info(self, tool_names: list[str] | None = None) -> list[dict]:
+        """Return tool name + description dicts, without resolving to PydanticAITool instances."""
+        names = tool_names if tool_names is not None else list(self._factories.keys())
+        result = []
+        for name in names:
+            factory = self._factories.get(name)
+            result.append({"name": name, "description": factory.description if factory else ""})
+        return result

@@ -60,6 +60,7 @@ def configure(
     api_url: str | None = None,
     proxy: str | None = None,
     ssl_verify: str | None = None,
+    stop_regen_ttl: str | None = None,
     persist: bool = True,
 ) -> dict:
     """Set API key, model, base URL, proxy, and/or SSL verify. Optionally persist to .env.
@@ -70,6 +71,7 @@ def configure(
         api_url: Optional custom API base URL.
         proxy: Optional HTTP proxy URL.
         ssl_verify: 'true' or 'false' (string, for env var compatibility).
+        stop_regen_ttl: TTL in seconds for stop-and-regenerate orphan signals.
         persist: Write to .env file.
 
     Returns:
@@ -103,6 +105,18 @@ def configure(
         if persist:
             _write_env("HARNESS_SSL_VERIFY", ssl_verify)
 
+    if stop_regen_ttl is not None:
+        # Validate it's a positive integer
+        try:
+            val = int(stop_regen_ttl)
+            if val < 1:
+                raise ValueError
+        except (ValueError, TypeError):
+            raise ValueError("stop_regen_ttl must be a positive integer")
+        os.environ["HARNESS_STOP_REGEN_TTL"] = str(val)
+        if persist:
+            _write_env("HARNESS_STOP_REGEN_TTL", str(val))
+
     return get_config()
 
 
@@ -116,6 +130,7 @@ def get_config() -> dict:
         "api_url": os.environ.get("HARNESS_API_URL", ""),
         "proxy": os.environ.get("HARNESS_PROXY", ""),
         "ssl_verify": os.environ.get("HARNESS_SSL_VERIFY", "true"),
+        "stop_regen_ttl": os.environ.get("HARNESS_STOP_REGEN_TTL", "60"),
     }
 
 
