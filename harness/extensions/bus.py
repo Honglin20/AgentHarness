@@ -20,6 +20,7 @@ import logging
 import time as _time
 import uuid
 from typing import Any, Awaitable, Callable, Literal
+import contextlib
 
 from harness.extensions.base import (
     BaseHook,
@@ -72,6 +73,9 @@ class Bus:
         self._hooks: dict[str, BaseHook] = {}
         self._middleware: dict[str, BaseMiddleware] = {}
         self._mutators: dict[str, BaseGraphMutator] = {}
+
+        # User context for WebSocket user isolation
+        self._user_context: dict[str, Any] = {}
 
     # ----- Extension registration -----
     def register(self, ext: BaseHook | BaseMiddleware | BaseGraphMutator) -> None:
@@ -130,7 +134,14 @@ class Bus:
 
         Note: this is the legacy fire-and-forget WS path. Extension hooks
         are NOT invoked here — use run_hooks() for that.
+
+        Auto-injects user_id from current context if available.
         """
+        # Auto-inject user_id from context if not already in payload
+        payload = dict(payload)  # Copy to avoid modifying caller's dict
+        if "user_id" not in payload and self._user_context.get("user_id"):
+            payload["user_id"] = self._user_context["user_id"]
+
         event = {"type": event_type, "ts": _now(), "payload": payload}
         self._buffer.append(event)
         if len(self._buffer) > self._buffer_size:
@@ -149,6 +160,29 @@ class Bus:
 
     def clear_buffer(self) -> None:
         self._buffer.clear()
+
+    def with_user_context(self, user_id: str, **context: Any) -> contextlib.AbstractContextManager:
+        """设置用户上下文（作用域：当前事件发射会携带此 user_id）
+
+        Args:
+            user_id: 用户 ID
+            **context: 额外的上下文信息
+        """
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _ctx():
+            old_context = self._user_context.copy()
+            self._user_context.clear()
+            self._user_context["user_id"] = user_id
+            self._user_context.update(context)
+            try:
+                yield
+            finally:
+                self._user_context.clear()
+                self._user_context.update(old_context)
+
+        return _ctx()
 
     # ----- Hook dispatch (concurrent fire-and-forget) -----
     async def run_hooks(

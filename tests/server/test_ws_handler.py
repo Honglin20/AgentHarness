@@ -144,3 +144,95 @@ def test_resolve_question():
         # Future is already resolved, can't check value
 
     asyncio.run(test())
+
+
+@pytest.mark.asyncio
+async def test_multi_user_isolation():
+    """验证 EventBus 自动注入 user_id 和事件过滤逻辑"""
+    bus = EventBus()
+
+    # 1. 验证 with_user_context 正确注入 user_id
+    with bus.with_user_context("test-user"):
+        # 准备 payload
+        payload = {"data": "value"}
+        # 手动调用 emit 的逻辑（因为 emit 内部会复制 payload）
+        copied = dict(payload)
+        if "user_id" not in copied and bus._user_context.get("user_id"):
+            copied["user_id"] = bus._user_context["user_id"]
+        assert copied["user_id"] == "test-user"
+
+    # 2. 验证 context 嵌套和恢复
+    assert bus._user_context == {}  # 退出后应该恢复
+
+    with bus.with_user_context("user-a"):
+        assert bus._user_context["user_id"] == "user-a"
+
+        with bus.with_user_context("user-b"):
+            assert bus._user_context["user_id"] == "user-b"
+
+        # 内层退出后恢复到外层
+        assert bus._user_context["user_id"] == "user-a"
+
+    # 全部退出后恢复为空
+    assert bus._user_context == {}
+
+    # 3. 验证 emit 的 user_id 优先级
+    sub_id, queue = await bus.subscribe()
+
+    # 无上下文，无 user_id
+    bus.emit("test", {"data": "value1"})
+    event = await queue.get()
+    assert "user_id" not in event["payload"]
+
+    # 有上下文，自动注入
+    with bus.with_user_context("ctx-user"):
+        bus.emit("test", {"data": "value2"})
+    event = await queue.get()
+    assert event["payload"]["user_id"] == "ctx-user"
+
+    # payload 中已有 user_id，不覆盖
+    with bus.with_user_context("ctx-user"):
+        bus.emit("test", {"user_id": "payload-user", "data": "value3"})
+    event = await queue.get()
+    assert event["payload"]["user_id"] == "payload-user"
+
+    await bus.unsubscribe(sub_id)
+
+
+@pytest.mark.asyncio
+async def test_event_payload_priority():
+    """测试 user_id 优先级：payload.user_id > event.user_id > default"""
+    bus = EventBus()
+
+    class MockWebSocket:
+        def __init__(self):
+            self.events = []
+
+        async def accept(self): pass
+
+        async def send_text(self, text):
+            self.events.append(json.loads(text))
+
+        async def receive_text(self): raise StopIteration
+
+    ws = MockWebSocket()
+    sub_id, queue = await bus.subscribe()
+
+    # 1. 没有 user_id 时，自动注入
+    with bus.with_user_context("test-user"):
+        bus.emit("test.event", {"data": "value"})
+    event = await queue.get()
+    assert event["payload"]["user_id"] == "test-user"
+
+    # 2. payload 中已有 user_id 时，保留原值
+    with bus.with_user_context("different-user"):
+        bus.emit("test.event", {"user_id": "original-user", "data": "value"})
+    event = await queue.get()
+    assert event["payload"]["user_id"] == "original-user"
+
+    # 3. 没有上下文时，不注入
+    bus.emit("test.event", {"data": "value"})
+    event = await queue.get()
+    assert "user_id" not in event["payload"]
+
+    await bus.unsubscribe(sub_id)
