@@ -659,7 +659,7 @@ async def _create_and_start_workflow(
     edges: list[list[str]] = []
     conditional_edges: list[dict] = []
     for a in agents:
-        for dep in a.after:
+        for dep in a.after or []:
             edges.append([dep, a.name])
         if a.on_pass is not None or a.on_fail is not None:
             if a.on_pass is not None:

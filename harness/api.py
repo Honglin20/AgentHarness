@@ -301,7 +301,7 @@ class Workflow:
                 edges = []
                 conditional_edges = []
                 for a in agents:
-                    for dep in a.after:
+                    for dep in a.after or []:
                         edges.append([dep, a.name])
                     if a.on_pass is not None:
                         conditional_edges.append({"from": a.name, "to": a.on_pass, "label": "pass"})
@@ -357,7 +357,7 @@ class Workflow:
                 edges = []
                 conditional_edges = []
                 for a in agents:
-                    for dep in a.after:
+                    for dep in a.after or []:
                         edges.append([dep, a.name])
                     if a.on_pass is not None:
                         conditional_edges.append({"from": a.name, "to": a.on_pass, "label": "pass"})
