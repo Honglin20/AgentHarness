@@ -1,92 +1,177 @@
-# CLAUDE.md — 12-rule template
+# CLAUDE.md
 
-These rules apply to every task in this project unless explicitly overridden.
-Bias: caution over speed on non-trivial work. Use judgment on trivial tasks.
-
-## Rule 1 — Think Before Coding
-State assumptions explicitly. If uncertain, ask rather than guess.
-Present multiple interpretations when ambiguity exists.
-Push back when a simpler approach exists.
-Stop when confused. Name what's unclear.
-
-## Rule 2 — Simplicity First
-Minimum code that solves the problem. Nothing speculative.
-No features beyond what was asked. No abstractions for single-use code.
-Test: would a senior engineer say this is overcomplicated? If yes, simplify.
-
-## Rule 3 — Surgical Changes
-Touch only what you must. Clean up only your own mess.
-Don't "improve" adjacent code, comments, or formatting.
-Don't refactor what isn't broken. Match existing style.
-
-## Rule 4 — Goal-Driven Execution
-Define success criteria. Loop until verified.
-Don't follow steps. Define success and iterate.
-Strong success criteria let you loop independently.
-
-## Rule 5 — Use the model only for judgment calls
-Use me for: classification, drafting, summarization, extraction.
-Do NOT use me for: routing, retries, deterministic transforms.
-If code can answer, code answers.
-
-## Rule 6 — Token budgets are not advisory
-Per-task: 4,000 tokens. Per-session: 30,000 tokens.
-If approaching budget, summarize and start fresh.
-Surface the breach. Do not silently overrun.
-
-## Rule 7 — Surface conflicts, don't average them
-If two patterns contradict, pick one (more recent / more tested).
-Explain why. Flag the other for cleanup.
-Don't blend conflicting patterns.
-
-## Rule 8 — Read before you write
-Before adding code, read exports, immediate callers, shared utilities.
-"Looks orthogonal" is dangerous. If unsure why code is structured a way, ask.
-
-## Rule 9 — Tests verify intent, not just behavior
-Tests must encode WHY behavior matters, not just WHAT it does.
-A test that can't fail when business logic changes is wrong.
-
-## Rule 10 — Checkpoint after every significant step
-Summarize what was done, what's verified, what's left.
-Don't continue from a state you can't describe back.
-If you lose track, stop and restate.
-
-## Rule 11 — Match the codebase's conventions, even if you disagree
-Conformance > taste inside the codebase.
-If you genuinely think a convention is harmful, surface it. Don't fork silently.
-
-## Rule 12 — Fail loud
-"Completed" is wrong if anything was skipped silently.
-"Tests pass" is wrong if any were skipped.
-Default to surfacing uncertainty, not hiding it.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ---
 
-## 开发规范 — SDD (Spec-Driven Development)
+## 常用命令
 
-### 核心流程
+### 安装
+```bash
+python install.py          # 交互式安装
+python install.py --quick  # 非交互式（使用环境变量）
+```
+
+### 运行
+```bash
+# Web UI（后端同时提供 API 和静态前端）
+bash examples/launch_ui.sh
+
+# 或手动启动
+python -m uvicorn server.app:app --host 0.0.0.0 --port 8000
+
+# 前端开发模式（需要先启动后端）
+cd frontend && npm run dev  # http://localhost:3000
+
+# 构建前端
+cd frontend && npm run build
+```
+
+### 测试
+```bash
+pytest                         # 跳过慢速测试（不调用 LLM/MCP）
+pytest -m slow                 # 包含慢速测试
+pytest tests/harness/engine/   # 单模块测试
+```
+
+### Python 调试
+```bash
+python -c "from harness.api import Agent, Workflow; ..."
+```
+
+---
+
+## 高层架构
+
+### 双引擎设计
+- **LangGraph (macro)**: DAG 拓扑编排、状态流转、并发依赖（fan-in/out）、checkpoint 持久化
+- **Pydantic AI (micro)**: 单节点内 Agent 执行、prompt 构造、tool 调用循环、结构化输出、自动重试
+
+### 三层上下文模型
+- `inputs`: 用户输入，贯穿所有节点（自动注入为 `## Task`）
+- `prompt`: Agent 人设（从 `workflows/<wf>/agents/<name>.md` 读取，作为 system_prompt）
+- `upstream_outputs`: 上游 Agent 输出（自动注入为 `## Output from X`）
+
+### EventBus 事件总线
+- 进程级单例，pub/sub 模式
+- WebSocket handler 订阅 → 推送到前端 zustand stores
+- 关键事件：`workflow.started/completed`, `node.started/completed/failed`, `agent.text_delta`, `chart.render`, `chat.question/answer`
+
+---
+
+## 目录结构
+
+```
+workflows/                      # 工作流定义（每 workflow 一目录）
+├── _shared/                    # 共享资源
+│   ├── agents/                 # 框架级共享 agent（如 runner.md）
+│   └── scripts/                # 跨 workflow 共享脚本
+└── <name>/                     # 私有 workflow
+    ├── workflow.json           # Agent 定义 + DAG 拓扑
+    ├── agents/                 # 私有 agent MD
+    └── scripts/                # 私有脚本
+
+harness/                        # 核心框架
+├── api.py                      # Agent, Workflow, WorkflowResult
+├── config.py                   # configure(), .env 自动加载
+├── engine/                     # LangGraph + Pydantic AI
+│   ├── macro_graph.py          # DAG 编译为 StateGraph
+│   └── llm_client.py           # LLM 客户端管理（httpx, provider, model）
+├── compiler/                   # Markdown 解析 + DAG 构建
+│   ├── md_parser.py            # YAML frontmatter + prompt 提取
+│   └── dag_builder.py          # 依赖解析 + 拓扑排序 + 循环检测
+├── tools/                      # 工具系统
+│   ├── chart.py                # 图表渲染（非 tool，纯函数）
+│   └── tool_registry.py        # 工具注册表
+└── extensions/                 # 扩展系统
+    ├── eval/                   # EvalJudge: 自动评审 + 评分 + 重试（GraphMutator）
+    ├── compact/                # AutoCompact: 对话压缩（Middleware）
+    └── plugins/                # Hook plugins（EvalChartPlugin, AgentTracePlugin 等）
+
+server/                         # FastAPI 服务
+├── app.py                      # FastAPI 应用 + lifespan
+├── routes.py                   # REST 路由
+├── ws_handler.py               # WebSocket 事件处理
+├── runner.py                   # WorkflowRunner（后台并发执行管理）
+└── event_bus.py                # EventBus 单例
+
+frontend/                       # Next.js 14 Web UI
+└── src/
+    ├── stores/                 # Zustand 状态管理
+    │   ├── workflowStore.ts    # DAG 状态、节点高亮
+    │   ├── conversationStore.ts # 消息流、chat.answer
+    │   ├── outputStore.ts      # 文本渲染、chart
+    │   └── runHistoryStore.ts  # 历史运行记录
+    └── components/
+        ├── dag/                # React Flow DAG 面板
+        ├── chat/               # Chat UI
+        └── sidebar/            # RunHistoryList
+
+runs/                           # 运行记录持久化（{run_id}.json）
+benchmarks/                     # Benchmark 评测定义 + 结果
+```
+
+---
+
+## 关键接口
+
+### Agent 查找规则 (`resolve_agent_md`)
+1. `workflows/<wf>/agents/<name>.md` 存在 → 返回
+2. `workflows/_shared/agents/<name>.md` 存在 → 返回
+3. 都不存在 → `AgentNotFoundError`
+
+### Workflow 状态
+```python
+HarnessState = TypedDict {
+    inputs: dict              # 初始输入
+    outputs: dict             # {agent_name: result} — reducer 自动合并
+    errors: dict              # {agent_name: error_info}
+    metadata: dict            # 扩展插槽（token_usage, judgment, score_history 等）
+}
+```
+
+### 事件协议格式
+```json
+{
+  "type": "node.started",
+  "ts": 1716000000000,
+  "payload": { "node_id": "...", "agent_name": "..." }
+}
+```
+
+---
+
+## 扩展系统职责分界
+
+| 类型 | 能做什么 | 不能做什么 | 用途 |
+|------|---------|-----------|------|
+| **Hook** | 读取数据流，产生副产物（chart.render, trace.step） | 修改任何数据 | 观测、追踪、图表 |
+| **Middleware** | 修改数据流，可抛 RejectAction/RetryAction | 改写 DAG 结构 | 内容过滤、注入记忆、预算控制 |
+| **GraphMutator** | 改写 DAG（插入节点、修改依赖） | 修改运行时数据 | EvalJudge 自动插入评审节点 |
+
+---
+
+## 开发规范
+
+### SDD (Spec-Driven Development)
 1. **先敲定接口，再写代码。** 每个 Phase 开始前，必须与用户讨论并确认 SPEC.md 中对应章节的接口规范。
 2. **SPEC.md 是唯一真相源。** 接口变更必须先更新 SPEC.md，获得用户确认后再修改实现代码。
-3. **禁止实现未规范的接口。** 如果代码中出现了 SPEC.md 未定义的公开 API，视为违规。
-
-### 每个 Phase 的标准流程
-```
-讨论接口 → 更新 SPEC.md → 用户确认 → 编写实现 → 单测 → 集成测试 → E2E 验证 → Checkpoint
-```
-
-### 敲定接口时的要求
-- 列出所有公开类、方法签名、参数类型、返回值
-- 标注设计决策的理由（Why）
-- 列出待讨论的开放问题（用 `[ ]` checkbox）
-- 用户确认后，将 checkbox 改为 `[x]` 并注明决策结果
+3. **禁止实现未规范的接口。**
 
 ### 不重复造轮子原则
 - 优先使用成熟库：langgraph, langchain, fastapi, reactflow, shadcn/ui
 - 自建仅在成熟库无法满足需求时
-- 自建前必须说明：为什么现有方案不满足？自建的最小范围是什么？
 
-### 文件约定
-- `PRD.md` — 需求、技术选型、架构、开发计划（只读参考，不频繁改动）
-- `SPEC.md` — 接口规范（每个 Phase 敲定后更新，实现必须严格遵守）
-- `CLAUDE.md` — 开发规范 + 12-rule（本文件）
+### 12-Rule 模板
+1. Think Before Coding — 明确假设，不确定则问
+2. Simplicity First — 最少代码解决，不投机
+3. Surgical Changes — 只改必须的，不碰无关的
+4. Goal-Driven Execution — 定义成功标准，迭代验证
+5. Use the model only for judgment calls — 路由、重试等 deterministic 逻辑用代码
+6. Token budgets are not advisory — 接近 budget 及时总结
+7. Surface conflicts, don't average them — 选一个，说明 why
+8. Read before you write — 理解上下文再修改
+9. Tests verify intent, not just behavior
+10. Checkpoint after every significant step
+11. Match the codebase's conventions
+12. Fail loud

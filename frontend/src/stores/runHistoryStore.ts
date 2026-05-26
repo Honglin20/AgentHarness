@@ -84,8 +84,12 @@ export const useRunHistoryStore = create<RunHistoryState>()((set) => ({
       if (r.ok) {
         const runs: RunRecord[] = await r.json();
         set({ runs, loading: false });
+      } else {
+        console.error(`fetchRuns: ${r.status} ${r.statusText}`);
+        set({ loading: false });
       }
-    } catch {
+    } catch (e) {
+      console.error("fetchRuns failed:", e);
       set({ loading: false });
     }
   },

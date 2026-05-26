@@ -32,21 +32,57 @@ from server.schemas import (
     BatchRunSummary,
     BenchmarkDef,
     BenchmarkRunSummary,
+    BenchmarkTaskResult,
     RunBenchmarkRequest,
     ToolInfo,
     WorkflowStatusResponse,
 )
 from server.repository import get_repository
 
+from harness.user_manager import get_current_user
+
 router = APIRouter()
 
-def _validate_workflow_dir(workflow: str) -> Path:
+
+@router.get("/me")
+async def get_me(request: Request) -> dict:
+    """Get current user info based on X-API-Key header"""
+    user = get_current_user(request)
+    return {
+        "user_id": user.user_id,
+        "name": user.name,
+        "role": user.role,
+    }
+
+def _validate_workflow_dir(workflow: str, user_id: str | None = None) -> Path:
     """Validate a workflow folder name and return its absolute path under workflows/.
+
+    Search order:
+      1. workflows/_shared/workflows/{workflow}/
+      2. workflows/users/{user_id}/workflows/{workflow}/
+      3. workflows/{workflow}/ (legacy)
+
+    Args:
+        workflow: Workflow name
+        user_id: Optional user ID for private workflows
 
     Rejects path traversal. The directory does not need to exist (caller decides).
     """
     if not workflow or "/" in workflow or "\\" in workflow or workflow.startswith("."):
         raise HTTPException(status_code=400, detail="invalid workflow name")
+
+    # Try shared workflows first
+    shared_path = (_WORKFLOWS_DIR / "_shared" / "workflows" / workflow).resolve()
+    if str(shared_path).startswith(str(_WORKFLOWS_DIR.resolve())) and (shared_path / "workflow.json").exists():
+        return shared_path
+
+    # Try user's private workflows
+    if user_id and user_id != "default":
+        private_path = (_WORKFLOWS_DIR / "users" / user_id / "workflows" / workflow).resolve()
+        if str(private_path).startswith(str(_WORKFLOWS_DIR.resolve())) and (private_path / "workflow.json").exists():
+            return private_path
+
+    # Fallback: workflows/{workflow}/ (legacy or already-resolved path)
     resolved = (_WORKFLOWS_DIR / workflow).resolve()
     if not str(resolved).startswith(str(_WORKFLOWS_DIR.resolve())):
         raise HTTPException(status_code=400, detail="workflow escapes workflows root")
@@ -111,6 +147,7 @@ async def get_config() -> dict:
 @router.get("/agents")
 async def list_agents(
     workflow: str,
+    request: Request,
 ) -> list[AgentInfo]:
     """List all available agents for a workflow.
 
@@ -118,7 +155,9 @@ async def list_agents(
       1. ``workflows/<workflow>/agents/*.md`` (private)
       2. ``workflows/_shared/agents/*.md`` (shared fallback)
     """
-    wf_dir = _validate_workflow_dir(workflow)
+    user = get_current_user(request)
+    user_id = user.user_id if user.user_id != "default" else None
+    wf_dir = _validate_workflow_dir(workflow, user_id)
     agents: list[AgentInfo] = []
     seen: set[str] = set()
 
@@ -162,9 +201,12 @@ async def list_agents(
 async def get_agent(
     name: str,
     workflow: str,
+    request: Request,
 ) -> AgentInfo:
     """Get a specific agent's definition."""
-    wf_dir = _validate_workflow_dir(workflow)
+    user = get_current_user(request)
+    user_id = user.user_id if user.user_id != "default" else None
+    wf_dir = _validate_workflow_dir(workflow, user_id)
     try:
         md_path = resolve_agent_md(name, wf_dir)
     except AgentNotFoundError as e:
@@ -186,13 +228,16 @@ async def get_agent(
 async def get_agent_md(
     name: str,
     workflow: str,
+    request: Request,
 ) -> dict:
     """Get the raw Markdown content of an agent definition.
 
     Resolution: ``resolve_agent_md(name, workflows/<workflow>)``
     which falls back to ``workflows/_shared/agents/`` if not found locally.
     """
-    wf_dir = _validate_workflow_dir(workflow)
+    user = get_current_user(request)
+    user_id = user.user_id if user.user_id != "default" else None
+    wf_dir = _validate_workflow_dir(workflow, user_id)
     try:
         md_path = resolve_agent_md(name, wf_dir)
     except AgentNotFoundError as e:
@@ -227,7 +272,9 @@ async def update_agent_md(name: str, request: Request) -> dict:
     if target not in ("private", "shared"):
         raise HTTPException(status_code=400, detail="target must be 'private' or 'shared'")
     if target == "private":
-        wf_dir = _validate_workflow_dir(workflow)
+        user = get_current_user(request)
+        user_id = user.user_id if user.user_id != "default" else None
+        wf_dir = _validate_workflow_dir(workflow, user_id)
         md_path = wf_dir / "agents" / f"{name}.md"
     else:
         md_path = _SHARED_AGENTS_DIR / f"{name}.md"
@@ -309,16 +356,44 @@ async def chart_render(request: Request) -> dict:
 
 
 @router.get("/workflows/definitions")
-async def list_workflow_definitions() -> list[dict]:
-    """List all saved workflow definitions (from workflows/*.json)."""
-    return Workflow.list_saved()
+async def list_workflow_definitions(request: Request) -> list[dict]:
+    """List saved workflow definitions: shared + current user's private."""
+    user = get_current_user(request)
+    user_id = user.user_id if user.user_id != "default" else None
+    return Workflow.list_saved(user_id=user_id)
 
 
 @router.delete("/workflows/definitions/{name}")
-async def delete_workflow_definition(name: str) -> dict:
-    """Delete a saved workflow definition directory."""
+async def delete_workflow_definition(name: str, request: Request) -> dict:
+    """Delete a saved workflow definition directory.
+
+    Only admin can delete shared workflows.
+    Users can only delete their own private workflows.
+    """
     import shutil
-    wf_dir = _validate_workflow_dir(name)
+    from harness.user_manager import get_user_manager
+
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+
+    # Find the workflow and determine its scope
+    user_id = user.user_id if user.user_id != "default" else None
+    workflows = Workflow.list_saved(user_id=user_id)
+    target = next((w for w in workflows if w["name"] == name), None)
+
+    if not target:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    scope = target.get("scope", "legacy")
+
+    # Check permissions
+    if not user_mgr.can_delete_workflow(user, scope, user.user_id):
+        if scope == "shared":
+            raise HTTPException(status_code=403, detail="Cannot delete shared workflow (admin only)")
+        else:
+            raise HTTPException(status_code=403, detail="Cannot delete workflow (not yours)")
+
+    wf_dir = Path(target["workflow_dir"])
     if not wf_dir.exists():
         raise HTTPException(status_code=404, detail="Workflow not found")
     shutil.rmtree(wf_dir)
@@ -326,28 +401,63 @@ async def delete_workflow_definition(name: str) -> dict:
 
 
 @router.delete("/runs/{run_id}")
-async def delete_run(run_id: str) -> dict:
-    """Delete a persisted run record."""
+async def delete_run(run_id: str, request: Request) -> dict:
+    """Delete a persisted run record.
+
+    Only the run owner or admin can delete.
+    """
     from harness.run_store import RunStore
+    from harness.user_manager import get_user_manager
+
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+    is_admin = user_mgr.is_admin(user)
+
     store = RunStore()
+    run = store.get_run(run_id)
+
+    # Check if run belongs to user (or admin)
+    if run and not is_admin and run.get("user_id") != user.user_id:
+        raise HTTPException(status_code=403, detail="Not your run")
+
+    # Also check in-memory runs
+    repo = get_repository()
+    data = repo.get(run_id)
+    if data and not is_admin and data.get("user_id") != user.user_id:
+        raise HTTPException(status_code=403, detail="Not your run")
+
     path = store._safe_path(run_id)
     if path is None or not path.exists():
         raise HTTPException(status_code=404, detail="Run not found")
     path.unlink()
+    repo.remove(run_id)
     return {"status": "ok", "deleted": run_id}
 
 
 @router.get("/runs", response_model=list[RunDetail])
-async def list_runs(workflow_name: str | None = None) -> list[RunDetail]:
+async def list_runs(request: Request, workflow_name: str | None = None) -> list[RunDetail]:
     """List persisted runs, merged with currently-running in-memory workflows.
+
+    Only returns runs for the current user (admin sees all).
 
     Live runs are returned with status="running" so the sidebar can show them
     alongside finished ones and offer a cancel button. They are merged by
     run_id — if a workflow finishes between sidebar refreshes, the persisted
     record takes precedence.
+
+    Batch runs (runs that are part of a benchmark) are excluded by default.
     """
     from harness.run_store import RunStore
-    persisted = RunStore().list_runs(workflow_name=workflow_name)
+    from harness.user_manager import get_user_manager
+
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+    is_admin = user_mgr.is_admin(user)
+
+    persisted = RunStore().list_runs(workflow_name=workflow_name, include_batch=False)
+    # Filter by user (unless admin)
+    if not is_admin:
+        persisted = [r for r in persisted if r.get("user_id") == user.user_id]
     persisted_ids = {r.get("run_id") for r in persisted}
 
     # Add running in-memory workflows that aren't yet persisted
@@ -355,6 +465,9 @@ async def list_runs(workflow_name: str | None = None) -> list[RunDetail]:
     repo = get_repository()
     for wid, data in repo.all_running():
         if wid in persisted_ids:
+            continue
+        # Filter by user (unless admin)
+        if not is_admin and data.get("user_id") != user.user_id:
             continue
         workflow = data["workflow"]
         if workflow_name and workflow.name != workflow_name:
@@ -381,7 +494,22 @@ async def get_run(run_id: str) -> RunDetail:
     from harness.run_store import RunStore
     run = RunStore().get_run(run_id)
     if run:
-        return run
+        # Ensure all fields from RunDetail are present
+        return {
+            "run_id": run.get("run_id"),
+            "workflow_name": run.get("workflow_name"),
+            "agents_snapshot": run.get("agents_snapshot", []),
+            "status": run.get("status"),
+            "inputs": run.get("inputs", {}),
+            "result": run.get("result"),
+            "conversation": run.get("conversation", []),
+            "created_at": run.get("created_at", ""),
+            "dag": run.get("dag"),
+            "chart_groups": run.get("chart_groups"),
+            "agent_io": run.get("agent_io"),
+            "batch_id": run.get("batch_id"),
+            "user_id": run.get("user_id"),
+        }
 
     # Fall back to in-memory live workflow
     repo = get_repository()
@@ -398,6 +526,10 @@ async def get_run(run_id: str) -> RunDetail:
             "conversation": data.get("conversation", []),
             "created_at": data.get("created_at", ""),
             "dag": repo.get_dag(run_id),
+            "chart_groups": None,
+            "agent_io": None,
+            "batch_id": data.get("batch_id"),
+            "user_id": data.get("user_id"),
         }
 
     raise HTTPException(status_code=404, detail="Run not found")
@@ -457,11 +589,17 @@ async def _create_and_start_workflow(
     workflow_name: str,
     inputs: dict,
     batch_id: str | None = None,
+    work_dir: str | None = None,
+    user_id: str | None = None,
 ) -> CreateWorkflowResponse:
     """Core logic: create a Workflow, compile it, and submit to runner.
 
     Shared by create_workflow (single run) and create_batch (batch run).
     Creates an isolated Bus per workflow for concurrency safety.
+
+    Args:
+        work_dir: Working directory to execute in
+        user_id: User ID who initiated this run
     """
     workflow_id = str(uuid.uuid4())
 
@@ -479,7 +617,7 @@ async def _create_and_start_workflow(
         for a in agents_defs
     ]
 
-    wf_dir = _validate_workflow_dir(workflow_name)
+    wf_dir = _validate_workflow_dir(workflow_name, user_id)
 
     from harness.checkpoint import get_checkpoint_manager
     checkpoint_mgr = get_checkpoint_manager()
@@ -513,6 +651,8 @@ async def _create_and_start_workflow(
         "agents_snapshot": _build_agents_snapshot(workflow),
         "batch_id": batch_id,
         "event_bus": event_bus,
+        "user_id": user_id,
+        "work_dir": work_dir,
     })
 
     node_order = build_dag(agents)
@@ -541,7 +681,10 @@ async def _create_and_start_workflow(
     from server.runner import get_runner
     runner = get_runner()
     run_config = {"configurable": {"thread_id": workflow_id}}
-    await runner.submit(workflow_id, workflow, inputs, event_bus, config=run_config)
+    await runner.submit(
+        workflow_id, workflow, inputs, event_bus,
+        config=run_config, work_dir=work_dir, user_id=user_id
+    )
 
     return CreateWorkflowResponse(
         workflow_id=workflow_id,
@@ -552,28 +695,36 @@ async def _create_and_start_workflow(
 
 @router.post("/workflows", response_model=CreateWorkflowResponse)
 async def create_workflow(
-    request: CreateWorkflowRequest,
+    request: Request,
 ) -> CreateWorkflowResponse:
     """Create and start a single workflow."""
     from server.runner import get_runner
+
+    user = get_current_user(request)
+
+    body = await request.json()
+    request_obj = CreateWorkflowRequest(**body)
+
     runner = get_runner()
     if runner.running_count >= runner.max_concurrent:
         raise HTTPException(status_code=409, detail=f"Max {runner.max_concurrent} concurrent workflows. Wait for one to finish.")
 
-    if not request.workflow:
+    if not request_obj.workflow:
         raise HTTPException(status_code=400, detail="workflow is required")
 
     return await _create_and_start_workflow(
-        name=request.name,
-        agents_defs=request.agents,
-        workflow_name=request.workflow,
-        inputs=request.inputs,
+        name=request_obj.name,
+        agents_defs=request_obj.agents,
+        workflow_name=request_obj.workflow,
+        inputs=request_obj.inputs,
+        work_dir=request_obj.work_dir,
+        user_id=user.user_id,
     )
 
 
 @router.post("/batch", response_model=CreateBatchResponse)
 async def create_batch(
-    request: CreateBatchRequest,
+    request: Request,
 ) -> CreateBatchResponse:
     """Create and start a batch of workflow runs with different inputs.
 
@@ -581,33 +732,29 @@ async def create_batch(
     All runs share the same workflow definition (agents + prompts).
     Each run gets its own isolated Bus.
     """
+    user = get_current_user(request)
+    body = await request.json()
+    request_obj = CreateBatchRequest(**body)
+
     from server.runner import get_runner
     runner = get_runner()
 
-    if not request.workflow:
+    if not request_obj.workflow:
         raise HTTPException(status_code=400, detail="workflow is required")
-    if not request.items:
+    if not request_obj.items:
         raise HTTPException(status_code=400, detail="items must not be empty")
 
     batch_id = str(uuid.uuid4())
     runs: list[BatchRunSummary] = []
 
-    for item in request.items:
-        if runner.running_count >= runner.max_concurrent:
-            runs.append(BatchRunSummary(
-                workflow_id="",
-                label=item.label,
-                status="pending",
-                error="Max concurrent limit reached; queued for later",
-            ))
-            continue
-
+    for item in request_obj.items:
         result = await _create_and_start_workflow(
-            name=request.name,
-            agents_defs=request.agents,
-            workflow_name=request.workflow,
+            name=request_obj.name,
+            agents_defs=request_obj.agents,
+            workflow_name=request_obj.workflow,
             inputs=item.inputs,
             batch_id=batch_id,
+            user_id=user.user_id,
         )
         runs.append(BatchRunSummary(
             workflow_id=result.workflow_id,
@@ -729,6 +876,7 @@ async def delete_benchmark(name: str) -> dict:
 async def run_benchmark(
     name: str,
     body: RunBenchmarkRequest,
+    request: Request,
 ) -> BenchmarkRunSummary:
     """Run a benchmark with a specific workflow.
 
@@ -739,31 +887,49 @@ async def run_benchmark(
     if not bm:
         raise HTTPException(status_code=404, detail="Benchmark not found")
 
+    user = get_current_user(request)
+    user_id = user.user_id if user.user_id != "default" else None
+
     # Load workflow definition
-    wf_dir = _validate_workflow_dir(body.workflow)
+    wf_dir = _validate_workflow_dir(body.workflow, user_id)
     wf_json = wf_dir / "workflow.json"
     if not wf_json.exists():
         raise HTTPException(status_code=404, detail=f"Workflow '{body.workflow}' not found")
     wf_data = json.loads(wf_json.read_text())
     agents_defs = [AgentDef(**a) for a in wf_data.get("agents", [])]
 
-    # Use batch API to create all runs
-    batch_req = CreateBatchRequest(
-        name=name,
-        agents=agents_defs,
-        workflow=body.workflow,
-        items=[
-            {"label": t["label"], "inputs": t.get("inputs", {"task": t["label"]})}
-            for t in bm["tasks"]
-        ],
-    )
-    batch_resp = await create_batch(batch_req)
+    # Create batch runs directly (inline version of create_batch logic)
+    batch_id = str(uuid.uuid4())
+    runs: list[BatchRunSummary] = []
+
+    for item in bm["tasks"]:
+        result = await _create_and_start_workflow(
+            name=name,
+            agents_defs=agents_defs,
+            workflow_name=body.workflow,
+            inputs=item.get("inputs", {"task": item["label"]}),
+            batch_id=batch_id,
+            user_id=user_id,
+        )
+        runs.append(BatchRunSummary(
+            workflow_id=result.workflow_id,
+            label=item["label"],
+            status="running",
+        ))
+
+    # Store batch metadata
+    repo = get_repository()
+    repo.put_batch(batch_id, {
+        "batch_id": batch_id,
+        "name": name,
+        "workflow": body.workflow,
+        "runs": {r.workflow_id: {"label": r.label, "status": r.status} for r in runs if r.workflow_id},
+    })
 
     # Build result record
-    run_id = batch_resp.batch_id
     from datetime import datetime, timezone
     task_results = []
-    for i, run in enumerate(batch_resp.runs):
+    for i, run in enumerate(runs):
         task_results.append({
             "task_id": bm["tasks"][i].get("id", f"task_{i + 1}"),
             "label": run.label,
@@ -772,7 +938,7 @@ async def run_benchmark(
         })
 
     result = {
-        "run_id": run_id,
+        "run_id": batch_id,
         "benchmark_name": name,
         "workflow_name": body.workflow,
         "status": "running",
@@ -782,12 +948,19 @@ async def run_benchmark(
     store.save_result(name, result)
 
     return BenchmarkRunSummary(
-        run_id=run_id,
+        run_id=batch_id,
         benchmark_name=name,
         workflow_name=body.workflow,
         status="running",
         created_at=result["created_at"],
-        task_results=[],
+        task_results=[
+            BenchmarkTaskResult(
+                task_id=tr["task_id"],
+                label=tr["label"],
+                status=tr["status"],
+            )
+            for tr in task_results
+        ],
     )
 
 
@@ -915,6 +1088,11 @@ async def cancel_workflow(workflow_id: str) -> dict:
     runner = get_runner()
 
     paused = await runner.cancel(workflow_id)
+
+    # Clear any pending stop-and-regenerate signals so they don't
+    # trigger on resume
+    from harness.engine.macro_graph import clear_stop_regen
+    clear_stop_regen(workflow_id)
 
     if paused:
         event_bus = _get_bus_for_workflow(workflow_id)
@@ -1046,6 +1224,7 @@ async def resume_run(
 @router.post("/runs/{run_id}/rerun", response_model=CreateWorkflowResponse)
 async def rerun(
     run_id: str,
+    request: Request,
 ) -> CreateWorkflowResponse:
     """Re-run a previous run with the same workflow config and inputs."""
     from harness.run_store import RunStore
@@ -1064,8 +1243,11 @@ async def rerun(
     agents_snapshot = run.get("agents_snapshot", [])
     dag = run.get("dag")
 
+    user = get_current_user(request)
+    user_id = user.user_id if user.user_id != "default" else None
+
     # Validate workflow dir
-    wf_dir = _validate_workflow_dir(workflow_name)
+    wf_dir = _validate_workflow_dir(workflow_name, user_id)
 
     # Reconstruct agents from snapshot
     agents = [

@@ -24,7 +24,9 @@ export type EventType =
   | "chat.question"
   | "chat.answer"
   | "agent.stop_and_regenerate"
-  | "workflow.resumed";
+  | "workflow.resumed"
+  | "batch.init"
+  | "batch.completed";
 
 // Workflow events
 export interface WorkflowAgentDef {
@@ -165,6 +167,19 @@ export interface ChatAnswerPayload {
   answer: string;
 }
 
+// Batch events
+export interface BatchInitPayload {
+  batch_id: string;
+  runs: { workflow_id: string; label: string; status: string }[];
+}
+
+export interface BatchCompletedPayload {
+  batch_id: string;
+  total: number;
+  completed: number;
+  failed: number;
+}
+
 // Event type to payload mapping
 export interface EventPayloadMap {
   "workflow.started": WorkflowStartedPayload;
@@ -182,6 +197,8 @@ export interface EventPayloadMap {
   "chart.render": ChartRenderPayload;
   "chat.question": ChatQuestionPayload;
   "chat.answer": ChatAnswerPayload;
+  "batch.init": BatchInitPayload;
+  "batch.completed": BatchCompletedPayload;
 }
 
 // Typed event helper

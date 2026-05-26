@@ -1,0 +1,21 @@
+{
+  "run_id": "51adf1da-b661-4a8d-b5bc-3a1f8a0f2cae",
+  "benchmark_name": "test-quick",
+  "workflow_name": "chart_demo",
+  "status": "running",
+  "created_at": "2026-05-26T09:14:19.878018+00:00",
+  "task_results": [
+    {
+      "task_id": "task_1",
+      "label": "Say hello",
+      "status": "running",
+      "workflow_id": "0cf02018-c307-4d80-b251-64a2c7ea886a"
+    },
+    {
+      "task_id": "task_2",
+      "label": "Say goodbye",
+      "status": "running",
+      "workflow_id": "34008a1d-1086-4bc8-b2a5-46415dcbf87c"
+    }
+  ]
+}

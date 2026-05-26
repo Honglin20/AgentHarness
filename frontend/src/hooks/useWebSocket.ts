@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WSEvent } from "@/types/events";
+import { getApiKey, getUserFromApiKey } from "@/lib/api";
 
 function getWsBaseUrl(): string {
   if (typeof window === "undefined") return "";
@@ -57,9 +58,14 @@ export function useWebSocket({
     disconnect();
     cancelledRef.current = false;
 
+    // Get user_id from API Key for WebSocket isolation
+    const apiKey = getApiKey();
+    const userId = apiKey ? getUserFromApiKey(apiKey) : "default";
+
     const base = getWsBaseUrl();
-    const url = `${base}/ws/workflows/${workflowId}`;
+    const url = `${base}/ws/workflows/${workflowId}?user_id=${userId}`;
     const ws = new WebSocket(url);
+
     wsRef.current = ws;
 
     ws.onopen = () => {

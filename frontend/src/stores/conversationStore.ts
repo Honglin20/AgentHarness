@@ -24,6 +24,10 @@ export interface ConversationState {
   pendingQuestionId: string | null;
   pendingQuestionAgent: string | null;
 
+  // Per-workflow cache for batch mode
+  _cache: Record<string, { messages: ConversationMessage[]; pendingQuestionId: string | null; pendingQuestionAgent: string | null }>;
+  _activeWid: string | null;
+
   // Actions
   addSystemMessage: (content: string) => void;
   addAgentMessage: (nodeId: string, agentName: string) => void;
@@ -39,6 +43,15 @@ export interface ConversationState {
   interruptAgentMessage: (agentName: string) => void;
   resumeAgentMessage: (nodeId: string, agentName: string) => void;
   reset: () => void;
+
+  // Cache management for batch mode
+  saveToCache: (wid: string) => void;
+  restoreFromCache: (wid: string) => boolean;
+  setActiveWid: (wid: string | null) => void;
+  clearCache: () => void;
+  appendAgentTextToCache: (wid: string, nodeId: string, text: string, agentName: string) => void;
+  addToolCallToCache: (wid: string, nodeId: string, agentName: string, toolName: string, toolArgs: Record<string, unknown>) => void;
+  addToolResultToCache: (wid: string, nodeId: string, toolName: string, result: string) => void;
 }
 
 let msgCounter = 0;
@@ -47,6 +60,8 @@ const initialState = {
   messages: [] as ConversationMessage[],
   pendingQuestionId: null as string | null,
   pendingQuestionAgent: null as string | null,
+  _cache: {} as Record<string, { messages: ConversationMessage[]; pendingQuestionId: string | null; pendingQuestionAgent: string | null }>,
+  _activeWid: null as string | null,
 };
 
 export const useConversationStore = create<ConversationState>()((set) => ({
@@ -285,6 +300,131 @@ export const useConversationStore = create<ConversationState>()((set) => ({
 
   reset: () => {
     msgCounter = 0;
-    return set(initialState);
+    return set({ ...initialState, _cache: {}, _activeWid: null });
   },
+
+  saveToCache: (wid) =>
+    set((state) => {
+      const { messages, pendingQuestionId, pendingQuestionAgent, _cache } = state;
+      return {
+        _cache: { ..._cache, [wid]: { messages, pendingQuestionId, pendingQuestionAgent } },
+      };
+    }),
+
+  restoreFromCache: (wid) => {
+    set((state) => {
+      const { _cache } = state;
+      const snap = _cache[wid];
+      if (!snap) return state;
+      return { messages: snap.messages, pendingQuestionId: snap.pendingQuestionId, pendingQuestionAgent: snap.pendingQuestionAgent };
+    });
+    return true;
+  },
+
+  setActiveWid: (wid) =>
+    set((state) => {
+      const _activeWid = state._activeWid;
+      const _cache = state._cache;
+      if (_activeWid) {
+        return {
+          ...state,
+          _cache: { ..._cache, [_activeWid]: { messages: state.messages, pendingQuestionId: state.pendingQuestionId, pendingQuestionAgent: state.pendingQuestionAgent } },
+        };
+      }
+      if (wid && _cache[wid]) {
+        const snap = _cache[wid];
+        return {
+          ...state,
+          messages: snap.messages,
+          pendingQuestionId: snap.pendingQuestionId,
+          pendingQuestionAgent: snap.pendingQuestionAgent,
+          _activeWid: wid,
+        };
+      }
+      return {
+        ...state,
+        messages: [],
+        pendingQuestionId: null,
+        pendingQuestionAgent: null,
+        _activeWid: wid,
+      };
+    }),
+
+  clearCache: () => set({ _cache: {}, _activeWid: null }),
+
+  appendAgentTextToCache: (wid, nodeId, text, agentName) =>
+    set((state) => {
+      if (!state._cache[wid]) {
+        state._cache[wid] = { messages: [], pendingQuestionId: null, pendingQuestionAgent: null };
+      }
+      const cache = state._cache[wid];
+      const idx = cache.messages.findLastIndex(
+        (m) => m.nodeId === nodeId && m.type === "agent" && m.status === "streaming"
+      );
+      if (idx !== -1) {
+        state._cache[wid].messages[idx] = {
+          ...cache.messages[idx],
+          content: cache.messages[idx].content + text,
+        };
+        return { _cache: state._cache };
+      }
+      state._cache[wid].messages = [
+        ...cache.messages,
+        {
+          id: `msg-${++msgCounter}`,
+          type: "agent",
+          nodeId,
+          agentName: agentName || "",
+          content: text,
+          status: "streaming",
+          timestamp: Date.now(),
+        },
+      ];
+      return { _cache: state._cache };
+    }),
+
+  addToolCallToCache: (wid, nodeId, agentName, toolName, toolArgs) =>
+    set((state) => {
+      if (!state._cache[wid]) {
+        state._cache[wid] = { messages: [], pendingQuestionId: null, pendingQuestionAgent: null };
+      }
+      state._cache[wid].messages = [
+        ...state._cache[wid].messages,
+        {
+          id: `msg-${++msgCounter}`,
+          type: "tool_call",
+          nodeId,
+          agentName,
+          content: "",
+          toolName,
+          toolArgs,
+          toolStatus: "running",
+          timestamp: Date.now(),
+        },
+      ];
+      return { _cache: state._cache };
+    }),
+
+  addToolResultToCache: (wid, nodeId, toolName, result) =>
+    set((state) => {
+      if (!state._cache[wid]) {
+        state._cache[wid] = { messages: [], pendingQuestionId: null, pendingQuestionAgent: null };
+      }
+      const cache = state._cache[wid];
+      const idx = cache.messages.findLastIndex(
+        (m) => m.nodeId === nodeId && m.type === "tool_call" && m.toolName === toolName && m.toolResult === undefined
+      );
+      if (idx !== -1) {
+        const msg = cache.messages[idx];
+        const elapsed = msg.timestamp ? Date.now() - msg.timestamp : undefined;
+        state._cache[wid].messages[idx] = {
+          ...msg,
+          toolResult: result,
+          toolStatus: "done",
+          toolDurationMs: elapsed,
+        };
+        return { _cache: state._cache };
+      }
+      return state;
+    }),
 }));

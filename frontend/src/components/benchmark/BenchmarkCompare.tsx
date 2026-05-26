@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { CheckCircle, XCircle } from "lucide-react";
 import BarChartWidget from "@/components/output/charts/BarChartWidget";
 import AreaChartWidget from "@/components/output/charts/AreaChartWidget";
 import type { ChartPayload } from "@/types/events";
+import { useBatchStore } from "@/stores/batchStore";
+import { useRunHistoryStore } from "@/stores/runHistoryStore";
 
 type CompareTab = "scores" | "charts" | "workflows" | "history";
 
@@ -38,7 +40,7 @@ export default function BenchmarkCompare({ benchmarkName }: Props) {
   const [results, setResults] = useState<BenchmarkResult[]>([]);
   const [selectedRuns, setSelectedRuns] = useState<string[]>([]);
 
-  useEffect(() => {
+  const fetchResults = useCallback(() => {
     fetch(`/api/benchmarks/${encodeURIComponent(benchmarkName)}/results`)
       .then((r) => r.json())
       .then((data: BenchmarkResult[]) => {
@@ -56,6 +58,49 @@ export default function BenchmarkCompare({ benchmarkName }: Props) {
       })
       .catch(() => {});
   }, [benchmarkName]);
+
+  // Initial load
+  useEffect(() => {
+    fetchResults();
+  }, [fetchResults]);
+
+  // Re-fetch results when a batch completes
+  const activeBatchId = useBatchStore((s) => s.activeBatchId);
+  const batches = useBatchStore((s) => s.batches);
+  const prevAllDoneRef = useRef(false);
+
+  useEffect(() => {
+    if (!activeBatchId) return;
+    const batch = batches[activeBatchId];
+    if (!batch) return;
+
+    const completedCount = batch.runs.filter(
+      (r) => r.status === "completed" || r.status === "failed",
+    ).length;
+    const allDone = batch.runs.length > 0 && completedCount === batch.runs.length;
+
+    // When batch transitions from running to completed, refresh results
+    if (allDone && !prevAllDoneRef.current) {
+      fetchResults();
+      // Also refresh run history sidebar once after batch completes
+      useRunHistoryStore.getState().fetchRuns();
+    }
+    prevAllDoneRef.current = allDone;
+  }, [activeBatchId, batches, fetchResults]);
+
+  // Poll for updates every 10s while a benchmark is running
+  useEffect(() => {
+    if (!activeBatchId) return;
+    const batch = batches[activeBatchId];
+    if (!batch) return;
+    const allDone =
+      batch.runs.length > 0 &&
+      batch.runs.every((r) => r.status === "completed" || r.status === "failed");
+    if (allDone) return;
+
+    const id = setInterval(fetchResults, 10_000);
+    return () => clearInterval(id);
+  }, [activeBatchId, batches, fetchResults]);
 
   const latestResult = results[0];
 

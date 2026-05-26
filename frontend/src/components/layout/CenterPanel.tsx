@@ -68,7 +68,12 @@ export function CenterPanel({ activeBenchmark }: Props) {
     }
     return descMap;
   }, [selectedTemplate]);
-  const { sendAnswer, sendStopAndRegenerate } = useWorkflowEvents(workflowId);
+  const activeBatchId = useBatchStore((s) => s.activeBatchId);
+  const batchRunning = activeBatchId !== null;
+
+  const { sendAnswer, sendStopAndRegenerate } = useWorkflowEvents(
+    batchRunning ? null : workflowId,
+  );
 
   // When a new live workflow starts, snap back to Conversation so users don't
   // land on a stale Results view from the previous run.
@@ -142,9 +147,6 @@ export function CenterPanel({ activeBenchmark }: Props) {
     setBenchmarkData(data);
     setBenchmarkView("runner");
   }, []);
-
-  const activeBatchId = useBatchStore((s) => s.activeBatchId);
-  const batchRunning = activeBatchId !== null;
 
   const startWorkflow = useCallback(async (template: unknown, task: string) => {
     const t = template as Record<string, unknown>;

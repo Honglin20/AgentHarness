@@ -9,7 +9,8 @@ from fastapi import WebSocket, WebSocketDisconnect, Query
 from fastapi import APIRouter, Query
 
 from harness.user_manager import get_user_manager
-from server.event_bus import EventBus
+from server.event_bus import EventBus, get_event_bus
+from .batch_fan_in import BatchFanIn
 
 router = APIRouter()
 
@@ -216,3 +217,113 @@ def get_connection_manager() -> ConnectionManager:
     if _manager is None:
         _manager = ConnectionManager()
     return _manager
+
+
+@router.websocket("/workflows/{workflow_id}")
+async def websocket_endpoint(
+    workflow_id: str,
+    websocket: WebSocket,
+    user_id: str | None = Query(None),
+):
+    """WebSocket endpoint for real-time workflow events."""
+    manager = get_connection_manager()
+
+    # Get the Bus bound to this specific workflow
+    from server.repository import get_repository
+    repo = get_repository()
+    data = repo.get(workflow_id)
+    event_bus = data.get("event_bus") if data else None
+    if not event_bus:
+        # Fallback: create a standalone Bus for completed/missing runs
+        event_bus = get_event_bus()
+
+    sub_id = await manager.connect(workflow_id, websocket, event_bus, user_id=user_id)
+
+    try:
+        while True:
+            # Receive incoming messages (e.g., ask_human responses)
+            data = await websocket.receive_text()
+            message = json.loads(data)
+
+            # Handle ask_human responses
+            if message.get("type") == "chat.answer":
+                question_id = message.get("payload", {}).get("question_id")
+                answer = message.get("payload", {}).get("answer")
+
+                if question_id and answer:
+                    from harness.tools.ask_human import resolve_question
+                    await resolve_question(question_id, answer)
+
+            # Handle stop + regenerate requests
+            elif message.get("type") == "agent.stop_and_regenerate":
+                payload = message.get("payload", {}) or {}
+                agent_name = payload.get("agent_name") or ""
+                partial_output = payload.get("partial_output", "") or ""
+                user_guidance = payload.get("user_guidance", "") or ""
+                if agent_name:
+                    from harness.engine.macro_graph import request_stop_and_regenerate
+                    await request_stop_and_regenerate(
+                        workflow_id, agent_name, partial_output, user_guidance,
+                    )
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await manager.disconnect(sub_id, event_bus)
+
+
+@router.websocket("/batch/{batch_id}")
+async def batch_websocket_endpoint(
+    batch_id: str,
+    websocket: WebSocket,
+    user_id: str | None = Query(None),
+):
+    """WebSocket endpoint for batch/benchmark runs with fan-in."""
+    await websocket.accept()
+
+    # Get or resolve user_id (priority: query > header > default)
+    ws_user_id = user_id
+    if not ws_user_id:
+        ws_user_id = websocket.query_params.get("user_id")
+    if not ws_user_id:
+        api_key = websocket.headers.get("x-api-key", websocket.headers.get("X-API-Key"))
+        ws_user_id = get_connection_manager()._resolve_user_id(api_key)
+
+    # Create fan-in for batch events
+    from server.repository import get_repository
+    repo = get_repository()
+
+    batch = repo.get_batch(batch_id)
+    if not batch:
+        await websocket.close(code=4004, reason="Batch not found")
+        return
+
+    fan_in = BatchFanIn()
+    await fan_in.start(batch_id, repo)
+
+    try:
+        while True:
+            event = await fan_in.queue.get()
+
+            # Filter by user_id (same rules as ConnectionManager)
+            event_user_id = (
+                event.get("payload", {}).get("user_id") or
+                event.get("user_id") or
+                "default"
+            )
+            event_type = event.get("type", "")
+            broadcast_rule = BROADCAST_RULES.get(event_type, "self")
+
+            if broadcast_rule == "self":
+                if event_user_id != ws_user_id:
+                    continue
+            elif broadcast_rule == "admin":
+                user_mgr = get_user_manager()
+                user = user_mgr.get_user(ws_user_id)
+                if not user or user.role != "admin":
+                    continue
+
+            await websocket.send_text(json.dumps(event))
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await fan_in.stop()

@@ -71,8 +71,21 @@ class WorkflowRunner:
         event_bus: EventBus,
         config: dict | None = None,
         resume: bool = False,
+        work_dir: str | None = None,
+        user_id: str | None = None,
     ) -> None:
-        """Submit a workflow to run in the background."""
+        """Submit a workflow to run in the background.
+
+        Args:
+            workflow_id: Unique ID for this run
+            workflow: The Workflow instance to run
+            inputs: Input parameters for the workflow
+            event_bus: Event bus for emitting events
+            config: LangGraph run config (e.g., checkpoint config for resume)
+            resume: Whether resuming from a checkpoint
+            work_dir: Working directory to execute in (cd before running)
+            user_id: User ID who initiated this run
+        """
         async with self._lock:
             if workflow_id in self._running:
                 raise RuntimeError(f"Workflow {workflow_id} is already running")
@@ -89,6 +102,8 @@ class WorkflowRunner:
                 event_bus=event_bus,
                 config=config,
                 resume=resume,
+                work_dir=work_dir,
+                user_id=user_id,
             )
         )
 
@@ -116,6 +131,14 @@ class WorkflowRunner:
             if workflow_id in self._cancelled:
                 self._cancelled.remove(workflow_id)
 
+            # Clear any stale stop-and-regenerate signals so they don't
+            # fire on the next run after resume.
+            try:
+                from harness.engine.macro_graph import clear_stop_regen
+                clear_stop_regen(workflow_id)
+            except Exception:
+                pass
+
             # Persist as paused so the run stays in history and can be resumed
             from server.repository import get_repository
             repo = get_repository()
@@ -123,6 +146,7 @@ class WorkflowRunner:
             if data is not None:
                 workflow = data["workflow"]
                 data["status"] = "paused"
+                batch_id = data.get("batch_id")
                 from harness.run_store import RunStore
                 try:
                     RunStore().save(
@@ -134,6 +158,7 @@ class WorkflowRunner:
                         inputs=data.get("inputs", {}),
                         result=None,
                         dag=repo.get_dag(workflow_id),
+                        batch_id=batch_id,
                     )
                 except Exception:
                     pass
@@ -148,14 +173,48 @@ class WorkflowRunner:
         event_bus: EventBus,
         config: dict | None = None,
         resume: bool = False,
+        work_dir: str | None = None,
+        user_id: str | None = None,
     ) -> None:
-        """Internal: execute workflow with cancellation check."""
+        """Internal: execute workflow with cancellation check.
+
+        Args:
+            workflow_id: Unique ID for this run
+            workflow: The Workflow instance to run
+            inputs: Input parameters for the workflow
+            event_bus: Event bus for emitting events
+            config: LangGraph run config (e.g., checkpoint config for resume)
+            resume: Whether resuming from a checkpoint
+            work_dir: Working directory to execute in (cd before running)
+            user_id: User ID who initiated this run
+        """
+        import os
+        original_cwd = None
+
         async with self._semaphore:
             try:
                 # Check cancellation before starting
                 if await self._is_cancelled(workflow_id):
                     event_bus.emit("workflow.cancelled", {"workflow_id": workflow_id})
                     return
+
+                # Change to working directory if specified
+                if work_dir:
+                    # Resolve to absolute path and validate bounds
+                    work_path = Path(work_dir).resolve()
+                    # Restrict to reasonable paths (prevent /etc/, /proc/, etc.)
+                    forbidden_prefixes = ["/etc", "/proc", "/sys", "/root", "/var"]
+                    for prefix in forbidden_prefixes:
+                        if str(work_path).startswith(prefix):
+                            raise RuntimeError(f"Work directory cannot be under {prefix}")
+
+                    if not work_path.exists():
+                        raise RuntimeError(f"Work directory does not exist: {work_dir}")
+                    if not work_path.is_dir():
+                        raise RuntimeError(f"Work path is not a directory: {work_dir}")
+
+                    original_cwd = os.getcwd()
+                    os.chdir(work_path)
 
                 # Connect MCP servers and register their tools
                 await workflow.setup()
@@ -166,10 +225,13 @@ class WorkflowRunner:
                     workflow._builder.register_active()
 
                 # Run workflow (resume from checkpoint or fresh start)
+                # 使用用户上下文，确保事件携带 user_id
                 if resume and config:
-                    result = await workflow.arun(inputs=None, config=config)
+                    with event_bus.with_user_context(user_id or "default"):
+                        result = await workflow.arun(inputs=None, config=config)
                 else:
-                    result = await workflow.arun(inputs, config=config)
+                    with event_bus.with_user_context(user_id or "default"):
+                        result = await workflow.arun(inputs, config=config)
 
                 # Store result for REST endpoints
                 from server.repository import get_repository
@@ -205,6 +267,8 @@ class WorkflowRunner:
                     result=data.get("result") if data else None,
                     dag=repo.get_dag(workflow_id),
                     agent_io=_agent_io,
+                    batch_id=batch_id,
+                    user_id=user_id,
                 )
 
                 # Emit completion
@@ -251,6 +315,8 @@ class WorkflowRunner:
                     result=None,
                     dag=repo.get_dag(workflow_id),
                     agent_io=_agent_io,
+                    batch_id=batch_id,
+                    user_id=user_id,
                 )
 
                 error_payload = {
@@ -262,6 +328,10 @@ class WorkflowRunner:
                 event_bus.emit("workflow.error", error_payload)
 
             finally:
+                # Restore working directory
+                if original_cwd:
+                    os.chdir(original_cwd)
+
                 # Disconnect MCP servers
                 await workflow.cleanup()
                 # Unregister builder from global signal map

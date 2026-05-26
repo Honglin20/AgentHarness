@@ -361,15 +361,22 @@ class MyLogger(BaseHook):
 wf = Workflow(...).use(MyLogger())
 ```
 
-#### ConsoleOutput — 命令行美化输出
+#### ConsoleOutput — 命令行美化输出（Rich）
 
-`ConsoleOutput` 是一个内置 Hook，用于在命令行运行时美化输出 workflow 执行过程。
+`ConsoleOutput` 是一个内置 Hook，使用 [Rich](https://github.com/Textualize/rich) 库美化命令行输出。
 
 **特点：**
-- 显示 System Prompt / User Prompt / 上游输出
-- 美化的 Agent 输出框（summary + details）
-- 执行摘要和路径追踪
-- 不影响 Web UI，仅命令行使用
+- 🎨 彩色面板、自动换行、边框样式
+- 📊 JSON/Markdown 自动高亮
+- 📤 上游输出表格展示
+- 🖨️ 不影响 Web UI，仅命令行使用
+
+**安装依赖：**
+```bash
+pip install rich
+# 或
+pip install -e ".[console]"
+```
 
 ```python
 from harness.extensions.console import ConsoleOutput
@@ -382,6 +389,7 @@ wf.use(ConsoleOutput(
     verbose=True,         # 显示详细信息
     show_system=True,     # 显示 system prompt 框
     show_upstream=True,   # 显示上游 agent 输出
+    use_colors=True,      # 使用颜色
 ))
 
 result = wf.run({"task": "..."})
@@ -390,30 +398,22 @@ result = wf.run({"task": "..."})
 **输出示例：**
 ```
 ╔══════════════════════════════════════════════════════════╗
-║ 🚀 Workflow: test_conditional                              ║
-║ ID: a1b2c3d4...                                            ║
+║ 🔹 analyzer 开始执行                                    ║
 ╚══════════════════════════════════════════════════════════╝
 
-──────────────────────────────────────────────────
-🔹 [analyzer] 开始执行
-──────────────────────────────────────────────────
+┌────────────────────────── 📌 User Prompt ───────────────────────────┐
+│ ## Task                                                                │
+│ {   "task": "分析这段代码: print('hello')" }                          │
+└───────────────────────────────────────────────────────────────────────┘
 
-    ┌─ User Prompt
-    │ ## Task {   "task": "分析这段代码: print('hello')" }
-    └
-    ┌─ 上游 Agent 输出
-    │ • analyzer:   summary='该代码段为 Python 语言的 print 函数调用...'
-    └
+╔══════════════════════════════════════════════════════════╗
+║ ✓ analyzer 执行完成                                       ║
+╚══════════════════════════════════════════════════════════╝
 
-.....
-──────────────────────────────────────────────────
-✓ [analyzer] 执行完成
-──────────────────────────────────────────────────
-
-┌─ 📋 输出内容
-│ summary='该代码段为 Python 语言的 print 函数调用，功能是向
-│ 标准输出打印字符串 "hello"。' details='代码分析：\n- 语言：Python...'
-└
+┌──────────────────────────────────── Agent 输出 ────────────────────────────────────┐
+│ 输出摘要:                                                                               │
+│ 该代码为 Python 3 中的 print 函数调用，功能简单明确，无复杂逻辑。                     │
+└─────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 > 完整示例: [examples/13_console_output.py](examples/13_console_output.py)

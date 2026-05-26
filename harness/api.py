@@ -266,35 +266,108 @@ class Workflow:
         return cls.from_dict(data, workflow_dir=wf_dir, agents_dir=agents_dir)
 
     @staticmethod
-    def list_saved() -> list[dict]:
+    def list_saved(user_id: str | None = None) -> list[dict]:
         """List all saved workflow definitions with their DAG structure.
 
-        Scans ``workflows/*/workflow.json`` (skipping ``_shared/``).
+        Returns:
+            - Shared workflows (from workflows/_shared/workflows/) - always returned
+            - Private workflows for the given user (from workflows/users/{user_id}/workflows/) - if user_id provided
+            - Legacy workflows (from workflows/ root) - only for default user or when no user_id
+
+        Args:
+            user_id: User ID for filtering private workflows.
+                     - None or "default": returns shared + legacy (backward compatibility)
+                     - Other values: returns shared + user's private (legacy hidden)
         """
         if not _WORKFLOWS_DIR.exists():
             return []
         from harness.compiler.dag_builder import build_dag
 
         result = []
-        for f in sorted(_WORKFLOWS_DIR.glob("*/workflow.json")):
-            if f.parent.name == "_shared":
-                continue
-            data = json.loads(f.read_text())
-            agents = [Agent.from_dict(a) for a in data.get("agents", [])]
-            node_order = build_dag(agents)
-            edges = []
-            for a in agents:
-                for dep in a.after:
-                    edges.append([dep, a.name])
-            agent_dicts = [a.to_dict() for a in agents]
-            for ad in agent_dicts:
-                ad["description"] = _extract_description(ad["name"], f.parent)
-            result.append({
-                "name": data["name"],
-                "agents": agent_dicts,
-                "dag": {"nodes": node_order, "edges": edges},
-                "workflow_dir": str(f.parent),
-            })
+
+        # 1. Shared workflows
+        shared_root = _WORKFLOWS_DIR / "_shared" / "workflows"
+        if shared_root.exists():
+            for f in sorted(shared_root.glob("*/workflow.json")):
+                data = json.loads(f.read_text())
+                agents = [Agent.from_dict(a) for a in data.get("agents", [])]
+                node_order = build_dag(agents)
+                edges = []
+                conditional_edges = []
+                for a in agents:
+                    for dep in a.after:
+                        edges.append([dep, a.name])
+                    if a.on_pass is not None:
+                        conditional_edges.append({"from": a.name, "to": a.on_pass, "label": "pass"})
+                    if a.on_fail is not None:
+                        conditional_edges.append({"from": a.name, "to": a.on_fail, "label": "fail"})
+                agent_dicts = [a.to_dict() for a in agents]
+                for ad in agent_dicts:
+                    ad["description"] = _extract_description(ad["name"], f.parent)
+                result.append({
+                    "name": data["name"],
+                    "agents": agent_dicts,
+                    "dag": {"nodes": node_order, "edges": edges, "conditional_edges": conditional_edges},
+                    "workflow_dir": str(f.parent),
+                    "scope": "shared",
+                })
+
+        # 2. Private workflows (if user_id provided)
+        if user_id:
+            private_root = _WORKFLOWS_DIR / "users" / user_id / "workflows"
+            if private_root.exists():
+                for f in sorted(private_root.glob("*/workflow.json")):
+                    data = json.loads(f.read_text())
+                    agents = [Agent.from_dict(a) for a in data.get("agents", [])]
+                    node_order = build_dag(agents)
+                    edges = []
+                    conditional_edges = []
+                    for a in agents:
+                        for dep in a.after:
+                            edges.append([dep, a.name])
+                        if a.on_pass is not None:
+                            conditional_edges.append({"from": a.name, "to": a.on_pass, "label": "pass"})
+                        if a.on_fail is not None:
+                            conditional_edges.append({"from": a.name, "to": a.on_fail, "label": "fail"})
+                    agent_dicts = [a.to_dict() for a in agents]
+                    for ad in agent_dicts:
+                        ad["description"] = _extract_description(ad["name"], f.parent)
+                    result.append({
+                        "name": data["name"],
+                        "agents": agent_dicts,
+                        "dag": {"nodes": node_order, "edges": edges, "conditional_edges": conditional_edges},
+                        "workflow_dir": str(f.parent),
+                        "scope": "private",
+                    })
+
+        # 3. Legacy workflows (backward compatibility when no user_id or for default user)
+        if not user_id or user_id == "default":
+            for f in sorted(_WORKFLOWS_DIR.glob("*/workflow.json")):
+                if f.parent.name == "_shared":
+                    continue
+                data = json.loads(f.read_text())
+                agents = [Agent.from_dict(a) for a in data.get("agents", [])]
+                node_order = build_dag(agents)
+                edges = []
+                conditional_edges = []
+                for a in agents:
+                    for dep in a.after:
+                        edges.append([dep, a.name])
+                    if a.on_pass is not None:
+                        conditional_edges.append({"from": a.name, "to": a.on_pass, "label": "pass"})
+                    if a.on_fail is not None:
+                        conditional_edges.append({"from": a.name, "to": a.on_fail, "label": "fail"})
+                agent_dicts = [a.to_dict() for a in agents]
+                for ad in agent_dicts:
+                    ad["description"] = _extract_description(ad["name"], f.parent)
+                result.append({
+                    "name": data["name"],
+                    "agents": agent_dicts,
+                    "dag": {"nodes": node_order, "edges": edges, "conditional_edges": conditional_edges},
+                    "workflow_dir": str(f.parent),
+                    "scope": "legacy",
+                })
+
         return result
 
     def to_dict(self) -> dict:
@@ -333,20 +406,22 @@ class Workflow:
 
     def _launch_ui(self, inputs: dict) -> None:
         """Start backend server and open browser for UI visualization."""
+        import os
         import subprocess
         import time
         import threading
 
         backend_dir = Path(__file__).resolve().parent.parent
+        port = int(os.environ.get("HARNESS_PORT", "8000"))
 
         def _start_server():
             import uvicorn
-            uvicorn.run("server.app:app", host="0.0.0.0", port=8001, log_level="warning")
+            uvicorn.run("server.app:app", host="0.0.0.0", port=port, log_level="warning")
 
         # Check if server is already running
         import urllib.request
         try:
-            urllib.request.urlopen("http://localhost:8001/health", timeout=1)
+            urllib.request.urlopen(f"http://localhost:{port}/health", timeout=1)
         except Exception:
             t = threading.Thread(target=_start_server, daemon=True)
             t.start()
@@ -359,14 +434,14 @@ class Workflow:
             "agents": [a.to_dict() for a in self.agents],
             "inputs": inputs,
         }).encode()
-        req = ur.Request("http://localhost:8001/api/workflows", data=data,
+        req = ur.Request(f"http://localhost:{port}/api/workflows", data=data,
                          headers={"Content-Type": "application/json"})
         resp = ur.urlopen(req)
         result = json.loads(resp.read())
         wid = result["workflow_id"]
 
         # Open browser
-        webbrowser.open(f"http://localhost:3000?workflow={wid}")
+        webbrowser.open(f"http://localhost:{port}?workflow={wid}")
 
     async def arun(self, inputs: dict, config: dict | None = None) -> WorkflowResult:
         """Run the workflow asynchronously. For callers already in an async context.

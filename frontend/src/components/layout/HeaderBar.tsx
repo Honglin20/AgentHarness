@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
-import { Settings, Key, Cpu, Globe, X, RotateCcw, Square, Timer, Play, Sun, Moon } from "lucide-react";
+import { useState, useCallback, useMemo, useEffect } from "react";
+import { Settings, Key, Cpu, Globe, X, RotateCcw, Square, Timer, Play, Sun, Moon, User } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,8 @@ import { useWorkflowStore, type NodeState } from "@/stores/workflowStore";
 import { useViewStore } from "@/stores/viewStore";
 import { useResetWorkflow } from "@/hooks/useResetWorkflow";
 import DAGStatusBar from "@/components/dag/DAGStatusBar";
+import ApiKeySettings from "@/components/settings/ApiKeySettings";
+import { getCurrentUser, getApiKey } from "@/lib/api";
 
 const API_BASE = "";
 
@@ -38,6 +40,7 @@ export function HeaderBar() {
   const isRunning = status === "running";
   const isActive = status !== "idle";
   const [open, setOpen] = useState(false);
+  const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [apiUrl, setApiUrl] = useState("");
@@ -45,6 +48,20 @@ export function HeaderBar() {
   const [saved, setSaved] = useState(false);
   const [stopping, setStopping] = useState(false);
   const resetWorkflow = useResetWorkflow();
+  const [currentUser, setCurrentUser] = useState<{ user_id: string; name: string } | null>(null);
+
+  // Load current user info from API
+  useEffect(() => {
+    const loadUser = async () => {
+      const user = await getCurrentUser();
+      if (user) {
+        setCurrentUser(user);
+      } else {
+        setCurrentUser({ user_id: "default", name: "Default" });
+      }
+    };
+    loadUser();
+  }, []);
 
   // Decide which DAG (if any) to render inline: live store, replay snapshot, or none
   const dagProps = useMemo(() => {
@@ -185,6 +202,16 @@ export function HeaderBar() {
             Resume
           </Button>
         )}
+        {/* User info */}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1.5 text-xs"
+          onClick={() => setApiKeyDialogOpen(true)}
+        >
+          <User className="h-3.5 w-3.5" />
+          {currentUser?.name || "Guest"}
+        </Button>
         <ThemeToggle />
         <Button
           variant="ghost"
@@ -267,6 +294,23 @@ export function HeaderBar() {
           </div>
         </div>
       )}
+
+      {/* API Key Settings Dialog */}
+      <ApiKeySettings
+        open={apiKeyDialogOpen}
+        onOpenChange={async (open) => {
+          setApiKeyDialogOpen(open);
+          if (!open) {
+            // Reload user info when dialog closes
+            const user = await getCurrentUser();
+            if (user) {
+              setCurrentUser(user);
+            } else {
+              setCurrentUser({ user_id: "default", name: "Default" });
+            }
+          }
+        }}
+      />
     </header>
   );
 }

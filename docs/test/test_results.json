@@ -1,0 +1,89 @@
+{
+  "timestamp": 1779788486.463339,
+  "passed": 6,
+  "total": 7,
+  "pass_rate": 0.8571428571428571,
+  "results": [
+    {
+      "name": "chart_demo",
+      "passed": true,
+      "checks": {
+        "status": true,
+        "has_agent_io": true,
+        "has_trace": true,
+        "has_result": true,
+        "has_output": true
+      },
+      "workflow_id": "eb3586f5-2a54-48ca-b85b-028211e86c08"
+    },
+    {
+      "name": "parallel_research",
+      "passed": true,
+      "checks": {
+        "status": true,
+        "has_agent_io": true,
+        "has_trace": true,
+        "has_result": true,
+        "has_parallel_dag": true
+      },
+      "workflow_id": "1b46d7b6-4d20-4d02-bcf1-dc89c9d7a7c8"
+    },
+    {
+      "name": "test-quick_benchmark",
+      "passed": true,
+      "checks": {
+        "has_runs": true,
+        "all_completed": true,
+        "expected_count": true
+      },
+      "batch_id": "6fff2532-b473-4758-9394-439d97eca087"
+    },
+    {
+      "name": "eval_demo",
+      "passed": true,
+      "checks": {
+        "status": true,
+        "has_agent_io": true,
+        "has_trace": true,
+        "has_result": true,
+        "has_judge_event": true
+      },
+      "workflow_id": "5412f457-7fe6-441a-961f-0a65539ee1a5"
+    },
+    {
+      "name": "loop_retry",
+      "passed": false,
+      "checks": {
+        "status": true,
+        "has_agent_io": true,
+        "has_trace": true,
+        "has_result": true,
+        "has_conditional_dag": true,
+        "has_loop": false
+      },
+      "workflow_id": "f52c88a8-3ac1-4198-ab59-13b39c8c8b2f"
+    },
+    {
+      "name": "conditional_route",
+      "passed": true,
+      "checks": {
+        "status": true,
+        "has_agent_io": true,
+        "has_trace": true,
+        "has_result": true,
+        "has_conditional_dag": true
+      },
+      "workflow_id": "3961be0d-2b84-4543-8a61-6770761f0957"
+    },
+    {
+      "name": "code-review-v1_benchmark",
+      "passed": true,
+      "checks": {
+        "has_runs": true,
+        "all_completed": true,
+        "expected_count": true
+      },
+      "batch_id": "f6b77082-f951-41a4-801a-02ea1f8cb1db"
+    }
+  ]
+}

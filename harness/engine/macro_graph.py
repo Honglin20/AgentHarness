@@ -53,6 +53,17 @@ async def request_stop_and_regenerate(
         )
 
 
+def clear_stop_regen(workflow_id: str) -> None:
+    """Clear any pending stop-and-regenerate signal for a workflow.
+
+    Called when a workflow is cancelled/paused to prevent stale signals
+    from triggering immediate interrupts on resume.
+    """
+    builder = _active_builders.get(workflow_id)
+    if builder is not None:
+        builder._pending_stop_regen.pop(workflow_id, None)
+
+
 class ReviewDecision(BaseModel):
     """Default result_type for agents with conditional edges."""
     decision: Literal["pass", "fail"]
@@ -216,9 +227,25 @@ class MacroGraphBuilder:
                 node_func = self._make_node_func(agent_def, parsed, dep_map, workflow_dir)
             graph.add_node(agent_name, node_func)
 
+        # Collect conditional edge targets — these are activated by routing,
+        # not by START, even if they have no `after` dependency.
+        # Exception: a node that is a root (no deps) should still get START edge
+        # even if it's a conditional target (for retry/loop scenarios).
+        conditional_targets = set()
+        for agent in agents:
+            if agent.has_conditional_edges:
+                if agent.on_pass is not None:
+                    conditional_targets.add(agent.on_pass)
+                if agent.on_fail is not None:
+                    conditional_targets.add(agent.on_fail)
+
+        # Build a set of root nodes (agents with no static dependencies)
+        root_nodes = {agent_name for agent_name, deps in dep_map.items() if not deps}
+
         # Add edges from START to root nodes
+        # Include root nodes that are also conditional targets (for retry/loop)
         for agent_name in execution_order:
-            if not dep_map[agent_name]:
+            if agent_name in root_nodes:
                 graph.add_edge(START, agent_name)
 
         # Add edges between dependent nodes

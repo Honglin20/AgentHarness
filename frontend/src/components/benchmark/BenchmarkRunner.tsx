@@ -9,7 +9,9 @@ import { useOutputStore } from "@/stores/outputStore";
 import { useChatStore } from "@/stores/chatStore";
 import { useChartStore } from "@/stores/chartStore";
 import { useConversationStore } from "@/stores/conversationStore";
-import { setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
+import { useRunHistoryStore } from "@/stores/runHistoryStore";
+import { switchBatchRun, setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
+import { useBatchWorkflowEvents } from "@/hooks/useWorkflowEvents";
 
 const API_BASE = "";
 
@@ -35,7 +37,7 @@ export default function BenchmarkRunner({ benchmark, onBack }: Props) {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
 
-  const { batches, activeBatchId, selectedRunId, createBatch, selectRun } = useBatchStore();
+  const { batches, activeBatchId, selectedRunId, createBatch, selectRun, setActiveBatch } = useBatchStore();
 
   // Load workflows
   useEffect(() => {
@@ -50,31 +52,22 @@ export default function BenchmarkRunner({ benchmark, onBack }: Props) {
   const completedCount = runs.filter((r) => r.status === "completed" || r.status === "failed").length;
   const allDone = runs.length > 0 && completedCount === runs.length;
 
-  // Sync batch status from server periodically while running
-  useEffect(() => {
-    if (!activeBatchId || !currentBatch || allDone) return;
-    const poll = setInterval(async () => {
-      try {
-        const r = await fetch(`${API_BASE}/api/batch/${activeBatchId}`);
-        if (!r.ok) return;
-        const data = await r.json();
-        for (const run of data.runs ?? []) {
-          useBatchStore.getState().updateRunStatus(
-            run.workflow_id,
-            run.status,
-            run.score,
-          );
-        }
-      } catch {}
-    }, 3000);
-    return () => clearInterval(poll);
-  }, [activeBatchId, currentBatch, allDone]);
+  // Batch WebSocket connection — connects when activeBatchId is set
+  const { isConnected } = useBatchWorkflowEvents(activeBatchId);
 
   const runBenchmark = useCallback(async () => {
     if (!selectedWf) return;
     setRunning(true);
     setError("");
 
+    // Save current state before starting benchmark (if any)
+    const currentWid = useWorkflowStore.getState().workflowId;
+    if (currentWid) {
+      useConversationStore.getState().saveToCache(currentWid);
+      useOutputStore.getState().saveToCache(currentWid);
+    }
+
+    // Reset current display state, but preserve cache
     useOutputStore.getState().reset();
     useChatStore.getState().reset();
     useChartStore.getState().reset();
@@ -107,7 +100,12 @@ export default function BenchmarkRunner({ benchmark, onBack }: Props) {
         selectedWf,
       );
 
-      setActiveWorkflowId(batchData.runs[0]?.workflow_id ?? null);
+      // Set active workflow ID for the selected run
+      const firstWid = batchData.runs[0]?.workflow_id ?? null;
+      setActiveWorkflowId(firstWid);
+
+      // Refresh sidebar to show the new batch runs
+      useRunHistoryStore.getState().fetchRuns();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to start benchmark");
     } finally {
@@ -117,14 +115,9 @@ export default function BenchmarkRunner({ benchmark, onBack }: Props) {
 
   const handleSelectRun = useCallback(
     (wid: string) => {
-      selectRun(wid);
-      setActiveWorkflowId(wid);
-      // Reset UI stores for the new run (but NOT conversationStore — setActiveWorkflowId handles restore)
-      useOutputStore.getState().reset();
-      useChatStore.getState().reset();
-      useChartStore.getState().reset();
+      switchBatchRun(wid);
     },
-    [selectRun],
+    [],
   );
 
   return (
@@ -177,6 +170,14 @@ export default function BenchmarkRunner({ benchmark, onBack }: Props) {
       )}
 
       {error && <p className="text-xs text-red-500">{error}</p>}
+
+      {/* WS connection indicator */}
+      {currentBatch && (
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          <span className={`inline-block h-2 w-2 rounded-full ${isConnected ? "bg-green-500" : "bg-red-400"}`} />
+          {isConnected ? "Connected" : "Reconnecting..."}
+        </div>
+      )}
 
       {/* Progress table */}
       {currentBatch && (

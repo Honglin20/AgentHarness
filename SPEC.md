@@ -14,6 +14,7 @@
 | Phase 3 | ✅ 已敲定 + 已实现 | 2026-05-20 |
 | Phase 4 | 🔄 敲定中 | 2026-05-20 |
 | Phase 5 | ✅ 已敲定 | 2026-05-22 |
+| Phase 6 | 🔄 敲定中 | 2026-05-25 |
 
 ---
 
@@ -1713,3 +1714,97 @@ Judge 失败当节点失败处理，不静默。
 - [x] 多下游用 passthrough 节点 fan-out — 改动小，语义清晰
   - Why: `_judge_X` 只有一个 on_pass 出口，多个下游需 hub
   - How: 插入 `_judge_X_passthrough`(no-op)，fan-out 到所有 D
+
+---
+
+## §BatchWS — Batch Fan-In WebSocket 接口
+
+> Phase 6 敲定中（2026-05-25）
+
+### 定位
+
+Benchmark 场景下 N 个 workflow run 的事件聚合。后端 fan-in 订阅 batch 内所有 Bus，
+前端通过单一 WS 连接观察全部 run 的实时事件。消除单 WS 架构下的竞态和数据丢失。
+
+### 架构
+
+```
+Bus1 (run-1) ──┐
+Bus2 (run-2) ──┤
+Bus3 (run-3) ──┼── BatchFanIn ── /ws/batch/{batch_id} ── Frontend
+Bus4 (run-4) ──┘   (subscribe   (1 个 WS, 按 workflow_id
+                    all buses)   分区路由到 stores)
+```
+
+### 新增事件类型
+
+| 事件类型 | 方向 | 触发时机 |
+|----------|------|---------|
+| `batch.init` | S→C | batch WS 连接建立，通知前端 run 列表 |
+| `batch.completed` | S→C | 所有 run 完成（后端注入） |
+
+```typescript
+// Frontend payloads
+interface BatchInitPayload {
+  batch_id: string;
+  runs: { workflow_id: string; label: string; status: string }[];
+}
+
+interface BatchCompletedPayload {
+  batch_id: string;
+  total: number;
+  completed: number;
+  failed: number;
+  scores: Record<string, number>;
+  avg_score: number;
+}
+```
+
+### Backend: BatchFanIn
+
+```python
+class BatchFanIn:
+    """Fan-in N Bus instances into one merged queue."""
+    queue: asyncio.Queue[dict]
+
+    async def start(batch_id, repo) -> None   # subscribe all buses, replay buffers
+    async def stop() -> None                   # unsubscribe, cancel tasks
+```
+
+- `_forward(wid, source_queue)` → 检测 `workflow.completed`/`workflow.error`，全部完成时注入 `batch.completed`
+- WS handler: `send_loop` 从 fan_in.queue 读取发送；`receive_loop` 转发 `chat.answer`/`stop_and_regenerate` 到对应 Bus
+
+### Frontend: Store 缓存层
+
+三个 store 新增 `_cache: Record<wid, Snapshot>` + `_activeWid`:
+
+| Store | Snapshot 内容 |
+|-------|-------------|
+| conversationStore | messages, pendingQuestionId, pendingQuestionAgent |
+| outputStore | texts, activeNodeId |
+| workflowStore | nodes, status, workflowId, workflowName, dag |
+
+切换 run 时: save 当前 state → cache[oldWid]，从 cache[newWid] 恢复。
+非 selected run 的 node 事件写入 cache 而非主 state。
+
+### Frontend: 连接管理
+
+| 场景 | WS 连接 |
+|------|--------|
+| Sidebar → 单个 run | `/ws/workflows/{wid}` (useWebSocket) |
+| Benchmark runner | `/ws/batch/{batch_id}` (useBatchWebSocket) |
+| 离开 benchmark | 断开 batch WS，切回单 run WS |
+
+Batch WS 生命周期绑定 `activeBatchId`。断开后重连时 Bus ring buffer 回放。
+
+### 设计决策
+
+- [x] `batch.completed` 后端注入 — 不依赖前端连接稳定
+  - Why: WS 断连重连后 ring buffer 回放，前端可靠收到完成信号
+  - How: fan_in._forward 检测所有 run 完成，注入事件到 merged queue
+- [x] Cache 容量无限制 — benchmark 通常 ≤20 runs
+- [x] 非 selected run 的 node 状态写入 cache — 切换时 DAG 立即可见
+  - Why: 用户切换 run 时期望立即看到节点状态，不闪空
+  - How: dispatchEvent 中非 selected run 的 node 事件写入 workflowStore._cache
+- [x] Batch WS 绑定 activeBatchId，离开时断开，重连时 ring buffer 无缝恢复
+- [x] 与 `/ws/workflows/{wid}` 共存 — 两端点独立，互不干扰

@@ -47,18 +47,22 @@ export default function DAGStatusBar({ dag: dagProp, nodes: nodesProp, interacti
   const layout = useMemo(() => {
     if (!dag) return null;
 
+    const isCompact = compact;
+
+    // Both compact and non-compact use dagre LR; compact uses tighter spacing
     const g = new dagre.graphlib.Graph();
     g.setDefaultEdgeLabel(() => ({}));
-    g.setGraph({
-      rankdir: "LR",
-      nodesep: 30,
-      ranksep: 80,
-      marginx: 20,
-      marginy: 20,
-    });
+    g.setGraph(
+      isCompact
+        ? { rankdir: "LR", nodesep: 12, ranksep: 50, marginx: 10, marginy: 6 }
+        : { rankdir: "LR", nodesep: 30, ranksep: 80, marginx: 20, marginy: 20 },
+    );
+
+    const nw = isCompact ? 20 : NODE_WIDTH;
+    const nh = isCompact ? 20 : NODE_HEIGHT;
 
     for (const name of dag.nodes) {
-      g.setNode(name, { width: NODE_WIDTH, height: NODE_HEIGHT });
+      g.setNode(name, { width: nw, height: nh });
     }
     for (const [source, target] of dag.edges) {
       g.setEdge(source, target);
@@ -81,14 +85,14 @@ export default function DAGStatusBar({ dag: dagProp, nodes: nodesProp, interacti
     for (const name of dag.nodes) {
       const n = g.node(name);
       if (!n) continue;
-      minX = Math.min(minX, n.x - NODE_WIDTH / 2);
-      minY = Math.min(minY, n.y - NODE_HEIGHT / 2);
-      maxX = Math.max(maxX, n.x + NODE_WIDTH / 2);
-      maxY = Math.max(maxY, n.y + NODE_HEIGHT / 2);
+      minX = Math.min(minX, n.x - nw / 2);
+      minY = Math.min(minY, n.y - nh / 2);
+      maxX = Math.max(maxX, n.x + nw / 2);
+      maxY = Math.max(maxY, n.y + nh / 2);
     }
 
     const svgWidth = maxX - minX;
-    const LABEL_PAD = 16;
+    const LABEL_PAD = isCompact ? 14 : 16;
     const svgHeight = maxY - minY + LABEL_PAD;
 
     // Static edges
@@ -101,6 +105,8 @@ export default function DAGStatusBar({ dag: dagProp, nodes: nodesProp, interacti
         y1: s.y - minY,
         x2: t.x - minX - NODE_RADIUS,
         y2: t.y - minY,
+        color: "#9CA3AF",
+        isLoop: false as const,
       };
     });
 
@@ -172,7 +178,7 @@ export default function DAGStatusBar({ dag: dagProp, nodes: nodesProp, interacti
       staticEdges,
       conditionalEdges,
     };
-  }, [dag, nodes]);
+  }, [dag, nodes, compact]);
 
   if (!dag || !layout) return null;
 
@@ -240,7 +246,7 @@ export default function DAGStatusBar({ dag: dagProp, nodes: nodesProp, interacti
             y1={e.y1}
             x2={e.x2}
             y2={e.y2}
-            stroke="#9CA3AF"
+            stroke={e.color ?? "#9CA3AF"}
             strokeWidth={1.5}
             markerEnd="url(#arrow)"
           />
@@ -280,7 +286,7 @@ export default function DAGStatusBar({ dag: dagProp, nodes: nodesProp, interacti
                 y={e.labelY}
                 textAnchor="middle"
                 fill={e.color}
-                fontSize={9}
+                fontSize={compact ? 7 : 9}
                 fontWeight={600}
               >
                 {e.label}
@@ -295,7 +301,7 @@ export default function DAGStatusBar({ dag: dagProp, nodes: nodesProp, interacti
             <circle
               cx={n.cx}
               cy={n.cy}
-              r={NODE_RADIUS}
+              r={compact ? 5 : NODE_RADIUS}
               fill={n.color}
               className={n.status === "running" ? "dag-node-running" : undefined}
               onClick={interactive ? () => useWorkflowStore.getState().setSelectedNode(n.key) : undefined}
@@ -303,9 +309,9 @@ export default function DAGStatusBar({ dag: dagProp, nodes: nodesProp, interacti
             />
             <text
               x={n.cx}
-              y={n.cy + NODE_RADIUS + 10}
+              y={n.cy + (compact ? 5 : NODE_RADIUS) + (compact ? 8 : 10)}
               textAnchor="middle"
-              fontSize={10}
+              fontSize={compact ? 8 : 10}
               fill="hsl(var(--foreground))"
             >
               {n.label}

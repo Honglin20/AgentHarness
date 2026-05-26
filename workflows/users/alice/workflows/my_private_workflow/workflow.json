@@ -1,0 +1,10 @@
+{
+  "name": "my_private_workflow",
+  "agents": [
+    {
+      "name": "runner",
+      "after": [],
+      "tools": ["bash"]
+    }
+  ]
+}

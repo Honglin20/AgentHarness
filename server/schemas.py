@@ -20,6 +20,7 @@ class CreateWorkflowRequest(BaseModel):
     agents: list[AgentDef]
     workflow: str
     inputs: dict = Field(default_factory=dict)
+    work_dir: str | None = None  # Working directory to execute in
 
 
 class CreateWorkflowResponse(BaseModel):
@@ -79,6 +80,9 @@ class RunDetail(BaseModel):
     created_at: str
     dag: dict | None = None  # {nodes, edges, conditional_edges} — needed so replay view can render the DAG identically to live view
     chart_groups: dict | None = None  # {groups: {label: ChartGroup}, groupOrder: [labels]} — snapshot of frontend chartStore so Results tab replays
+    agent_io: dict | None = None  # {agent_name: {input_prompt, system_prompt, output_result}} — for conversation replay
+    batch_id: str | None = None
+    user_id: str | None = None
 
 
 class CheckpointInfo(BaseModel):

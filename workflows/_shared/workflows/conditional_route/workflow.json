@@ -1,0 +1,39 @@
+{
+  "name": "conditional_route",
+  "agents": [
+    {
+      "name": "analyzer",
+      "after": [],
+      "tools": null,
+      "model": null,
+      "retries": 3
+    },
+    {
+      "name": "classifier",
+      "after": [
+        "analyzer"
+      ],
+      "tools": null,
+      "model": null,
+      "retries": 3,
+      "on_pass": "summary",
+      "on_fail": "debugger"
+    },
+    {
+      "name": "summary",
+      "after": [],
+      "tools": null,
+      "model": null,
+      "retries": 3
+    },
+    {
+      "name": "debugger",
+      "after": [],
+      "tools": [
+        "bash"
+      ],
+      "model": null,
+      "retries": 3
+    }
+  ]
+}

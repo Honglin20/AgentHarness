@@ -48,6 +48,13 @@ class WorkflowRepository:
         if data and "event_bus" in data:
             del data["event_bus"]
 
+    def remove(self, workflow_id: str) -> None:
+        """Remove a workflow from the repository."""
+        if workflow_id in self._workflows:
+            del self._workflows[workflow_id]
+        if workflow_id in self._dag_cache:
+            del self._dag_cache[workflow_id]
+
     def contains(self, workflow_id: str) -> bool:
         return workflow_id in self._workflows
 
