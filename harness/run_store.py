@@ -52,7 +52,8 @@ class RunStore:
             record["agent_io"] = agent_io
         if batch_id:
             record["batch_id"] = batch_id
-        record["user_id"] = user_id or "default"
+        if user_id:
+            record["user_id"] = user_id
         path = self._safe_path(run_id)
         if path is None:
             raise ValueError(f"Invalid run_id: {run_id}")
