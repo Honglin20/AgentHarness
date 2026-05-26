@@ -232,7 +232,11 @@ class MacroGraphBuilder:
         # Exception: a node that is a root (no deps) should still get START edge
         # even if it's a conditional target (for retry/loop scenarios).
         conditional_targets = set()
+        # Track agents with after=None (only trigger via conditional edges)
+        conditional_only_nodes = set()
         for agent in agents:
+            if agent.after is None:
+                conditional_only_nodes.add(agent.name)
             if agent.has_conditional_edges:
                 if agent.on_pass is not None:
                     conditional_targets.add(agent.on_pass)
@@ -243,14 +247,16 @@ class MacroGraphBuilder:
         root_nodes = {agent_name for agent_name, deps in dep_map.items() if not deps}
 
         # Add edges from START to root nodes
+        # Exclude nodes that are conditional-only (after=None)
         # Include root nodes that are also conditional targets (for retry/loop)
         for agent_name in execution_order:
-            if agent_name in root_nodes:
+            if agent_name in root_nodes and agent_name not in conditional_only_nodes:
                 graph.add_edge(START, agent_name)
 
         # Add edges between dependent nodes
         for agent_name in execution_order:
-            for dep in dep_map[agent_name]:
+            deps = dep_map[agent_name] or []
+            for dep in deps:
                 graph.add_edge(dep, agent_name)
 
         # Track which nodes have conditional edges
@@ -280,7 +286,8 @@ class MacroGraphBuilder:
         # Add edges from leaf nodes to END (only if no conditional edges)
         downstream = set()
         for deps in dep_map.values():
-            downstream.update(deps)
+            if deps:
+                downstream.update(deps)
         # Add conditional edge targets to downstream
         for agent in agents:
             if agent.on_pass is not None:
@@ -323,7 +330,7 @@ class MacroGraphBuilder:
         max_iterations = self.max_iterations
         builder_self = self  # Capture for workflow_id access
         final_tool_names, model, retries, result_type = self._resolve_agent_config(agent_def, parsed)
-        upstream_names = dep_map[agent_def.name]
+        upstream_names = dep_map[agent_def.name] or []
 
         async def node_func(state: HarnessState) -> dict:
             start_time = time.time()

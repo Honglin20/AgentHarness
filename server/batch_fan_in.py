@@ -36,7 +36,6 @@ class BatchFanIn:
         self._batch_id: str = ""
         self._completion_lock = asyncio.Lock()  # Protect batch.completed emission
         self._completion_emitted = False  # Track if batch.completed was already sent
-        self._completion_emitted = False  # Track if batch.completed was already sent
 
     async def start(self, batch_id: str, repo: Any) -> None:
         """Subscribe to all buses in the batch. Replay ring buffers."""

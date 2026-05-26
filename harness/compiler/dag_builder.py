@@ -45,7 +45,8 @@ def build_dag(agents: list) -> list[str]:
 
     # Check for missing dependencies (both after and conditional targets)
     for agent in agents:
-        for dep in agent.after:
+        deps = agent.after or []
+        for dep in deps:
             if dep not in name_set:
                 raise MissingDependencyError(
                     f"Agent '{agent.name}' depends on '{dep}', which does not exist"
@@ -61,7 +62,9 @@ def build_dag(agents: list) -> list[str]:
     in_degree = {name: 0 for name in names}
 
     for agent in agents:
-        for dep in agent.after:
+        # after=None 表示仅通过条件边触发，不是静态依赖
+        deps = agent.after or []
+        for dep in deps:
             graph[dep].append(agent.name)
             in_degree[agent.name] += 1
 

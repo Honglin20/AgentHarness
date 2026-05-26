@@ -236,10 +236,6 @@ class WorkflowRunner:
                 # Store result for REST endpoints
                 from server.repository import get_repository
                 repo = get_repository()
-
-                # Store result for REST endpoints
-                from server.repository import get_repository
-                repo = get_repository()
                 if repo.contains(workflow_id):
                     repo.update_status(workflow_id, "completed", {
                         "outputs": _serialize_outputs(result.outputs),

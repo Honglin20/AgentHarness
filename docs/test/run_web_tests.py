@@ -384,7 +384,7 @@ async def test_loop_retry(tester: WebTester) -> dict:
     print(f"  Agent IO 数量: {len(agent_io)}")
     print(f"  Trace 条目数: {len(trace) if trace else 0}")
     print(f"  包含条件边: {checks['has_conditional_dag']}")
-    print(f"  Loop 检测: coder 运行 {coder_runs} 次")
+    print(f"  Coder 执行: {'是' if coder_ran else '否'}")
 
     # Check for retries (multiple coder/reviewer cycles)
     agent_sequence = [entry.get("agent_name") for entry in (trace or [])]

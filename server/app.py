@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from .routes import router
@@ -31,6 +32,30 @@ async def lifespan(app: FastAPI):
     yield
 
 
+class HttpOnlyStaticFiles(StaticFiles):
+    """StaticFiles that only handles HTTP requests (rejects WebSocket)."""
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            # Let other routes handle non-HTTP requests (WebSocket)
+            await self.handle_not_found(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
+
+    async def handle_not_found(self, scope, receive, send):
+        """Send 404 response for non-HTTP requests."""
+        if scope["type"] == "websocket":
+            await receive()
+            await send({
+                "type": "websocket.close",
+                "code": 1008,
+                "reason": "Not a WebSocket endpoint",
+            })
+        else:
+            response = PlainTextResponse("Not Found", status_code=404)
+            await response(scope, receive, send)
+
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
@@ -49,6 +74,13 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # API routes (must come before static mount)
+    app.include_router(router, prefix="/api")
+    app.include_router(ws_router, prefix="/ws")
+
+    from .routes import health_check
+    app.add_api_route("/health", health_check, methods=["GET"])
+
     # HTML responses (index.html, 404.html) must not be cached so that a
     # fresh `next build` shows up without users needing to hard-refresh.
     # Hashed _next/* assets remain cacheable.
@@ -60,19 +92,12 @@ def create_app() -> FastAPI:
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return response
 
-    # API routes (must come before static mount)
-    app.include_router(router, prefix="/api")
-    app.include_router(ws_router, prefix="/ws")
-
-    from .routes import health_check
-    app.add_api_route("/health", health_check, methods=["GET"])
-
     # Serve frontend static build (if exists)
     frontend_out = Path(__file__).resolve().parent.parent / "frontend" / "out"
     next_assets = frontend_out / "_next"
     if frontend_out.exists() and next_assets.exists():
-        app.mount("/_next", StaticFiles(directory=next_assets), name="next_assets")
-        app.mount("/", StaticFiles(directory=frontend_out, html=True), name="frontend")
+        app.mount("/_next", HttpOnlyStaticFiles(directory=next_assets), name="next_assets")
+        app.mount("/", HttpOnlyStaticFiles(directory=frontend_out, html=True), name="frontend")
     else:
         from fastapi.responses import HTMLResponse
 

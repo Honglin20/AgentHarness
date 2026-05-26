@@ -64,7 +64,13 @@ class Agent:
         eval: bool = False,
     ):
         self.name = name
-        self.after = after or []
+        # None 表示仅通过条件边触发，不作为入口节点
+        # [] 表示入口节点（从 START 开始）
+        # [...] 表示有静态依赖
+        if after is None:
+            self.after = None
+        else:
+            self.after = after  # 保持原值，包括 []
         self.tools = tools
         self.model = model
         self.retries = retries

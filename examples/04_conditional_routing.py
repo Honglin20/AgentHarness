@@ -20,8 +20,8 @@ from harness.api import Agent, Workflow
 wf = Workflow("conditional_route", agents=[
     Agent("analyzer", after=[]),
     Agent("classifier", after=["analyzer"], on_pass="summary", on_fail="debugger"),
-    Agent("summary", after=[]),
-    Agent("debugger", after=[], tools=["bash"]),
+    Agent("summary", after=None),      # 只通过条件边触发，不从 START 开始
+    Agent("debugger", after=None, tools=["bash"]),  # 只通过条件边触发
 ])
 wf.save()
 

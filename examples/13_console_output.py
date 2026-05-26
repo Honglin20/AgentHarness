@@ -22,8 +22,8 @@ from harness.extensions.console import ConsoleOutput
 wf = Workflow("console_demo", agents=[
     Agent("analyzer", after=[]),
     Agent("classifier", after=["analyzer"], on_pass="summary", on_fail="debugger"),
-    Agent("summary", after=[]),
-    Agent("debugger", after=[]),
+    Agent("summary", after=None),      # 只通过条件边触发
+    Agent("debugger", after=None),    # 只通过条件边触发
 ])
 
 # 使用共享 agents 目录
