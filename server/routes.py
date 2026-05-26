@@ -503,11 +503,11 @@ async def list_runs(request: Request, workflow_name: str | None = None) -> list[
     user_mgr = get_user_manager()
     is_admin = user_mgr.is_admin(user)
 
-    persisted = RunStore().list_runs(workflow_name=workflow_name, include_batch=False)
-    # Filter by user (unless admin)
-    # Treat missing user_id as "default" for backward compatibility
-    if not is_admin:
-        persisted = [r for r in persisted if r.get("user_id", "default") == user.user_id]
+    persisted = RunStore().list_runs(
+        workflow_name=workflow_name,
+        include_batch=False,
+        user_id=None if is_admin else user.user_id,
+    )
     persisted_ids = {r.get("run_id") for r in persisted}
 
     # Add running in-memory workflows that aren't yet persisted
@@ -1390,6 +1390,7 @@ async def rerun(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "agents_snapshot": _build_agents_snapshot(workflow),
         "event_bus": event_bus,
+        "user_id": user.user_id,
     })
 
     # Build DAG from snapshot or recompute
@@ -1399,16 +1400,17 @@ async def rerun(
     dag_struct = {"nodes": node_order, "edges": edges, "conditional_edges": conditional_edges}
     repo.put_dag(new_id, dag_struct)
 
-    event_bus.emit("workflow.started", {
-        "workflow_id": new_id,
-        "name": workflow_name,
-        "inputs": inputs,
-        "dag": dag_struct,
-        "workflow": workflow_name,
-    })
+    with event_bus.with_user_context(user.user_id):
+        event_bus.emit("workflow.started", {
+            "workflow_id": new_id,
+            "name": workflow_name,
+            "inputs": inputs,
+            "dag": dag_struct,
+            "workflow": workflow_name,
+        })
 
     run_config = {"configurable": {"thread_id": new_id}}
-    await runner.submit(new_id, workflow, inputs, event_bus, config=run_config)
+    await runner.submit(new_id, workflow, inputs, event_bus, config=run_config, user_id=user.user_id)
 
     return CreateWorkflowResponse(
         workflow_id=new_id,
