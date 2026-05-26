@@ -3,9 +3,10 @@
 import { useState, useCallback } from "react";
 import { Panel, Group, Separator } from "react-resizable-panels";
 import { HeaderBar } from "@/components/layout/HeaderBar";
-import { CenterPanel } from "@/components/layout/CenterPanel";
+import { WorkflowCenterPanel } from "@/components/layout/WorkflowCenterPanel";
 import DiagnosticsPanel from "@/components/diagnostics/DiagnosticsPanel";
 import { Sidebar } from "@/components/sidebar/Sidebar";
+import { useBatchStore } from "@/stores/batchStore";
 
 export default function Home() {
   const [activeBenchmark, setActiveBenchmark] = useState<string | null>(null);
@@ -16,6 +17,7 @@ export default function Home() {
 
   const handleLeaveBenchmark = useCallback(() => {
     setActiveBenchmark(null);
+    useBatchStore.getState().setActiveBatch(null);
   }, []);
 
   return (
@@ -31,7 +33,7 @@ export default function Home() {
         </Panel>
         <Separator className="w-1 bg-app-border hover:bg-blue-400 transition-colors" />
         <Panel defaultSize="62%" minSize="40%">
-          <CenterPanel activeBenchmark={activeBenchmark} />
+          <WorkflowCenterPanel activeBenchmark={activeBenchmark} />
         </Panel>
         <Separator className="w-1 bg-app-border hover:bg-blue-400 transition-colors" />
         <Panel defaultSize="20%" minSize="15%" maxSize="28%">
