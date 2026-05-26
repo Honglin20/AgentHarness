@@ -261,10 +261,19 @@ class WorkflowRunner:
                     if batch_id:
                         repo.update_batch_run_status(batch_id, workflow_id, "completed")
 
-                # Persist run to disk
+                # Persist run to disk (with backend-collected conversation + charts)
                 from harness.run_store import RunStore
+                from harness.extensions.collectors import ConversationCollector, ChartCollector
                 _agent_io = workflow._builder.agent_io if workflow._builder else {}
                 data = repo.get(workflow_id)
+
+                conv_collector = ConversationCollector(event_bus)
+                conv_collector.collect_from_buffer()
+                chart_collector = ChartCollector(event_bus)
+                chart_groups = chart_collector.get_chart_groups()
+                if not chart_groups.get("groupOrder"):
+                    chart_groups = None
+
                 RunStore().save(
                     run_id=workflow_id,
                     workflow_name=workflow.name,
@@ -277,6 +286,8 @@ class WorkflowRunner:
                     agent_io=_agent_io,
                     batch_id=batch_id,
                     user_id=user_id,
+                    conversation=conv_collector.get_messages(),
+                    chart_groups=chart_groups,
                 )
 
                 # Emit completion
@@ -309,10 +320,19 @@ class WorkflowRunner:
                             batch_id, workflow_id, "failed", error=str(e)
                         )
 
-                # Persist failed run to disk
+                # Persist failed run to disk (with backend-collected conversation)
                 from harness.run_store import RunStore
+                from harness.extensions.collectors import ConversationCollector, ChartCollector
                 _agent_io = workflow._builder.agent_io if workflow._builder else {}
                 data = repo.get(workflow_id)
+
+                conv_collector = ConversationCollector(event_bus)
+                conv_collector.collect_from_buffer()
+                chart_collector = ChartCollector(event_bus)
+                chart_groups = chart_collector.get_chart_groups()
+                if not chart_groups.get("groupOrder"):
+                    chart_groups = None
+
                 RunStore().save(
                     run_id=workflow_id,
                     workflow_name=workflow.name,
@@ -325,6 +345,8 @@ class WorkflowRunner:
                     agent_io=_agent_io,
                     batch_id=batch_id,
                     user_id=user_id,
+                    conversation=conv_collector.get_messages(),
+                    chart_groups=chart_groups,
                 )
 
                 error_payload = {
