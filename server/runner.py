@@ -348,14 +348,29 @@ class WorkflowRunner:
         async with self._lock:
             return workflow_id in self._cancelled
 
+    def _cleanup_stale_tasks(self) -> None:
+        """Remove completed/cancelled tasks from _running dict.
+
+        This is called automatically before running_count to ensure accurate counts.
+        """
+        stale_ids = []
+        for workflow_id, task in self._running.items():
+            if task.done() or task.cancelled():
+                stale_ids.append(workflow_id)
+
+        for workflow_id in stale_ids:
+            self._running.pop(workflow_id, None)
+
     @property
     def running_count(self) -> int:
         """Number of currently running workflows."""
+        self._cleanup_stale_tasks()
         return len(self._running)
 
     @property
     def running_ids(self) -> list[str]:
         """IDs of currently running workflows."""
+        self._cleanup_stale_tasks()
         return list(self._running.keys())
 
 

@@ -677,6 +677,7 @@ trace[0].token_usage.total    # int
 | Method | Path | 说明 |
 |--------|------|------|
 | `GET` | `/health` | 健康检查 |
+| `GET` | `/api/me` | 获取当前用户信息 |
 | `GET` | `/api/agents` | 列出可用 Agent |
 | `GET` | `/api/agents/{name}` | 获取 Agent 定义 |
 | `GET` | `/api/tools` | 列出已注册工具 |
@@ -700,6 +701,87 @@ trace[0].token_usage.total    # int
 | `POST` | `/api/runs/{id}/resume` | 从检查点恢复 |
 | `POST` | `/api/charts` | Chart HTTP 回调 |
 | `WS` | `/ws/workflows/{id}` | 实时事件流 |
+
+**认证**: 通过 `X-API-Key` Header 进行用户认证。未提供时使用默认用户。
+
+---
+
+## 用户管理
+
+多用户隔离确保每个用户只能看到和操作自己的私有 workflow 和运行记录。
+
+### 用户配置
+
+用户配置存储在 `users.json`（gitignore，不提交）：
+
+```json
+{
+  "dev_alice": {
+    "user_id": "alice",
+    "name": "Alice",
+    "role": "developer",
+    "level": 1
+  },
+  "admin": {
+    "user_id": "admin",
+    "name": "Admin",
+    "role": "admin",
+    "level": 11
+  }
+}
+```
+
+### 管理用户
+
+使用命令行脚本管理用户：
+
+```bash
+# 列出所有用户
+python scripts/manage_users.py list
+
+# 创建用户（自动生成 API Key）
+python scripts/manage_users.py create alice "Alice Developer" --role developer --level 1
+
+# 创建用户（指定 API Key）
+python scripts/manage_users.py create bob "Bob" --api-key "custom_key" --role admin
+
+# 更新用户
+python scripts/manage_users.py update alice --name "Alice Smith"
+python scripts/manage_users.py update alice --role admin --level 5
+
+# 删除用户
+python scripts/manage_users.py delete alice
+
+# 重新生成 API Key
+python scripts/manage_users.py regenerate bob
+```
+
+### 权限规则
+
+| 资源 | developer | admin |
+|------|-----------|-------|
+| 查看 workflow | 仅自己 | 全部 |
+| 创建 workflow | 是 | 是 |
+| 删除 workflow | 仅私有 | 任何 |
+| 查看 runs | 仅自己 | 全部 |
+| 删除 runs | 仅自己 | 任何 |
+
+### 前端认证
+
+前端通过 `X-API-Key` Header 发送请求：
+
+```typescript
+fetch('/api/workflows', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-API-Key': 'dev_alice',
+  },
+  body: JSON.stringify({...}),
+})
+```
+
+WebSocket 连接时自动从 Header 解析用户 ID，实现事件级隔离。
 
 ---
 
