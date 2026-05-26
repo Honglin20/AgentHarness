@@ -766,8 +766,8 @@ async def create_batch(
     repo = get_repository()
     repo.put_batch(batch_id, {
         "batch_id": batch_id,
-        "name": request.name,
-        "workflow": request.workflow,
+        "name": request_obj.name,
+        "workflow": request_obj.workflow,
         "runs": {r.workflow_id: {"label": r.label, "status": r.status} for r in runs if r.workflow_id},
     })
 
