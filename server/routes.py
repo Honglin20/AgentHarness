@@ -39,20 +39,69 @@ from server.schemas import (
 )
 from server.repository import get_repository
 
-from harness.user_manager import get_current_user
+from harness.user_manager import get_current_user, get_user_manager
 
 router = APIRouter()
 
 
 @router.get("/me")
 async def get_me(request: Request) -> dict:
-    """Get current user info based on X-API-Key header"""
+    """Get current user info based on X-User-Id or X-API-Key header"""
     user = get_current_user(request)
     return {
         "user_id": user.user_id,
         "name": user.name,
         "role": user.role,
     }
+
+
+@router.get("/users")
+async def list_users() -> list[dict]:
+    """List all users."""
+    mgr = get_user_manager()
+    return [u.model_dump() for u in mgr.list_users()]
+
+
+@router.post("/users")
+async def create_user(request: Request) -> dict:
+    """Create a new user (admin only)."""
+    user = get_current_user(request)
+    mgr = get_user_manager()
+    if not mgr.is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    body = await request.json()
+    user_id = body.get("user_id", "").strip()
+    name = body.get("name", "").strip()
+    role = body.get("role", "developer")
+
+    if not user_id or not name:
+        raise HTTPException(status_code=400, detail="user_id and name are required")
+    if role not in ("developer", "admin"):
+        raise HTTPException(status_code=400, detail="role must be 'developer' or 'admin'")
+
+    try:
+        new_user = mgr.create_user(user_id, name, role)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return new_user.model_dump()
+
+
+@router.delete("/users/{user_id}")
+async def delete_user(user_id: str, request: Request) -> dict:
+    """Delete a user (admin only)."""
+    user = get_current_user(request)
+    mgr = get_user_manager()
+    if not mgr.is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    try:
+        mgr.delete_user(user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {"status": "ok", "deleted": user_id}
 
 def _validate_workflow_dir(workflow: str, user_id: str | None = None) -> Path:
     """Validate a workflow folder name and return its absolute path under workflows/.
@@ -417,13 +466,13 @@ async def delete_run(run_id: str, request: Request) -> dict:
     run = store.get_run(run_id)
 
     # Check if run belongs to user (or admin)
-    if run and not is_admin and run.get("user_id") != user.user_id:
+    if run and not is_admin and run.get("user_id", "default") != user.user_id:
         raise HTTPException(status_code=403, detail="Not your run")
 
     # Also check in-memory runs
     repo = get_repository()
     data = repo.get(run_id)
-    if data and not is_admin and data.get("user_id") != user.user_id:
+    if data and not is_admin and data.get("user_id", "default") != user.user_id:
         raise HTTPException(status_code=403, detail="Not your run")
 
     path = store._safe_path(run_id)
@@ -456,8 +505,9 @@ async def list_runs(request: Request, workflow_name: str | None = None) -> list[
 
     persisted = RunStore().list_runs(workflow_name=workflow_name, include_batch=False)
     # Filter by user (unless admin)
+    # Treat missing user_id as "default" for backward compatibility
     if not is_admin:
-        persisted = [r for r in persisted if r.get("user_id") == user.user_id]
+        persisted = [r for r in persisted if r.get("user_id", "default") == user.user_id]
     persisted_ids = {r.get("run_id") for r in persisted}
 
     # Add running in-memory workflows that aren't yet persisted
@@ -467,7 +517,7 @@ async def list_runs(request: Request, workflow_name: str | None = None) -> list[
         if wid in persisted_ids:
             continue
         # Filter by user (unless admin)
-        if not is_admin and data.get("user_id") != user.user_id:
+        if not is_admin and data.get("user_id", "default") != user.user_id:
             continue
         workflow = data["workflow"]
         if workflow_name and workflow.name != workflow_name:
@@ -489,11 +539,19 @@ async def list_runs(request: Request, workflow_name: str | None = None) -> list[
 
 
 @router.get("/runs/{run_id}", response_model=RunDetail)
-async def get_run(run_id: str) -> RunDetail:
+async def get_run(run_id: str, request: Request) -> RunDetail:
     """Get a run by id — persisted disk record or live in-memory workflow."""
     from harness.run_store import RunStore
+    from harness.user_manager import get_user_manager
+
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+    is_admin = user_mgr.is_admin(user)
+
     run = RunStore().get_run(run_id)
     if run:
+        if not is_admin and run.get("user_id", "default") != user.user_id:
+            raise HTTPException(status_code=403, detail="Not your run")
         # Ensure all fields from RunDetail are present
         return {
             "run_id": run.get("run_id"),
@@ -515,6 +573,8 @@ async def get_run(run_id: str) -> RunDetail:
     repo = get_repository()
     data = repo.get(run_id)
     if data is not None:
+        if not is_admin and data.get("user_id", "default") != user.user_id:
+            raise HTTPException(status_code=403, detail="Not your run")
         workflow = data["workflow"]
         return {
             "run_id": run_id,
@@ -541,11 +601,19 @@ async def update_run_conversation(run_id: str, request: Request) -> dict:
     body = await request.json()
     conversation = body.get("conversation", [])
 
+    from harness.user_manager import get_user_manager
+
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+    is_admin = user_mgr.is_admin(user)
+
     # Try persisted run first
     from harness.run_store import RunStore
     store = RunStore()
     run = store.get_run(run_id)
     if run:
+        if not is_admin and run.get("user_id", "default") != user.user_id:
+            raise HTTPException(status_code=403, detail="Not your run")
         run["conversation"] = conversation
         path = store._safe_path(run_id)
         if not path:
@@ -558,6 +626,8 @@ async def update_run_conversation(run_id: str, request: Request) -> dict:
     repo = get_repository()
     data = repo.get(run_id)
     if data is not None:
+        if not is_admin and data.get("user_id", "default") != user.user_id:
+            raise HTTPException(status_code=403, detail="Not your run")
         data["conversation"] = conversation
         return {"status": "ok"}
 
@@ -569,11 +639,20 @@ async def update_run_charts(run_id: str, request: Request) -> dict:
     """Update chart_groups snapshot for a persisted run (so Results tab replays)."""
     body = await request.json()
     chart_groups = body.get("chart_groups")
+
+    from harness.user_manager import get_user_manager
+
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+    is_admin = user_mgr.is_admin(user)
+
     from harness.run_store import RunStore
     store = RunStore()
     run = store.get_run(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
+    if not is_admin and run.get("user_id", "default") != user.user_id:
+        raise HTTPException(status_code=403, detail="Not your run")
     run["chart_groups"] = chart_groups
     path = store._safe_path(run_id)
     if not path:
@@ -636,7 +715,18 @@ async def _create_and_start_workflow(
 
     has_eval = any(a.eval for a in agents)
     if has_eval:
+        # Validate LLM config before mutation — fail fast if no model available
+        import os
+        judge_model = os.environ.get("HARNESS_MODEL", "")
+        if not judge_model:
+            raise HTTPException(
+                status_code=400,
+                detail="LLM model not configured. Set HARNESS_MODEL in Settings to use the eval feature.",
+            )
         workflow.use(EvalJudge(max_retries=2))
+        # Apply mutation NOW so the DAG includes _judge_X nodes
+        for mutator in event_bus.get_mutators():
+            workflow = mutator.mutate(workflow)
 
     from datetime import datetime, timezone
     from server.runner import _build_agents_snapshot
@@ -655,10 +745,12 @@ async def _create_and_start_workflow(
         "work_dir": work_dir,
     })
 
-    node_order = build_dag(agents)
+    # Build DAG from mutated agents (includes _judge_X nodes when eval=True)
+    mutated_agents = workflow.agents
+    node_order = build_dag(mutated_agents)
     edges: list[list[str]] = []
     conditional_edges: list[dict] = []
-    for a in agents:
+    for a in mutated_agents:
         for dep in a.after or []:
             edges.append([dep, a.name])
         if a.on_pass is not None or a.on_fail is not None:
@@ -1161,7 +1253,8 @@ async def list_checkpoints(run_id: str) -> list[CheckpointInfo]:
 @router.post("/runs/{run_id}/resume")
 async def resume_run(
     run_id: str,
-    request: ResumeRequest,
+    body: ResumeRequest,
+    req: Request,
 ) -> dict:
     """Resume a workflow from a checkpoint.
 
@@ -1180,9 +1273,12 @@ async def resume_run(
     if workflow._compiled is None:
         raise HTTPException(status_code=400, detail="Workflow has no compiled graph")
 
+    user = get_current_user(req)
+    run_user_id = data.get("user_id", user.user_id)
+
     # Get checkpoint config
-    if request.checkpoint_id:
-        config = await mgr.get_checkpoint_config(workflow._compiled, run_id, request.checkpoint_id)
+    if body.checkpoint_id:
+        config = await mgr.get_checkpoint_config(workflow._compiled, run_id, body.checkpoint_id)
         if config is None:
             raise HTTPException(status_code=404, detail="Checkpoint not found")
     else:
@@ -1200,18 +1296,19 @@ async def resume_run(
     event_bus = data.get("event_bus") or _new_bus()
 
     # Emit resumed event
-    event_bus.emit("workflow.started", {
-        "workflow_id": run_id,
-        "name": workflow.name,
-        "inputs": data.get("inputs", {}),
-        "dag": get_repository().get_dag(run_id),
-        "resumed_from": config["configurable"].get("checkpoint_id"),
-    })
+    with event_bus.with_user_context(run_user_id):
+        event_bus.emit("workflow.started", {
+            "workflow_id": run_id,
+            "name": workflow.name,
+            "inputs": data.get("inputs", {}),
+            "dag": get_repository().get_dag(run_id),
+            "resumed_from": config["configurable"].get("checkpoint_id"),
+        })
 
     # Submit resume to runner
     await runner.submit(
         run_id, workflow, data.get("inputs", {}), event_bus,
-        config=config, resume=True,
+        config=config, resume=True, user_id=run_user_id,
     )
 
     return {
