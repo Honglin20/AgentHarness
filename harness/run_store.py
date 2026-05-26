@@ -37,6 +37,8 @@ class RunStore:
         agent_io: dict | None = None,
         batch_id: str | None = None,
         user_id: str | None = None,
+        chart_groups: dict | None = None,
+        conversation: list[dict] | None = None,
     ) -> Path:
         record = {
             "run_id": run_id,
@@ -54,6 +56,10 @@ class RunStore:
             record["batch_id"] = batch_id
         if user_id:
             record["user_id"] = user_id
+        if chart_groups:
+            record["chart_groups"] = chart_groups
+        if conversation:
+            record["conversation"] = conversation
         path = self._safe_path(run_id)
         if path is None:
             raise ValueError(f"Invalid run_id: {run_id}")
