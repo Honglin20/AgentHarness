@@ -619,6 +619,8 @@ class MacroGraphBuilder:
                     "system_prompt": parsed.prompt,
                     "output_result": output.model_dump() if isinstance(output, BaseModel) else str(output),
                 }
+                if hasattr(executor, "tool_calls") and executor.tool_calls:
+                    io_data["tool_calls"] = executor.tool_calls
                 builder_self.agent_io[agent_def.name] = io_data
                 if bus:
                     event_payload = {
@@ -709,16 +711,6 @@ class MacroGraphBuilder:
                     "iteration_counts": {iter_key: current_count},
                 }
 
-            if bus:
-                # Judge has no external tools — resolve empty list
-                bus.emit("node.started", {
-                    "workflow_id": builder_self.workflow_id,
-                    "node_id": judge_name,
-                    "agent_name": judge_name,
-                    "attempt": current_count + 1,
-                    "tools": [],
-                })
-
             # 1. Read judge system prompt from MD file (user-editable)
             judge_prompt = _default_judge_prompt(target_name)
             try:
@@ -738,11 +730,46 @@ class MacroGraphBuilder:
                 pass
 
             # 3. Build user message: target summary + target output
-            target_output = state.get(STATE_OUTPUTS, {}).get(target_name, "")
+            raw_output = state.get(STATE_OUTPUTS, {}).get(target_name, "")
+            target_output = raw_output.model_dump() if isinstance(raw_output, BaseModel) else raw_output
+            import json as _json
+            output_text = _json.dumps(target_output, ensure_ascii=False, indent=2) if isinstance(target_output, dict) else str(target_output)
             user_msg = (
                 f"## 上游 agent「{target_name}」的任务与红线\n{summary}\n\n"
-                f"## Output from {target_name}\n{target_output}"
+                f"## Output from {target_name}\n{output_text}"
             )
+
+            # Build NodeCtx for hooks (same as regular node)
+            judge_ext_ctx = None
+            if bus and hasattr(bus, "run_hooks"):
+                judge_ext_ctx = NodeCtx(
+                    workflow=WorkflowCtx(
+                        workflow_id=builder_self.workflow_id or "",
+                        workflow_name="",
+                        inputs=state.get(STATE_INPUTS, {}),
+                    ),
+                    node_id=judge_name,
+                    agent_name=judge_name,
+                    prompt=user_msg,
+                    messages=[
+                        {"role": "system", "content": judge_prompt},
+                        {"role": "user", "content": user_msg},
+                    ],
+                    upstream_outputs={target_name: target_output},
+                )
+                hook_result = bus.run_hooks("on_node_start", judge_ext_ctx)
+                if hook_result is not None and hasattr(hook_result, "__await__"):
+                    await hook_result
+
+            if bus:
+                # Judge has no external tools — resolve empty list
+                bus.emit("node.started", {
+                    "workflow_id": builder_self.workflow_id,
+                    "node_id": judge_name,
+                    "agent_name": judge_name,
+                    "attempt": current_count + 1,
+                    "tools": [],
+                })
 
             try:
                 from harness.engine.llm import LLMClient
@@ -799,6 +826,13 @@ class MacroGraphBuilder:
             if review.decision == "fail" and agent_def.on_fail is not None:
                 iter_update[iter_key] = current_count + 1
 
+            # Hook: on_node_end so plugins (ConsoleOutput etc.) can print the review
+            if judge_ext_ctx is not None and bus and hasattr(bus, "run_hooks"):
+                judge_ext_ctx.metadata.setdefault(judge_name, {})["duration_ms"] = duration_ms
+                hook_result = bus.run_hooks("on_node_end", judge_ext_ctx, review)
+                if hook_result is not None and hasattr(hook_result, "__await__"):
+                    await hook_result
+
             if bus:
                 bus.emit("node.completed", {
                     "workflow_id": builder_self.workflow_id,
@@ -808,16 +842,10 @@ class MacroGraphBuilder:
                     "status": "success",
                 })
 
-            # Include judgment metadata in the output so downstream consumers
-            # (benchmark score extraction, REST API) can access it.
-            if isinstance(target_output, dict):
-                judge_output = dict(target_output)
-            else:
-                judge_output = target_output.model_dump() if hasattr(target_output, "model_dump") else {"value": str(target_output)}
-            judge_output["_judgment"] = review.model_dump()
-
+            # Passthrough: outputs unchanged (judgment stored in metadata only).
+            # Downstream consumers read judgment from metadata, not outputs.
             result_dict = {
-                STATE_OUTPUTS: {judge_name: judge_output},
+                STATE_OUTPUTS: {judge_name: target_output},
                 STATE_ERRORS: {},
                 STATE_METADATA: {judge_name: {
                     "duration_ms": duration_ms,
