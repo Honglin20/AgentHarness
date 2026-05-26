@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WSEvent } from "@/types/events";
-import { getApiKey, getUserFromApiKey } from "@/lib/api";
+import { getApiKey, getUserId, getUserFromApiKey } from "@/lib/api";
 
 function getWsBaseUrl(): string {
   if (typeof window === "undefined") return "";
@@ -58,9 +58,16 @@ export function useWebSocket({
     disconnect();
     cancelledRef.current = false;
 
-    // Get user_id from API Key for WebSocket isolation
+    // Get user_id: prefer stored userId, fallback to API Key hash
+    let userId = getUserId();
     const apiKey = getApiKey();
-    const userId = apiKey ? getUserFromApiKey(apiKey) : "default";
+    if (!userId && apiKey) {
+      userId = getUserFromApiKey(apiKey);
+    }
+    if (!userId) {
+      console.warn("[WebSocket] No user context — waiting for authentication");
+      return;
+    }
 
     const base = getWsBaseUrl();
     const url = `${base}/ws/workflows/${workflowId}?user_id=${userId}`;
