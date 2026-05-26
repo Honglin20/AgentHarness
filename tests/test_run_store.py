@@ -50,6 +50,57 @@ def test_save_and_list_runs():
         assert run["agents_snapshot"][0]["md_content"] == "You are an analyzer."
 
 
+def test_list_runs_filters_by_user():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = RunStore(runs_dir=tmpdir)
+
+        store.save(
+            run_id="run-alice", workflow_name="code_review",
+            agents_snapshot=[], status="completed", inputs={}, result=None,
+            user_id="alice",
+        )
+        store.save(
+            run_id="run-bob", workflow_name="code_review",
+            agents_snapshot=[], status="completed", inputs={}, result=None,
+            user_id="bob",
+        )
+        store.save(
+            run_id="run-no-user", workflow_name="code_review",
+            agents_snapshot=[], status="completed", inputs={}, result=None,
+        )
+
+        alice_runs = store.list_runs(user_id="alice")
+        assert len(alice_runs) == 1
+        assert alice_runs[0]["run_id"] == "run-alice"
+
+        bob_runs = store.list_runs(user_id="bob")
+        assert len(bob_runs) == 1
+        assert bob_runs[0]["run_id"] == "run-bob"
+
+        all_runs = store.list_runs()
+        assert len(all_runs) == 3
+
+
+def test_list_runs_combines_user_and_workflow_filter():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = RunStore(runs_dir=tmpdir)
+
+        store.save(
+            run_id="run-1", workflow_name="code_review",
+            agents_snapshot=[], status="completed", inputs={}, result=None,
+            user_id="alice",
+        )
+        store.save(
+            run_id="run-2", workflow_name="research",
+            agents_snapshot=[], status="completed", inputs={}, result=None,
+            user_id="alice",
+        )
+
+        alice_cr = store.list_runs(user_id="alice", workflow_name="code_review")
+        assert len(alice_cr) == 1
+        assert alice_cr[0]["run_id"] == "run-1"
+
+
 def test_get_run_not_found():
     with tempfile.TemporaryDirectory() as tmpdir:
         store = RunStore(runs_dir=tmpdir)

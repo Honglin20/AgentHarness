@@ -52,15 +52,14 @@ class RunStore:
             record["agent_io"] = agent_io
         if batch_id:
             record["batch_id"] = batch_id
-        if user_id:
-            record["user_id"] = user_id
+        record["user_id"] = user_id or "default"
         path = self._safe_path(run_id)
         if path is None:
             raise ValueError(f"Invalid run_id: {run_id}")
         path.write_text(json.dumps(record, indent=2, ensure_ascii=False))
         return path
 
-    def list_runs(self, workflow_name: str | None = None, include_batch: bool = False) -> list[dict]:
+    def list_runs(self, workflow_name: str | None = None, include_batch: bool = False, user_id: str | None = None) -> list[dict]:
         runs = []
         for f in self._dir.glob("*.json"):
             try:
@@ -69,6 +68,8 @@ class RunStore:
                     continue
                 # Filter out batch runs by default unless explicitly requested
                 if not include_batch and data.get("batch_id"):
+                    continue
+                if user_id is not None and data.get("user_id", "default") != user_id:
                     continue
                 runs.append(data)
             except (json.JSONDecodeError, KeyError):
