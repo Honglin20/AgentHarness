@@ -1,0 +1,33 @@
+{
+  "run_id": "29681a4f-f648-445e-bc89-4c7f8cd18aa9",
+  "benchmark_name": "code-review-v1",
+  "workflow_name": "chart_demo",
+  "status": "running",
+  "created_at": "2026-05-25T23:09:13.769481+00:00",
+  "task_results": [
+    {
+      "task_id": "task_1",
+      "label": "审查 auth.ts 的安全性",
+      "status": "running",
+      "workflow_id": "88a93b9c-6e28-410a-adcf-2995554e374c"
+    },
+    {
+      "task_id": "task_2",
+      "label": "审查 api.ts 的错误处理",
+      "status": "running",
+      "workflow_id": "e0038c1a-3644-4650-b227-9a10c8e38c0c"
+    },
+    {
+      "task_id": "task_3",
+      "label": "审查 utils.ts 的性能",
+      "status": "running",
+      "workflow_id": "41ff6771-3144-4263-954b-4c26a1eb60c2"
+    },
+    {
+      "task_id": "task_4",
+      "label": "审查 db.ts 的 SQL 注入风险",
+      "status": "running",
+      "workflow_id": "601ca455-d10e-444d-93e9-a14ff999dc99"
+    }
+  ]
+}

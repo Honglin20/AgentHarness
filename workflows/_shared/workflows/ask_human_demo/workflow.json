@@ -1,0 +1,25 @@
+{
+  "name": "ask_human_demo",
+  "agents": [
+    {
+      "name": "analyzer",
+      "after": [],
+      "tools": [
+        "bash"
+      ],
+      "model": null,
+      "retries": 3
+    },
+    {
+      "name": "decision_maker",
+      "after": [
+        "analyzer"
+      ],
+      "tools": [
+        "ask_human"
+      ],
+      "model": null,
+      "retries": 3
+    }
+  ]
+}

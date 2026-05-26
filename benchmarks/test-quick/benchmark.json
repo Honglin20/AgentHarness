@@ -1,0 +1,21 @@
+{
+  "name": "test-quick",
+  "description": "E2E test benchmark",
+  "tasks": [
+    {
+      "id": "task_1",
+      "label": "Say hello",
+      "inputs": {
+        "task": "Say hello world"
+      }
+    },
+    {
+      "id": "task_2",
+      "label": "Say goodbye",
+      "inputs": {
+        "task": "Say goodbye world"
+      }
+    }
+  ],
+  "created_at": "2026-05-25T06:33:54.000330+00:00"
+}

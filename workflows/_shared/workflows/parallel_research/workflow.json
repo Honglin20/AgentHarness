@@ -1,0 +1,29 @@
+{
+  "name": "parallel_research",
+  "agents": [
+    {
+      "name": "researcher_a",
+      "after": [],
+      "tools": null,
+      "model": null,
+      "retries": 3
+    },
+    {
+      "name": "researcher_b",
+      "after": [],
+      "tools": null,
+      "model": null,
+      "retries": 3
+    },
+    {
+      "name": "synthesizer",
+      "after": [
+        "researcher_a",
+        "researcher_b"
+      ],
+      "tools": null,
+      "model": null,
+      "retries": 3
+    }
+  ]
+}

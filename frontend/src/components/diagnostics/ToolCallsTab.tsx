@@ -1,0 +1,168 @@
+"use client";
+
+import { useToolCallStore, type ToolCallRecord } from "@/stores/toolCallStore";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { useState } from "react";
+import { ChevronRight } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+function formatTime(ts: number): string {
+  return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function truncateArgs(args: unknown, maxLen = 60): string {
+  if (args == null) return "";
+  if (typeof args === "string") return args.length > maxLen ? args.slice(0, maxLen) + "..." : args;
+  if (typeof args !== "object") {
+    const s = String(args);
+    return s.length > maxLen ? s.slice(0, maxLen) + "..." : s;
+  }
+  try {
+    const str = Object.entries(args as Record<string, unknown>)
+      .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
+      .join(", ");
+    return str.length > maxLen ? str.slice(0, maxLen) + "..." : str;
+  } catch {
+    const s = JSON.stringify(args);
+    return s.length > maxLen ? s.slice(0, maxLen) + "..." : s;
+  }
+}
+
+function formatArgsBlock(args: unknown): string {
+  if (args == null) return "";
+  if (typeof args === "string") return args;
+  try {
+    return JSON.stringify(args, null, 2);
+  } catch {
+    return String(args);
+  }
+}
+
+function truncateResult(result: string | undefined, maxLen = 80): string {
+  if (!result) return "...";
+  return result.length > maxLen ? result.slice(0, maxLen) + "..." : result;
+}
+
+function ToolCallRow({ record }: { record: ToolCallRecord }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="border-b border-app-border last:border-b-0">
+      <button
+        className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-app-bg-secondary"
+        onClick={() => setOpen(!open)}
+      >
+        <ChevronRight
+          className={cn(
+            "mt-0.5 h-3 w-3 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-90"
+          )}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-app-text-primary">
+              {record.toolName}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {record.agentName}
+            </span>
+            <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+              {formatTime(record.timestamp)}
+            </span>
+          </div>
+          <div className="mt-0.5 truncate text-xs text-muted-foreground font-mono">
+            {truncateArgs(record.args)}
+          </div>
+          {record.result !== undefined && (
+            <div className="mt-0.5 truncate text-xs text-emerald-600 font-mono">
+              {truncateResult(record.result)}
+            </div>
+          )}
+        </div>
+      </button>
+      {open && (
+        <div className="space-y-2 border-t border-app-border bg-app-bg-secondary px-3 py-2">
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-1">
+              Arguments
+            </div>
+            <pre className="overflow-x-auto rounded bg-background p-2 text-xs font-mono">
+              {formatArgsBlock(record.args)}
+            </pre>
+          </div>
+          {record.result !== undefined && (
+            <div>
+              <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-1">
+                Result
+              </div>
+              <pre className="overflow-x-auto rounded bg-background p-2 text-xs font-mono">
+                {record.result}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function ToolCallsTab({
+  records: recordsProp,
+  order: orderProp,
+}: {
+  records?: Record<string, ToolCallRecord>;
+  order?: string[];
+} = {}) {
+  const storeRecords = useToolCallStore((s) => s.records);
+  const storeOrder = useToolCallStore((s) => s.order);
+  const records = recordsProp ?? storeRecords;
+  const order = orderProp ?? storeOrder;
+  const [filter, setFilter] = useState<string | null>(null);
+
+  const allRecords = order.map((id) => records[id]);
+  const nodeIds = Array.from(new Set(allRecords.map((r) => r.nodeId)));
+  const filtered = filter ? allRecords.filter((r) => r.nodeId === filter) : allRecords;
+
+  if (allRecords.length === 0) {
+    return (
+      <div className="flex items-center justify-center p-6 text-xs text-muted-foreground">
+        No tool calls yet
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col">
+      {nodeIds.length > 1 && (
+        <div className="flex items-center gap-1 border-b border-app-border px-3 py-1.5">
+          <button
+            className={cn(
+              "rounded px-2 py-0.5 text-xs",
+              !filter ? "bg-blue-500 text-white" : "text-muted-foreground hover:text-app-text-primary"
+            )}
+            onClick={() => setFilter(null)}
+          >
+            All
+          </button>
+          {nodeIds.map((id) => (
+            <button
+              key={id}
+              className={cn(
+                "rounded px-2 py-0.5 text-xs",
+                filter === id ? "bg-blue-500 text-white" : "text-muted-foreground hover:text-app-text-primary"
+              )}
+              onClick={() => setFilter(id)}
+            >
+              {id}
+            </button>
+          ))}
+        </div>
+      )}
+      <ScrollArea className="max-h-[calc(100vh-200px)]">
+        {filtered.map((record) => (
+          <ToolCallRow key={record.id} record={record} />
+        ))}
+      </ScrollArea>
+    </div>
+  );
+}

@@ -1,0 +1,24 @@
+{
+  "name": "full_extensions",
+  "agents": [
+    {
+      "name": "researcher",
+      "after": [],
+      "tools": [
+        "bash"
+      ],
+      "model": null,
+      "retries": 3,
+      "eval": true
+    },
+    {
+      "name": "writer",
+      "after": [
+        "researcher"
+      ],
+      "tools": null,
+      "model": null,
+      "retries": 3
+    }
+  ]
+}

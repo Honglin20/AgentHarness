@@ -1,0 +1,21 @@
+{
+  "run_id": "c9f41cde-43a3-4f82-884f-640a1ddb8120",
+  "benchmark_name": "test-quick",
+  "workflow_name": "code_review",
+  "status": "running",
+  "created_at": "2026-05-26T10:23:06.045030+00:00",
+  "task_results": [
+    {
+      "task_id": "task_1",
+      "label": "Say hello",
+      "status": "running",
+      "workflow_id": "f037d98f-402c-468f-a13f-ff3bc9b3dfde"
+    },
+    {
+      "task_id": "task_2",
+      "label": "Say goodbye",
+      "status": "running",
+      "workflow_id": "742b08b4-ded0-4dc5-a6e9-0c594e1189e5"
+    }
+  ]
+}

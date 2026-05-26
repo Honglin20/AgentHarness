@@ -1,0 +1,31 @@
+[project]
+name = "agent-harness"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0",
+    "pydantic-ai>=0.0.36",
+    "langgraph>=0.2.0",
+    "python-frontmatter>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+console = [
+    "rich>=13.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["harness", "harness.*", "server", "server.*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+markers = [
+    "slow: tests that call real LLM APIs or MCP servers (deselected by default)",
+]
+addopts = "-m 'not slow'"

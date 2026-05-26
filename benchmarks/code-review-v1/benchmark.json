@@ -1,0 +1,35 @@
+{
+  "name": "code-review-v1",
+  "description": "代码审查能力评测 — 4 个不同场景",
+  "tasks": [
+    {
+      "label": "审查 auth.ts 的安全性",
+      "inputs": {
+        "task": "审查以下代码的安全性，找出潜在的漏洞：auth.ts"
+      },
+      "id": "task_1"
+    },
+    {
+      "label": "审查 api.ts 的错误处理",
+      "inputs": {
+        "task": "审查以下代码的错误处理是否完善：api.ts"
+      },
+      "id": "task_2"
+    },
+    {
+      "label": "审查 utils.ts 的性能",
+      "inputs": {
+        "task": "审查以下代码的性能问题：utils.ts"
+      },
+      "id": "task_3"
+    },
+    {
+      "label": "审查 db.ts 的 SQL 注入风险",
+      "inputs": {
+        "task": "审查以下代码是否有 SQL 注入风险：db.ts"
+      },
+      "id": "task_4"
+    }
+  ],
+  "created_at": "2026-05-24T23:04:10.965038+00:00"
+}

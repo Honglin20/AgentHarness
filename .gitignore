@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.env
+node_modules/
+.DS_Store
+runs/
+.backup_pre_migration/
+.eval_cache/
+.next/
+*.png
+!frontend/public/*.png
+users.json
