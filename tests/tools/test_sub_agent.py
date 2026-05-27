@@ -87,7 +87,10 @@ class TestSubAgentToolFactory:
         mock_child = MagicMock()
         mock_child.run = AsyncMock(return_value=mock_result)
 
-        with patch("harness.tools.sub_agent.PydanticAgent", return_value=mock_child):
+        with patch("harness.tools.sub_agent.LLMClient") as MockLLMClient:
+            mock_client = MagicMock()
+            mock_client.agent.return_value = mock_child
+            MockLLMClient.return_value = mock_client
             ctx = _make_ctx(workdir="/tmp/test")
             result = await sub_agent_fn(ctx, task="analyze the code")
 
@@ -108,7 +111,10 @@ class TestSubAgentToolFactory:
         mock_child = MagicMock()
         mock_child.run = AsyncMock(return_value=mock_result)
 
-        with patch("harness.tools.sub_agent.PydanticAgent", return_value=mock_child):
+        with patch("harness.tools.sub_agent.LLMClient") as MockLLMClient:
+            mock_client = MagicMock()
+            mock_client.agent.return_value = mock_child
+            MockLLMClient.return_value = mock_client
             ctx = _make_ctx(workdir="/project/root", depth=0)
             await sub_agent_fn(ctx, task="do work")
 
@@ -133,7 +139,10 @@ class TestSubAgentToolFactory:
         mock_child = MagicMock()
         mock_child.run = AsyncMock(return_value=mock_result)
 
-        with patch("harness.tools.sub_agent.PydanticAgent", return_value=mock_child):
+        with patch("harness.tools.sub_agent.LLMClient") as MockLLMClient:
+            mock_client = MagicMock()
+            mock_client.agent.return_value = mock_child
+            MockLLMClient.return_value = mock_client
             ctx = _make_ctx()
             await sub_agent_fn(ctx, task="do work")
 

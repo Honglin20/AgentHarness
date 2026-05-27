@@ -38,6 +38,7 @@ async def test_connection_manager_subscribe_unsubscribe():
     manager._lock = Lock()
     async with manager._lock:
         manager._connections[sub_id] = ws
+        manager._sub_to_user[sub_id] = "default"
 
     assert manager.get_connection(sub_id) is ws
 
@@ -66,21 +67,15 @@ async def test_event_bus_forwarding():
     # Subscribe to EventBus
     sub_id, queue = await bus.subscribe()
 
-    # Simulate forward (in reality, this runs in a background task)
-    event = await queue.get()
-    await ws.send_text(json.dumps(event))
-
-    assert len(received_events) == 1
-    assert received_events[0]["type"] == ""  # Empty type from the first get()
-
-    # Emit a real event
+    # Emit a real event — queue starts empty on a fresh bus
     bus.emit("test.event", {"foo": "bar"})
 
     event = await queue.get()
     await ws.send_text(json.dumps(event))
 
-    assert received_events[1]["type"] == "test.event"
-    assert received_events[1]["payload"]["foo"] == "bar"
+    assert len(received_events) == 1
+    assert received_events[0]["type"] == "test.event"
+    assert received_events[0]["payload"]["foo"] == "bar"
 
     await bus.unsubscribe(sub_id)
 

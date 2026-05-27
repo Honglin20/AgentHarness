@@ -67,7 +67,14 @@ This is a test agent.
 
     (agents_dir / "test2.md").write_text("invalid content")
 
-    agents = await list_agents(workflow="test_wf")
+    from starlette.testclient import TestClient
+    from starlette.requests import Request
+
+    # Create a minimal fake Request since this is a FastAPI dependency
+    scope = {"type": "http", "headers": [], "query_string": b"", "path": "/"}
+    fake_request = Request(scope)
+
+    agents = await list_agents(workflow="test_wf", request=fake_request)
 
     assert len(agents) == 1
     assert agents[0].name == "test1"

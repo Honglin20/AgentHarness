@@ -143,18 +143,18 @@ class TestRenderChartHTTP:
 
     @pytest.fixture(autouse=True)
     def clear_env(self):
-        """Clear HARNESS_API_URL before each test."""
-        old = os.environ.pop("HARNESS_API_URL", None)
+        """Clear HARNESS_SERVER_URL before each test."""
+        old = os.environ.pop("HARNESS_SERVER_URL", None)
         yield
         if old is not None:
-            os.environ["HARNESS_API_URL"] = old
+            os.environ["HARNESS_SERVER_URL"] = old
 
     def test_http_fallback_used_when_no_event_bus(self, monkeypatch, sample_data):
-        """When EventBus unavailable, uses HTTP POST to HARNESS_API_URL."""
+        """When EventBus unavailable, uses HTTP POST to HARNESS_SERVER_URL."""
         monkeypatch.setattr(
             "harness.tools.chart._try_get_event_bus", lambda: None
         )
-        os.environ["HARNESS_API_URL"] = "http://localhost:1234"
+        os.environ["HARNESS_SERVER_URL"] = "http://localhost:1234"
 
         captured: dict[str, Any] = {}
 
@@ -176,11 +176,11 @@ class TestRenderChartHTTP:
         assert "line" in result
 
     def test_http_fallback_strips_trailing_slash(self, monkeypatch, sample_data):
-        """HARNESS_API_URL with trailing slash works correctly."""
+        """HARNESS_SERVER_URL with trailing slash works correctly."""
         monkeypatch.setattr(
             "harness.tools.chart._try_get_event_bus", lambda: None
         )
-        os.environ["HARNESS_API_URL"] = "http://localhost:8001/"
+        os.environ["HARNESS_SERVER_URL"] = "http://localhost:8001/"
 
         captured: dict[str, Any] = {}
 
@@ -201,7 +201,7 @@ class TestRenderChartHTTP:
         monkeypatch.setattr(
             "harness.tools.chart._try_get_event_bus", lambda: None
         )
-        os.environ["HARNESS_API_URL"] = "http://localhost:9999"
+        os.environ["HARNESS_SERVER_URL"] = "http://localhost:9999"
 
         monkeypatch.setattr(
             "harness.tools.chart._http_post", lambda url, payload: False
@@ -218,12 +218,12 @@ class TestRenderChartNoChannel:
     """Tests for no-channel fallback."""
 
     def test_no_event_bus_no_api_url(self, monkeypatch, sample_data):
-        """When neither EventBus nor HARNESS_API_URL is available, returns info message."""
+        """When neither EventBus nor HARNESS_SERVER_URL is available, returns info message."""
         monkeypatch.setattr(
             "harness.tools.chart._try_get_event_bus", lambda: None
         )
-        # No HARNESS_API_URL in env
-        os.environ.pop("HARNESS_API_URL", None)
+        # No HARNESS_SERVER_URL in env
+        os.environ.pop("HARNESS_SERVER_URL", None)
 
         result = render_chart(
             data=sample_data, chart_type="line", x="x", y="y"

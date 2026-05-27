@@ -3,6 +3,13 @@
 from pathlib import Path
 
 import pytest
+from starlette.requests import Request
+
+
+def _make_fake_request() -> Request:
+    """Create a minimal fake Request for route functions that need it."""
+    scope = {"type": "http", "headers": [], "query_string": b"", "path": "/"}
+    return Request(scope)
 
 
 @pytest.mark.asyncio
@@ -22,7 +29,7 @@ async def test_get_agent_md_workflow_query_private(tmp_path, monkeypatch):
     monkeypatch.setattr(routes, "_SHARED_AGENTS_DIR", shared)
     monkeypatch.setattr("harness.compiler.md_parser._SHARED_AGENTS_DIR", shared)
 
-    result = await routes.get_agent_md(name="a", workflow="demo")
+    result = await routes.get_agent_md(name="a", workflow="demo", request=_make_fake_request())
     assert "private body" in result["md_content"]
     assert result["source"] == "private"
     assert result["workflow"] == "demo"
@@ -44,7 +51,7 @@ async def test_get_agent_md_workflow_fallback_shared(tmp_path, monkeypatch):
     monkeypatch.setattr(routes, "_SHARED_AGENTS_DIR", shared)
     monkeypatch.setattr("harness.compiler.md_parser._SHARED_AGENTS_DIR", shared)
 
-    result = await routes.get_agent_md(name="runner", workflow="demo")
+    result = await routes.get_agent_md(name="runner", workflow="demo", request=_make_fake_request())
     assert "runner body" in result["md_content"]
     assert result["source"] == "shared"
 
@@ -65,7 +72,7 @@ async def test_get_agent_md_workflow_not_found_404(tmp_path, monkeypatch):
     monkeypatch.setattr("harness.compiler.md_parser._SHARED_AGENTS_DIR", shared)
 
     with pytest.raises(HTTPException) as exc:
-        await routes.get_agent_md(name="ghost", workflow="demo")
+        await routes.get_agent_md(name="ghost", workflow="demo", request=_make_fake_request())
     assert exc.value.status_code == 404
 
 
@@ -85,6 +92,8 @@ async def test_put_agent_md_target_private(tmp_path, monkeypatch):
     monkeypatch.setattr("harness.compiler.md_parser._SHARED_AGENTS_DIR", shared)
 
     class FakeRequest:
+        headers = {}
+
         async def json(self):
             return {
                 "workflow": "demo",
@@ -113,6 +122,8 @@ async def test_put_agent_md_target_shared(tmp_path, monkeypatch):
     monkeypatch.setattr("harness.compiler.md_parser._SHARED_AGENTS_DIR", shared)
 
     class FakeRequest:
+        headers = {}
+
         async def json(self):
             return {
                 "workflow": "demo",
