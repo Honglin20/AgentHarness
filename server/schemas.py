@@ -131,6 +131,18 @@ class CreateBatchResponse(BaseModel):
 
 # --- Benchmark ---
 
+
+class BenchmarkPrep(BaseModel):
+    """Prep phase for a benchmark run. Executes once before all tasks."""
+    type: str = "script"  # "script" or "agent"
+    # For script type: shell command to execute
+    command: str | None = None
+    # For agent type: agent MD name (resolved via resolve_agent_md)
+    agent: str | None = None
+    # Working directory for prep execution (optional)
+    work_dir: str | None = None
+
+
 class BenchmarkTask(BaseModel):
     """A single task in a benchmark."""
     id: str = ""
@@ -142,6 +154,7 @@ class BenchmarkDef(BaseModel):
     """Benchmark definition."""
     name: str
     description: str = ""
+    prep: BenchmarkPrep | None = None
     tasks: list[BenchmarkTask] = []
 
 

@@ -41,6 +41,7 @@ class BenchmarkStore:
         tasks: list[dict],
         description: str = "",
         user_id: str | None = None,
+        prep: dict | None = None,
     ) -> Path:
         if not _SAFE_NAME_RE.match(name):
             raise ValueError(f"Invalid benchmark name: {name}")
@@ -52,12 +53,14 @@ class BenchmarkStore:
             if not t.get("id"):
                 t["id"] = f"task_{i + 1}"
 
-        record = {
+        record: dict[str, Any] = {
             "name": name,
             "description": description,
             "tasks": tasks,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
+        if prep:
+            record["prep"] = prep
         if user_id:
             record["user_id"] = user_id
         path = self._benchmark_path(name)

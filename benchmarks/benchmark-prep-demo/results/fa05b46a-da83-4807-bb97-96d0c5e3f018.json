@@ -1,0 +1,27 @@
+{
+  "run_id": "fa05b46a-da83-4807-bb97-96d0c5e3f018",
+  "benchmark_name": "benchmark-prep-demo",
+  "workflow_name": "chart_demo",
+  "status": "running",
+  "created_at": "2026-05-27T23:34:01.716612+00:00",
+  "task_results": [
+    {
+      "task_id": "task_1",
+      "label": "分析 project-alpha",
+      "status": "running",
+      "workflow_id": "81360195-6998-48d0-8410-8be2b8cba1af"
+    },
+    {
+      "task_id": "task_2",
+      "label": "分析 project-beta",
+      "status": "running",
+      "workflow_id": "c6ac81f3-7073-4f3e-ab14-554886f015e4"
+    },
+    {
+      "task_id": "task_3",
+      "label": "分析 project-gamma",
+      "status": "running",
+      "workflow_id": "0752a5e0-2466-47c1-817a-5355d93120d6"
+    }
+  ]
+}

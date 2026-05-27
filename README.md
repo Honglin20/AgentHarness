@@ -536,25 +536,54 @@ render_chart(data, chart_type="table")
 
 Benchmark 是一组持久化的测试任务，可一键用任意 Workflow 跑全部任务，收集分数并对比结果。
 
-### 创建 Benchmark
+### Python API
 
 ```python
-from harness.benchmark_store import BenchmarkStore
+from harness.api import Benchmark
 
-BenchmarkStore().save_benchmark("code-review-v1", tasks=[
-    {"label": "审查 auth.ts 的安全性", "inputs": {"task": "审查 auth.ts"}},
-    {"label": "审查 api.ts 的错误处理", "inputs": {"task": "审查 api.ts"}},
-    {"label": "审查 utils.ts 的性能", "inputs": {"task": "审查 utils.ts"}},
-])
+# 创建 Benchmark
+bm = Benchmark("code-review-v1", description="代码审查能力评测")
+bm.task("审查 auth.ts 的安全性", inputs={"task": "审查 auth.ts"})
+bm.task("审查 api.ts 的错误处理", inputs={"task": "审查 api.ts"})
+bm.task("审查 utils.ts 的性能", inputs={"task": "审查 utils.ts"})
+bm.save()
+
+# 直接运行（同步，所有 task 并行）
+result = bm.run(workflow="eval_code_quality")
+print(result.all_completed)
+
+# 带插件运行
+from harness.extensions.console import ConsoleOutput
+result = bm.run(workflow="eval_code_quality", plugins=[ConsoleOutput()])
+
+# 加载已保存的 Benchmark
+bm = Benchmark.load("code-review-v1")
 ```
 
-### 通过 API 运行
+### Prep 前置准备
 
-```bash
-curl -X POST http://localhost:8001/api/benchmarks/code-review-v1/run \
-  -H 'Content-Type: application/json' \
-  -d '{"workflow": "eval_code_quality"}'
+Benchmark 支持 prep 阶段——在所有 task 执行前先运行一次准备工作（如 git clone、环境搭建）。
+
+```python
+from harness.api import Benchmark
+
+bm = Benchmark("quantize-benchmark", description="模型量化评测")
+bm.prep(type="script", command="bash setup.sh", work_dir="/tmp/repos")
+bm.task("Quantize ResNet", inputs={"model": "resnet50"})
+bm.task("Quantize BERT", inputs={"model": "bert-base"})
+bm.save()
 ```
+
+**Prep 类型：**
+
+| 类型 | 说明 | 文件位置 |
+|------|------|---------|
+| `script` | 执行 shell 命令 | 脚本放 `benchmarks/<name>/`，自动加入 PATH |
+| `agent` | 运行 LLM Agent | Agent MD 放 `benchmarks/<name>/agents/` 或 `workflows/_shared/agents/` |
+
+**执行流程：** prep 执行完成 → 所有 task 并行运行（和没有 prep 时完全一样）
+
+> 完整示例: [examples/14_benchmark_prep.py](examples/14_benchmark_prep.py)
 
 ### 通过 UI 运行
 
@@ -845,9 +874,11 @@ WebSocket 连接时自动从 Header 解析用户 ID，实现事件级隔离。
 │       └── scripts/        跨 Workflow 共享脚本
 ├── benchmarks/             Benchmark 评测定义 + 结果
 │   └── <name>/
-│       ├── benchmark.json  任务列表
+│       ├── benchmark.json  任务列表 + prep 配置
+│       ├── setup.sh        Prep 脚本（可选）
+│       ├── agents/         Prep Agent MD（可选）
 │       └── results/        运行历史（含分数 + 图表）
-├── examples/               可运行的示例（01-12）
+├── examples/               可运行的示例（01-14）
 ├── tests/                  测试
 └── docs/plans/             设计文档
 ```
@@ -869,6 +900,8 @@ WebSocket 连接时自动从 Header 解析用户 ID，实现事件级隔离。
 | 11 | `11_all_extensions.py` | 组合扩展 | 是 |
 | 12 | `12_benchmark.py` | Benchmark 批量评测 | 是 |
 | 13 | `13_console_output.py` | ConsoleOutput 命令行美化输出 | 是 |
+| 14 | `14_benchmark_prep.py` | Benchmark Prep 前置准备 | 是 |
+| 15 | `15_benchmark_prep_agent.py` | Benchmark Prep Agent 类型 | 是 |
 
 ---
 

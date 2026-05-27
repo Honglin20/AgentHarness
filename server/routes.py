@@ -952,7 +952,8 @@ async def create_benchmark(body: BenchmarkDef) -> dict:
     """Create a new benchmark."""
     store = _get_benchmark_store()
     tasks = [t.model_dump() for t in body.tasks]
-    path = store.save_benchmark(body.name, tasks, description=body.description)
+    prep = body.prep.model_dump(exclude_none=True) if body.prep else None
+    path = store.save_benchmark(body.name, tasks, description=body.description, prep=prep)
     return {"name": body.name, "path": str(path)}
 
 
@@ -974,7 +975,8 @@ async def update_benchmark(name: str, body: BenchmarkDef) -> dict:
     if not existing:
         raise HTTPException(status_code=404, detail="Benchmark not found")
     tasks = [t.model_dump() for t in body.tasks]
-    store.save_benchmark(name, tasks, description=body.description)
+    prep = body.prep.model_dump(exclude_none=True) if body.prep else None
+    store.save_benchmark(name, tasks, description=body.description, prep=prep)
     return {"name": name, "tasks": len(tasks)}
 
 
@@ -1012,6 +1014,19 @@ async def run_benchmark(
         raise HTTPException(status_code=404, detail=f"Workflow '{body.workflow}' not found")
     wf_data = json.loads(wf_json.read_text())
     agents_defs = [AgentDef(**a) for a in wf_data.get("agents", [])]
+
+    # --- Prep phase: run once before all tasks if defined ---
+    prep_config = bm.get("prep")
+    if prep_config:
+        from harness.prep_executor import run_prep, PrepError
+        try:
+            await run_prep(
+                prep_config,
+                benchmark_name=name,
+                user_id=user_id,
+            )
+        except PrepError as e:
+            raise HTTPException(status_code=422, detail=f"Prep phase failed: {e}")
 
     # Create batch runs directly (inline version of create_batch logic)
     batch_id = str(uuid.uuid4())

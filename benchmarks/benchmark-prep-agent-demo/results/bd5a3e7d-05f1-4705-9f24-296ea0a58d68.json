@@ -1,0 +1,27 @@
+{
+  "run_id": "bd5a3e7d-05f1-4705-9f24-296ea0a58d68",
+  "benchmark_name": "benchmark-prep-agent-demo",
+  "workflow_name": "chart_demo",
+  "status": "running",
+  "created_at": "2026-05-27T23:38:02.691739+00:00",
+  "task_results": [
+    {
+      "task_id": "task_1",
+      "label": "检查 project-x",
+      "status": "running",
+      "workflow_id": "5c85b5f9-46da-43f5-8a64-6cb090bec835"
+    },
+    {
+      "task_id": "task_2",
+      "label": "检查 project-y",
+      "status": "running",
+      "workflow_id": "bd2b9089-8b5b-4343-955a-80cd87beacec"
+    },
+    {
+      "task_id": "task_3",
+      "label": "检查 project-z",
+      "status": "running",
+      "workflow_id": "f4e80e09-f7c2-407d-a440-ed7452e9216b"
+    }
+  ]
+}

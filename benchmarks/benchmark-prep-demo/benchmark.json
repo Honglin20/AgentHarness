@@ -1,0 +1,32 @@
+{
+  "name": "benchmark-prep-demo",
+  "description": "演示 prep 前置准备 + 批量 task",
+  "tasks": [
+    {
+      "label": "分析 project-alpha",
+      "inputs": {
+        "task": "读取 /tmp/benchmark-prep-demo/project-alpha/src/main.py 的内容，用一句话总结它的功能"
+      },
+      "id": "task_1"
+    },
+    {
+      "label": "分析 project-beta",
+      "inputs": {
+        "task": "读取 /tmp/benchmark-prep-demo/project-beta/README.md 的内容，用一句话总结"
+      },
+      "id": "task_2"
+    },
+    {
+      "label": "分析 project-gamma",
+      "inputs": {
+        "task": "列出 /tmp/benchmark-prep-demo/project-gamma/ 目录下所有文件"
+      },
+      "id": "task_3"
+    }
+  ],
+  "created_at": "2026-05-27T23:25:54.487119+00:00",
+  "prep": {
+    "type": "script",
+    "command": "bash setup.sh"
+  }
+}
