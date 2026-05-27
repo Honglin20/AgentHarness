@@ -267,16 +267,21 @@ class WorkflowRunner:
                 _agent_io = workflow._builder.agent_io if workflow._builder else {}
                 data = repo.get(workflow_id)
 
-                conv_collector = ConversationCollector(event_bus)
-                conv_collector.collect_from_buffer()
-                conversation = conv_collector.get_messages()
+                if event_bus:
+                    conv_collector = ConversationCollector(event_bus)
+                    conv_collector.collect_from_buffer()
+                    conversation = conv_collector.get_messages()
+                    events = list(event_bus.buffer)
 
-                chart_collector = ChartCollector(event_bus)
-                chart_groups = chart_collector.get_chart_groups()
-                if not chart_groups.get("groupOrder"):
+                    chart_collector = ChartCollector(event_bus)
+                    chart_groups = chart_collector.get_chart_groups()
+                    if not chart_groups.get("groupOrder"):
+                        chart_groups = None
+                else:
+                    from harness.extensions.collectors import build_conversation as _build_conv
+                    conversation = _build_conv(_agent_io)
+                    events = []
                     chart_groups = None
-
-                events = list(event_bus.buffer) if event_bus else []
 
                 RunStore().save(
                     run_id=workflow_id,
@@ -332,16 +337,21 @@ class WorkflowRunner:
                 _agent_io = workflow._builder.agent_io if workflow._builder else {}
                 data = repo.get(workflow_id)
 
-                conv_collector = ConversationCollector(event_bus)
-                conv_collector.collect_from_buffer()
-                conversation = conv_collector.get_messages()
+                if event_bus:
+                    conv_collector = ConversationCollector(event_bus)
+                    conv_collector.collect_from_buffer()
+                    conversation = conv_collector.get_messages()
+                    events = list(event_bus.buffer)
 
-                chart_collector = ChartCollector(event_bus)
-                chart_groups = chart_collector.get_chart_groups()
-                if not chart_groups.get("groupOrder"):
+                    chart_collector = ChartCollector(event_bus)
+                    chart_groups = chart_collector.get_chart_groups()
+                    if not chart_groups.get("groupOrder"):
+                        chart_groups = None
+                else:
+                    from harness.extensions.collectors import build_conversation as _build_conv
+                    conversation = _build_conv(_agent_io)
+                    events = []
                     chart_groups = None
-
-                events = list(event_bus.buffer) if event_bus else []
 
                 RunStore().save(
                     run_id=workflow_id,
