@@ -40,6 +40,7 @@ class BenchmarkStore:
         name: str,
         tasks: list[dict],
         description: str = "",
+        user_id: str | None = None,
     ) -> Path:
         if not _SAFE_NAME_RE.match(name):
             raise ValueError(f"Invalid benchmark name: {name}")
@@ -57,6 +58,8 @@ class BenchmarkStore:
             "tasks": tasks,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
+        if user_id:
+            record["user_id"] = user_id
         path = self._benchmark_path(name)
         path.write_text(json.dumps(record, indent=2, ensure_ascii=False))
         return path
@@ -67,7 +70,7 @@ class BenchmarkStore:
             return None
         return json.loads(path.read_text())
 
-    def list_benchmarks(self) -> list[dict]:
+    def list_benchmarks(self, user_id: str | None = None) -> list[dict]:
         if not self._dir.exists():
             return []
         results = []
@@ -78,6 +81,8 @@ class BenchmarkStore:
             if bfile.exists():
                 try:
                     data = json.loads(bfile.read_text())
+                    if user_id is not None and data.get("user_id", "default") != user_id:
+                        continue
                     results.append(data)
                 except (json.JSONDecodeError, KeyError):
                     continue
@@ -102,7 +107,7 @@ class BenchmarkStore:
         return path
 
     def list_results(
-        self, benchmark_name: str, workflow_name: str | None = None
+        self, benchmark_name: str, workflow_name: str | None = None, user_id: str | None = None
     ) -> list[dict]:
         rdir = self._results_dir(benchmark_name)
         if not rdir.exists():
@@ -112,6 +117,8 @@ class BenchmarkStore:
             try:
                 data = json.loads(f.read_text())
                 if workflow_name and data.get("workflow_name") != workflow_name:
+                    continue
+                if user_id is not None and data.get("user_id", "default") != user_id:
                     continue
                 results.append(data)
             except (json.JSONDecodeError, KeyError):
