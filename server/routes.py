@@ -518,7 +518,7 @@ async def list_runs(request: Request, workflow_name: str | None = None) -> list[
 
     persisted = RunStore().list_runs(
         workflow_name=workflow_name,
-        include_batch=False,
+        include_batch=True,
         user_id=None if is_admin else user.user_id,
     )
     persisted_ids = {r.get("run_id") for r in persisted}
@@ -870,13 +870,15 @@ async def create_batch(
 
     # Store batch metadata
     repo = get_repository()
-    repo.put_batch(batch_id, {
+    batch_meta: dict = {
         "batch_id": batch_id,
         "name": request_obj.name,
         "workflow": request_obj.workflow,
-        "user_id": user.user_id,
         "runs": {r.workflow_id: {"label": r.label, "status": r.status} for r in runs if r.workflow_id},
-    })
+    }
+    if user.user_id != "default":
+        batch_meta["user_id"] = user.user_id
+    repo.put_batch(batch_id, batch_meta)
 
     return CreateBatchResponse(batch_id=batch_id, runs=runs)
 
@@ -940,74 +942,48 @@ def _get_benchmark_store() -> _BenchmarkStore:
 
 
 @router.get("/benchmarks")
-async def list_benchmarks(request: Request) -> list[dict]:
-    """List all saved benchmarks (filtered by user unless admin)."""
-    user = get_current_user(request)
-    user_mgr = get_user_manager()
-    is_admin = user_mgr.is_admin(user)
-    uid = None if is_admin else user.user_id
-    return _get_benchmark_store().list_benchmarks(user_id=uid)
+async def list_benchmarks() -> list[dict]:
+    """List all saved benchmarks (shared across users)."""
+    return _get_benchmark_store().list_benchmarks()
 
 
 @router.post("/benchmarks")
-async def create_benchmark(body: BenchmarkDef, request: Request) -> dict:
+async def create_benchmark(body: BenchmarkDef) -> dict:
     """Create a new benchmark."""
-    user = get_current_user(request)
-    user_mgr = get_user_manager()
-    is_admin = user_mgr.is_admin(user)
-    user_id = None if is_admin else user.user_id
     store = _get_benchmark_store()
     tasks = [t.model_dump() for t in body.tasks]
-    path = store.save_benchmark(body.name, tasks, description=body.description, user_id=user_id)
+    path = store.save_benchmark(body.name, tasks, description=body.description)
     return {"name": body.name, "path": str(path)}
 
 
 @router.get("/benchmarks/{name}")
-async def get_benchmark(name: str, request: Request) -> dict:
+async def get_benchmark(name: str) -> dict:
     """Get benchmark definition."""
     store = _get_benchmark_store()
     bm = store.load_benchmark(name)
     if not bm:
         raise HTTPException(status_code=404, detail="Benchmark not found")
-    user = get_current_user(request)
-    user_mgr = get_user_manager()
-    if not user_mgr.is_admin(user):
-        if bm.get("user_id", "default") != user.user_id:
-            raise HTTPException(status_code=404, detail="Benchmark not found")
     return bm
 
 
 @router.put("/benchmarks/{name}")
-async def update_benchmark(name: str, body: BenchmarkDef, request: Request) -> dict:
+async def update_benchmark(name: str, body: BenchmarkDef) -> dict:
     """Update benchmark tasks."""
     store = _get_benchmark_store()
     existing = store.load_benchmark(name)
     if not existing:
         raise HTTPException(status_code=404, detail="Benchmark not found")
-    user = get_current_user(request)
-    user_mgr = get_user_manager()
-    if not user_mgr.is_admin(user):
-        if existing.get("user_id", "default") != user.user_id:
-            raise HTTPException(status_code=404, detail="Benchmark not found")
-    user_id = None if user_mgr.is_admin(user) else user.user_id
     tasks = [t.model_dump() for t in body.tasks]
-    store.save_benchmark(name, tasks, description=body.description, user_id=user_id)
+    store.save_benchmark(name, tasks, description=body.description)
     return {"name": name, "tasks": len(tasks)}
 
 
 @router.delete("/benchmarks/{name}")
-async def delete_benchmark(name: str, request: Request) -> dict:
+async def delete_benchmark(name: str) -> dict:
     """Delete a benchmark and all its results."""
     store = _get_benchmark_store()
-    bm = store.load_benchmark(name)
-    if not bm:
+    if not store.delete_benchmark(name):
         raise HTTPException(status_code=404, detail="Benchmark not found")
-    user = get_current_user(request)
-    user_mgr = get_user_manager()
-    if not user_mgr.is_admin(user):
-        if bm.get("user_id", "default") != user.user_id:
-            raise HTTPException(status_code=404, detail="Benchmark not found")
-    store.delete_benchmark(name)
     return {"deleted": name}
 
 
@@ -1027,11 +1003,6 @@ async def run_benchmark(
         raise HTTPException(status_code=404, detail="Benchmark not found")
 
     user = get_current_user(request)
-    user_mgr = get_user_manager()
-    is_admin = user_mgr.is_admin(user)
-    if not is_admin:
-        if bm.get("user_id", "default") != user.user_id:
-            raise HTTPException(status_code=404, detail="Benchmark not found")
     user_id = user.user_id if user.user_id != "default" else None
 
     # Load workflow definition
@@ -1063,13 +1034,15 @@ async def run_benchmark(
 
     # Store batch metadata
     repo = get_repository()
-    repo.put_batch(batch_id, {
+    batch_meta: dict = {
         "batch_id": batch_id,
         "name": name,
         "workflow": body.workflow,
-        "user_id": user_id,
         "runs": {r.workflow_id: {"label": r.label, "status": r.status} for r in runs if r.workflow_id},
-    })
+    }
+    if user_id:
+        batch_meta["user_id"] = user_id
+    repo.put_batch(batch_id, batch_meta)
 
     # Build result record
     from datetime import datetime, timezone
@@ -1121,11 +1094,7 @@ async def list_benchmark_results(name: str, request: Request) -> list[dict]:
 
     user = get_current_user(request)
     user_mgr = get_user_manager()
-    is_admin = user_mgr.is_admin(user)
-    if not is_admin:
-        if bm.get("user_id", "default") != user.user_id:
-            raise HTTPException(status_code=404, detail="Benchmark not found")
-    uid = None if is_admin else user.user_id
+    uid = None if user_mgr.is_admin(user) else user.user_id
 
     results = store.list_results(name, user_id=uid)
 
@@ -1213,11 +1182,6 @@ async def get_benchmark_result(name: str, run_id: str, request: Request) -> dict
     bm = store.load_benchmark(name)
     if not bm:
         raise HTTPException(status_code=404, detail="Benchmark not found")
-    user = get_current_user(request)
-    user_mgr = get_user_manager()
-    if not user_mgr.is_admin(user):
-        if bm.get("user_id", "default") != user.user_id:
-            raise HTTPException(status_code=404, detail="Benchmark not found")
 
     result = store.get_result(run_id, benchmark_name=name)
     if not result:
