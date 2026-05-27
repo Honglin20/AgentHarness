@@ -7,6 +7,22 @@ export function getApiKey(): string {
   return (typeof window !== "undefined" && localStorage.getItem("apiKey")) || "";
 }
 
+/** Get persisted user_id from localStorage */
+export function getUserId(): string {
+  return (typeof window !== "undefined" && localStorage.getItem("userId")) || "";
+}
+
+/** Persist user_id to localStorage */
+export function setUserId(id: string): void {
+  if (typeof window !== "undefined") {
+    if (id) {
+      localStorage.setItem("userId", id);
+    } else {
+      localStorage.removeItem("userId");
+    }
+  }
+}
+
 /** 从 API Key 生成 user_id (用于 WebSocket 隔离) */
 export function getUserFromApiKey(apiKey: string): string {
   // Simple hash of the API key to use as user_id

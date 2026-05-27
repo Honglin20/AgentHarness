@@ -25,7 +25,7 @@ import { AgentEditorModal } from "@/components/agent/AgentEditorModal";
 import BenchmarkEditor from "@/components/benchmark/BenchmarkEditor";
 import BenchmarkRunner from "@/components/benchmark/BenchmarkRunner";
 import BenchmarkCompare from "@/components/benchmark/BenchmarkCompare";
-import { useWorkflowEvents } from "@/hooks/useWorkflowEvents";
+import { useWSMethods } from "@/contexts/workflow-context/WorkflowScope";
 import {
   useWorkflowStatus,
   useNodeCount,
@@ -101,9 +101,7 @@ export function ScopedCenterPanel({ activeBenchmark }: Props) {
     return descMap;
   }, [selectedTemplate]);
 
-  const { sendAnswer, sendStopAndRegenerate } = useWorkflowEvents(
-    batchRunning ? null : workflowId,
-  );
+  const { sendAnswer, sendStopAndRegenerate } = useWSMethods();
 
   // When a new live workflow starts, snap back to Conversation
   useEffect(() => {
