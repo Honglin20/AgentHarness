@@ -763,6 +763,7 @@ async def _create_and_start_workflow(
 
     event_bus.emit("workflow.started", {
         "workflow_id": workflow_id,
+        "user_id": user_id,
         "name": workflow.name,
         "inputs": inputs,
         "dag": dag,
@@ -919,48 +920,74 @@ def _get_benchmark_store() -> _BenchmarkStore:
 
 
 @router.get("/benchmarks")
-async def list_benchmarks() -> list[dict]:
-    """List all saved benchmarks."""
-    return _get_benchmark_store().list_benchmarks()
+async def list_benchmarks(request: Request) -> list[dict]:
+    """List all saved benchmarks (filtered by user unless admin)."""
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+    is_admin = user_mgr.is_admin(user)
+    uid = None if is_admin else user.user_id
+    return _get_benchmark_store().list_benchmarks(user_id=uid)
 
 
 @router.post("/benchmarks")
-async def create_benchmark(body: BenchmarkDef) -> dict:
+async def create_benchmark(body: BenchmarkDef, request: Request) -> dict:
     """Create a new benchmark."""
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+    is_admin = user_mgr.is_admin(user)
+    user_id = None if is_admin else user.user_id
     store = _get_benchmark_store()
     tasks = [t.model_dump() for t in body.tasks]
-    path = store.save_benchmark(body.name, tasks, description=body.description)
+    path = store.save_benchmark(body.name, tasks, description=body.description, user_id=user_id)
     return {"name": body.name, "path": str(path)}
 
 
 @router.get("/benchmarks/{name}")
-async def get_benchmark(name: str) -> dict:
+async def get_benchmark(name: str, request: Request) -> dict:
     """Get benchmark definition."""
     store = _get_benchmark_store()
     bm = store.load_benchmark(name)
     if not bm:
         raise HTTPException(status_code=404, detail="Benchmark not found")
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+    if not user_mgr.is_admin(user):
+        if bm.get("user_id", "default") != user.user_id:
+            raise HTTPException(status_code=404, detail="Benchmark not found")
     return bm
 
 
 @router.put("/benchmarks/{name}")
-async def update_benchmark(name: str, body: BenchmarkDef) -> dict:
+async def update_benchmark(name: str, body: BenchmarkDef, request: Request) -> dict:
     """Update benchmark tasks."""
     store = _get_benchmark_store()
     existing = store.load_benchmark(name)
     if not existing:
         raise HTTPException(status_code=404, detail="Benchmark not found")
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+    if not user_mgr.is_admin(user):
+        if existing.get("user_id", "default") != user.user_id:
+            raise HTTPException(status_code=404, detail="Benchmark not found")
+    user_id = None if user_mgr.is_admin(user) else user.user_id
     tasks = [t.model_dump() for t in body.tasks]
-    store.save_benchmark(name, tasks, description=body.description)
+    store.save_benchmark(name, tasks, description=body.description, user_id=user_id)
     return {"name": name, "tasks": len(tasks)}
 
 
 @router.delete("/benchmarks/{name}")
-async def delete_benchmark(name: str) -> dict:
+async def delete_benchmark(name: str, request: Request) -> dict:
     """Delete a benchmark and all its results."""
     store = _get_benchmark_store()
-    if not store.delete_benchmark(name):
+    bm = store.load_benchmark(name)
+    if not bm:
         raise HTTPException(status_code=404, detail="Benchmark not found")
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+    if not user_mgr.is_admin(user):
+        if bm.get("user_id", "default") != user.user_id:
+            raise HTTPException(status_code=404, detail="Benchmark not found")
+    store.delete_benchmark(name)
     return {"deleted": name}
 
 
@@ -980,6 +1007,11 @@ async def run_benchmark(
         raise HTTPException(status_code=404, detail="Benchmark not found")
 
     user = get_current_user(request)
+    user_mgr = get_user_manager()
+    is_admin = user_mgr.is_admin(user)
+    if not is_admin:
+        if bm.get("user_id", "default") != user.user_id:
+            raise HTTPException(status_code=404, detail="Benchmark not found")
     user_id = user.user_id if user.user_id != "default" else None
 
     # Load workflow definition
@@ -1037,6 +1069,8 @@ async def run_benchmark(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "task_results": task_results,
     }
+    if user_id:
+        result["user_id"] = user_id
     store.save_result(name, result)
 
     return BenchmarkRunSummary(
@@ -1057,12 +1091,22 @@ async def run_benchmark(
 
 
 @router.get("/benchmarks/{name}/results")
-async def list_benchmark_results(name: str) -> list[dict]:
+async def list_benchmark_results(name: str, request: Request) -> list[dict]:
     """List all run results for a benchmark, enriched with live scores."""
     store = _get_benchmark_store()
-    results = store.list_results(name)
-    if not results and not store.load_benchmark(name):
+    bm = store.load_benchmark(name)
+    if not bm:
         raise HTTPException(status_code=404, detail="Benchmark not found")
+
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+    is_admin = user_mgr.is_admin(user)
+    if not is_admin:
+        if bm.get("user_id", "default") != user.user_id:
+            raise HTTPException(status_code=404, detail="Benchmark not found")
+    uid = None if is_admin else user.user_id
+
+    results = store.list_results(name, user_id=uid)
 
     repo = get_repository()
     for result in results:
@@ -1142,9 +1186,18 @@ def _enrich_benchmark_result(result: dict, repo, store=None, benchmark_name: str
 
 
 @router.get("/benchmarks/{name}/results/{run_id}")
-async def get_benchmark_result(name: str, run_id: str) -> dict:
+async def get_benchmark_result(name: str, run_id: str, request: Request) -> dict:
     """Get a specific benchmark run result with aggregated scores."""
     store = _get_benchmark_store()
+    bm = store.load_benchmark(name)
+    if not bm:
+        raise HTTPException(status_code=404, detail="Benchmark not found")
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+    if not user_mgr.is_admin(user):
+        if bm.get("user_id", "default") != user.user_id:
+            raise HTTPException(status_code=404, detail="Benchmark not found")
+
     result = store.get_result(run_id, benchmark_name=name)
     if not result:
         raise HTTPException(status_code=404, detail="Result not found")
@@ -1156,12 +1209,18 @@ async def get_benchmark_result(name: str, run_id: str) -> dict:
 
 
 @router.get("/workflows/{workflow_id}", response_model=WorkflowStatusResponse)
-async def get_workflow(workflow_id: str) -> WorkflowStatusResponse:
+async def get_workflow(workflow_id: str, request: Request) -> WorkflowStatusResponse:
     """Get workflow status and result."""
     if not get_repository().contains(workflow_id):
         raise HTTPException(status_code=404, detail="Workflow not found")
 
     data = get_repository().get(workflow_id)
+    user = get_current_user(request)
+    if not get_user_manager().is_admin(user):
+        owner = data.get("user_id", "default")
+        if owner != user.user_id:
+            raise HTTPException(status_code=403, detail="Not your workflow")
+
     return WorkflowStatusResponse(
         workflow_id=workflow_id,
         name=data["workflow"].name,
@@ -1171,10 +1230,18 @@ async def get_workflow(workflow_id: str) -> WorkflowStatusResponse:
 
 
 @router.post("/workflows/{workflow_id}/cancel")
-async def cancel_workflow(workflow_id: str) -> dict:
+async def cancel_workflow(workflow_id: str, request: Request) -> dict:
     """Pause a running workflow. Status becomes 'paused' and can be resumed."""
-    if not get_repository().contains(workflow_id):
+    repo = get_repository()
+    if not repo.contains(workflow_id):
         raise HTTPException(status_code=404, detail="Workflow not found")
+
+    data = repo.get(workflow_id)
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+    is_admin = user_mgr.is_admin(user)
+    if not is_admin and data.get("user_id", "default") != user.user_id:
+        raise HTTPException(status_code=403, detail="Not your workflow")
 
     from server.runner import get_runner
     runner = get_runner()
@@ -1194,21 +1261,24 @@ async def cancel_workflow(workflow_id: str) -> dict:
 
 
 @router.get("/workflows/{workflow_id}/dag")
-async def get_workflow_dag(workflow_id: str) -> dict:
+async def get_workflow_dag(workflow_id: str, request: Request) -> dict:
     """Get DAG structure for React Flow."""
     dag = get_repository().get_dag(workflow_id)
     if dag is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
+    _check_workflow_owner(workflow_id, request)
     return dag
 
 
 @router.get("/workflows/{workflow_id}/trace")
-async def get_workflow_trace(workflow_id: str) -> dict:
+async def get_workflow_trace(workflow_id: str, request: Request) -> dict:
     """Get execution trace."""
     repo = get_repository()
     if not repo.contains(workflow_id):
         raise HTTPException(status_code=404, detail="Workflow not found")
+
+    _check_workflow_owner(workflow_id, request)
 
     data = repo.get(workflow_id)
     result = data["result"]
@@ -1261,19 +1331,25 @@ async def resume_run(
     If checkpoint_id is not provided, resumes from the latest non-final
     checkpoint (the last state that still has pending nodes).
     """
-    if not get_repository().contains(run_id):
+    repo = get_repository()
+    if not repo.contains(run_id):
         raise HTTPException(status_code=404, detail="Run not found")
+
+    data = repo.get(run_id)
+    user = get_current_user(req)
+    user_mgr = get_user_manager()
+    is_admin = user_mgr.is_admin(user)
+    if not is_admin and data.get("user_id", "default") != user.user_id:
+        raise HTTPException(status_code=403, detail="Not your run")
 
     from harness.checkpoint import get_checkpoint_manager
     mgr = get_checkpoint_manager()
 
     # Get workflow and compiled graph
-    data = get_repository().get(run_id)
     workflow = data["workflow"]
     if workflow._compiled is None:
         raise HTTPException(status_code=400, detail="Workflow has no compiled graph")
 
-    user = get_current_user(req)
     run_user_id = data.get("user_id", user.user_id)
 
     # Get checkpoint config
@@ -1329,6 +1405,12 @@ async def rerun(
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
 
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+    is_admin = user_mgr.is_admin(user)
+    if not is_admin and run.get("user_id", "default") != user.user_id:
+        raise HTTPException(status_code=403, detail="Not your run")
+
     # Block concurrent workflows at capacity
     from server.runner import get_runner
     runner = get_runner()
@@ -1339,8 +1421,6 @@ async def rerun(
     inputs = run.get("inputs", {})
     agents_snapshot = run.get("agents_snapshot", [])
     dag = run.get("dag")
-
-    user = get_current_user(request)
     user_id = user.user_id if user.user_id != "default" else None
 
     # Validate workflow dir
