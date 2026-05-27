@@ -1,7 +1,8 @@
 /**
- * WorkflowScope - Context Provider 包装器
+ * WorkflowScope - Context Provider wrapper
  *
- * Phase 2 更新：使用 scoped events hook
+ * Phase 2 updated: WS lifecycle moved to WorkflowCenterPanel.
+ * WorkflowScopeInner no longer creates WebSocket connections.
  */
 
 "use client";
@@ -10,10 +11,7 @@ import { useEffect, useMemo, type ReactNode } from "react";
 import { useBatchStore } from "@/stores/batchStore";
 import { WorkflowProvider } from "./WorkflowContext";
 import { getWorkflowManager } from "./WorkflowManager";
-import {
-  useScopedWorkflowEvents,
-  setActiveWorkflowId,
-} from "./useWorkflowEvents";
+import { useScopedWorkflowEvents } from "./useWorkflowEvents";
 
 interface WorkflowScopeProps {
   workflowId: string | null;
@@ -34,10 +32,6 @@ export function WorkflowScope({ workflowId, batchId, children }: WorkflowScopePr
     return manager.getOrCreate(effectiveWorkflowId).stores;
   }, [manager, effectiveWorkflowId]);
 
-  const { sendAnswer, sendStopAndRegenerate } = useScopedWorkflowEvents(
-    batchId ? null : effectiveWorkflowId,
-  );
-
   const setActiveWorkflowId = useMemo(
     () => (id: string | null) => manager.setActiveWorkflowId(id),
     [manager],
@@ -46,6 +40,28 @@ export function WorkflowScope({ workflowId, batchId, children }: WorkflowScopePr
   useEffect(() => {
     manager.setActiveWorkflowId(effectiveWorkflowId);
   }, [manager, effectiveWorkflowId]);
+
+  if (!stores) return <>{children}</>;
+
+  return (
+    <WorkflowProvider
+      workflowId={effectiveWorkflowId}
+      stores={stores}
+      setActiveWorkflowId={setActiveWorkflowId}
+    >
+      <WorkflowScopeInner>
+        {children}
+      </WorkflowScopeInner>
+    </WorkflowProvider>
+  );
+}
+
+/**
+ * Inner component rendered inside WorkflowProvider so it can access context.
+ * Sets the __useContextArchitecture flag and provides WS methods to child tree.
+ */
+function WorkflowScopeInner({ children }: { children: ReactNode }) {
+  const { sendAnswer, sendStopAndRegenerate } = useScopedWorkflowEvents();
 
   // Mark that we're in Context architecture mode
   useEffect(() => {
@@ -56,22 +72,16 @@ export function WorkflowScope({ workflowId, batchId, children }: WorkflowScopePr
   }, []);
 
   return (
-    <WorkflowProvider
-      workflowId={effectiveWorkflowId}
-      stores={stores}
-      setActiveWorkflowId={setActiveWorkflowId}
+    <WSMethodProvider
+      sendAnswer={sendAnswer}
+      sendStopAndRegenerate={sendStopAndRegenerate}
     >
-      <WSMethodProvider
-        sendAnswer={sendAnswer}
-        sendStopAndRegenerate={sendStopAndRegenerate}
-      >
-        {children}
-      </WSMethodProvider>
-    </WorkflowProvider>
+      {children}
+    </WSMethodProvider>
   );
 }
 
-function WSMethodProvider({
+export function WSMethodProvider({
   sendAnswer,
   sendStopAndRegenerate,
   children,
