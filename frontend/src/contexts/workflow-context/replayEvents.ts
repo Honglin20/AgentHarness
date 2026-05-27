@@ -292,3 +292,60 @@ export function replayEventsToStores(
   // 5. Mark the workflow as completed in the manager
   manager.setWorkflowStatus(workflowId, "completed");
 }
+
+// ---------------------------------------------------------------------------
+// loadLegacyRunData — backward compat for runs without persisted events
+// ---------------------------------------------------------------------------
+
+/**
+ * Fallback for old runs that don't have persisted events.
+ * Loads conversation and chart_groups directly into stores.
+ */
+export function loadLegacyRunData(
+  workflowId: string,
+  conversation: any[],
+  chartGroups: { groups: Record<string, any>; groupOrder: string[] } | null,
+): void {
+  const manager = getWorkflowManager();
+  const stores = manager.getOrCreate(workflowId).stores;
+
+  stores.conversation.getState().reset();
+  stores.chart.getState().reset();
+
+  if (conversation && conversation.length > 0) {
+    const messages = conversation.map((m: any, i: number) => ({
+      id: m.id ?? `legacy-${i}`,
+      type: m.type as "agent" | "user" | "tool_call" | "system",
+      content: m.content ?? "",
+      agentName: m.agentName,
+      toolName: m.toolName,
+      toolArgs: m.toolArgs,
+      toolResult: m.toolResult,
+      status: (m.status as "streaming" | "done" | "error" | "interrupted") ?? "done",
+      durationMs: m.durationMs,
+      timestamp: m.timestamp ?? 0,
+    }));
+    stores.conversation.setState({ messages });
+  }
+
+  if (chartGroups?.groupOrder?.length) {
+    for (const label of chartGroups.groupOrder) {
+      const group = chartGroups.groups[label];
+      if (group) {
+        // Add each chart in the group individually
+        for (const [title, chart] of Object.entries(group.charts || {})) {
+          stores.chart.getState().addChart(chart as any);
+        }
+        if (group.table) {
+          stores.chart.getState().addChart({
+            label,
+            title: `${label} Table`,
+            chart_type: "table",
+            columns: group.table.columns,
+            data: group.table.rows,
+          });
+        }
+      }
+    }
+  }
+}
