@@ -371,6 +371,21 @@ export function getChatActions(store: StoreApi<ChatState>) {
 }
 
 /**
+ * Cache store action objects by store reference.
+ * Zustand actions are stable function references defined once in the creator.
+ * Stores are created once per workflow (useMemo in WorkflowScope), so the
+ * cached object is stable across renders.
+ */
+const actionCache = new WeakMap<StoreApi<any>, any>();
+
+function getStableActions<T>(store: StoreApi<T>): T {
+  if (!actionCache.has(store)) {
+    actionCache.set(store, store.getState());
+  }
+  return actionCache.get(store);
+}
+
+/**
  * useWorkflowActions
  *
  * 获取当前 workflow store 的 actions（用于调用方法）
@@ -380,7 +395,7 @@ export function useWorkflowActions() {
   if (!store) {
     throw new Error("useWorkflowActions must be used within WorkflowProvider");
   }
-  return store.getState();
+  return getStableActions(store);
 }
 
 /**
@@ -393,7 +408,7 @@ export function useOutputActions() {
   if (!store) {
     throw new Error("useOutputActions must be used within WorkflowProvider");
   }
-  return store.getState();
+  return getStableActions(store);
 }
 
 /**
@@ -406,7 +421,7 @@ export function useConversationActions() {
   if (!store) {
     throw new Error("useConversationActions must be used within WorkflowProvider");
   }
-  return store.getState();
+  return getStableActions(store);
 }
 
 /**
@@ -419,7 +434,7 @@ export function useChartActions() {
   if (!store) {
     throw new Error("useChartActions must be used within WorkflowProvider");
   }
-  return store.getState();
+  return getStableActions(store);
 }
 
 /**
@@ -432,5 +447,5 @@ export function useChatActions() {
   if (!store) {
     throw new Error("useChatActions must be used within WorkflowProvider");
   }
-  return store.getState();
+  return getStableActions(store);
 }
