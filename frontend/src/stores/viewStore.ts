@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { RunRecord } from "./runHistoryStore";
+import type { WSEvent } from "@/types/events";
 import { useAgentIOStore } from "./agentIOStore";
 import { getWorkflowManager } from "@/contexts/workflow-context/WorkflowManager";
 import { replayEventsToStores, loadLegacyRunData } from "@/contexts/workflow-context/replayEvents";
@@ -32,8 +33,8 @@ export const useViewStore = create<ViewState>()((set) => ({
 
     // New path: replay events into scoped stores
     // Backward compat: load legacy data directly
-    if ((run as any).events && (run as any).events.length > 0) {
-      replayEventsToStores(run.run_id, (run as any).events);
+    if (run.events && run.events.length > 0) {
+      replayEventsToStores(run.run_id, run.events as WSEvent[]);
     } else {
       loadLegacyRunData(run.run_id, run.conversation ?? [], run.chart_groups ?? null);
     }
