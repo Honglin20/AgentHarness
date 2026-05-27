@@ -6,7 +6,7 @@
 
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { useChartGroups, useChartActions } from "@/contexts/workflow-context";
 import { filterGroupsByCategory, type ChartGroup } from "@/stores/chartStore";
 import ChartWidget from "@/components/output/ChartWidget";
@@ -30,6 +30,8 @@ export function ScopedAnalysisTab({
 }: ScopedAnalysisTabProps = {}) {
   const { groups: storeGroups, order: storeGroupOrder } = useChartGroups();
   const chartActions = useChartActions();
+  const [localCollapsed, setLocalCollapsed] = useState<Record<string, boolean>>({});
+  const isReplay = !!groupsProp;
 
   // If props provided (replay mode), filter those; otherwise filter live store
   const raw = groupsProp
@@ -60,19 +62,27 @@ export function ScopedAnalysisTab({
           const itemCount = chartEntries.length + (group.table ? 1 : 0);
           if (itemCount === 0) return null;
 
+          const collapsed = isReplay
+            ? (localCollapsed[label] ?? group.collapsed)
+            : group.collapsed;
+
           return (
             <div
               key={label}
               className="border border-app-border rounded-lg mb-3"
             >
               <Collapsible
-                open={!group.collapsed}
+                open={!collapsed}
                 onOpenChange={() => {
-                  if (!groupsProp) chartActions.toggleCollapse(label);
+                  if (isReplay) {
+                    setLocalCollapsed((prev) => ({ ...prev, [label]: !collapsed }));
+                  } else {
+                    chartActions.toggleCollapse(label);
+                  }
                 }}
               >
                 <CollapsibleTrigger className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-app-bg-secondary rounded-t-lg">
-                  {group.collapsed ? (
+                  {collapsed ? (
                     <ChevronRight className="h-4 w-4 text-muted-foreground" />
                   ) : (
                     <ChevronDown className="h-4 w-4 text-muted-foreground" />

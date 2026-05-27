@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { useChartStore, filterGroupsByCategory, type ChartGroup } from "@/stores/chartStore";
 import ChartWidget from "@/components/output/ChartWidget";
 import DataTable from "@/components/output/charts/DataTable";
@@ -22,6 +22,8 @@ export default function ResultsTab({ groups: groupsProp, groupOrder: groupOrderP
   const storeGroups = useChartStore((s) => s.groups);
   const storeGroupOrder = useChartStore((s) => s.groupOrder);
   const toggleCollapse = useChartStore((s) => s.toggleCollapse);
+  const [localCollapsed, setLocalCollapsed] = useState<Record<string, boolean>>({});
+  const isReplay = !!groupsProp;
 
   // Exclude analysis charts — those belong in AnalysisTab
   const raw = groupsProp
@@ -53,17 +55,27 @@ export default function ResultsTab({ groups: groupsProp, groupOrder: groupOrderP
           const itemCount = chartEntries.length + (group.table ? 1 : 0);
           if (itemCount === 0) return null;
 
+          const collapsed = isReplay
+            ? (localCollapsed[label] ?? group.collapsed)
+            : group.collapsed;
+
           return (
             <div
               key={label}
               className="border border-app-border rounded-lg mb-3"
             >
               <Collapsible
-                open={!group.collapsed}
-                onOpenChange={() => { if (!groupsProp) toggleCollapse(label); }}
+                open={!collapsed}
+                onOpenChange={() => {
+                  if (isReplay) {
+                    setLocalCollapsed((prev) => ({ ...prev, [label]: !collapsed }));
+                  } else {
+                    toggleCollapse(label);
+                  }
+                }}
               >
                 <CollapsibleTrigger className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-app-bg-secondary rounded-t-lg">
-                  {group.collapsed ? (
+                  {collapsed ? (
                     <ChevronRight className="h-4 w-4 text-muted-foreground" />
                   ) : (
                     <ChevronDown className="h-4 w-4 text-muted-foreground" />
