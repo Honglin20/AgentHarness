@@ -113,12 +113,12 @@ export function CenterPanel({ activeBenchmark }: Props) {
     : liveAnalysisCount;
 
   // Fetch templates for the landing page cards
-  useState(() => {
+  useEffect(() => {
     fetch("/api/workflows/definitions")
       .then((r) => r.json())
       .then((data: SavedWorkflow[]) => setTemplates(data))
       .catch(() => {});
-  });
+  }, []);
 
   // Fetch benchmark data when activeBenchmark changes
   useEffect(() => {
