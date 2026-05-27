@@ -3,6 +3,12 @@
  *
  * WebSocket lives here (stable parent that never remounts on workflow switch).
  * Events are routed via eventRouter to scoped stores inside WorkflowScope.
+ *
+ * Decisions made HERE:
+ * - replay mode → legacy CenterPanel (read-only, no WS needed)
+ * - no workflowId → legacy CenterPanel (landing page)
+ * - batch mode without selected run → legacy CenterPanel (batch overview)
+ * - valid workflowId → Context architecture (WSMethodContext + WorkflowScope)
  */
 
 "use client";
@@ -22,40 +28,42 @@ function useActiveWorkflowId(): string | null {
   const activeView = useViewStore((s) => s.activeView);
   const workflowId = useWorkflowStore((s) => s.workflowId);
   const selectedRunId = useBatchStore((s) => s.selectedRunId);
+  const activeBatchId = useBatchStore((s) => s.activeBatchId);
 
+  // Replay mode: handled by legacy CenterPanel
   if (activeView.type === "replay") {
-    return activeView.run.run_id;
+    return null;
   }
-  if (selectedRunId) {
+
+  // Batch mode: only enter Context path when a run is explicitly selected
+  if (activeBatchId) {
     return selectedRunId;
   }
+
+  // Normal mode: use the global workflowId
   return workflowId;
 }
 
 export function WorkflowCenterPanel({ activeBenchmark }: WorkflowCenterPanelProps) {
   const workflowId = useActiveWorkflowId();
   const activeView = useViewStore((s) => s.activeView);
-  const activeBatchId = useBatchStore((s) => s.activeBatchId);
 
   // WebSocket managed at this stable level — survives workflow switches
-  const wsMethods = useWorkflowWS(activeView.type === "replay" ? null : workflowId);
+  const wsMethods = useWorkflowWS(workflowId);
 
-  // Replay mode or no workflow: fallback to CenterPanel (data from backend API)
+  // Replay mode or no active workflow: use legacy CenterPanel
   if (activeView.type === "replay" || !workflowId) {
     const CenterPanel = require("./CenterPanel").CenterPanel;
     return <CenterPanel activeBenchmark={activeBenchmark} />;
   }
 
-  // Context architecture with stable WS
+  // Context architecture: WS + scoped stores
   return (
     <WSMethodProvider
       sendAnswer={wsMethods.sendAnswer}
       sendStopAndRegenerate={wsMethods.sendStopAndRegenerate}
     >
-      <WorkflowScope
-        workflowId={workflowId}
-        batchId={activeBatchId}
-      >
+      <WorkflowScope workflowId={workflowId}>
         <ScopedCenterPanel activeBenchmark={activeBenchmark} />
       </WorkflowScope>
     </WSMethodProvider>

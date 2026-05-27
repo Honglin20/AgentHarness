@@ -310,20 +310,13 @@ function _routeToUIStores(event: WSEvent): void {
   }
 }
 
-/** Set the active workflow ID. Saves the current workflow's conversation before switching. */
+/** Set the active workflow ID. Saves the current workflow's conversation before switching.
+ *
+ * This function is only called from the legacy CenterPanel (replay mode).
+ * When Context architecture is active, WorkflowManager.setActiveWorkflowId is used instead.
+ */
 export function setActiveWorkflowId(id: string | null) {
   const currentId = useWorkflowStore.getState().activeWorkflowId;
-
-  // Check if in Context architecture mode
-  // When in Context mode, WorkflowScope handles the switch
-  const isInContextMode = typeof window !== "undefined" && (window as unknown as { __useContextArchitecture?: boolean }).__useContextArchitecture;
-
-  if (isInContextMode) {
-    // Context mode: just update the global state (WorkflowScope reads from batchStore)
-    useWorkflowStore.getState().setActiveWorkflowId(id);
-    useWorkflowStore.getState().setActiveWid(id);
-    return;
-  }
 
   // Legacy mode: use cache
   if (currentId && currentId !== id) {

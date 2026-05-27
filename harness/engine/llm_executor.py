@@ -221,7 +221,7 @@ class LLMExecutor:
         # Attach result to the last unmatched tool_call entry
         for tc in reversed(self.tool_calls):
             if tc["tool_name"] == part.tool_name and "tool_result" not in tc:
-                tc["tool_result"] = result_str
+                tc["result"] = result_str
                 break
         if not self._bus:
             return

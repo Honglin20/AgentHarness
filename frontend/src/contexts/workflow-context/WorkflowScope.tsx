@@ -1,36 +1,71 @@
 /**
  * WorkflowScope - Context Provider wrapper
  *
- * Phase 2 updated: WS lifecycle moved to WorkflowCenterPanel.
- * WorkflowScopeInner no longer creates WebSocket connections.
+ * WS lifecycle lives in WorkflowCenterPanel (stable parent).
+ * WorkflowScope just provides per-workflow scoped stores via WorkflowProvider.
+ * WSMethodContext is a real React context — no window globals.
  */
 
 "use client";
 
-import { useEffect, useMemo, type ReactNode } from "react";
-import { useBatchStore } from "@/stores/batchStore";
+import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
 import { WorkflowProvider } from "./WorkflowContext";
 import { getWorkflowManager } from "./WorkflowManager";
-import { useScopedWorkflowEvents } from "./useWorkflowEvents";
+
+// ============================================================
+// WSMethodContext — React context for WebSocket send methods
+// ============================================================
+
+interface WSMethods {
+  sendAnswer: (questionId: string, answer: string) => void;
+  sendStopAndRegenerate: (agentName: string, partialOutput: string, userGuidance: string) => void;
+}
+
+const WSMethodContext = createContext<WSMethods | null>(null);
+
+export function WSMethodProvider({
+  sendAnswer,
+  sendStopAndRegenerate,
+  children,
+}: WSMethods & { children: ReactNode }) {
+  const value = useMemo(
+    () => ({ sendAnswer, sendStopAndRegenerate }),
+    [sendAnswer, sendStopAndRegenerate],
+  );
+  return (
+    <WSMethodContext.Provider value={value}>
+      {children}
+    </WSMethodContext.Provider>
+  );
+}
+
+export function useWSMethods(): WSMethods {
+  const ctx = useContext(WSMethodContext);
+  if (!ctx) {
+    throw new Error(
+      "useWSMethods must be used within WSMethodProvider. " +
+      "Make sure WorkflowCenterPanel wraps the tree with WSMethodProvider."
+    );
+  }
+  return ctx;
+}
+
+// ============================================================
+// WorkflowScope
+// ============================================================
 
 interface WorkflowScopeProps {
   workflowId: string | null;
-  batchId?: string | null;
   children: ReactNode;
 }
 
-export function WorkflowScope({ workflowId, batchId, children }: WorkflowScopeProps) {
+export function WorkflowScope({ workflowId, children }: WorkflowScopeProps) {
   const manager = useMemo(() => getWorkflowManager(), []);
 
-  const { selectedRunId } = useBatchStore();
-
-  // In batch mode, use selectedRunId as the workflowId
-  const effectiveWorkflowId = batchId ? selectedRunId : workflowId;
-
   const stores = useMemo(() => {
-    if (!effectiveWorkflowId) return null;
-    return manager.getOrCreate(effectiveWorkflowId).stores;
-  }, [manager, effectiveWorkflowId]);
+    if (!workflowId) return null;
+    return manager.getOrCreate(workflowId).stores;
+  }, [manager, workflowId]);
 
   const setActiveWorkflowId = useMemo(
     () => (id: string | null) => manager.setActiveWorkflowId(id),
@@ -38,72 +73,18 @@ export function WorkflowScope({ workflowId, batchId, children }: WorkflowScopePr
   );
 
   useEffect(() => {
-    manager.setActiveWorkflowId(effectiveWorkflowId);
-  }, [manager, effectiveWorkflowId]);
+    manager.setActiveWorkflowId(workflowId);
+  }, [manager, workflowId]);
 
   if (!stores) return <>{children}</>;
 
   return (
     <WorkflowProvider
-      workflowId={effectiveWorkflowId}
+      workflowId={workflowId}
       stores={stores}
       setActiveWorkflowId={setActiveWorkflowId}
     >
-      <WorkflowScopeInner>
-        {children}
-      </WorkflowScopeInner>
+      {children}
     </WorkflowProvider>
   );
-}
-
-/**
- * Inner component rendered inside WorkflowProvider so it can access context.
- * Sets the __useContextArchitecture flag and provides WS methods to child tree.
- */
-function WorkflowScopeInner({ children }: { children: ReactNode }) {
-  const { sendAnswer, sendStopAndRegenerate } = useScopedWorkflowEvents();
-
-  // Mark that we're in Context architecture mode
-  useEffect(() => {
-    (window as unknown as { __useContextArchitecture?: boolean }).__useContextArchitecture = true;
-    return () => {
-      delete (window as unknown as { __useContextArchitecture?: boolean }).__useContextArchitecture;
-    };
-  }, []);
-
-  return (
-    <WSMethodProvider
-      sendAnswer={sendAnswer}
-      sendStopAndRegenerate={sendStopAndRegenerate}
-    >
-      {children}
-    </WSMethodProvider>
-  );
-}
-
-export function WSMethodProvider({
-  sendAnswer,
-  sendStopAndRegenerate,
-  children,
-}: {
-  sendAnswer: (questionId: string, answer: string) => void;
-  sendStopAndRegenerate: (agentName: string, partialOutput: string, userGuidance: string) => void;
-  children: ReactNode;
-}) {
-  useEffect(() => {
-    const wsMethods = { sendAnswer, sendStopAndRegenerate };
-    (window as unknown as { __wsMethods?: typeof wsMethods }).__wsMethods = wsMethods;
-    return () => {
-      delete (window as unknown as { __wsMethods?: typeof wsMethods }).__wsMethods;
-    };
-  }, [sendAnswer, sendStopAndRegenerate]);
-
-  return <>{children}</>;
-}
-
-export function getWSMethods() {
-  return (window as unknown as { __wsMethods?: {
-    sendAnswer?: (questionId: string, answer: string) => void;
-    sendStopAndRegenerate?: (agentName: string, partialOutput: string, userGuidance: string) => void;
-  } }).__wsMethods ?? {};
 }

@@ -20,6 +20,8 @@ interface AgentMessageProps {
   collapsed: boolean;
   onToggleCollapse: () => void;
   sectionItemCount: number;
+  getAgentIO?: (nodeId: string) => { inputPrompt?: string; outputResult?: unknown; systemPrompt?: string } | undefined;
+  getNodeState?: (nodeId: string) => { tokenUsage?: { input: number; output: number; total: number }; tools?: ToolBrief[] } | undefined;
 }
 
 const AGENT_STATUS_BADGE_BG: Record<string, string> = {
@@ -37,9 +39,9 @@ function firstNonEmptyLine(s: string): string {
   return "";
 }
 
-function formatTokenCount(n?: number): string {
+function formatTokenCount(n?: { input: number; output: number; total: number }): string {
   if (n == null) return "";
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  if (n.total >= 1000) return `${(n.total / 1000).toFixed(1)}k`;
   return String(n);
 }
 
@@ -123,15 +125,17 @@ function ToolsBadge({ tools }: { tools: ToolBrief[] }) {
   );
 }
 
-export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItemCount }: AgentMessageProps) {
+export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItemCount, getAgentIO, getNodeState }: AgentMessageProps) {
   const { agentName, content, status, durationMs, nodeId } = message;
   const badgeClass = AGENT_STATUS_BADGE_BG[status ?? "done"] ?? AGENT_STATUS_BADGE_BG.done;
   const isStreaming = status === "streaming";
   const isDone = status === "done";
 
-  const agentIO = useAgentIOStore((s) => nodeId ? s.data[nodeId] : undefined);
+  const globalAgentIO = useAgentIOStore((s) => nodeId ? s.data[nodeId] : undefined);
+  const globalNodeState = useWorkflowStore((s) => nodeId ? s.nodes[nodeId] : undefined);
+  const agentIO = getAgentIO && nodeId ? getAgentIO(nodeId) : globalAgentIO;
+  const nodeState = getNodeState && nodeId ? getNodeState(nodeId) : globalNodeState;
   const hasIO = isDone && agentIO && (agentIO.inputPrompt || agentIO.outputResult != null);
-  const nodeState = useWorkflowStore((s) => nodeId ? s.nodes[nodeId] : undefined);
   const tokenUsage = nodeState?.tokenUsage;
   const tools = nodeState?.tools;
 
@@ -163,7 +167,7 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
         {tokenUsage && tokenUsage.total > 0 && (
           <span className="shrink-0 inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs text-amber-600 bg-amber-500/10" title={`${tokenUsage.input} in / ${tokenUsage.output} out`}>
             <Coins className="h-3 w-3" />
-            {formatTokenCount(tokenUsage.total)}
+            {formatTokenCount(tokenUsage)}
           </span>
         )}
         {hasIO && (

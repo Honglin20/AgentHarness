@@ -221,3 +221,116 @@ class ChartCollector:
                 }
 
         return {"groups": groups, "groupOrder": group_order}
+
+
+def build_conversation(agent_io: dict[str, dict]) -> list[dict]:
+    """Build conversation messages from ``agent_io`` (per-node output data).
+
+    This is the backend's authoritative source for conversation data,
+    independent of the Bus buffer. Each entry in ``agent_io`` is::
+
+        {
+          "input_prompt": str,
+          "output_result": Any,
+          "tool_calls": [{"tool_name": str, "tool_args": dict, "result": Any}],
+          "system_prompt": str | None,
+          "agent_name": str,
+        }
+
+    Returns a list of ``ConversationMessage``-shaped dicts matching the
+    frontend's ``ConversationMessage`` type.
+    """
+    import json as _json
+
+    messages: list[dict] = []
+    counter = 0
+
+    def _next_id() -> str:
+        nonlocal counter
+        counter += 1
+        return f"msg-{counter}"
+
+    for agent_name, io_data in agent_io.items():
+        if not isinstance(io_data, dict):
+            continue
+
+        agent_name_val = io_data.get("agent_name", agent_name)
+        tool_calls = io_data.get("tool_calls", [])
+        output_result = io_data.get("output_result")
+        input_prompt = io_data.get("input_prompt")
+
+        # Agent text from output_result
+        if output_result is not None:
+            content = _format_output(output_result)
+            messages.append({
+                "id": _next_id(),
+                "type": "agent",
+                "nodeId": agent_name,
+                "agentName": agent_name_val,
+                "content": content,
+                "status": "done",
+                "timestamp": 0,
+            })
+
+        # Tool calls
+        for tc in tool_calls:
+            tool_name = tc.get("tool_name", "")
+            tool_args = tc.get("tool_args", {})
+            tool_result = tc.get("result")
+
+            messages.append({
+                "id": _next_id(),
+                "type": "tool_call",
+                "nodeId": agent_name,
+                "agentName": agent_name_val,
+                "content": "",
+                "toolName": tool_name,
+                "toolArgs": tool_args,
+                "toolResult": str(tool_result) if tool_result is not None else None,
+                "toolStatus": "done",
+                "timestamp": 0,
+            })
+
+        # Agent with only input_prompt, no output
+        if output_result is None and input_prompt and not tool_calls:
+            messages.append({
+                "id": _next_id(),
+                "type": "agent",
+                "nodeId": agent_name,
+                "agentName": agent_name_val,
+                "content": str(input_prompt),
+                "status": "done",
+                "timestamp": 0,
+            })
+
+    return messages
+
+
+def _format_output(output: Any) -> str:
+    """Format an output value as markdown text."""
+    if output is None:
+        return ""
+    if isinstance(output, str):
+        try:
+            parsed = _json.loads(output)
+            return _format_output(parsed)
+        except Exception:
+            return output
+    if isinstance(output, dict):
+        lines: list[str] = []
+        if output.get("summary"):
+            lines.append(str(output["summary"]))
+        if output.get("details"):
+            lines.append("")
+            lines.append(str(output["details"]))
+        extra = {k: v for k, v in output.items() if k not in ("summary", "details")}
+        if extra:
+            lines.append("")
+            lines.append("| Field | Value |")
+            lines.append("|-------|-------|")
+            for k, v in extra.items():
+                val = _json.dumps(v) if isinstance(v, (dict, list)) else str(v)
+                lines.append(f"| {k} | {val} |")
+        if lines:
+            return "\n".join(lines)
+    return _json.dumps(output, indent=2, ensure_ascii=False)
