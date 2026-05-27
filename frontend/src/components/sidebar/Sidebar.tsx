@@ -8,6 +8,7 @@ import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { useResetWorkflow } from "@/hooks/useResetWorkflow";
 import { WorkflowCompareDialog } from "@/components/compare/WorkflowCompareDialog";
+import { fetchWithAuth } from "@/lib/api";
 
 interface BenchmarkItem {
   name: string;
@@ -27,7 +28,7 @@ export function Sidebar({ onSelectBenchmark, selectedBenchmark, onLeaveBenchmark
   const [benchmarks, setBenchmarks] = useState<BenchmarkItem[]>([]);
 
   useEffect(() => {
-    fetch("/api/benchmarks")
+    fetchWithAuth("/api/benchmarks")
       .then((r) => r.json())
       .then((data: BenchmarkItem[]) => setBenchmarks(data))
       .catch(() => {});

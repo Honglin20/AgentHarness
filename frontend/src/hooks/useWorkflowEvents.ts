@@ -13,13 +13,9 @@ import type {
   AgentToolOutputDeltaPayload,
   ChatQuestionPayload,
   ChartRenderPayload,
-  BatchInitPayload,
-  BatchCompletedPayload,
 } from "@/types/events";
 import { useWebSocket } from "./useWebSocket";
 import type { UseWebSocketReturn } from "./useWebSocket";
-import { useBatchWebSocket } from "./useBatchWebSocket";
-import type { UseBatchWebSocketReturn } from "./useBatchWebSocket";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useChatStore } from "@/stores/chatStore";
 import { useOutputStore } from "@/stores/outputStore";
@@ -310,10 +306,10 @@ function _routeToUIStores(event: WSEvent): void {
   }
 }
 
-/** Set the active workflow ID. Saves the current workflow's conversation before switching.
- *
- * This function is only called from the legacy CenterPanel (replay mode).
- * When Context architecture is active, WorkflowManager.setActiveWorkflowId is used instead.
+/**
+ * @deprecated Use WorkflowManager.setActiveWorkflowId() instead.
+ * Still imported by: userStore, RunHistoryList, CenterPanel, WorkflowLauncher, useResetWorkflow.
+ * Migrate those callers to the scoped-stores architecture, then remove this function.
  */
 export function setActiveWorkflowId(id: string | null) {
   const currentId = useWorkflowStore.getState().activeWorkflowId;
@@ -350,30 +346,6 @@ export function setActiveWorkflowId(id: string | null) {
         _restoreConversation(id);
       }
     }
-  }
-}
-
-/** Switch to a different batch run — saves current conversation, swaps stores. */
-export function switchBatchRun(wid: string) {
-  const { selectedRunId } = useBatchStore.getState();
-  if (selectedRunId === wid) return;
-
-  // Save current run's conversation
-  if (selectedRunId) {
-    _saveConversation(selectedRunId);
-    useConversationStore.getState().saveToCache(selectedRunId);
-    useOutputStore.getState().saveToCache(selectedRunId);
-  }
-
-  // Switch
-  useBatchStore.getState().selectRun(wid);
-  setActiveWorkflowId(wid);
-
-  // Restore conversation for the new run
-  const restored = useConversationStore.getState().restoreFromCache(wid);
-  useOutputStore.getState().restoreFromCache(wid);
-  if (!restored) {
-    _restoreConversation(wid);
   }
 }
 
@@ -434,77 +406,3 @@ export function useWorkflowEvents(
   return { ...ws, sendAnswer, sendStopAndRegenerate };
 }
 
-/** Batch-aware dispatch: routes events based on selectedRunId.
- *
- *  - Only UI-intensive events (text_delta, tool_call, etc.) for the selected
- *    run are routed into the UI stores.
- *  - Lifecycle events (workflow.started/completed/error) always update
- *    the batchStore so the progress table stays accurate.
- *  - batch.completed triggers a run-history refresh.
- */
-function dispatchBatchEvent(event: WSEvent): void {
-  const wid = event.payload?.workflow_id as string | undefined;
-
-  // Batch-level events
-  if (event.type === "batch.completed") {
-    // All runs done — refresh sidebar run history
-    useRunHistoryStore.getState().fetchRuns();
-    return;
-  }
-
-  if (event.type === "batch.init") {
-    return;
-  }
-
-  // Per-run events: only route UI updates for the selected run
-  if (_isSelectedRun(wid)) {
-    _routeToUIStores(event);
-  } else if (wid && _isBatchMode()) {
-    // For non-selected runs in batch mode, update their cache so state is
-    // preserved when switching back to them
-    if (event.type === "node.started") {
-      const p = payload<NodeStartedPayload>(event);
-      useWorkflowStore.getState().updateNodeInCache(wid, p);
-    } else if (event.type === "node.completed") {
-      const p = payload<NodeCompletedPayload>(event);
-      useWorkflowStore.getState().updateNodeInCache(wid, p);
-    } else if (event.type === "node.failed") {
-      const p = payload<NodeFailedPayload>(event);
-      useWorkflowStore.getState().updateNodeInCache(wid, p);
-    } else if (event.type === "agent.text_delta") {
-      const p = payload<AgentTextDeltaPayload>(event);
-      // Save text delta to cache so conversation is preserved
-      useConversationStore.getState().appendAgentTextToCache(wid, p.node_id, p.text, p.agent_name);
-    } else if (event.type === "agent.tool_call") {
-      const p = payload<AgentToolCallPayload>(event);
-      useConversationStore.getState().addToolCallToCache(wid, p.node_id, p.agent_name, p.tool_name, p.tool_args || {});
-    } else if (event.type === "agent.tool_result") {
-      const p = payload<AgentToolResultPayload>(event);
-      useConversationStore.getState().addToolResultToCache(wid, p.node_id, p.tool_name, String(p.result ?? ""));
-    }
-  }
-
-  // Always update batchStore status for lifecycle events
-  if (wid && _isBatchMode()) {
-    if (event.type === "workflow.started") {
-      useBatchStore.getState().updateRunStatus(wid, "running");
-    } else if (event.type === "workflow.completed") {
-      useBatchStore.getState().updateRunStatus(wid, "completed");
-    } else if (event.type === "workflow.error") {
-      useBatchStore.getState().updateRunStatus(wid, "failed");
-    }
-  }
-}
-
-export function useBatchWorkflowEvents(
-  batchId: string | null,
-): UseBatchWebSocketReturn {
-  const onEvent = useCallback((event: WSEvent) => {
-    dispatchBatchEvent(event);
-  }, []);
-
-  return useBatchWebSocket({
-    batchId,
-    onEvent,
-  });
-}

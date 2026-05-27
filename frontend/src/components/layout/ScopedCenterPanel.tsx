@@ -10,9 +10,7 @@
 
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { LayoutTemplate } from "lucide-react";
-import { ConversationTab } from "@/components/conversation/ConversationTab";
-import ResultsTab from "@/components/results/ResultsTab";
-import AnalysisTab from "@/components/analysis/AnalysisTab";
+import { fetchWithAuth } from "@/lib/api";
 import { useViewStore } from "@/stores/viewStore";
 import { useBatchStore } from "@/stores/batchStore";
 import { Logo } from "@/components/ui/logo";
@@ -43,8 +41,6 @@ import {
   usePendingQuestion,
   useConversationMessages,
 } from "@/contexts/workflow-context";
-import type { ConversationMessage } from "@/stores/conversationStore";
-import { filterGroupsByCategory } from "@/stores/chartStore";
 
 type Tab = "conversation" | "results" | "analysis";
 type BenchmarkView = "runner" | "compare" | "editor";
@@ -57,9 +53,10 @@ interface SavedWorkflow {
 
 interface Props {
   activeBenchmark?: string | null;
+  isReplay?: boolean;
 }
 
-export function ScopedCenterPanel({ activeBenchmark }: Props) {
+export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("conversation");
   const [benchmarkView, setBenchmarkView] = useState<BenchmarkView>("runner");
   const [benchmarkData, setBenchmarkData] = useState<Record<string, unknown> | null>(null);
@@ -93,7 +90,7 @@ export function ScopedCenterPanel({ activeBenchmark }: Props) {
   const activeBatchId = useBatchStore((s) => s.activeBatchId);
   const batchRunning = activeBatchId !== null;
 
-  const isReplay = activeView.type === "replay";
+  const isReplay = isReplayProp ?? activeView.type === "replay";
   const isIdle = !isReplay && status === "idle" && nodeCount === 0;
   const effectiveWorkflowName = workflowName ?? ((selectedTemplate as any)?.name as string | undefined);
 
@@ -128,35 +125,9 @@ export function ScopedCenterPanel({ activeBenchmark }: Props) {
     if (workflowId && !isReplay) setActiveTab("conversation");
   }, [workflowId, isReplay]);
 
-  // Replay-mode data
-  const replayMessages: ConversationMessage[] | undefined = (() => {
-    if (activeView.type !== "replay") return undefined;
-    const raw = activeView.run.conversation ?? [];
-    return raw.map((m, i) => ({
-      id: m.id ?? `replay-${i}`,
-      type: m.type as ConversationMessage["type"],
-      content: m.content ?? "",
-      agentName: m.agentName,
-      toolName: m.toolName,
-      toolArgs: m.toolArgs,
-      toolResult: m.toolResult,
-      status: (m.status as ConversationMessage["status"]) ?? "done",
-      durationMs: m.durationMs,
-      timestamp: m.timestamp ?? 0,
-    }));
-  })();
-
-  const resultCount = isReplay
-    ? (activeView.run.chart_groups?.groupOrder.length ?? 0)
-    : liveResultCount;
-
-  const analysisCount = isReplay
-    ? filterGroupsByCategory(
-        activeView.run.chart_groups?.groups ?? {},
-        activeView.run.chart_groups?.groupOrder ?? [],
-        "analysis",
-      ).order.length
-    : liveAnalysisCount;
+  // Scoped stores are now populated for both live and replay modes
+  const resultCount = liveResultCount;
+  const analysisCount = liveAnalysisCount;
 
   // Fetch templates for the landing page cards
   useEffect(() => {
@@ -172,7 +143,7 @@ export function ScopedCenterPanel({ activeBenchmark }: Props) {
       setBenchmarkData(null);
       return;
     }
-    fetch(`/api/benchmarks/${encodeURIComponent(activeBenchmark)}`)
+    fetchWithAuth(`/api/benchmarks/${encodeURIComponent(activeBenchmark)}`)
       .then((r) => r.json())
       .then((data) => {
         setBenchmarkData(data);
@@ -182,14 +153,14 @@ export function ScopedCenterPanel({ activeBenchmark }: Props) {
   }, [activeBenchmark]);
 
   const handleSaveBenchmark = useCallback(async (name: string, tasks: { label: string; inputs: Record<string, string> }[], description: string) => {
-    const r = await fetch("/api/benchmarks", {
+    const r = await fetchWithAuth("/api/benchmarks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, description, tasks }),
     });
     if (!r.ok) throw new Error(await r.text());
     // Reload benchmark data and switch to runner view
-    const data = await (await fetch(`/api/benchmarks/${encodeURIComponent(name)}`)).json();
+    const data = await (await fetchWithAuth(`/api/benchmarks/${encodeURIComponent(name)}`)).json();
     setBenchmarkData(data);
     setBenchmarkView("runner");
   }, []);
@@ -209,7 +180,7 @@ export function ScopedCenterPanel({ activeBenchmark }: Props) {
     workflowActions.reset();
 
     try {
-      const r = await fetch("/api/workflows", {
+      const r = await fetchWithAuth("/api/workflows", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -444,7 +415,7 @@ export function ScopedCenterPanel({ activeBenchmark }: Props) {
           >
             Analysis{analysisCount > 0 ? ` ·${analysisCount}` : ""}
           </button>
-          {isReplay && (
+          {isReplay && activeView.type === "replay" && (
             <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
               REPLAY · {activeView.run.workflow_name}
             </span>
@@ -471,25 +442,9 @@ export function ScopedCenterPanel({ activeBenchmark }: Props) {
             </div>
           ) : null
         ) : activeTab === "conversation" ? (
-          isReplay ? (
-            <ConversationTab messages={replayMessages} autoScroll={false} />
-          ) : (
-            <ScopedConversationTab />
-          )
+          <ScopedConversationTab />
         ) : activeTab === "analysis" ? (
-          isReplay ? (
-            <AnalysisTab
-              groups={activeView.run.chart_groups?.groups ?? {}}
-              groupOrder={activeView.run.chart_groups?.groupOrder ?? []}
-            />
-          ) : (
-            <ScopedAnalysisTab />
-          )
-        ) : isReplay ? (
-          <ResultsTab
-            groups={activeView.run.chart_groups?.groups ?? {}}
-            groupOrder={activeView.run.chart_groups?.groupOrder ?? []}
-          />
+          <ScopedAnalysisTab />
         ) : (
           <ScopedResultsTab />
         )}

@@ -5,6 +5,7 @@ import { CheckCircle, XCircle } from "lucide-react";
 import BarChartWidget from "@/components/output/charts/BarChartWidget";
 import AreaChartWidget from "@/components/output/charts/AreaChartWidget";
 import type { ChartPayload } from "@/types/events";
+import { fetchWithAuth } from "@/lib/api";
 import { useBatchStore } from "@/stores/batchStore";
 import { useRunHistoryStore } from "@/stores/runHistoryStore";
 
@@ -41,7 +42,7 @@ export default function BenchmarkCompare({ benchmarkName }: Props) {
   const [selectedRuns, setSelectedRuns] = useState<string[]>([]);
 
   const fetchResults = useCallback(() => {
-    fetch(`/api/benchmarks/${encodeURIComponent(benchmarkName)}/results`)
+    fetchWithAuth(`/api/benchmarks/${encodeURIComponent(benchmarkName)}/results`)
       .then((r) => r.json())
       .then((data: BenchmarkResult[]) => {
         // Sort by created_at descending (newest first)
