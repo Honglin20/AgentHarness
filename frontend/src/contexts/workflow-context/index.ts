@@ -59,7 +59,11 @@ export { useScopedWorkflowEvents, setActiveWorkflowId } from "./useWorkflowEvent
 export type { ScopedWorkflowEventsReturn } from "./useWorkflowEvents";
 
 // Scope
-export { WorkflowScope, getWSMethods } from "./WorkflowScope";
+export { WorkflowScope, WSMethodProvider, getWSMethods } from "./WorkflowScope";
+
+// WebSocket (stable parent-level)
+export { useWorkflowWS } from "./useWorkflowWS";
+export type { WorkflowWSReturn } from "./useWorkflowWS";
 
 // Manager
 export { getWorkflowManager } from "./WorkflowManager";
