@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConversationStore, type ConversationMessage } from "@/stores/conversationStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { Input } from "@/components/ui/input";
@@ -55,9 +55,18 @@ export default function ChatInput({
   const workflowId = propWid !== undefined ? propWid : globalWid;
   const selectedTemplate = propTemplate !== undefined ? propTemplate : globalTemplate;
 
-  const addUserMsg = propAddUserMsg ?? ((text: string) => useConversationStore.getState().addUserMessage(text));
-  const clearPQ = propClearPQ ?? ((id: string) => useConversationStore.getState().clearPendingQuestion(id));
-  const interruptMsg = propInterrupt ?? ((name: string) => useConversationStore.getState().interruptAgentMessage(name));
+  const addUserMsg = useMemo(
+    () => propAddUserMsg ?? ((text: string) => useConversationStore.getState().addUserMessage(text)),
+    [propAddUserMsg]
+  );
+  const clearPQ = useMemo(
+    () => propClearPQ ?? ((id: string) => useConversationStore.getState().clearPendingQuestion(id)),
+    [propClearPQ]
+  );
+  const interruptMsg = useMemo(
+    () => propInterrupt ?? ((name: string) => useConversationStore.getState().interruptAgentMessage(name)),
+    [propInterrupt]
+  );
 
   const hasPendingQuestion = pendingQuestionId !== null;
   const [value, setValue] = useState("");
