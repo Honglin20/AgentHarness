@@ -103,6 +103,19 @@ async def delete_user(user_id: str, request: Request) -> dict:
 
     return {"status": "ok", "deleted": user_id}
 
+
+def _check_workflow_owner(workflow_id: str, request: Request) -> None:
+    """Check that the current user owns the in-memory workflow (or is admin)."""
+    repo = get_repository()
+    if not repo.contains(workflow_id):
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    user = get_current_user(request)
+    if not get_user_manager().is_admin(user):
+        owner = repo.get(workflow_id).get("user_id", "default")
+        if owner != user.user_id:
+            raise HTTPException(status_code=403, detail="Not your workflow")
+
+
 def _validate_workflow_dir(workflow: str, user_id: str | None = None) -> Path:
     """Validate a workflow folder name and return its absolute path under workflows/.
 
@@ -861,6 +874,7 @@ async def create_batch(
         "batch_id": batch_id,
         "name": request_obj.name,
         "workflow": request_obj.workflow,
+        "user_id": user.user_id,
         "runs": {r.workflow_id: {"label": r.label, "status": r.status} for r in runs if r.workflow_id},
     })
 
@@ -868,12 +882,18 @@ async def create_batch(
 
 
 @router.get("/batch/{batch_id}", response_model=CreateBatchResponse)
-async def get_batch_status(batch_id: str) -> CreateBatchResponse:
+async def get_batch_status(batch_id: str, request: Request) -> CreateBatchResponse:
     """Get the status of all runs in a batch."""
     repo = get_repository()
     batch = repo.get_batch(batch_id)
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
+
+    user = get_current_user(request)
+    if not get_user_manager().is_admin(user):
+        owner = batch.get("user_id", "default")
+        if owner != user.user_id:
+            raise HTTPException(status_code=403, detail="Not your batch")
 
     runs: list[BatchRunSummary] = []
     for wid, meta in batch.get("runs", {}).items():
@@ -1047,6 +1067,7 @@ async def run_benchmark(
         "batch_id": batch_id,
         "name": name,
         "workflow": body.workflow,
+        "user_id": user_id,
         "runs": {r.workflow_id: {"label": r.label, "status": r.status} for r in runs if r.workflow_id},
     })
 
@@ -1293,11 +1314,17 @@ async def get_workflow_trace(workflow_id: str, request: Request) -> dict:
 
 
 @router.get("/runs/{run_id}/checkpoints", response_model=list[CheckpointInfo])
-async def list_checkpoints(run_id: str) -> list[CheckpointInfo]:
+async def list_checkpoints(run_id: str, request: Request) -> list[CheckpointInfo]:
     """List all checkpoints for a workflow run."""
     repo = get_repository()
     if not repo.contains(run_id):
         raise HTTPException(status_code=404, detail="Run not found")
+
+    user = get_current_user(request)
+    if not get_user_manager().is_admin(user):
+        owner = repo.get(run_id).get("user_id", "default")
+        if owner != user.user_id:
+            raise HTTPException(status_code=403, detail="Not your run")
 
     data = repo.get(run_id)
     workflow = data["workflow"]

@@ -131,7 +131,7 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
 
   // Fetch templates for the landing page cards
   useEffect(() => {
-    fetch("/api/workflows/definitions")
+    fetchWithAuth("/api/workflows/definitions")
       .then((r) => r.json())
       .then((data) => setTemplates(data))
       .catch(() => {});
