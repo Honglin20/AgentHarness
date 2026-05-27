@@ -5,8 +5,8 @@
  * Events are routed via eventRouter to scoped stores inside WorkflowScope.
  *
  * Decisions made HERE:
- * - replay mode → legacy CenterPanel (read-only, no WS needed)
- * - no workflowId → legacy CenterPanel (landing page)
+ * - replay mode → ScopedCenterPanel (read-only, no WS needed)
+ * - no workflowId → legacy CenterPanel (landing page, no WorkflowScope needed)
  * - batch mode without selected run → legacy CenterPanel (batch overview)
  * - valid workflowId → Context architecture (WSMethodContext + WorkflowScope)
  */
@@ -30,9 +30,9 @@ function useActiveWorkflowId(): string | null {
   const selectedRunId = useBatchStore((s) => s.selectedRunId);
   const activeBatchId = useBatchStore((s) => s.activeBatchId);
 
-  // Replay mode: handled by legacy CenterPanel
+  // Replay mode: use the replay run's ID (stores already populated by viewStore)
   if (activeView.type === "replay") {
-    return null;
+    return activeView.runId;
   }
 
   // Batch mode: only enter Context path when a run is explicitly selected
@@ -47,25 +47,27 @@ function useActiveWorkflowId(): string | null {
 export function WorkflowCenterPanel({ activeBenchmark }: WorkflowCenterPanelProps) {
   const workflowId = useActiveWorkflowId();
   const activeView = useViewStore((s) => s.activeView);
+  const isReplay = activeView.type === "replay";
 
   // WebSocket managed at this stable level — survives workflow switches
-  const wsMethods = useWorkflowWS(workflowId);
+  // No WS needed for replay mode (stores already populated by viewStore)
+  const wsMethods = useWorkflowWS(isReplay ? null : workflowId);
 
-  // Replay mode or no active workflow: use legacy CenterPanel
-  if (activeView.type === "replay" || !workflowId) {
+  // No workflowId (landing page / no active run): use legacy CenterPanel
+  // WorkflowScope cannot render without a workflowId (SSR: getWorkflowManager needs window)
+  if (!workflowId) {
     const CenterPanel = require("./CenterPanel").CenterPanel;
     return <CenterPanel activeBenchmark={activeBenchmark} />;
   }
 
-  // Context architecture: WS + scoped stores
   return (
-    <WSMethodProvider
-      sendAnswer={wsMethods.sendAnswer}
-      sendStopAndRegenerate={wsMethods.sendStopAndRegenerate}
-    >
-      <WorkflowScope workflowId={workflowId}>
-        <ScopedCenterPanel activeBenchmark={activeBenchmark} />
-      </WorkflowScope>
-    </WSMethodProvider>
+    <WorkflowScope workflowId={workflowId}>
+      <WSMethodProvider
+        sendAnswer={wsMethods.sendAnswer}
+        sendStopAndRegenerate={wsMethods.sendStopAndRegenerate}
+      >
+        <ScopedCenterPanel activeBenchmark={activeBenchmark} isReplay={isReplay} />
+      </WSMethodProvider>
+    </WorkflowScope>
   );
 }
