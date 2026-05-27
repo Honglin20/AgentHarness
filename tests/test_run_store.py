@@ -166,6 +166,29 @@ def test_save_and_retrieve_conversation():
         assert run["conversation"][1]["toolName"] == "bash"
 
 
+def test_save_preserves_created_at():
+    """save() with created_at parameter preserves the original timestamp."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = RunStore(runs_dir=tmpdir)
+        original_ts = "2026-01-01T00:00:00+00:00"
+        store.save(
+            "inc-test", "wf", [], "running", {}, None,
+            created_at=original_ts,
+        )
+        r1 = store.get_run("inc-test")
+        assert r1["created_at"] == original_ts
+
+        # Overwrite with more data — created_at should stay the same
+        store.save(
+            "inc-test", "wf", [], "running", {}, None,
+            agent_io={"node_a": {"output": "hello"}},
+            created_at=original_ts,
+        )
+        r2 = store.get_run("inc-test")
+        assert r2["created_at"] == original_ts
+        assert r2["agent_io"] == {"node_a": {"output": "hello"}}
+
+
 def test_save_without_chart_groups_or_conversation():
     with tempfile.TemporaryDirectory() as tmpdir:
         store = RunStore(runs_dir=tmpdir)

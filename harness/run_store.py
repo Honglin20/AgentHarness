@@ -39,6 +39,7 @@ class RunStore:
         user_id: str | None = None,
         chart_groups: dict | None = None,
         conversation: list[dict] | None = None,
+        created_at: str | None = None,
     ) -> Path:
         record = {
             "run_id": run_id,
@@ -48,7 +49,7 @@ class RunStore:
             "inputs": inputs,
             "result": result,
             "dag": dag,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": created_at or datetime.now(timezone.utc).isoformat(),
         }
         if agent_io:
             record["agent_io"] = agent_io
