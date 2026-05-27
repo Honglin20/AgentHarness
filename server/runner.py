@@ -261,16 +261,22 @@ class WorkflowRunner:
                     if batch_id:
                         repo.update_batch_run_status(batch_id, workflow_id, "completed")
 
-                # Persist run to disk (with backend-collected conversation + charts)
+                # Persist run to disk (with event-ordered conversation + charts)
                 from harness.run_store import RunStore
-                from harness.extensions.collectors import build_conversation, ChartCollector
+                from harness.extensions.collectors import ConversationCollector, ChartCollector
                 _agent_io = workflow._builder.agent_io if workflow._builder else {}
                 data = repo.get(workflow_id)
+
+                conv_collector = ConversationCollector(event_bus)
+                conv_collector.collect_from_buffer()
+                conversation = conv_collector.get_messages()
 
                 chart_collector = ChartCollector(event_bus)
                 chart_groups = chart_collector.get_chart_groups()
                 if not chart_groups.get("groupOrder"):
                     chart_groups = None
+
+                events = list(event_bus.buffer) if event_bus else []
 
                 RunStore().save(
                     run_id=workflow_id,
@@ -284,8 +290,9 @@ class WorkflowRunner:
                     agent_io=_agent_io,
                     batch_id=batch_id,
                     user_id=user_id,
-                    conversation=build_conversation(_agent_io),
+                    conversation=conversation,
                     chart_groups=chart_groups,
+                    events=events,
                     created_at=data.get("created_at") if data else None,
                 )
 
@@ -319,16 +326,22 @@ class WorkflowRunner:
                             batch_id, workflow_id, "failed", error=str(e)
                         )
 
-                # Persist failed run to disk (with backend-collected conversation)
+                # Persist failed run to disk (with event-ordered conversation)
                 from harness.run_store import RunStore
-                from harness.extensions.collectors import build_conversation, ChartCollector
+                from harness.extensions.collectors import ConversationCollector, ChartCollector
                 _agent_io = workflow._builder.agent_io if workflow._builder else {}
                 data = repo.get(workflow_id)
+
+                conv_collector = ConversationCollector(event_bus)
+                conv_collector.collect_from_buffer()
+                conversation = conv_collector.get_messages()
 
                 chart_collector = ChartCollector(event_bus)
                 chart_groups = chart_collector.get_chart_groups()
                 if not chart_groups.get("groupOrder"):
                     chart_groups = None
+
+                events = list(event_bus.buffer) if event_bus else []
 
                 RunStore().save(
                     run_id=workflow_id,
@@ -342,8 +355,9 @@ class WorkflowRunner:
                     agent_io=_agent_io,
                     batch_id=batch_id,
                     user_id=user_id,
-                    conversation=build_conversation(_agent_io),
+                    conversation=conversation,
                     chart_groups=chart_groups,
+                    events=events,
                     created_at=data.get("created_at") if data else None,
                 )
 
