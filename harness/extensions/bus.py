@@ -158,6 +158,11 @@ class Bus:
     def subscriber_count(self) -> int:
         return len(self._subscribers)
 
+    @property
+    def buffer(self) -> list[dict]:
+        """Return a copy of the buffered events."""
+        return list(self._buffer)
+
     def clear_buffer(self) -> None:
         self._buffer.clear()
 

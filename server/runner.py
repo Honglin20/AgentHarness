@@ -27,7 +27,18 @@ def _build_agents_snapshot(workflow) -> list[dict]:
     workflow_dir = workflow.workflow_dir
     snapshot = []
     for agent_def in workflow.agents:
-        if "_passthrough" in agent_def.name:
+        eval_target = getattr(agent_def, "_eval_target", None)
+        if eval_target is not None:
+            # _judge_X node — synthesize md_content
+            md_content = (
+                "---\n"
+                "auto_generated: true\n"
+                f"target: {eval_target}\n"
+                "result_type: ReviewDecision\n"
+                "---\n\n"
+                "你是一个评测员。你的任务是评估上游 agent 的输出质量。\n"
+            )
+        elif "_passthrough" in agent_def.name:
             md_content = (
                 "---\n"
                 "auto_generated: true\n"
@@ -56,7 +67,7 @@ def _build_agents_snapshot(workflow) -> list[dict]:
 class WorkflowRunner:
     """Manages background workflow execution."""
 
-    def __init__(self, max_concurrent: int = 4):
+    def __init__(self, max_concurrent: int = 50):
         self.max_concurrent = max_concurrent
         self._running: dict[str, asyncio.Task] = {}
         self._cancelled: set[str] = set()
@@ -226,11 +237,12 @@ class WorkflowRunner:
 
                 # Run workflow (resume from checkpoint or fresh start)
                 # 使用用户上下文，确保事件携带 user_id
-                if resume and config:
-                    with event_bus.with_user_context(user_id or "default"):
+                from contextlib import nullcontext
+                ctx = event_bus.with_user_context(user_id) if user_id else nullcontext()
+                with ctx:
+                    if resume and config:
                         result = await workflow.arun(inputs=None, config=config)
-                else:
-                    with event_bus.with_user_context(user_id or "default"):
+                    else:
                         result = await workflow.arun(inputs, config=config)
 
                 # Store result for REST endpoints
@@ -249,10 +261,17 @@ class WorkflowRunner:
                     if batch_id:
                         repo.update_batch_run_status(batch_id, workflow_id, "completed")
 
-                # Persist run to disk
+                # Persist run to disk (with backend-collected conversation + charts)
                 from harness.run_store import RunStore
+                from harness.extensions.collectors import build_conversation, ChartCollector
                 _agent_io = workflow._builder.agent_io if workflow._builder else {}
                 data = repo.get(workflow_id)
+
+                chart_collector = ChartCollector(event_bus)
+                chart_groups = chart_collector.get_chart_groups()
+                if not chart_groups.get("groupOrder"):
+                    chart_groups = None
+
                 RunStore().save(
                     run_id=workflow_id,
                     workflow_name=workflow.name,
@@ -265,6 +284,9 @@ class WorkflowRunner:
                     agent_io=_agent_io,
                     batch_id=batch_id,
                     user_id=user_id,
+                    conversation=build_conversation(_agent_io),
+                    chart_groups=chart_groups,
+                    created_at=data.get("created_at") if data else None,
                 )
 
                 # Emit completion
@@ -297,10 +319,17 @@ class WorkflowRunner:
                             batch_id, workflow_id, "failed", error=str(e)
                         )
 
-                # Persist failed run to disk
+                # Persist failed run to disk (with backend-collected conversation)
                 from harness.run_store import RunStore
+                from harness.extensions.collectors import build_conversation, ChartCollector
                 _agent_io = workflow._builder.agent_io if workflow._builder else {}
                 data = repo.get(workflow_id)
+
+                chart_collector = ChartCollector(event_bus)
+                chart_groups = chart_collector.get_chart_groups()
+                if not chart_groups.get("groupOrder"):
+                    chart_groups = None
+
                 RunStore().save(
                     run_id=workflow_id,
                     workflow_name=workflow.name,
@@ -313,6 +342,9 @@ class WorkflowRunner:
                     agent_io=_agent_io,
                     batch_id=batch_id,
                     user_id=user_id,
+                    conversation=build_conversation(_agent_io),
+                    chart_groups=chart_groups,
+                    created_at=data.get("created_at") if data else None,
                 )
 
                 error_payload = {

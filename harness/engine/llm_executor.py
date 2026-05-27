@@ -72,6 +72,7 @@ class LLMExecutor:
         self._ext_ctx = ext_ctx
         self._check_interrupt = check_interrupt
         self._cancel_fn = cancel_fn
+        self.tool_calls: list[dict[str, Any]] = []
 
     # ------------------------------------------------------------------
     # Public API
@@ -200,6 +201,11 @@ class LLMExecutor:
         })
 
     def _emit_tool_call(self, part) -> None:
+        entry = {
+            "tool_name": part.tool_name,
+            "tool_args": part.args if hasattr(part, "args") else {},
+        }
+        self.tool_calls.append(entry)
         if not self._bus:
             return
         self._bus.emit("agent.tool_call", {
@@ -207,10 +213,16 @@ class LLMExecutor:
             "node_id": self._node_id,
             "agent_name": self._agent_name,
             "tool_name": part.tool_name,
-            "tool_args": part.args if hasattr(part, "args") else {},
+            "tool_args": entry["tool_args"],
         })
 
     def _emit_tool_result(self, part) -> None:
+        result_str = str(part.content) if hasattr(part, "content") else ""
+        # Attach result to the last unmatched tool_call entry
+        for tc in reversed(self.tool_calls):
+            if tc["tool_name"] == part.tool_name and "tool_result" not in tc:
+                tc["tool_result"] = result_str
+                break
         if not self._bus:
             return
         self._bus.emit("agent.tool_result", {
@@ -218,7 +230,7 @@ class LLMExecutor:
             "node_id": self._node_id,
             "agent_name": self._agent_name,
             "tool_name": part.tool_name,
-            "result": str(part.content) if hasattr(part, "content") else "",
+            "result": result_str,
         })
 
     # ------------------------------------------------------------------

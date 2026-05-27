@@ -80,6 +80,11 @@ class ConnectionManager:
             api_key = websocket.headers.get("x-api-key", websocket.headers.get("X-API-Key"))
             ws_user_id = self._resolve_user_id(api_key)
 
+        # If user_id could not be resolved, use a unique anonymous ID
+        if not ws_user_id:
+            import uuid
+            ws_user_id = f"anon-{uuid.uuid4().hex[:8]}"
+
         # Subscribe to EventBus
         sub_id, queue = await event_bus.subscribe()
 
@@ -146,11 +151,10 @@ class ConnectionManager:
                 event = await queue.get()
 
                 # Filter events by user_id and broadcast rules
-                # Priority: payload.user_id > event.user_id > default
+                # Priority: payload.user_id > event.user_id
                 event_user_id = (
                     event.get("payload", {}).get("user_id") or
-                    event.get("user_id") or
-                    "default"
+                    event.get("user_id")
                 )
                 event_type = event.get("type", "")
                 broadcast_rule = BROADCAST_RULES.get(event_type, "self")
@@ -158,12 +162,12 @@ class ConnectionManager:
                 # Check broadcast rule
                 if broadcast_rule == "self":
                     # 只有发起者接收
-                    if event_user_id != user_id:
+                    if not event_user_id or event_user_id != user_id:
                         continue
                 elif broadcast_rule == "admin":
                     # 管理员事件：只发给 admin
                     user_mgr = get_user_manager()
-                    user = user_mgr.get_user(user_id)
+                    user = user_mgr.get_user_by_id(user_id)
                     if not user or user.role != "admin":
                         continue
                 elif broadcast_rule == "all":
@@ -196,17 +200,21 @@ class ConnectionManager:
         # 返回副本避免外部修改
         return self._user_connections.get(user_id, []).copy()
 
-    def _resolve_user_id(self, identifier: str | None) -> str:
-        """从 API Key 或直接标识符解析 user_id."""
+    def _resolve_user_id(self, identifier: str | None) -> str | None:
+        """从 API Key 或 user_id 解析 user_id. Returns None if unresolvable."""
         if not identifier:
-            return "default"
+            return None
 
-        # API Key 映射
+        # Try as user_id first
         from harness.user_manager import get_user_manager
         user_mgr = get_user_manager()
-        user = user_mgr.get_user(identifier)
+        user = user_mgr.get_user_by_id(identifier)
+        if user:
+            return user.user_id
 
-        return user.user_id if user else "default"
+        # Try as API Key
+        user = user_mgr.get_user(identifier)
+        return user.user_id if user else None
 
 
 _manager: ConnectionManager | None = None
@@ -288,6 +296,10 @@ async def batch_websocket_endpoint(
         api_key = websocket.headers.get("x-api-key", websocket.headers.get("X-API-Key"))
         ws_user_id = get_connection_manager()._resolve_user_id(api_key)
 
+    if not ws_user_id:
+        import uuid as _uuid
+        ws_user_id = f"anon-{_uuid.uuid4().hex[:8]}"
+
     # Create fan-in for batch events
     from server.repository import get_repository
     repo = get_repository()
@@ -307,18 +319,17 @@ async def batch_websocket_endpoint(
             # Filter by user_id (same rules as ConnectionManager)
             event_user_id = (
                 event.get("payload", {}).get("user_id") or
-                event.get("user_id") or
-                "default"
+                event.get("user_id")
             )
             event_type = event.get("type", "")
             broadcast_rule = BROADCAST_RULES.get(event_type, "self")
 
             if broadcast_rule == "self":
-                if event_user_id != ws_user_id:
+                if not event_user_id or event_user_id != ws_user_id:
                     continue
             elif broadcast_rule == "admin":
                 user_mgr = get_user_manager()
-                user = user_mgr.get_user(ws_user_id)
+                user = user_mgr.get_user_by_id(ws_user_id)
                 if not user or user.role != "admin":
                     continue
 

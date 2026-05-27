@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { fetchWithAuth } from "@/lib/api";
 import type {
   WSEvent,
   WorkflowStartedPayload,
@@ -87,40 +88,26 @@ function _isBatchMode(): boolean {
   return useBatchStore.getState().activeBatchId !== null;
 }
 
-/** Save conversation to backend. */
-function _saveConversation(workflowId: string | undefined): void {
-  if (!workflowId) return;
-  const messages = useConversationStore.getState().messages;
-  if (messages.length === 0) return;
-  fetch(`/api/runs/${workflowId}/conversation`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ conversation: messages }),
-  }).catch(() => {});
+/** No-op: backend now persists conversation via build_conversation from agent_io. */
+function _saveConversation(_workflowId: string | undefined): void {
+  // Backend persists conversation from agent_io + tool_calls at save time.
 }
 
-/** Save charts to backend. */
-function _saveCharts(workflowId: string | undefined): void {
-  if (!workflowId) return;
-  const { groups, groupOrder } = useChartStore.getState();
-  if (groupOrder.length === 0) return;
-  fetch(`/api/runs/${workflowId}/charts`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chart_groups: { groups, groupOrder } }),
-  }).catch(() => {});
+/** No-op: backend now persists chart_groups via ChartCollector. */
+function _saveCharts(_workflowId: string | undefined): void {
+  // Backend persists charts from chart.render events at save time.
 }
 
 /** Restore conversation from backend. */
-async function _restoreConversation(workflowId: string): Promise<void> {
+async function _restoreConversation(workflowId: string, forceReplace: boolean = false): Promise<void> {
   try {
-    const r = await fetch(`/api/runs/${workflowId}`);
+    const r = await fetchWithAuth(`/api/runs/${workflowId}`);
     if (!r.ok) return;
     const data = await r.json();
     const conversation = data.conversation;
     if (Array.isArray(conversation) && conversation.length > 0) {
       const current = useConversationStore.getState().messages;
-      if (current.length === 0) {
+      if (forceReplace || current.length === 0) {
         useConversationStore.setState({
           messages: conversation.map((m: ConversationMessage, i: number) => ({
             id: m.id ?? `restored-${i}`,
@@ -350,12 +337,25 @@ export function setActiveWorkflowId(id: string | null) {
     useWorkflowStore.getState().setActiveWid(id);
   }
   if (id && id !== currentId) {
-    // Restore new run's state from cache
-    const restored = useConversationStore.getState().restoreFromCache(id);
+    // Determine if target is a running workflow
+    const runHistory = useRunHistoryStore.getState().runs;
+    const targetRun = runHistory.find(r => r.run_id === id);
+    const isRunning = targetRun?.status === "running";
+
+    // Always clear messages immediately to prevent stacking
+    useConversationStore.setState({ messages: [], pendingQuestionId: null, pendingQuestionAgent: null });
     useOutputStore.getState().restoreFromCache(id);
-    // If not in cache, try to restore from backend
-    if (!restored) {
-      _restoreConversation(id);
+
+    if (isRunning) {
+      // Running workflow: backend has incremental data, always fetch from it
+      _restoreConversation(id, true);
+    } else {
+      // Not running: try cache first, then backend
+      const convStore = useConversationStore.getState();
+      const restored = convStore.restoreFromCache(id);
+      if (!restored) {
+        _restoreConversation(id);
+      }
     }
   }
 }
