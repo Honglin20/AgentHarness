@@ -82,14 +82,32 @@ class ConversationCollector:
 
     def _on_node_completed(self, p: dict) -> None:
         node_id = p.get("node_id", "")
+        agent_name = p.get("agent_name", "")
+        dur = p.get("duration_ms")
+        output_result = p.get("output_result")
+
         if self._streaming_node and self._streaming_node.get("nodeId") == node_id:
             self._streaming_node["status"] = "done"
-            self._streaming_node["agentName"] = p.get("agent_name", "")
-            dur = p.get("duration_ms")
+            self._streaming_node["agentName"] = agent_name
             if dur is not None:
                 self._streaming_node["durationMs"] = dur
+            # Fill in content from output_result if streaming text was empty
+            if output_result and not self._streaming_node["content"].strip():
+                self._streaming_node["content"] = _format_output(output_result)
             self._messages.append(self._streaming_node)
             self._streaming_node = None
+        elif output_result:
+            # No streaming node — create a message from the final output
+            self._messages.append({
+                "id": self._next_id(),
+                "type": "agent",
+                "nodeId": node_id,
+                "agentName": agent_name,
+                "content": _format_output(output_result),
+                "status": "done",
+                "durationMs": dur,
+                "timestamp": p.get("ts", 0),
+            })
 
     def _on_node_failed(self, p: dict) -> None:
         node_id = p.get("node_id", "")
@@ -186,10 +204,11 @@ class ChartCollector:
             if event.get("type") != "chart.render":
                 continue
             p = event.get("payload", {})
-            label = p.get("label", "Default")
-            title = p.get("title", "Untitled")
-            chart_type = p.get("chart_type", "bar")
-            category = p.get("category")
+            chart = p.get("chart", p)
+            label = chart.get("label", "Default")
+            title = chart.get("title", "Untitled")
+            chart_type = chart.get("chart_type", "bar")
+            category = chart.get("category")
 
             if label not in groups:
                 groups[label] = {
@@ -204,19 +223,19 @@ class ChartCollector:
             group = groups[label]
             if chart_type == "table":
                 group["table"] = {
-                    "columns": p.get("columns", []),
-                    "rows": p.get("data", []),
+                    "columns": chart.get("columns", []),
+                    "rows": chart.get("data", []),
                 }
             else:
                 group["charts"][title] = {
                     "label": label,
                     "title": title,
                     "chart_type": chart_type,
-                    "data": p.get("data", []),
-                    "columns": p.get("columns", []),
-                    "x": p.get("x"),
-                    "y": p.get("y"),
-                    "hue": p.get("hue"),
+                    "data": chart.get("data", []),
+                    "columns": chart.get("columns", []),
+                    "x": chart.get("x"),
+                    "y": chart.get("y"),
+                    "hue": chart.get("hue"),
                     "category": category,
                 }
 

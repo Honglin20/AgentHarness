@@ -20,6 +20,7 @@ import BenchmarkEditor from "@/components/benchmark/BenchmarkEditor";
 import BenchmarkRunner from "@/components/benchmark/BenchmarkRunner";
 import BenchmarkCompare from "@/components/benchmark/BenchmarkCompare";
 import type { ConversationMessage } from "@/stores/conversationStore";
+import { fetchWithAuth } from "@/lib/api";
 
 type Tab = "conversation" | "results" | "analysis";
 type BenchmarkView = "editor" | "runner" | "compare";
@@ -89,6 +90,7 @@ export function CenterPanel({ activeBenchmark }: Props) {
     return raw.map((m, i) => ({
       id: m.id ?? `replay-${i}`,
       type: m.type as ConversationMessage["type"],
+      nodeId: m.nodeId,
       content: m.content ?? "",
       agentName: m.agentName,
       toolName: m.toolName,
@@ -161,7 +163,7 @@ export function CenterPanel({ activeBenchmark }: Props) {
     useChartStore.getState().reset();
     useViewStore.getState().showLive();
     try {
-      const r = await fetch("/api/workflows", {
+      const r = await fetchWithAuth("/api/workflows", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

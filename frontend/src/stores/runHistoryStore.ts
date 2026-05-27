@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { fetchWithAuth } from "@/lib/api";
 import type { ChartGroup } from "./chartStore";
 
 export interface AgentSnapshot {
@@ -13,6 +14,7 @@ export interface AgentSnapshot {
 export interface ConversationMessage {
   id: string;
   type: "agent" | "user" | "tool_call" | "system";
+  nodeId?: string;
   content?: string;
   agentName?: string;
   toolName?: string;
@@ -85,7 +87,7 @@ export const useRunHistoryStore = create<RunHistoryState>()((set) => ({
     set({ loading: true });
     try {
       const params = workflowName ? `?workflow_name=${encodeURIComponent(workflowName)}` : "";
-      const r = await fetch(`/api/runs${params}`);
+      const r = await fetchWithAuth(`/api/runs${params}`);
       if (r.ok) {
         const runs: RunRecord[] = await r.json();
         set({ runs, loading: false });
@@ -101,7 +103,7 @@ export const useRunHistoryStore = create<RunHistoryState>()((set) => ({
 
   fetchRun: async (runId: string) => {
     try {
-      const r = await fetch(`/api/runs/${runId}`);
+      const r = await fetchWithAuth(`/api/runs/${runId}`);
       if (r.ok) return await r.json();
     } catch {}
     return null;
