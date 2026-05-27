@@ -62,7 +62,7 @@ class Bus:
     create a fresh Bus() to isolate.
     """
 
-    def __init__(self, buffer_size: int = 500):
+    def __init__(self, buffer_size: int = 2000):
         # WS subscribers (unchanged from old EventBus)
         self._subscribers: dict[str, asyncio.Queue] = {}
         self._lock = asyncio.Lock()
