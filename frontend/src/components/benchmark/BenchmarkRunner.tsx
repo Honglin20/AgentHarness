@@ -4,14 +4,12 @@ import { useState, useEffect, useCallback } from "react";
 import { Play, Loader2, CheckCircle, XCircle, Circle, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useBatchStore, type BatchRun } from "@/stores/batchStore";
-import { useWorkflowStore } from "@/stores/workflowStore";
-import { useOutputStore } from "@/stores/outputStore";
-import { useChatStore } from "@/stores/chatStore";
-import { useChartStore } from "@/stores/chartStore";
-import { useConversationStore } from "@/stores/conversationStore";
 import { useRunHistoryStore } from "@/stores/runHistoryStore";
-import { switchBatchRun, setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
-import { useBatchWorkflowEvents } from "@/hooks/useWorkflowEvents";
+import { getWorkflowManager } from "@/contexts/workflow-context/WorkflowManager";
+import { fetchWithAuth } from "@/lib/api";
+import { useBatchWebSocket } from "@/hooks/useBatchWebSocket";
+import { dispatchBatchEvent } from "@/contexts/workflow-context/eventRouter";
+import type { WSEvent } from "@/types/events";
 
 const API_BASE = "";
 
@@ -41,7 +39,7 @@ export default function BenchmarkRunner({ benchmark, onBack }: Props) {
 
   // Load workflows
   useEffect(() => {
-    fetch(`${API_BASE}/api/workflows/definitions`)
+    fetchWithAuth(`${API_BASE}/api/workflows/definitions`)
       .then((r) => r.json())
       .then((data: WorkflowOption[]) => setWorkflows(data))
       .catch(() => {});
@@ -53,28 +51,22 @@ export default function BenchmarkRunner({ benchmark, onBack }: Props) {
   const allDone = runs.length > 0 && completedCount === runs.length;
 
   // Batch WebSocket connection — connects when activeBatchId is set
-  const { isConnected } = useBatchWorkflowEvents(activeBatchId);
+  const onBatchEvent = useCallback((event: WSEvent) => {
+    dispatchBatchEvent(event);
+  }, []);
+
+  const { isConnected } = useBatchWebSocket({
+    batchId: activeBatchId,
+    onEvent: onBatchEvent,
+  });
 
   const runBenchmark = useCallback(async () => {
     if (!selectedWf) return;
     setRunning(true);
     setError("");
 
-    // Save current state before starting benchmark (if any)
-    const currentWid = useWorkflowStore.getState().workflowId;
-    if (currentWid) {
-      useConversationStore.getState().saveToCache(currentWid);
-      useOutputStore.getState().saveToCache(currentWid);
-    }
-
-    // Reset current display state, but preserve cache
-    useOutputStore.getState().reset();
-    useChatStore.getState().reset();
-    useChartStore.getState().reset();
-    useConversationStore.getState().reset();
-
     try {
-      const r = await fetch(`${API_BASE}/api/benchmarks/${encodeURIComponent(benchmark.name)}/run`, {
+      const r = await fetchWithAuth(`${API_BASE}/api/benchmarks/${encodeURIComponent(benchmark.name)}/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workflow: selectedWf }),
@@ -84,9 +76,17 @@ export default function BenchmarkRunner({ benchmark, onBack }: Props) {
       const data = await r.json();
 
       // Fetch batch details to get workflow_ids
-      const batchR = await fetch(`${API_BASE}/api/batch/${data.run_id}`);
+      const batchR = await fetchWithAuth(`${API_BASE}/api/batch/${data.run_id}`);
       if (!batchR.ok) throw new Error("Failed to fetch batch status");
       const batchData = await batchR.json();
+
+      // Pre-create scoped store entries so eventRouter can find them
+      const manager = getWorkflowManager();
+      for (const run of batchData.runs) {
+        if (run.workflow_id) {
+          manager.getOrCreate(run.workflow_id);
+        }
+      }
 
       createBatch(
         batchData.batch_id,
@@ -100,10 +100,6 @@ export default function BenchmarkRunner({ benchmark, onBack }: Props) {
         selectedWf,
       );
 
-      // Set active workflow ID for the selected run
-      const firstWid = batchData.runs[0]?.workflow_id ?? null;
-      setActiveWorkflowId(firstWid);
-
       // Refresh sidebar to show the new batch runs
       useRunHistoryStore.getState().fetchRuns();
     } catch (e: unknown) {
@@ -115,7 +111,9 @@ export default function BenchmarkRunner({ benchmark, onBack }: Props) {
 
   const handleSelectRun = useCallback(
     (wid: string) => {
-      switchBatchRun(wid);
+      const manager = getWorkflowManager();
+      manager.setActiveWorkflowId(wid);
+      useBatchStore.getState().selectRun(wid);
     },
     [],
   );
