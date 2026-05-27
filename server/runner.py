@@ -263,12 +263,10 @@ class WorkflowRunner:
 
                 # Persist run to disk (with backend-collected conversation + charts)
                 from harness.run_store import RunStore
-                from harness.extensions.collectors import ConversationCollector, ChartCollector
+                from harness.extensions.collectors import build_conversation, ChartCollector
                 _agent_io = workflow._builder.agent_io if workflow._builder else {}
                 data = repo.get(workflow_id)
 
-                conv_collector = ConversationCollector(event_bus)
-                conv_collector.collect_from_buffer()
                 chart_collector = ChartCollector(event_bus)
                 chart_groups = chart_collector.get_chart_groups()
                 if not chart_groups.get("groupOrder"):
@@ -286,8 +284,9 @@ class WorkflowRunner:
                     agent_io=_agent_io,
                     batch_id=batch_id,
                     user_id=user_id,
-                    conversation=conv_collector.get_messages(),
+                    conversation=build_conversation(_agent_io),
                     chart_groups=chart_groups,
+                    created_at=data.get("created_at") if data else None,
                 )
 
                 # Emit completion
@@ -322,12 +321,10 @@ class WorkflowRunner:
 
                 # Persist failed run to disk (with backend-collected conversation)
                 from harness.run_store import RunStore
-                from harness.extensions.collectors import ConversationCollector, ChartCollector
+                from harness.extensions.collectors import build_conversation, ChartCollector
                 _agent_io = workflow._builder.agent_io if workflow._builder else {}
                 data = repo.get(workflow_id)
 
-                conv_collector = ConversationCollector(event_bus)
-                conv_collector.collect_from_buffer()
                 chart_collector = ChartCollector(event_bus)
                 chart_groups = chart_collector.get_chart_groups()
                 if not chart_groups.get("groupOrder"):
@@ -345,8 +342,9 @@ class WorkflowRunner:
                     agent_io=_agent_io,
                     batch_id=batch_id,
                     user_id=user_id,
-                    conversation=conv_collector.get_messages(),
+                    conversation=build_conversation(_agent_io),
                     chart_groups=chart_groups,
+                    created_at=data.get("created_at") if data else None,
                 )
 
                 error_payload = {
