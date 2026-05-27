@@ -11,7 +11,6 @@ import { useBatchWebSocket } from "@/hooks/useBatchWebSocket";
 import { dispatchSingleEvent } from "./eventRouter";
 import { dispatchBatchEvent } from "./eventRouter";
 import { useBatchStore } from "@/stores/batchStore";
-import { useWorkflowStore } from "@/stores/workflowStore";
 
 export interface WorkflowWSReturn {
   sendAnswer: (questionId: string, answer: string) => void;
@@ -26,10 +25,9 @@ export function useWorkflowWS(workflowId: string | null): WorkflowWSReturn {
     if (batchMode) {
       dispatchBatchEvent(event);
     } else {
-      const activeWid = useWorkflowStore.getState().activeWorkflowId;
-      dispatchSingleEvent(event, activeWid);
+      dispatchSingleEvent(event, workflowId);
     }
-  }, [batchMode]);
+  }, [batchMode, workflowId]);
 
   const singleWs = useWebSocket({
     workflowId: batchMode ? null : workflowId,
