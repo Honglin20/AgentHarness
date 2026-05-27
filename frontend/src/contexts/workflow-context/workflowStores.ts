@@ -509,6 +509,8 @@ export function createConversationStore(
       }),
   }));
 
+  (store as unknown as { _msgCounter: MessageCounter })._msgCounter = msgCounter;
+
   return store;
 }
 

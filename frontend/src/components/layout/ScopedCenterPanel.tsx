@@ -40,6 +40,8 @@ import {
   useLiveResultCount,
   useLiveAnalysisCount,
   useWorkflowError,
+  usePendingQuestion,
+  useConversationMessages,
 } from "@/contexts/workflow-context";
 import type { ConversationMessage } from "@/stores/conversationStore";
 import { filterGroupsByCategory } from "@/stores/chartStore";
@@ -81,6 +83,11 @@ export function ScopedCenterPanel({ activeBenchmark }: Props) {
   const chartActions = useChartActions();
   const conversationActions = useConversationActions();
 
+  // Scoped conversation state for ChatInput
+  const { questionId: scopedPendingId, agentName: scopedPendingAgent } = usePendingQuestion();
+  const scopedMessages = useConversationMessages();
+  const scopedConvStore = conversationActions;
+
   // 全局 stores（共享状态）
   const activeView = useViewStore((s) => s.activeView);
   const activeBatchId = useBatchStore((s) => s.activeBatchId);
@@ -102,6 +109,19 @@ export function ScopedCenterPanel({ activeBenchmark }: Props) {
   }, [selectedTemplate]);
 
   const { sendAnswer, sendStopAndRegenerate } = useWSMethods();
+
+  // ChatInput scoped store props (override legacy global store reads)
+  const chatInputScopedProps = {
+    pendingQuestionId: scopedPendingId,
+    pendingQuestionAgent: scopedPendingAgent,
+    messages: scopedMessages,
+    addUserMessage: conversationActions.addUserMessage,
+    clearPendingQuestion: conversationActions.clearPendingQuestion,
+    interruptAgentMessage: conversationActions.interruptAgentMessage,
+    status,
+    workflowId,
+    selectedTemplate,
+  };
 
   // When a new live workflow starts, snap back to Conversation
   useEffect(() => {
@@ -309,6 +329,7 @@ export function ScopedCenterPanel({ activeBenchmark }: Props) {
               sendAnswer={sendAnswer}
               sendStopAndRegenerate={sendStopAndRegenerate}
               alwaysVisible
+              {...chatInputScopedProps}
             />
           </div>
         )}
@@ -380,6 +401,7 @@ export function ScopedCenterPanel({ activeBenchmark }: Props) {
             sendStopAndRegenerate={sendStopAndRegenerate}
             startWorkflow={startWorkflow}
             alwaysVisible
+            {...chatInputScopedProps}
           />
         </div>
       </div>
@@ -480,6 +502,7 @@ export function ScopedCenterPanel({ activeBenchmark }: Props) {
             sendStopAndRegenerate={sendStopAndRegenerate}
             startWorkflow={isIdle ? startWorkflow : undefined}
             alwaysVisible
+            {...chatInputScopedProps}
           />
         </div>
       )}

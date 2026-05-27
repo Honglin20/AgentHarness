@@ -6,8 +6,9 @@
 
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useConversationMessages } from "@/contexts/workflow-context";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useStore } from "zustand";
+import { useConversationMessages, useWorkflowStore as useScopedStore } from "@/contexts/workflow-context";
 import { AgentMessage } from "./AgentMessage";
 import { UserMessage } from "./UserMessage";
 import { SystemMessage } from "./SystemMessage";
@@ -50,6 +51,15 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
   const messages = useConversationMessages();
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Scoped store APIs for AgentMessage props injection
+  const agentIOStore = useScopedStore("agentIO");
+  const workflowStoreApi = useScopedStore("workflow");
+  const agentIOData = useStore(agentIOStore!, (s) => s.data);
+  const workflowNodes = useStore(workflowStoreApi!, (s) => s.nodes);
+
+  const getAgentIO = useCallback((nodeId: string) => agentIOData[nodeId], [agentIOData]);
+  const getNodeState = useCallback((nodeId: string) => workflowNodes[nodeId], [workflowNodes]);
 
   const blocks = useMemo(() => groupMessages(messages), [messages]);
 
@@ -111,6 +121,8 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
                   collapsed={isCollapsed}
                   onToggleCollapse={() => toggle(m.id)}
                   sectionItemCount={1}
+                  getAgentIO={getAgentIO}
+                  getNodeState={getNodeState}
                 />
               );
             }
