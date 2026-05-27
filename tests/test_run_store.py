@@ -203,3 +203,40 @@ def test_save_without_chart_groups_or_conversation():
         run = store.get_run("run-minimal")
         assert "chart_groups" not in run
         assert "conversation" not in run
+
+
+def test_save_with_events(tmp_path):
+    """RunStore.save() should persist the events list."""
+    store = RunStore(str(tmp_path))
+    events = [
+        {"type": "agent.text_delta", "ts": 1000, "payload": {"text": "hello"}},
+        {"type": "agent.tool_call", "ts": 1001, "payload": {"tool_name": "bash"}},
+    ]
+    store.save(
+        run_id="evt-run-1",
+        workflow_name="demo",
+        agents_snapshot=[],
+        status="completed",
+        inputs={},
+        result=None,
+        events=events,
+    )
+    loaded = store.get_run("evt-run-1")
+    assert loaded is not None
+    assert loaded["events"] == events
+
+
+def test_get_run_without_events_backward_compat(tmp_path):
+    """Existing runs without events field should load fine."""
+    store = RunStore(str(tmp_path))
+    store.save(
+        run_id="old-run-1",
+        workflow_name="demo",
+        agents_snapshot=[],
+        status="completed",
+        inputs={},
+        result=None,
+    )
+    loaded = store.get_run("old-run-1")
+    assert loaded is not None
+    assert "events" not in loaded

@@ -39,6 +39,7 @@ class RunStore:
         user_id: str | None = None,
         chart_groups: dict | None = None,
         conversation: list[dict] | None = None,
+        events: list[dict] | None = None,
         created_at: str | None = None,
     ) -> Path:
         record = {
@@ -61,6 +62,8 @@ class RunStore:
             record["chart_groups"] = chart_groups
         if conversation:
             record["conversation"] = conversation
+        if events:
+            record["events"] = events
         path = self._safe_path(run_id)
         if path is None:
             raise ValueError(f"Invalid run_id: {run_id}")
