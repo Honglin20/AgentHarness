@@ -64,6 +64,55 @@ def clear_stop_regen(workflow_id: str) -> None:
         builder._pending_stop_regen.pop(workflow_id, None)
 
 
+def _save_incremental(builder, event_bus):
+    """Best-effort incremental save after each node completes.
+
+    Persists agent_io + derived conversation to disk so that switching
+    to a running workflow always fetches authoritative data from backend.
+    Never raises — if save fails, the workflow continues normally.
+    """
+    try:
+        from harness.run_store import RunStore
+        from harness.extensions.collectors import build_conversation, ChartCollector
+        from server.repository import get_repository
+
+        wid = builder.workflow_id
+        if not wid:
+            return
+
+        repo = get_repository()
+        data = repo.get(wid)
+        if not data or not data.get("workflow"):
+            return
+
+        conversation = build_conversation(dict(builder.agent_io))
+
+        chart_groups = None
+        if event_bus:
+            cc = ChartCollector(event_bus)
+            cg = cc.get_chart_groups()
+            if cg.get("groupOrder"):
+                chart_groups = cg
+
+        RunStore().save(
+            run_id=wid,
+            workflow_name=data["workflow"].name,
+            agents_snapshot=data.get("agents_snapshot", []),
+            status="running",
+            inputs=data.get("inputs", {}),
+            result=None,
+            dag=repo.get_dag(wid),
+            agent_io=dict(builder.agent_io),
+            batch_id=data.get("batch_id"),
+            user_id=data.get("user_id"),
+            conversation=conversation,
+            chart_groups=chart_groups,
+            created_at=data.get("created_at"),
+        )
+    except Exception:
+        pass
+
+
 class ReviewDecision(BaseModel):
     """Default result_type for agents with conditional edges."""
     decision: Literal["pass", "fail"]
@@ -622,6 +671,8 @@ class MacroGraphBuilder:
                 if hasattr(executor, "tool_calls") and executor.tool_calls:
                     io_data["tool_calls"] = executor.tool_calls
                 builder_self.agent_io[agent_def.name] = io_data
+                # Incremental save: persist completed node data to disk
+                _save_incremental(builder_self, bus)
                 if bus:
                     event_payload = {
                         "workflow_id": builder_self.workflow_id,
