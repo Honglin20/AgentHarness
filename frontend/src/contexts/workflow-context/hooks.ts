@@ -7,6 +7,7 @@
  */
 
 import { useStore } from "zustand";
+import { useShallow } from "zustand/shallow";
 import { useWorkflowStore as getWorkflowStoreApi } from "./WorkflowContext";
 import type {
   ConversationMessage,
@@ -59,10 +60,12 @@ export function usePendingQuestion(): {
   questionId: string | null;
   agentName: string | null;
 } {
-  return useScopedConversationStore((s) => ({
-    questionId: s.pendingQuestionId,
-    agentName: s.pendingQuestionAgent,
-  }));
+  return useScopedConversationStore(
+    useShallow((s) => ({
+      questionId: s.pendingQuestionId,
+      agentName: s.pendingQuestionAgent,
+    }))
+  );
 }
 
 // ============================================================
@@ -140,11 +143,13 @@ export function useWorkflowInfo(): {
   workflowName: string | null;
   status: WorkflowState["status"];
 } {
-  return useScopedWorkflowStore((s) => ({
-    workflowId: s.workflowId,
-    workflowName: s.workflowName,
-    status: s.status,
-  }));
+  return useScopedWorkflowStore(
+    useShallow((s) => ({
+      workflowId: s.workflowId,
+      workflowName: s.workflowName,
+      status: s.status,
+    }))
+  );
 }
 
 /**
@@ -226,10 +231,12 @@ export function useScopedChartStore<T>(selector: (state: ChartState) => T): T {
  * 快捷 hook：获取所有图表分组
  */
 export function useChartGroups(): { groups: Record<string, ChartGroup>; order: string[] } {
-  return useScopedChartStore((s) => ({
-    groups: s.groups,
-    order: s.groupOrder,
-  }));
+  return useScopedChartStore(
+    useShallow((s) => ({
+      groups: s.groups,
+      order: s.groupOrder,
+    }))
+  );
 }
 
 /**
@@ -247,15 +254,13 @@ export function useLiveResultCount(): number {
  * 快捷 hook：获取分析图表数量
  */
 export function useLiveAnalysisCount(): number {
-  const { groups, order } = useChartGroups();
-  let count = 0;
-  for (const label of order) {
-    const g = groups[label];
-    if (g?.category === "analysis") {
-      count++;
+  return useScopedChartStore((s) => {
+    let count = 0;
+    for (const label of s.groupOrder) {
+      if (s.groups[label]?.category === "analysis") count++;
     }
-  }
-  return count;
+    return count;
+  });
 }
 
 // ============================================================
