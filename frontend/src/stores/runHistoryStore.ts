@@ -58,6 +58,11 @@ export interface RunRecord {
     groups: Record<string, ChartGroup>;
     groupOrder: string[];
   } | null;
+  events?: Array<{
+    type: string;
+    ts: number;
+    payload: Record<string, unknown>;
+  }>;
 }
 
 interface RunHistoryState {
