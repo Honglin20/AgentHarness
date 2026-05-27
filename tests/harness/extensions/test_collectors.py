@@ -156,3 +156,63 @@ def test_chart_collector_empty_buffer():
     collector = ChartCollector(bus)
     chart_groups = collector.get_chart_groups()
     assert chart_groups == {"groups": {}, "groupOrder": []}
+
+
+# ---------------------------------------------------------------------------
+# ConversationCollector Integration Tests (FakeBus-based)
+# ---------------------------------------------------------------------------
+
+class FakeBus:
+    """Minimal Bus mock with a readable buffer."""
+
+    def __init__(self, events):
+        self.buffer = events
+
+
+class TestConversationCollectorIntegration:
+    """Verify ConversationCollector produces correctly ordered output."""
+
+    def test_interleaved_text_and_tool_calls(self):
+        """Agent text -> tool call -> tool result -> more text should be in that order."""
+        bus = FakeBus([
+            {"type": "node.started", "ts": 1, "payload": {"node_id": "analyzer", "agent_name": "analyzer"}},
+            {"type": "agent.text_delta", "ts": 2, "payload": {"node_id": "analyzer", "agent_name": "analyzer", "text": "Starting analysis..."}},
+            {"type": "agent.tool_call", "ts": 3, "payload": {"node_id": "analyzer", "agent_name": "analyzer", "tool_name": "bash", "tool_args": {"command": "ls"}}},
+            {"type": "agent.tool_result", "ts": 4, "payload": {"node_id": "analyzer", "agent_name": "analyzer", "tool_name": "bash", "result": "file1.py\nfile2.py"}},
+            {"type": "agent.text_delta", "ts": 5, "payload": {"node_id": "analyzer", "agent_name": "analyzer", "text": "Found 2 files."}},
+            {"type": "node.completed", "ts": 6, "payload": {"node_id": "analyzer", "agent_name": "analyzer"}},
+        ])
+
+        collector = ConversationCollector(bus)
+        collector.collect_from_buffer()
+        messages = collector.get_messages()
+
+        # Should have: agent text, tool_call, agent text (3 messages)
+        assert len(messages) == 3
+
+        # Order must be: text -> tool -> text (NOT text+text -> tool)
+        assert messages[0]["type"] == "agent"
+        assert messages[0]["content"] == "Starting analysis..."
+        assert messages[1]["type"] == "tool_call"
+        assert messages[1]["toolName"] == "bash"
+        assert messages[2]["type"] == "agent"
+        assert messages[2]["content"] == "Found 2 files."
+
+    def test_multi_agent_ordering(self):
+        """Events from different agents should be interleaved by timestamp."""
+        bus = FakeBus([
+            {"type": "node.started", "ts": 1, "payload": {"node_id": "a1", "agent_name": "a1"}},
+            {"type": "agent.text_delta", "ts": 2, "payload": {"node_id": "a1", "text": "A1 text"}},
+            {"type": "node.completed", "ts": 3, "payload": {"node_id": "a1", "agent_name": "a1"}},
+            {"type": "node.started", "ts": 4, "payload": {"node_id": "a2", "agent_name": "a2"}},
+            {"type": "agent.text_delta", "ts": 5, "payload": {"node_id": "a2", "text": "A2 text"}},
+            {"type": "node.completed", "ts": 6, "payload": {"node_id": "a2", "agent_name": "a2"}},
+        ])
+
+        collector = ConversationCollector(bus)
+        collector.collect_from_buffer()
+        messages = collector.get_messages()
+
+        assert len(messages) == 2
+        assert messages[0]["agentName"] == "a1"
+        assert messages[1]["agentName"] == "a2"
