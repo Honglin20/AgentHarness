@@ -64,8 +64,7 @@ export function useBatchWebSocket({
       userId = getUserFromApiKey(apiKey);
     }
     if (!userId) {
-      console.warn("[BatchWebSocket] No user context — waiting for authentication");
-      return;
+      userId = "default";
     }
 
     const base = getWsBaseUrl();
