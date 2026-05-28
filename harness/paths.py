@@ -32,6 +32,11 @@ def get_project_root() -> Path:
       1. HARNESS_PROJECT_ROOT environment variable (if set and non-empty)
       2. CWD heuristic — if CWD contains ``workflows/`` or ``harness/``
       3. Fallback — parent of the ``harness`` package directory
+
+    Intentionally re-evaluated on each call (not cached) so that test
+    monkeypatches (setenv / chdir) take effect immediately.  Module-level
+    consumers (e.g. ``harness.api._WORKFLOWS_DIR``) capture the result once
+    at import time, which is the desired behaviour for production use.
     """
     # 1. Explicit env var
     env_root = os.environ.get("HARNESS_PROJECT_ROOT", "").strip()

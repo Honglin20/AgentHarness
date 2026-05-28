@@ -28,7 +28,11 @@ class ResourceRegistry:
     """Two-layer resource resolver. Process-level singleton via get_registry()."""
 
     def __init__(self, project_root: Path | None = None):
-        self.project_root = Path(project_root) if project_root else Path.cwd()
+        if project_root is not None:
+            self.project_root = Path(project_root)
+        else:
+            from harness.paths import get_project_root
+            self.project_root = get_project_root()
         self._extra_workflows: list[Path] = []
         self._extra_benchmarks: list[Path] = []
 
