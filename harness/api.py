@@ -15,8 +15,9 @@ from harness.tools.defaults import default_tool_registry, setup_default_mcp
 from harness.tools.mcp_bridge import McpBridge, McpServerConfig
 from harness.tools.registry import ToolRegistry
 
-# Directories resolved from this file's location — not cwd-dependent
-_BACKEND_DIR = Path(__file__).resolve().parent.parent
+from harness.paths import get_project_root
+
+_BACKEND_DIR = get_project_root()
 _WORKFLOWS_DIR = _BACKEND_DIR / "workflows"
 _BENCHMARKS_DIR = _BACKEND_DIR / "benchmarks"
 _DEFAULT_AGENTS_DIR = str(_BACKEND_DIR / "agents")
@@ -466,7 +467,6 @@ class Workflow:
         import time
         import threading
 
-        backend_dir = Path(__file__).resolve().parent.parent
         port = int(os.environ.get("HARNESS_PORT", "8000"))
 
         def _start_server():

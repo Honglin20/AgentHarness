@@ -12,8 +12,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-_BACKEND_DIR = Path(__file__).resolve().parent.parent
-_BENCHMARKS_DIR = _BACKEND_DIR / "benchmarks"
+from harness.paths import get_benchmarks_dir
+
+_BENCHMARKS_DIR = get_benchmarks_dir()
 
 _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 

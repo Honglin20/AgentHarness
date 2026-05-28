@@ -9,15 +9,17 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-_ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+from harness.paths import get_env_file
+
+_ENV_FILE = get_env_file()
 
 
 # ── import-time setup ──────────────────────────────────────────────
 
 def _load_dotenv() -> None:
     candidates = [
+        Path.cwd() / ".env",
         _ENV_FILE,
-        Path(__file__).resolve().parent.parent / ".env",
     ]
     for env_file in candidates:
         if not env_file.exists():

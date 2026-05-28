@@ -17,7 +17,7 @@ import logging
 import os
 from pathlib import Path
 
-_BACKEND_DIR = Path(__file__).resolve().parent.parent
+from harness.paths import get_benchmarks_dir
 
 log = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class PrepError(Exception):
 
 
 def _benchmark_dir(name: str) -> Path:
-    return _BACKEND_DIR / "benchmarks" / name
+    return get_benchmarks_dir() / name
 
 
 async def run_prep(

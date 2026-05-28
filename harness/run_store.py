@@ -6,8 +6,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-_BACKEND_DIR = Path(__file__).resolve().parent.parent
-_DEFAULT_RUNS_DIR = _BACKEND_DIR / "runs"
+from harness.paths import get_runs_dir
+
+_DEFAULT_RUNS_DIR = get_runs_dir()
 
 _SAFE_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 

@@ -4,8 +4,9 @@ import frontmatter
 import yaml
 
 
-_BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
-_SHARED_AGENTS_DIR = _BACKEND_DIR / "workflows" / "_shared" / "agents"
+from harness.paths import get_shared_agents_dir
+
+_SHARED_AGENTS_DIR = get_shared_agents_dir()
 
 
 class AgentNotFoundError(FileNotFoundError):

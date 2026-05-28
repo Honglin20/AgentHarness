@@ -8,8 +8,9 @@ from typing import Any
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 
-_BACKEND_DIR = Path(__file__).resolve().parent.parent
-_DEFAULT_DB_PATH = _BACKEND_DIR / "runs" / "checkpoints.db"
+from harness.paths import get_checkpoint_db_path
+
+_DEFAULT_DB_PATH = get_checkpoint_db_path()
 
 
 class CheckpointManager:

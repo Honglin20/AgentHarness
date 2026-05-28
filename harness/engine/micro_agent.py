@@ -14,8 +14,9 @@ from harness.engine.llm import LLMClient
 from harness.tools.registry import ToolRegistry
 
 
-_BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
-_SHARED_SCRIPTS_DIR = _BACKEND_DIR / "workflows" / "_shared" / "scripts"
+from harness.paths import get_shared_scripts_dir
+
+_SHARED_SCRIPTS_DIR = get_shared_scripts_dir()
 
 
 def _dir_has_real_files(d: Path) -> bool:
