@@ -1,4 +1,4 @@
-"""Tests for PerfMetricsPlugin — token usage and latency metrics."""
+"""Tests for PerfMetricsPlugin — combined token usage chart."""
 from __future__ import annotations
 
 import asyncio
@@ -21,7 +21,7 @@ def _make_node_ctx(agent_name: str = "coder", metadata: dict | None = None) -> N
 
 
 @pytest.mark.asyncio
-async def test_emits_bar_chart_for_token_usage():
+async def test_emits_combined_bar_chart_with_hue():
     plugin = PerfMetricsPlugin()
     bus = Bus()
     bus.register(plugin)
@@ -34,8 +34,47 @@ async def test_emits_bar_chart_for_token_usage():
 
     event = await asyncio.wait_for(queue.get(), timeout=1.0)
     assert event["type"] == "chart.render"
-    assert event["payload"]["chart_type"] == "bar"
-    assert event["payload"]["label"] == "Token Usage"
+    payload = event["payload"]
+    assert payload["chart_type"] == "bar"
+    assert payload["label"] == "Token Usage"
+    assert payload["title"] == "Token Usage by Agent"
+    assert payload["hue"] == "kind"
+    # 2 rows: input + output
+    assert len(payload["data"]) == 2
+    agents = [d["agent"] for d in payload["data"]]
+    assert all(a == "coder" for a in agents)
+    kinds = [d["kind"] for d in payload["data"]]
+    assert "input" in kinds
+    assert "output" in kinds
+
+
+@pytest.mark.asyncio
+async def test_accumulates_across_agents():
+    plugin = PerfMetricsPlugin()
+    bus = Bus()
+    bus.register(plugin)
+
+    # First agent
+    ctx1 = _make_node_ctx("analyzer", metadata={
+        "analyzer": {"token_usage": {"input": 200, "output": 100, "total": 300}},
+    })
+    sub_id, queue = await bus.subscribe()
+    await bus.run_hooks("on_node_end", ctx1, "result")
+
+    event1 = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert len(event1["payload"]["data"]) == 2  # 1 agent × 2 kinds
+
+    # Second agent
+    ctx2 = _make_node_ctx("coder", metadata={
+        "coder": {"token_usage": {"input": 50, "output": 80, "total": 130}},
+    })
+    await bus.run_hooks("on_node_end", ctx2, "result")
+
+    event2 = await asyncio.wait_for(queue.get(), timeout=1.0)
+    data = event2["payload"]["data"]
+    assert len(data) == 4  # 2 agents × 2 kinds
+    agents = set(d["agent"] for d in data)
+    assert agents == {"analyzer", "coder"}
 
 
 @pytest.mark.asyncio
