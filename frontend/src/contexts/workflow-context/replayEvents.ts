@@ -113,6 +113,7 @@ function routeReplayEvent(
       const conversationState = stores.conversation.getState();
 
       if (p.output_result) {
+        const formattedOutput = formatOutputAsMd(p.output_result);
         const idx = conversationState.messages.findLastIndex(
           (m) =>
             m.nodeId === p.node_id &&
@@ -122,10 +123,10 @@ function routeReplayEvent(
               m.status === "interrupted")
         );
         if (idx !== -1) {
-          const formattedOutput = formatOutputAsMd(p.output_result);
           stores.conversation.setState((state) => {
             const messages = [...state.messages];
-            messages[idx] = { ...messages[idx], content: formattedOutput };
+            const existing = messages[idx].content.trim();
+            messages[idx] = { ...messages[idx], content: existing ? `${existing}\n\n---\n\n${formattedOutput}` : formattedOutput };
             return { messages };
           });
         } else {
