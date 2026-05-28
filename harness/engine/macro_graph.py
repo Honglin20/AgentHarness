@@ -394,8 +394,9 @@ class MacroGraphBuilder:
                 schema = result_type.model_json_schema()
                 augmented_prompt += (
                     "\n\n## Output Format\n"
-                    "You MUST respond with ONLY a valid JSON object conforming to this schema. "
-                    "Do NOT wrap in markdown code fences. Do NOT add any text before or after the JSON:\n"
+                    "Think and reason freely — you may use any available tools as needed. "
+                    "When you are ready to give your final answer, respond with a valid JSON object "
+                    "conforming to this schema (no markdown fences, no extra text):\n"
                     + _json.dumps(schema, indent=2, ensure_ascii=False)
                 )
             except Exception:

@@ -7,7 +7,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any, Literal, Type
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from harness.compiler.md_parser import resolve_agent_md
 from harness.constants import STATE_ERRORS, STATE_INPUTS, STATE_METADATA, STATE_OUTPUTS
@@ -45,9 +45,9 @@ def _extract_description(agent_name: str, workflow_dir: Path) -> str:
 
 
 class AgentResult(BaseModel):
-    """Default result_type. Forces separation of conclusion from process."""
-    summary: str
-    details: str | None = None
+    """Default result_type. Conclusion goes in summary, reasoning goes in details."""
+    summary: str = Field(description="Your final conclusion or answer. Be concise and direct.")
+    details: str | None = Field(default=None, description="Your reasoning process, analysis steps, and key observations. Show your chain of thought here.")
 
 
 class Agent:
