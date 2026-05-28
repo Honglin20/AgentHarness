@@ -487,8 +487,8 @@ class MacroGraphBuilder:
                         })
                     return {
                         STATE_OUTPUTS: {},
-                        STATE_ERRORS: {agent_name: f"Skipped: upstream '{dep_name}' failed: {upstream_errors[dep_name]}"},
-                        STATE_METADATA: {agent_name: {"duration_ms": 0, "skipped": True}},
+                        STATE_ERRORS: {agent_def.name: f"Skipped: upstream '{dep_name}' failed: {upstream_errors[dep_name]}"},
+                        STATE_METADATA: {agent_def.name: {"duration_ms": 0, "skipped": True}},
                     }
 
             # Gather upstream outputs
