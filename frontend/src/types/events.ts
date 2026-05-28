@@ -27,7 +27,11 @@ export type EventType =
   | "agent.thinking_delta"
   | "workflow.resumed"
   | "batch.init"
-  | "batch.completed";
+  | "batch.completed"
+  | "span.start"
+  | "span.end"
+  | "step.summary"
+  | "circular.warning";
 
 // Workflow events
 export interface WorkflowAgentDef {
@@ -79,6 +83,8 @@ export interface NodeCompletedPayload {
   duration_ms: number;
   status: string;
   token_usage?: TokenUsage;
+  cost_usd?: number;
+  ttft_ms?: number;
   input_prompt?: string;
   system_prompt?: string;
   output_result?: Record<string, unknown>;
@@ -195,6 +201,46 @@ export interface BatchCompletedPayload {
   failed: number;
 }
 
+// Span tracing events
+export interface SpanStartPayload {
+  workflow_id: string;
+  node_id: string;
+  agent_name: string;
+  span_id: string;
+  span_type: "llm" | "tool";
+  model?: string;
+  tool_name?: string;
+}
+
+export interface SpanEndPayload {
+  workflow_id: string;
+  node_id: string;
+  agent_name: string;
+  span_id: string;
+  span_type: "llm" | "tool";
+  tool_name?: string;
+}
+
+// Step counter
+export interface StepSummaryPayload {
+  workflow_id: string;
+  node_id: string;
+  node_tool_calls: number;
+  node_llm_calls: number;
+  total_tool_calls: number;
+  total_llm_calls: number;
+}
+
+// Circular detection
+export interface CircularWarningPayload {
+  workflow_id: string;
+  node_id: string;
+  agent_name: string;
+  repeated_count: number;
+  last_tool: string | null;
+  message: string;
+}
+
 // Event type to payload mapping
 export interface EventPayloadMap {
   "workflow.started": WorkflowStartedPayload;
@@ -215,6 +261,10 @@ export interface EventPayloadMap {
   "chat.answer": ChatAnswerPayload;
   "batch.init": BatchInitPayload;
   "batch.completed": BatchCompletedPayload;
+  "span.start": SpanStartPayload;
+  "span.end": SpanEndPayload;
+  "step.summary": StepSummaryPayload;
+  "circular.warning": CircularWarningPayload;
 }
 
 // Typed event helper

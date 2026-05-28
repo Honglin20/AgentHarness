@@ -15,6 +15,10 @@ import type {
   ChatQuestionPayload,
   ChartRenderPayload,
 } from "@/types/events";
+import type {
+  StepSummaryPayload,
+  CircularWarningPayload,
+} from "@/types/events";
 import { useWebSocket } from "./useWebSocket";
 import type { UseWebSocketReturn } from "./useWebSocket";
 import { useWorkflowStore } from "@/stores/workflowStore";
@@ -27,6 +31,7 @@ import { useAgentIOStore } from "@/stores/agentIOStore";
 import { useBatchStore } from "@/stores/batchStore";
 import { useRunHistoryStore } from "@/stores/runHistoryStore";
 import { computeRunSummary } from "@/lib/summary/runSummary";
+import { useObservabilityStore } from "@/stores/observabilityStore";
 
 /** Replicate formatOutputAsMd from AgentMessage to avoid circular dependency */
 function formatOutputAsMd(output: unknown): string {
@@ -141,7 +146,9 @@ function _routeToUIStores(event: WSEvent): void {
     case "workflow.completed": {
       const p = payload<WorkflowCompletedPayload>(event);
       useWorkflowStore.getState().handleWorkflowCompleted(p);
-      computeRunSummary();
+      const summaryNodes = Object.values(useWorkflowStore.getState().nodes);
+      const addChart = useChartStore.getState().addChart;
+      computeRunSummary(summaryNodes, addChart);
       _saveConversation(wid);
       _saveCharts(wid);
       break;
@@ -154,7 +161,9 @@ function _routeToUIStores(event: WSEvent): void {
         status: "failed",
       });
       useOutputStore.getState().setWorkflowError(p.error);
-      computeRunSummary();
+      const summaryNodes = Object.values(useWorkflowStore.getState().nodes);
+      const addChart = useChartStore.getState().addChart;
+      computeRunSummary(summaryNodes, addChart);
       _saveConversation(p.workflow_id);
       _saveCharts(p.workflow_id);
       break;
@@ -307,6 +316,38 @@ function _routeToUIStores(event: WSEvent): void {
     case "chart.render": {
       const p = payload<ChartRenderPayload>(event);
       useChartStore.getState().addChart(p.chart);
+      break;
+    }
+
+    case "step.summary": {
+      const p = payload<StepSummaryPayload>(event);
+      useWorkflowStore.setState((state) => ({
+        nodes: {
+          ...state.nodes,
+          [p.node_id]: {
+            ...state.nodes[p.node_id],
+            toolCallCount: p.node_tool_calls,
+            llmCallCount: p.node_llm_calls,
+          },
+        },
+      }));
+      break;
+    }
+
+    case "span.start":
+    case "span.end": {
+      break;
+    }
+
+    case "circular.warning": {
+      const p = payload<CircularWarningPayload>(event);
+      useObservabilityStore.getState().addCircularWarning({
+        nodeId: p.node_id,
+        agentName: p.agent_name,
+        message: p.message,
+        lastTool: p.last_tool,
+        ts: Date.now(),
+      });
       break;
     }
   }

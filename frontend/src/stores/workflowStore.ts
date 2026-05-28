@@ -22,6 +22,10 @@ export interface NodeState {
   tokenUsage?: { input: number; output: number; total: number };
   tools?: ToolBrief[];
   model?: string;
+  costUsd?: number;
+  ttftMs?: number;
+  toolCallCount?: number;
+  llmCallCount?: number;
 }
 
 interface WorkflowSnapshot {
@@ -165,6 +169,8 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
           status: "success",
           durationMs: payload.duration_ms,
           tokenUsage: payload.token_usage,
+          costUsd: payload.cost_usd,
+          ttftMs: payload.ttft_ms,
         },
       },
     })),

@@ -8,6 +8,7 @@ import ToolCallsTab from "./ToolCallsTab";
 import ErrorsTab from "./ErrorsTab";
 import { useWorkflowStore, type NodeState } from "@/stores/workflowStore";
 import { useToolCallStore, type ToolCallRecord } from "@/stores/toolCallStore";
+import { useObservabilityStore } from "@/stores/observabilityStore";
 import { useViewStore } from "@/stores/viewStore";
 import { useWorkflowContextSafe } from "@/contexts/workflow-context/WorkflowContext";
 import type { WorkflowStores } from "@/contexts/workflow-context/types";
@@ -30,6 +31,7 @@ function ScopedDiagnosticsPanel({ stores }: { stores: WorkflowStores }) {
   const liveToolCallCount = useStore(stores.toolCall, (s) => s.order.length);
   const scopedToolRecords = useStore(stores.toolCall, (s) => s.records);
   const scopedToolOrder = useStore(stores.toolCall, (s) => s.order);
+  const circularWarnings = useObservabilityStore((s) => s.circularWarnings);
 
   const activeView = useViewStore((s) => s.activeView);
   const [activeTab, setActiveTab] = useState("trace");
@@ -37,6 +39,13 @@ function ScopedDiagnosticsPanel({ stores }: { stores: WorkflowStores }) {
   useEffect(() => {
     if (liveSelectedNodeId) setActiveTab("trace");
   }, [liveSelectedNodeId]);
+
+  // Clear circular warnings when workflow resets
+  useEffect(() => {
+    if (liveStatus === "idle") {
+      useObservabilityStore.getState().clear();
+    }
+  }, [liveStatus]);
 
   const replayDerived = useReplayDerived(activeView);
 
@@ -47,7 +56,7 @@ function ScopedDiagnosticsPanel({ stores }: { stores: WorkflowStores }) {
   const toolCallCount = toolOrder ? toolOrder.length : liveToolCallCount;
   const errorCount = countErrors(nodes);
 
-  return renderPanel({ activeTab, setActiveTab, nodes, status, toolRecords, toolOrder, toolCallCount, errorCount, replayDerived });
+  return renderPanel({ activeTab, setActiveTab, nodes, status, toolRecords, toolOrder, toolCallCount, errorCount, replayDerived, circularWarnings });
 }
 
 // ── Global fallback: reads from singleton stores (legacy / no workflow) ──
@@ -57,6 +66,7 @@ function GlobalDiagnosticsPanel() {
   const liveStatus = useWorkflowStore((s) => s.status);
   const liveSelectedNodeId = useWorkflowStore((s) => s.selectedNodeId);
   const liveToolCallCount = useToolCallStore((s) => s.order.length);
+  const circularWarnings = useObservabilityStore((s) => s.circularWarnings);
 
   const activeView = useViewStore((s) => s.activeView);
   const [activeTab, setActiveTab] = useState("trace");
@@ -65,6 +75,13 @@ function GlobalDiagnosticsPanel() {
     if (liveSelectedNodeId) setActiveTab("trace");
   }, [liveSelectedNodeId]);
 
+  // Clear circular warnings when workflow resets
+  useEffect(() => {
+    if (liveStatus === "idle") {
+      useObservabilityStore.getState().clear();
+    }
+  }, [liveStatus]);
+
   const replayDerived = useReplayDerived(activeView);
 
   const nodes = replayDerived?.nodes ?? liveNodes;
@@ -72,7 +89,7 @@ function GlobalDiagnosticsPanel() {
   const toolCallCount = replayDerived?.order ? replayDerived.order.length : liveToolCallCount;
   const errorCount = countErrors(nodes);
 
-  return renderPanel({ activeTab, setActiveTab, nodes, status, toolRecords: replayDerived?.records, toolOrder: replayDerived?.order, toolCallCount, errorCount, replayDerived });
+  return renderPanel({ activeTab, setActiveTab, nodes, status, toolRecords: replayDerived?.records, toolOrder: replayDerived?.order, toolCallCount, errorCount, replayDerived, circularWarnings });
 }
 
 // ── Shared helpers ───────────────────────────────────────────────────
@@ -124,6 +141,7 @@ function countErrors(nodes: Record<string, NodeState>): number {
 function renderPanel({
   activeTab, setActiveTab,
   nodes, status, toolRecords, toolOrder, toolCallCount, errorCount, replayDerived,
+  circularWarnings,
 }: {
   activeTab: string;
   setActiveTab: (t: string) => void;
@@ -134,6 +152,7 @@ function renderPanel({
   toolCallCount: number;
   errorCount: number;
   replayDerived: { nodes: Record<string, NodeState>; status: string } | null;
+  circularWarnings?: import("@/stores/observabilityStore").CircularWarning[];
 }) {
   return (
     <aside aria-label="Diagnostics" className="flex h-full flex-col border-l border-app-border bg-app-bg-secondary">
@@ -156,7 +175,7 @@ function renderPanel({
           <ToolCallsTab records={toolRecords} order={toolOrder} />
         </TabsContent>
         <TabsContent value="errors" className="flex-1 overflow-hidden">
-          <ErrorsTab nodes={replayDerived ? nodes : undefined} />
+          <ErrorsTab nodes={replayDerived ? nodes : undefined} circularWarnings={circularWarnings} />
         </TabsContent>
       </Tabs>
     </aside>

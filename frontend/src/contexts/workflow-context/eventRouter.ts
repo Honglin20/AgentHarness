@@ -18,11 +18,14 @@ import { fetchWithAuth } from "@/lib/api";
 import type { AgentToolOutputDeltaPayload } from "@/types/events";
 import type { ChatQuestionPayload } from "@/types/events";
 import type { ChartRenderPayload } from "@/types/events";
+import type { StepSummaryPayload } from "@/types/events";
+import type { CircularWarningPayload } from "@/types/events";
 import { getWorkflowManager } from "./WorkflowManager";
 import { getToolCallCounter } from "./workflowStores";
 import { useBatchStore } from "@/stores/batchStore";
 import { useRunHistoryStore } from "@/stores/runHistoryStore";
 import { computeRunSummary } from "@/lib/summary/runSummary";
+import { useObservabilityStore } from "@/stores/observabilityStore";
 
 /** Replicate formatOutputAsMd from AgentMessage to avoid circular dependency */
 function formatOutputAsMd(output: unknown): string {
@@ -121,7 +124,9 @@ function routeEventToStores(event: WSEvent): void {
     case "workflow.completed": {
       const p = payload<WorkflowCompletedPayload>(event);
       stores.workflow.getState().handleWorkflowCompleted(p);
-      computeRunSummary();
+      const summaryNodes = Object.values(stores.workflow.getState().nodes);
+      const addChart = stores.chart.getState().addChart;
+      computeRunSummary(summaryNodes, addChart);
       saveConversation(wid);
       saveCharts(wid);
       break;
@@ -134,7 +139,9 @@ function routeEventToStores(event: WSEvent): void {
         status: "failed",
       });
       stores.output.getState().setWorkflowError(p.error);
-      computeRunSummary();
+      const summaryNodes = Object.values(stores.workflow.getState().nodes);
+      const addChart = stores.chart.getState().addChart;
+      computeRunSummary(summaryNodes, addChart);
       saveConversation(p.workflow_id);
       saveCharts(p.workflow_id);
       break;
@@ -272,6 +279,38 @@ function routeEventToStores(event: WSEvent): void {
     case "chart.render": {
       const p = payload<ChartRenderPayload>(event);
       stores.chart.getState().addChart(p.chart);
+      break;
+    }
+
+    case "step.summary": {
+      const p = payload<StepSummaryPayload>(event);
+      stores.workflow.setState((state) => ({
+        nodes: {
+          ...state.nodes,
+          [p.node_id]: {
+            ...state.nodes[p.node_id],
+            toolCallCount: p.node_tool_calls,
+            llmCallCount: p.node_llm_calls,
+          },
+        },
+      }));
+      break;
+    }
+
+    case "span.start":
+    case "span.end": {
+      break;
+    }
+
+    case "circular.warning": {
+      const p = payload<CircularWarningPayload>(event);
+      useObservabilityStore.getState().addCircularWarning({
+        nodeId: p.node_id,
+        agentName: p.agent_name,
+        message: p.message,
+        lastTool: p.last_tool,
+        ts: Date.now(),
+      });
       break;
     }
   }
