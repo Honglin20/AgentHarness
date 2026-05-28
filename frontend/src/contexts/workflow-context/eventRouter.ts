@@ -38,20 +38,10 @@ function formatOutputAsMd(output: unknown): string {
   if (typeof output === "object" && !Array.isArray(output)) {
     const obj = output as Record<string, unknown>;
     const lines: string[] = [];
-    if (obj.summary) lines.push(String(obj.summary));
-    if (obj.details) lines.push("", String(obj.details));
-
-    const extra = Object.entries(obj).filter(
-      ([k]) => k !== "summary" && k !== "details"
-    );
-    if (extra.length > 0) {
-      lines.push("", "| Field | Value |", "|-------|-------|");
-      for (const [k, v] of extra) {
-        const val = typeof v === "object" ? JSON.stringify(v) : String(v);
-        lines.push(`| ${k} | ${val} |`);
-      }
+    for (const [k, v] of Object.entries(obj)) {
+      if (v != null) lines.push(`**${k}:** ${typeof v === "object" ? JSON.stringify(v) : String(v)}`);
     }
-    if (lines.length > 0) return lines.join("\n");
+    if (lines.length > 0) return lines.join("\n\n");
   }
 
   return JSON.stringify(output, null, 2);

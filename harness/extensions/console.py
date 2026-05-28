@@ -104,48 +104,20 @@ class ConsoleOutput(BaseHook):
         content_parts = []
 
         if isinstance(output, dict):
-            # Summary
-            if "summary" in output:
-                summary = str(output["summary"])
-                # 尝试解析 JSON
+            for k, v in output.items():
+                if v is None:
+                    continue
+                val = str(v)
                 try:
                     import json
-                    parsed = json.loads(summary)
-                    if isinstance(parsed, dict):
-                        content_parts.append("[bold]输出摘要:[/bold]")
+                    parsed = json.loads(val)
+                    if isinstance(parsed, (dict, list)):
+                        content_parts.append(f"[bold]{k}:[/bold]")
                         content_parts.append(JSON(parsed, ensure_ascii=False))
                     else:
-                        content_parts.append(f"[bold]输出摘要:[/bold]\n{summary}")
+                        content_parts.append(f"[bold]{k}:[/bold] {val}")
                 except:
-                    content_parts.append(f"[bold]输出摘要:[/bold]\n{summary}")
-
-            # Details
-            if "details" in output and output["details"]:
-                details = str(output["details"])
-                # 尝试解析 JSON
-                try:
-                    import json
-                    parsed = json.loads(details)
-                    if isinstance(parsed, dict) or isinstance(parsed, list):
-                        content_parts.append("\n[bold]详细内容:[/bold]")
-                        content_parts.append(JSON(parsed, ensure_ascii=False))
-                    else:
-                        content_parts.append(f"\n[bold]详细内容:[/bold]\n{details}")
-                except:
-                    content_parts.append(f"\n[bold]详细内容:[/bold]\n{details}")
-
-            # 其他字段
-            other_keys = [k for k in output.keys() if k not in ["summary", "details"]]
-            if other_keys:
-                content_parts.append("\n[bold]其他字段:[/bold]")
-                for k in other_keys:
-                    val = str(output[k])
-                    try:
-                        parsed = json.loads(val)
-                        content_parts.append(f"  • [cyan]{k}[/cyan]:")
-                        content_parts.append(f"    {JSON(parsed, ensure_ascii=False)}")
-                    except:
-                        content_parts.append(f"  • [cyan]{k}[/cyan]: {val[:100]}")
+                    content_parts.append(f"[bold]{k}:[/bold] {val}")
 
             if not content_parts:
                 return None
