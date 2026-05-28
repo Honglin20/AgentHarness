@@ -2,6 +2,56 @@
 
 ---
 
+## 2026-05-28 System Prompt 优化 — Schema 精简 + 工具调用引导 + Token 图表合并 + 前端格式化修复
+
+**Commits:** `49afc7c` `d0b8258` `db835b2` `2243960` `ae11dba`
+
+### 后端改动
+- **修改** `harness/engine/macro_graph.py` — `_strip_schema()` 递归移除 JSON Schema 冗余字段（title/anyOf/default），agent system prompt token 减少 ~36%；Output Format 段落新增 "Before each tool call, briefly state what you intend to do and why" 引导
+- **修改** `harness/api.py` — `AgentResult` 字段加 `Field(description=...)` 引导 LLM 区分 summary（结论）和 details（推理过程）
+- **修改** `harness/extensions/plugins/perf_metrics.py` — token usage 从 N 张独立柱状图合并为单张分组柱状图（hue=kind: input/output），所有 agent 在同一张图中
+- **修复** `_strip_schema` 对 `$ref` + null anyOf 的休眠 bug（`Optional[SubModel]` 场景）
+
+### 前端改动
+- **修改** `eventRouter.ts` / `useWorkflowEvents.ts` / `replayEvents.ts` — `node.completed` 时始终用 `formatOutputAsMd` 替换 streaming 内容，修复结构化输出显示原始 dict 的问题
+
+### 行为
+- LLM 在调用工具前会先解释意图
+- Agent 输出 JSON 更精简（~36% token 节省），details 字段包含推理过程
+- Analysis tab 中 token usage 只有一张图，包含所有 agent 的 input/output 对比
+- 前端不再显示 `{"summary": "...", "details": "..."}` 原始 dict
+
+---
+
+## 2026-05-28 修复工具调用前端渲染：Write/Edit DiffView 空白
+
+**Commit:** (pending)
+
+### 根因
+- PydanticAI v1.98.0 的 `ToolCallPart.args` 类型为 `str | dict | None`，后端直接透传给前端
+- 前端 `getStringArg()` 假设 args 是 dict，当 args 为 JSON 字符串时所有字段提取静默返回 `undefined`
+- `edit_file` 的参数名不匹配：MCP filesystem server 使用 `edits: [{oldText, newText}]`，前端期望 `old_string`/`new_string`
+
+### 后端改动
+- **修改** `harness/engine/llm_executor.py` — `_emit_tool_call()` 将 `part.args` 归一化为 dict（JSON 字符串 → json.loads → dict）
+- **修改** `harness/engine/llm_executor.py` — `_fire_tool_call_hook()` 修复硬编码 `tool_args={}`，改为从 `self.tool_calls` 取已归一化的 args
+
+### 前端改动
+- **修改** `frontend/src/components/conversation/ToolCallMessage.tsx`:
+  - 新增 `normalizeArgs()` 防御性解析（兼容 string/dict/historical 数据）
+  - `edit_file` 渲染支持 MCP 实际格式 `edits: [{oldText, newText}]`，多 edit 批量显示
+  - 新增 `read_text_file` 特殊渲染（MCP 替代 `read_file` 的新工具）
+  - `_raw` 兜底时 fallback 到通用 `<pre>` 而非显示空 DiffView
+  - 提取 `FILE_TOOLS` Set 消除重复工具名列表
+
+### 行为
+- write_file: DiffView 正确显示写入内容
+- edit_file: DiffView 正确显示多 edit diff（兼容 MCP `edits[]` 和扁平 `old_string`/`new_string`）
+- read_text_file: FileContentView 语法高亮渲染
+- 历史运行记录（string args）: 防御性解析兜底
+
+---
+
 ## 2026-05-28 README 更新 + 根目录冗余文件清理
 
 **Commit:** (pending)
