@@ -256,9 +256,10 @@ class WorkflowManager {
    */
   private cleanupTimer: number | null = null;
   private startCleanupTimer(): void {
+    if (typeof window === "undefined") return;
     this.cleanupTimer = window.setInterval(() => {
       this.cleanupIdleWorkflows();
-    }, 60 * 1000); // 每分钟检查一次
+    }, 60 * 1000);
   }
 
   /**

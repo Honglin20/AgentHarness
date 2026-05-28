@@ -14,6 +14,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsibleContent,
+} from "@/components/ui/collapsible";
 
 // ---------------------------------------------------------------------------
 // Shared utilities
@@ -108,6 +113,30 @@ function ToolsBadge({ tools }: { tools: ToolBrief[] }) {
         </div>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ThinkingBlock — collapsible reasoning/thinking display
+// ---------------------------------------------------------------------------
+
+export function ThinkingBlock({ text, streaming }: { text: string; streaming: boolean }) {
+  const [open, setOpen] = useState(false);
+  if (!text) return null;
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="rounded-md border border-amber-500/20 bg-amber-500/5">
+      <CollapsibleTrigger className="flex w-full items-center gap-1.5 px-2 py-1 text-xs text-amber-600 hover:text-amber-500 transition-colors">
+        <ChevronRight className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`} />
+        <span className="font-medium">Thinking</span>
+        {streaming && <span className="animate-pulse text-amber-400">...</span>}
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="border-t border-amber-500/20 px-2 py-1.5 text-xs text-muted-foreground max-h-64 overflow-y-auto">
+          <MarkdownText>{text}</MarkdownText>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -293,7 +322,7 @@ interface AgentMessageProps {
 }
 
 export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItemCount, getAgentIO, getNodeState }: AgentMessageProps) {
-  const { content, status } = message;
+  const { content, status, thinking } = message;
   const text = content ?? "";
   const isStreaming = status === "streaming";
   const showCollapsed = collapsed && !isStreaming;
@@ -308,6 +337,9 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
         getAgentIO={getAgentIO}
         getNodeState={getNodeState}
       />
+      {thinking && (
+        <ThinkingBlock text={thinking} streaming={isStreaming} />
+      )}
       {status === "error" && !text ? (
         <p className="text-sm text-red-500">An error occurred</p>
       ) : showCollapsed ? (

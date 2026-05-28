@@ -149,6 +149,7 @@ class Workflow:
         event_bus: Any | None = None,
         max_iterations: int = 3,
         checkpointer: Any | None = None,
+        envelope: dict[str, int] | None = None,
     ):
         self.name = name
         self.agents = agents
@@ -172,6 +173,7 @@ class Workflow:
         self._event_bus = event_bus
         self.max_iterations = max_iterations
         self.checkpointer = checkpointer
+        self.envelope = envelope
         self._compiled = None
         self._builder: Any | None = None  # MacroGraphBuilder, set by compile()
         self._mcp_setup_done = False
@@ -210,6 +212,7 @@ class Workflow:
             tool_registry=self.tool_registry,
             event_bus=self._event_bus,
             max_iterations=self.max_iterations,
+            envelope=self.envelope,
         )
         graph = builder.build(self)
         self._builder = builder

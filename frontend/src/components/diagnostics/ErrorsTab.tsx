@@ -34,6 +34,11 @@ export default function ErrorsTab({
               <span className="text-sm font-medium text-app-text-primary">
                 {node.name}
               </span>
+              {node.errorType && (
+                <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-mono text-red-700">
+                  {node.errorType}
+                </span>
+              )}
               <span className="ml-auto text-xs text-muted-foreground">
                 {node.status === "retrying" ? `Retry #${node.attempt}` : "Failed"}
               </span>

@@ -24,6 +24,7 @@ export type EventType =
   | "chat.question"
   | "chat.answer"
   | "agent.stop_and_regenerate"
+  | "agent.thinking_delta"
   | "workflow.resumed"
   | "batch.init"
   | "batch.completed";
@@ -83,13 +84,20 @@ export interface NodeCompletedPayload {
   output_result?: Record<string, unknown>;
 }
 
+export interface ToolCallBrief {
+  tool_name: string;
+  tool_args: Record<string, unknown>;
+}
+
 export interface NodeFailedPayload {
   node_id: string;
   agent_name: string;
   error: string;
+  error_type?: string;
   duration_ms: number;
   attempt: number;
   will_retry: boolean;
+  tool_calls_before_failure?: ToolCallBrief[];
 }
 
 // Agent streaming events
@@ -119,6 +127,12 @@ export interface AgentToolOutputDeltaPayload {
   tool_name: string;
   line: string;
   stream: "stdout" | "stderr";
+}
+
+export interface AgentThinkingDeltaPayload {
+  node_id: string;
+  agent_name: string;
+  text: string;
 }
 
 // Chart rendering event
@@ -192,6 +206,7 @@ export interface EventPayloadMap {
   "node.completed": NodeCompletedPayload;
   "node.failed": NodeFailedPayload;
   "agent.text_delta": AgentTextDeltaPayload;
+  "agent.thinking_delta": AgentThinkingDeltaPayload;
   "agent.tool_call": AgentToolCallPayload;
   "agent.tool_result": AgentToolResultPayload;
   "agent.tool_output_delta": AgentToolOutputDeltaPayload;

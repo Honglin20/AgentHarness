@@ -78,7 +78,10 @@ export function WorkflowScope({ workflowId, children }: WorkflowScopeProps) {
     manager.setActiveWorkflowId(workflowId);
   }, [manager, workflowId]);
 
-  // REST fallback: if WS events haven't populated stores after 2s, fetch from API
+  // REST fallback: if WS events haven't populated stores after 5s, fetch from API.
+  // Only restores data for completed/failed runs — never overwrites a running workflow,
+  // since WS events will eventually arrive and a stale REST snapshot would cause a
+  // visual "restart" glitch.
   useEffect(() => {
     if (!workflowId) return;
     let cancelled = false;
@@ -90,13 +93,27 @@ export function WorkflowScope({ workflowId, children }: WorkflowScopeProps) {
       // Only restore if workflow.started was never received (no DAG)
       if (stores.workflow.getState().dag) return;
 
+      console.warn(
+        `[WorkflowScope] REST fallback triggered for ${workflowId} — WS did not deliver DAG within 5s`
+      );
+
       try {
         const r = await fetchWithAuth(`/api/runs/${workflowId}`);
         if (!r.ok || cancelled) return;
         const data = await r.json();
 
         // Re-check after async gap — WS events may have arrived
-        if (stores.workflow.getState().dag) return;
+        if (stores.workflow.getState().dag) {
+          console.info(`[WorkflowScope] REST fallback cancelled for ${workflowId} — DAG arrived during fetch`);
+          return;
+        }
+
+        // Never restore a running workflow — WS will deliver live data.
+        // Only restore completed/failed/paused runs (historical replay).
+        if (data.status === "running") {
+          console.info(`[WorkflowScope] REST fallback skipped for ${workflowId} — run is still running, waiting for WS`);
+          return;
+        }
 
         if (data.events?.length) {
           replayEventsToStores(workflowId, data.events);
@@ -121,7 +138,7 @@ export function WorkflowScope({ workflowId, children }: WorkflowScopeProps) {
           });
         }
       } catch {}
-    }, 2000);
+    }, 5000);
 
     return () => {
       cancelled = true;

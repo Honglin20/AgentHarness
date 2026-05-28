@@ -91,6 +91,9 @@ export function createConversationStore(
     appendAgentText: (nodeId, text) => {
       /* Phase 2 实现 */
     },
+    appendAgentThinking: (nodeId, text) => {
+      /* Phase 2 实现 */
+    },
     completeAgentMessage: (nodeId, agentName, durationMs) => {
       /* Phase 2 实现 */
     },
@@ -218,6 +221,19 @@ export function createConversationStore(
         };
       }),
 
+    appendAgentThinking: (nodeId, text) =>
+      set((state) => {
+        const idx = state.messages.findLastIndex(
+          (m) => m.nodeId === nodeId && m.type === "agent" && m.status === "streaming"
+        );
+        if (idx !== -1) {
+          const messages = [...state.messages];
+          messages[idx] = { ...messages[idx], thinking: (messages[idx].thinking ?? "") + text };
+          return { messages };
+        }
+        return state;
+      }),
+
     completeAgentMessage: (nodeId, agentName, durationMs) =>
       set((state) => {
         const idx = state.messages.findLastIndex(
@@ -261,7 +277,7 @@ export function createConversationStore(
           (m) => m.nodeId === nodeId && m.type === "agent" && m.status === "streaming"
         );
         if (streamingIdx !== -1) {
-          if (!msgs[streamingIdx].content.trim()) {
+          if (!msgs[streamingIdx].content.trim() && !msgs[streamingIdx].thinking?.trim()) {
             // No text before this tool call — remove the empty placeholder
             // so the final output appears AFTER tool calls, not before.
             msgs.splice(streamingIdx, 1);

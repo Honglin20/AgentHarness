@@ -8,6 +8,7 @@ import type {
   NodeCompletedPayload,
   NodeFailedPayload,
   AgentTextDeltaPayload,
+  AgentThinkingDeltaPayload,
   AgentToolCallPayload,
   AgentToolResultPayload,
   AgentToolOutputDeltaPayload,
@@ -111,6 +112,7 @@ async function _restoreConversation(workflowId: string, forceReplace: boolean = 
             nodeId: m.nodeId,
             agentName: m.agentName,
             content: m.content ?? "",
+            thinking: m.thinking,
             toolName: m.toolName,
             toolArgs: m.toolArgs,
             toolResult: m.toolResult,
@@ -255,6 +257,12 @@ function _routeToUIStores(event: WSEvent): void {
       const p = payload<AgentTextDeltaPayload>(event);
       useOutputStore.getState().appendText(p.node_id, p.text);
       useConversationStore.getState().appendAgentText(p.node_id, p.text);
+      break;
+    }
+
+    case "agent.thinking_delta": {
+      const p = payload<AgentThinkingDeltaPayload>(event);
+      useConversationStore.getState().appendAgentThinking(p.node_id, p.text);
       break;
     }
 

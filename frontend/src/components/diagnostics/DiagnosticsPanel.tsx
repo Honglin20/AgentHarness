@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useStore } from "zustand";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import TraceTab from "./TraceTab";
 import ToolCallsTab from "./ToolCallsTab";
@@ -8,24 +9,76 @@ import ErrorsTab from "./ErrorsTab";
 import { useWorkflowStore, type NodeState } from "@/stores/workflowStore";
 import { useToolCallStore, type ToolCallRecord } from "@/stores/toolCallStore";
 import { useViewStore } from "@/stores/viewStore";
+import { useWorkflowContextSafe } from "@/contexts/workflow-context/WorkflowContext";
+import type { WorkflowStores } from "@/contexts/workflow-context/types";
 
 export default function DiagnosticsPanel() {
-  const liveNodes = useWorkflowStore((s) => s.nodes);
-  const liveStatus = useWorkflowStore((s) => s.status);
-  const selectedNodeId = useWorkflowStore((s) => s.selectedNodeId);
-  const liveToolCallCount = useToolCallStore((s) => s.order.length);
+  const ctx = useWorkflowContextSafe();
+  const scopedStores = ctx?.stores ?? null;
+  if (scopedStores) {
+    return <ScopedDiagnosticsPanel stores={scopedStores} />;
+  }
+  return <GlobalDiagnosticsPanel />;
+}
+
+// ── Scoped version: reads from workflow-isolated stores ──────────────
+
+function ScopedDiagnosticsPanel({ stores }: { stores: WorkflowStores }) {
+  const liveNodes = useStore(stores.workflow, (s) => s.nodes);
+  const liveStatus = useStore(stores.workflow, (s) => s.status);
+  const liveSelectedNodeId = useStore(stores.workflow, (s) => s.selectedNodeId);
+  const liveToolCallCount = useStore(stores.toolCall, (s) => s.order.length);
+  const scopedToolRecords = useStore(stores.toolCall, (s) => s.records);
+  const scopedToolOrder = useStore(stores.toolCall, (s) => s.order);
+
   const activeView = useViewStore((s) => s.activeView);
   const [activeTab, setActiveTab] = useState("trace");
 
   useEffect(() => {
-    if (selectedNodeId) {
-      setActiveTab("trace");
-    }
-  }, [selectedNodeId]);
+    if (liveSelectedNodeId) setActiveTab("trace");
+  }, [liveSelectedNodeId]);
 
-  // In replay mode, derive nodes / tool calls from the run record so the
-  // diagnostics tabs show historical state instead of being empty.
-  const replayDerived = useMemo(() => {
+  const replayDerived = useReplayDerived(activeView);
+
+  const nodes = replayDerived?.nodes ?? liveNodes;
+  const status = replayDerived?.status ?? liveStatus;
+  const toolRecords = replayDerived?.records ?? scopedToolRecords;
+  const toolOrder = replayDerived?.order ?? scopedToolOrder;
+  const toolCallCount = toolOrder ? toolOrder.length : liveToolCallCount;
+  const errorCount = countErrors(nodes);
+
+  return renderPanel({ activeTab, setActiveTab, nodes, status, toolRecords, toolOrder, toolCallCount, errorCount, replayDerived });
+}
+
+// ── Global fallback: reads from singleton stores (legacy / no workflow) ──
+
+function GlobalDiagnosticsPanel() {
+  const liveNodes = useWorkflowStore((s) => s.nodes);
+  const liveStatus = useWorkflowStore((s) => s.status);
+  const liveSelectedNodeId = useWorkflowStore((s) => s.selectedNodeId);
+  const liveToolCallCount = useToolCallStore((s) => s.order.length);
+
+  const activeView = useViewStore((s) => s.activeView);
+  const [activeTab, setActiveTab] = useState("trace");
+
+  useEffect(() => {
+    if (liveSelectedNodeId) setActiveTab("trace");
+  }, [liveSelectedNodeId]);
+
+  const replayDerived = useReplayDerived(activeView);
+
+  const nodes = replayDerived?.nodes ?? liveNodes;
+  const status = replayDerived?.status ?? liveStatus;
+  const toolCallCount = replayDerived?.order ? replayDerived.order.length : liveToolCallCount;
+  const errorCount = countErrors(nodes);
+
+  return renderPanel({ activeTab, setActiveTab, nodes, status, toolRecords: replayDerived?.records, toolOrder: replayDerived?.order, toolCallCount, errorCount, replayDerived });
+}
+
+// ── Shared helpers ───────────────────────────────────────────────────
+
+function useReplayDerived(activeView: { type: string; run?: any }) {
+  return useMemo(() => {
     if (activeView.type !== "replay") return null;
     const run = activeView.run;
     const nodes: Record<string, NodeState> = {};
@@ -60,17 +113,28 @@ export default function DiagnosticsPanel() {
 
     return { nodes, status: run.status, records, order };
   }, [activeView]);
+}
 
-  const nodes = replayDerived?.nodes ?? liveNodes;
-  const status = replayDerived?.status ?? liveStatus;
-  const toolRecords = replayDerived?.records;
-  const toolOrder = replayDerived?.order;
-  const toolCallCount = toolOrder ? toolOrder.length : liveToolCallCount;
-
-  const errorCount = Object.values(nodes).filter(
+function countErrors(nodes: Record<string, NodeState>): number {
+  return Object.values(nodes).filter(
     (n) => n.status === "failed" || n.status === "retrying"
   ).length;
+}
 
+function renderPanel({
+  activeTab, setActiveTab,
+  nodes, status, toolRecords, toolOrder, toolCallCount, errorCount, replayDerived,
+}: {
+  activeTab: string;
+  setActiveTab: (t: string) => void;
+  nodes: Record<string, NodeState>;
+  status: string;
+  toolRecords?: Record<string, ToolCallRecord>;
+  toolOrder?: string[];
+  toolCallCount: number;
+  errorCount: number;
+  replayDerived: { nodes: Record<string, NodeState>; status: string } | null;
+}) {
   return (
     <aside aria-label="Diagnostics" className="flex h-full flex-col border-l border-app-border bg-app-bg-secondary">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-1 flex-col">

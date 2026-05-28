@@ -63,6 +63,7 @@ def configure(
     proxy: str | None = None,
     ssl_verify: str | None = None,
     stop_regen_ttl: str | None = None,
+    thinking: str | None = None,
     persist: bool = True,
 ) -> dict:
     """Set API key, model, base URL, proxy, and/or SSL verify. Optionally persist to .env.
@@ -74,6 +75,7 @@ def configure(
         proxy: Optional HTTP proxy URL.
         ssl_verify: 'true' or 'false' (string, for env var compatibility).
         stop_regen_ttl: TTL in seconds for stop-and-regenerate orphan signals.
+        thinking: 'true' or 'false' to enable/disable model thinking/reasoning mode.
         persist: Write to .env file.
 
     Returns:
@@ -119,6 +121,14 @@ def configure(
         if persist:
             _write_env("HARNESS_STOP_REGEN_TTL", str(val))
 
+    if thinking is not None:
+        val = thinking.lower()
+        if val not in ("true", "false", "auto"):
+            raise ValueError("thinking must be 'true', 'false', or 'auto'")
+        os.environ["HARNESS_THINKING"] = val
+        if persist:
+            _write_env("HARNESS_THINKING", val)
+
     return get_config()
 
 
@@ -133,6 +143,7 @@ def get_config() -> dict:
         "proxy": os.environ.get("HARNESS_PROXY", ""),
         "ssl_verify": os.environ.get("HARNESS_SSL_VERIFY", "true"),
         "stop_regen_ttl": os.environ.get("HARNESS_STOP_REGEN_TTL", "60"),
+        "thinking": os.environ.get("HARNESS_THINKING", "auto"),
     }
 
 

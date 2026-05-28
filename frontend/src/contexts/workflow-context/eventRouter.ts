@@ -13,6 +13,7 @@ import type { NodeFailedPayload } from "@/types/events";
 import type { AgentTextDeltaPayload } from "@/types/events";
 import type { AgentToolCallPayload } from "@/types/events";
 import type { AgentToolResultPayload } from "@/types/events";
+import type { AgentThinkingDeltaPayload } from "@/types/events";
 import { fetchWithAuth } from "@/lib/api";
 import type { AgentToolOutputDeltaPayload } from "@/types/events";
 import type { ChatQuestionPayload } from "@/types/events";
@@ -220,6 +221,12 @@ function routeEventToStores(event: WSEvent): void {
       const p = payload<AgentTextDeltaPayload>(event);
       stores.output.getState().appendText(p.node_id, p.text);
       stores.conversation.getState().appendAgentText(p.node_id, p.text);
+      break;
+    }
+
+    case "agent.thinking_delta": {
+      const p = payload<AgentThinkingDeltaPayload>(event);
+      stores.conversation.getState().appendAgentThinking(p.node_id, p.text);
       break;
     }
 

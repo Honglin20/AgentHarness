@@ -9,12 +9,16 @@ from harness.extensions.plugins.eval_chart import EvalChartPlugin
 from harness.extensions.plugins.agent_trace import AgentTracePlugin
 from harness.extensions.plugins.reasoning_viz import ReasoningVizPlugin
 from harness.extensions.plugins.perf_metrics import PerfMetricsPlugin
+from harness.extensions.plugins.step_counter import StepCounterPlugin
+from harness.extensions.plugins.circular_detector import CircularDetectorPlugin
 
 __all__ = [
     "EvalChartPlugin",
     "AgentTracePlugin",
     "ReasoningVizPlugin",
     "PerfMetricsPlugin",
+    "StepCounterPlugin",
+    "CircularDetectorPlugin",
     "register_default_hooks",
 ]
 
@@ -24,6 +28,8 @@ _DEFAULT_HOOKS = [
     AgentTracePlugin,
     ReasoningVizPlugin,
     PerfMetricsPlugin,
+    StepCounterPlugin,
+    CircularDetectorPlugin,
 ]
 
 

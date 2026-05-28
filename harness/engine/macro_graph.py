@@ -16,8 +16,10 @@ from harness.extensions.eval.summarizer import summarize_target
 from harness.constants import STATE_ERRORS, STATE_INPUTS, STATE_METADATA, STATE_OUTPUTS
 from harness.extensions.base import AgentConfig, NodeCtx, RejectAction, RetryAction, WorkflowCtx
 from harness.engine.llm_executor import LLMExecutor
+from harness.extensions.envelope import check_envelope
 from harness.engine.micro_agent import MicroAgentFactory
 from harness.engine.state import HarnessState
+from harness.cost import calculate_cost
 from harness.tools.deps import AgentDeps
 from harness.tools.registry import ToolRegistry
 
@@ -180,10 +182,12 @@ class MacroGraphBuilder:
         tool_registry: ToolRegistry | None = None,
         event_bus: Any | None = None,
         max_iterations: int = 3,
+        envelope: dict[str, int] | None = None,
     ):
         self.tool_registry = tool_registry or ToolRegistry()
         self.event_bus = event_bus
         self.max_iterations = max_iterations
+        self.envelope = envelope
         self.workflow_id: str | None = None  # Set by runner before execution
         self._workflow_name: str = ""  # Set by build()
         self.agent_io: dict[str, dict] = {}  # Collected per-node I/O for persistence
@@ -449,6 +453,7 @@ class MacroGraphBuilder:
                             "node_id": agent_def.name,
                             "agent_name": agent_def.name,
                             "error": f"Max iterations ({max_iterations}) reached for conditional edge loop",
+                            "error_type": "MaxIterationsError",
                             "duration_ms": 0,
                             "attempt": 1,
                             "will_retry": False,
@@ -481,6 +486,7 @@ class MacroGraphBuilder:
                             "node_id": agent_def.name,
                             "agent_name": agent_def.name,
                             "error": f"Skipped: upstream '{dep_name}' failed",
+                            "error_type": "UpstreamDependencyError",
                             "duration_ms": 0,
                             "attempt": 1,
                             "will_retry": False,
@@ -574,6 +580,7 @@ class MacroGraphBuilder:
                         "node_id": agent_def.name,
                         "agent_name": agent_def.name,
                         "error": f"Rejected by extension: {mw_result.reason}",
+                        "error_type": "ExtensionRejectError",
                         "duration_ms": duration_ms,
                         "attempt": 1,
                         "will_retry": False,
@@ -630,6 +637,7 @@ class MacroGraphBuilder:
                 exec_result = await executor.run(context)
                 agent_run = exec_result.agent_run
                 stop_regen = exec_result.stop_regen
+                ttft_ms = exec_result.ttft_ms
 
                 if stop_regen:
                     partial = stop_regen.get("partial_output", "") or ""
@@ -698,6 +706,7 @@ class MacroGraphBuilder:
                             "node_id": agent_def.name,
                             "agent_name": agent_def.name,
                             "error": validation_error,
+                            "error_type": "OutputValidationError",
                             "duration_ms": duration_ms,
                             "attempt": 1,
                             "will_retry": False,
@@ -721,12 +730,22 @@ class MacroGraphBuilder:
                 except Exception:
                     pass
 
-                # Write token_usage + duration_ms into ext_ctx.metadata so
+                # Calculate cost from token usage and model pricing
+                cost_usd = None
+                if token_usage:
+                    model_name = model or ""
+                    cost_usd = calculate_cost(token_usage["input"], token_usage["output"], model_name)
+
+                # Write token_usage + cost_usd + duration_ms into ext_ctx.metadata so
                 # hooks (e.g. PerfMetricsPlugin) can emit charts.
                 if ext_ctx is not None:
                     ext_ctx.metadata.setdefault(agent_def.name, {})["duration_ms"] = duration_ms
                     if token_usage:
                         ext_ctx.metadata.setdefault(agent_def.name, {})["token_usage"] = token_usage
+                    if cost_usd is not None:
+                        ext_ctx.metadata.setdefault(agent_def.name, {})["cost_usd"] = cost_usd
+                    if hasattr(executor, "tool_calls") and executor.tool_calls:
+                        ext_ctx.metadata.setdefault(agent_def.name, {})["tool_calls"] = executor.tool_calls
 
                 # === Extension hook/middleware: after_node ===
                 # NOTE: RetryAction is recognized but not yet executed in P1.
@@ -747,6 +766,48 @@ class MacroGraphBuilder:
                 node_meta = {"duration_ms": duration_ms}
                 if token_usage:
                     node_meta["token_usage"] = token_usage
+                if cost_usd is not None:
+                    node_meta["cost_usd"] = cost_usd
+                if ttft_ms is not None:
+                    node_meta["ttft_ms"] = ttft_ms
+
+                # === Operating Envelope check ===
+                envelope_cfg = builder_self.envelope
+                if envelope_cfg:
+                    wf_meta = state.get(STATE_METADATA, {})
+                    acc_tokens = {"total": 0}
+                    acc_steps = 0
+                    for _name, _meta in wf_meta.items():
+                        if isinstance(_meta, dict):
+                            tu = _meta.get("token_usage", {})
+                            acc_tokens["total"] += tu.get("total", 0)
+                            tc = _meta.get("tool_calls", [])
+                            acc_steps += len(tc) if isinstance(tc, list) else 0
+                    # Add current node
+                    if token_usage:
+                        acc_tokens["total"] += token_usage.get("total", 0)
+                    if hasattr(executor, "tool_calls"):
+                        acc_steps += len(executor.tool_calls)
+
+                    total_elapsed = int((time.time() - start_time) * 1000)
+                    envelope_error = check_envelope(acc_tokens, acc_steps, total_elapsed, envelope_cfg)
+                    if envelope_error:
+                        if bus:
+                            bus.emit("node.failed", {
+                                "workflow_id": builder_self.workflow_id,
+                                "node_id": agent_def.name,
+                                "agent_name": agent_def.name,
+                                "error": envelope_error,
+                                "error_type": "EnvelopeExceeded",
+                                "duration_ms": duration_ms,
+                                "attempt": 1,
+                                "will_retry": False,
+                            })
+                        return {
+                            STATE_OUTPUTS: {},
+                            STATE_ERRORS: {agent_def.name: envelope_error},
+                            STATE_METADATA: {agent_def.name: node_meta},
+                        }
 
                 # Emit node.completed event + collect I/O for persistence
                 io_data = {
@@ -770,6 +831,10 @@ class MacroGraphBuilder:
                     }
                     if token_usage:
                         event_payload["token_usage"] = token_usage
+                    if cost_usd is not None:
+                        event_payload["cost_usd"] = cost_usd
+                    if ttft_ms is not None:
+                        event_payload["ttft_ms"] = ttft_ms
                     bus.emit("node.completed", event_payload)
 
                 # Build iteration_counts update for conditional edges
@@ -792,17 +857,33 @@ class MacroGraphBuilder:
                 return result_dict
             except Exception as e:
                 duration_ms = int((time.time() - start_time) * 1000)
+                error_type = type(e).__name__
+
+                tool_calls_before_failure = None
+                try:
+                    if executor.tool_calls:
+                        tool_calls_before_failure = [
+                            {"tool_name": tc["tool_name"], "tool_args": tc.get("tool_args", {})}
+                            for tc in executor.tool_calls
+                        ]
+                except NameError:
+                    pass  # executor was never created (e.g. micro_factory.create failed)
+
+                payload = {
+                    "workflow_id": builder_self.workflow_id,
+                    "node_id": agent_def.name,
+                    "agent_name": agent_def.name,
+                    "error": str(e),
+                    "error_type": error_type,
+                    "duration_ms": duration_ms,
+                    "attempt": 1,
+                    "will_retry": False,
+                }
+                if tool_calls_before_failure:
+                    payload["tool_calls_before_failure"] = tool_calls_before_failure
 
                 if bus:
-                    bus.emit("node.failed", {
-                        "workflow_id": builder_self.workflow_id,
-                        "node_id": agent_def.name,
-                        "agent_name": agent_def.name,
-                        "error": str(e),
-                        "duration_ms": duration_ms,
-                        "attempt": 1,
-                        "will_retry": False,
-                    })
+                    bus.emit("node.failed", payload)
 
                 return {
                     STATE_OUTPUTS: {},

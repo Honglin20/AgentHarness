@@ -6,6 +6,7 @@ import type {
   NodeCompletedPayload,
   NodeFailedPayload,
   ToolBrief,
+  ToolCallBrief,
 } from "@/types/events";
 
 export interface NodeState {
@@ -14,6 +15,8 @@ export interface NodeState {
   status: "idle" | "running" | "success" | "failed" | "retrying";
   durationMs?: number;
   error?: string;
+  errorType?: string;
+  toolCallsBeforeFailure?: ToolCallBrief[];
   attempt?: number;
   willRetry?: boolean;
   tokenUsage?: { input: number; output: number; total: number };
@@ -176,6 +179,8 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
           name: payload.agent_name,
           status: payload.will_retry ? "retrying" : "failed",
           error: payload.error,
+          errorType: payload.error_type,
+          toolCallsBeforeFailure: payload.tool_calls_before_failure,
           durationMs: payload.duration_ms,
           attempt: payload.attempt,
           willRetry: payload.will_retry,
@@ -219,6 +224,8 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
         name: p.agent_name,
         status: p.will_retry ? "retrying" : "failed",
         error: p.error,
+        errorType: p.error_type,
+        toolCallsBeforeFailure: p.tool_calls_before_failure,
         durationMs: p.duration_ms,
         attempt: p.attempt,
         willRetry: p.will_retry,

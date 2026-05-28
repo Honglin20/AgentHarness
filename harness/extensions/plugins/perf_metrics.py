@@ -18,14 +18,14 @@ class PerfMetricsPlugin(BaseHook):
     async def on_node_end(self, ctx: NodeCtx, output) -> None:
         node_meta = ctx.metadata.get(ctx.agent_name, {})
         token_usage = node_meta.get("token_usage")
-        if not token_usage:
-            return
+        cost_usd = node_meta.get("cost_usd")
 
         self._accumulated.append({
             "agent": ctx.agent_name,
-            "input_tokens": token_usage.get("input", 0),
-            "output_tokens": token_usage.get("output", 0),
-            "total_tokens": token_usage.get("total", 0),
+            "input_tokens": token_usage.get("input", 0) if token_usage else 0,
+            "output_tokens": token_usage.get("output", 0) if token_usage else 0,
+            "total_tokens": token_usage.get("total", 0) if token_usage else 0,
+            "cost_usd": cost_usd,
         })
 
         # Build grouped data: one row per agent per kind
@@ -46,3 +46,22 @@ class PerfMetricsPlugin(BaseHook):
             "title": "Token Usage by Agent",
             "category": "analysis",
         })
+
+        # Emit cost chart if any agent has cost data
+        cost_data = [
+            {"agent": entry["agent"], "cost_usd": entry["cost_usd"]}
+            for entry in self._accumulated
+            if entry["cost_usd"] is not None
+        ]
+        if cost_data:
+            ctx.emit("chart.render", {
+                "node_id": ctx.agent_name,
+                "chart_type": "bar",
+                "data": cost_data,
+                "columns": ["agent", "cost_usd"],
+                "x": "agent",
+                "y": "cost_usd",
+                "label": "Cost (USD)",
+                "title": "Cost by Agent",
+                "category": "analysis",
+            })

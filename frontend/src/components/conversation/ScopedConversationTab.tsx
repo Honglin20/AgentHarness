@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { useConversationMessages, useWorkflowStore as useScopedStore } from "@/contexts/workflow-context";
-import { AgentNodeHeader } from "./AgentMessage";
+import { AgentNodeHeader, ThinkingBlock } from "./AgentMessage";
 import { UserMessage } from "./UserMessage";
 import { SystemMessage } from "./SystemMessage";
 import { ToolCallMessage } from "./ToolCallMessage";
@@ -171,11 +171,19 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
                     if (item.type === "tool_call") {
                       return <ToolCallMessage key={item.id} message={item} />;
                     }
-                    if (item.type === "agent" && item.content.trim()) {
+                    if (item.type === "agent") {
+                      const isStreaming = item.status === "streaming";
                       return (
-                        <div key={item.id} className="text-sm">
-                          <MarkdownText>{item.content}</MarkdownText>
-                          {item.status === "streaming" && <span className="animate-pulse">▎</span>}
+                        <div key={item.id} className="flex flex-col gap-1">
+                          {item.thinking && (
+                            <ThinkingBlock text={item.thinking} streaming={isStreaming} />
+                          )}
+                          {item.content.trim() && (
+                            <div className="text-sm">
+                              <MarkdownText>{item.content}</MarkdownText>
+                              {isStreaming && <span className="animate-pulse">▎</span>}
+                            </div>
+                          )}
                         </div>
                       );
                     }

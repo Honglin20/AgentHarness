@@ -15,6 +15,8 @@ export interface ConversationMessage {
   toolDurationMs?: number;
   /** Intermediate output accumulated during bash execution */
   toolStreamingOutput?: string;
+  /** Model's internal reasoning/thinking text (e.g. DeepSeek think process) */
+  thinking?: string;
   durationMs?: number;
   timestamp: number;
 }
@@ -32,6 +34,7 @@ export interface ConversationState {
   addSystemMessage: (content: string) => void;
   addAgentMessage: (nodeId: string, agentName: string) => void;
   appendAgentText: (nodeId: string, text: string) => void;
+  appendAgentThinking: (nodeId: string, text: string) => void;
   completeAgentMessage: (nodeId: string, agentName: string, durationMs?: number) => void;
   failAgentMessage: (nodeId: string, agentName: string, error: string, durationMs?: number) => void;
   addToolCall: (nodeId: string, agentName: string, toolName: string, toolArgs: Record<string, unknown>) => void;
@@ -134,6 +137,19 @@ export const useConversationStore = create<ConversationState>()((set) => ({
       };
     }),
 
+  appendAgentThinking: (nodeId, text) =>
+    set((state) => {
+      const idx = state.messages.findLastIndex(
+        (m) => m.nodeId === nodeId && m.type === "agent" && m.status === "streaming"
+      );
+      if (idx !== -1) {
+        const messages = [...state.messages];
+        messages[idx] = { ...messages[idx], thinking: (messages[idx].thinking ?? "") + text };
+        return { messages };
+      }
+      return state;
+    }),
+
   completeAgentMessage: (nodeId, agentName, durationMs) =>
     set((state) => {
       const idx = state.messages.findLastIndex(
@@ -179,7 +195,7 @@ export const useConversationStore = create<ConversationState>()((set) => ({
         (m) => m.nodeId === nodeId && m.type === "agent" && m.status === "streaming"
       );
       if (streamingIdx !== -1) {
-        if (!msgs[streamingIdx].content.trim()) {
+        if (!msgs[streamingIdx].content.trim() && !msgs[streamingIdx].thinking?.trim()) {
           // No text was written before this tool call — remove the empty
           // placeholder so the final output (from node.completed) appears
           // AFTER the tool calls instead of before them.

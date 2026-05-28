@@ -13,6 +13,7 @@ import httpx
 from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.settings import ModelSettings
 
 
 def _is_deepseek(model_name: str, api_url: str) -> bool:
@@ -23,6 +24,29 @@ def _is_deepseek(model_name: str, api_url: str) -> bool:
     if "deepseek" in api_url.lower():
         return True
     return False
+
+
+def _is_thinking_model(model_name: str) -> bool:
+    """Check if the model is known to support thinking/reasoning."""
+    mn = model_name.lower()
+    return any(kw in mn for kw in ("reasoner", "reasoning", "r1", "think"))
+
+
+def _should_enable_thinking(model_name: str) -> bool:
+    """Decide whether to enable thinking based on env config and model name.
+
+    HARNESS_THINKING values:
+      - "true":  always enable
+      - "false": always disable
+      - "auto":  enable if model name looks like a thinking model (default)
+    """
+    setting = os.environ.get("HARNESS_THINKING", "auto").lower()
+    if setting == "true":
+        return True
+    if setting == "false":
+        return False
+    # auto: detect from model name
+    return _is_thinking_model(model_name)
 
 
 class LLMClient:
@@ -109,6 +133,10 @@ class LLMClient:
         deps_type: type | None = None,
     ) -> PydanticAgent:
         """Create a configured PydanticAgent from this client."""
+        model_settings = None
+        if _should_enable_thinking(self._model_name):
+            model_settings = ModelSettings(thinking=True)
+
         return PydanticAgent(
             model=self._model,
             system_prompt=system_prompt,
@@ -117,4 +145,5 @@ class LLMClient:
             defer_model_check=True,
             tools=tools or [],
             deps_type=deps_type,
+            model_settings=model_settings,
         )

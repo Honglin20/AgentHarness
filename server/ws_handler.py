@@ -24,23 +24,32 @@ BROADCAST_RULES = {
     "workflow.completed": "self",
     "workflow.error": "self",
     "workflow.cancelled": "self",
-    
+    "workflow.resumed": "self",
+
     # Node-level: only initiator receives
     "node.started": "self",
     "node.completed": "self",
     "node.failed": "self",
-    
+
     # Chat-level: only initiator receives
     "chat.message": "self",
     "chat.answer": "self",
-    
-    # Agent-level: only initiator receives (rare case)
+
+    # Agent-level: only initiator receives
     "agent.text_delta": "self",
+    "agent.thinking_delta": "self",
     "agent.finish": "self",
-    
+    "agent.tool_call": "self",
+    "agent.tool_result": "self",
+    "agent.tool_output_delta": "self",
+
+    # Hook-level: only initiator receives
+    "trace.step": "self",
+    "chart.render": "self",
+
     # System-level: all users receive (rare case)
     "system.alert": "all",
-    
+
     # Audit-level: admin only
     "workflow.audit": "admin",
 }

@@ -14,6 +14,7 @@ import type {
   NodeCompletedPayload,
   NodeFailedPayload,
   AgentTextDeltaPayload,
+  AgentThinkingDeltaPayload,
   AgentToolCallPayload,
   AgentToolResultPayload,
   AgentToolOutputDeltaPayload,
@@ -185,6 +186,12 @@ function routeReplayEvent(
       break;
     }
 
+    case "agent.thinking_delta": {
+      const p = payload<AgentThinkingDeltaPayload>(event);
+      stores.conversation.getState().appendAgentThinking(p.node_id, p.text);
+      break;
+    }
+
     case "agent.tool_call": {
       const p = payload<AgentToolCallPayload>(event);
       const id = counter.next();
@@ -318,6 +325,7 @@ export function loadLegacyRunData(
       nodeId: m.nodeId,
       content: m.content ?? "",
       agentName: m.agentName,
+      thinking: m.thinking,
       toolName: m.toolName,
       toolArgs: m.toolArgs,
       toolResult: m.toolResult,

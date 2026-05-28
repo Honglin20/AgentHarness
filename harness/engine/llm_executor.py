@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -24,6 +25,7 @@ class AgentRunResult:
 
     agent_run: Any  # pydantic_ai AgentRun
     stop_regen: dict[str, Any] | None = None
+    ttft_ms: int | None = None
 
 
 class LLMExecutor:
@@ -74,10 +76,16 @@ class LLMExecutor:
         self._check_interrupt = check_interrupt
         self._cancel_fn = cancel_fn
         self.tool_calls: list[dict[str, Any]] = []
+        self._span_seq = 0
+        self._last_ttft_ms: int | None = None
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def _next_span_id(self) -> str:
+        self._span_seq += 1
+        return f"{self._node_id}-s{self._span_seq}"
 
     async def run(self, context: str) -> AgentRunResult:
         """Execute the agent and return the result.
@@ -108,17 +116,39 @@ class LLMExecutor:
                 else:
                     node = await agent_run.next(node)
 
-        return AgentRunResult(agent_run=agent_run, stop_regen=stop_regen)
+        return AgentRunResult(agent_run=agent_run, stop_regen=stop_regen, ttft_ms=self._last_ttft_ms)
 
     # ------------------------------------------------------------------
     # Internal: model-request node (text streaming)
     # ------------------------------------------------------------------
 
     async def _handle_model_request(self, node, ctx) -> dict[str, Any] | None:
-        """Stream model response text, emit deltas, check interrupts."""
+        """Stream model response text and thinking, emit deltas, check interrupts."""
+        span_id = self._next_span_id()
+        model_name = ""
+        if hasattr(self._agent, "model"):
+            m = self._agent.model
+            model_name = str(getattr(m, "model_name", m) if hasattr(m, "model_name") else m)
+
+        if self._bus:
+            self._bus.emit("span.start", {
+                "workflow_id": self._wid,
+                "node_id": self._node_id,
+                "agent_name": self._agent_name,
+                "span_id": span_id,
+                "span_type": "llm",
+                "model": model_name,
+            })
+
+        stream_start = time.monotonic()
+        ttft_ms = None
+        first_token_received = False
+
         async with node.stream(ctx) as stream:
             prev_text = ""
+            prev_thinking = ""
             async for response in stream.stream_response():
+                # Extract text parts
                 current_text = "".join(
                     p.content for p in response.parts
                     if getattr(p, "part_kind", None) == "text"
@@ -130,9 +160,36 @@ class LLMExecutor:
                     self._emit_text_delta(delta)
                     await self._fire_llm_delta_hook(delta)
 
+                # Extract thinking parts (e.g. DeepSeek reasoning)
+                current_thinking = "".join(
+                    p.content for p in response.parts
+                    if getattr(p, "part_kind", None) == "thinking"
+                )
+                thinking_delta = current_thinking[len(prev_thinking):]
+                prev_thinking = current_thinking
+
+                if thinking_delta:
+                    self._emit_thinking_delta(thinking_delta)
+
+                # TTFT: measure time to first token
+                if not first_token_received and (delta or thinking_delta):
+                    ttft_ms = int((time.monotonic() - stream_start) * 1000)
+                    first_token_received = True
+
                 interrupt = self._poll_interrupt()
                 if interrupt is not None:
                     return interrupt
+
+        self._last_ttft_ms = ttft_ms
+
+        if self._bus:
+            self._bus.emit("span.end", {
+                "workflow_id": self._wid,
+                "node_id": self._node_id,
+                "agent_name": self._agent_name,
+                "span_id": span_id,
+                "span_type": "llm",
+            })
 
         return None
 
@@ -147,6 +204,8 @@ class LLMExecutor:
         if interrupt is not None:
             return interrupt
 
+        _tool_span_ids: dict[str, str] = {}
+
         if self._bus:
             async with node.stream(ctx) as stream:
                 async for event in stream:
@@ -157,9 +216,34 @@ class LLMExecutor:
                     ek = getattr(event, "event_kind", "")
                     if ek == "function_tool_call":
                         self._emit_tool_call(event.part)
+                        tool_span_id = self._next_span_id()
+                        # Use tool_name + span_id as key to handle duplicate tool names
+                        call_key = f"{event.part.tool_name}:{tool_span_id}"
+                        _tool_span_ids[call_key] = tool_span_id
+                        self._bus.emit("span.start", {
+                            "workflow_id": self._wid,
+                            "node_id": self._node_id,
+                            "agent_name": self._agent_name,
+                            "span_id": tool_span_id,
+                            "span_type": "tool",
+                            "tool_name": event.part.tool_name,
+                        })
+                        # Store the call_key on the part for matching with result
+                        event.part._span_call_key = call_key
                     elif ek == "function_tool_result":
                         self._emit_tool_result(event.part)
                         await self._fire_tool_call_hook(event.part)
+                        # Find the matching call key for this tool
+                        matched_key = getattr(event.part, "_span_call_key", None)
+                        if matched_key and matched_key in _tool_span_ids:
+                            self._bus.emit("span.end", {
+                                "workflow_id": self._wid,
+                                "node_id": self._node_id,
+                                "agent_name": self._agent_name,
+                                "span_id": _tool_span_ids.pop(matched_key),
+                                "span_type": "tool",
+                                "tool_name": event.part.tool_name,
+                            })
         else:
             # No bus — still need interrupt checks
             async with node.stream(ctx) as stream:
@@ -195,6 +279,16 @@ class LLMExecutor:
         if not self._bus:
             return
         self._bus.emit("agent.text_delta", {
+            "workflow_id": self._wid,
+            "node_id": self._node_id,
+            "agent_name": self._agent_name,
+            "text": delta,
+        })
+
+    def _emit_thinking_delta(self, delta: str) -> None:
+        if not self._bus:
+            return
+        self._bus.emit("agent.thinking_delta", {
             "workflow_id": self._wid,
             "node_id": self._node_id,
             "agent_name": self._agent_name,

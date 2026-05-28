@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect } from "react";
-import { Settings, Key, Cpu, Globe, X, RotateCcw, Square, Timer, Play, Sun, Moon, User, Check, Shield, Folder } from "lucide-react";
+import { Settings, Key, Cpu, Globe, X, RotateCcw, Square, Timer, Play, Sun, Moon, User, Check, Shield, Folder, Brain } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,6 +54,7 @@ export function HeaderBar() {
   const [model, setModel] = useState("");
   const [apiUrl, setApiUrl] = useState("");
   const [stopRegenTtl, setStopRegenTtl] = useState("60");
+  const [thinking, setThinking] = useState<"auto" | "true" | "false">("auto");
   const [saved, setSaved] = useState(false);
   const defaultWorkDir = useSettingsStore((s) => s.defaultWorkDir);
   const setDefaultWorkDir = useSettingsStore((s) => s.setDefaultWorkDir);
@@ -104,6 +105,7 @@ export function HeaderBar() {
         if (cfg.model) setModel(cfg.model);
         if (cfg.api_url) setApiUrl(cfg.api_url);
         if (cfg.stop_regen_ttl) setStopRegenTtl(cfg.stop_regen_ttl);
+        if (cfg.thinking) setThinking(cfg.thinking);
       }
     } catch {}
   }, []);
@@ -118,6 +120,7 @@ export function HeaderBar() {
           ...(model ? { model } : {}),
           ...(apiUrl ? { api_url: apiUrl } : {}),
           ...(stopRegenTtl ? { stop_regen_ttl: stopRegenTtl } : {}),
+          thinking,
           persist: true,
         }),
       });
@@ -304,6 +307,34 @@ export function HeaderBar() {
                 placeholder="/path/to/code (留空 = 当前目录, / = 全盘访问)"
                 className="h-8 text-xs"
               />
+            </div>
+            <div>
+              <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-app-text-secondary">
+                <Brain className="h-3 w-3" /> Thinking Mode
+              </label>
+              <div className="flex gap-1">
+                {(["auto", "true", "false"] as const).map((val) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setThinking(val)}
+                    className={`flex-1 rounded-md border px-2 py-1 text-xs transition-colors ${
+                      thinking === val
+                        ? "border-blue-500 bg-blue-500/10 text-blue-600"
+                        : "border-app-border text-muted-foreground hover:border-gray-400"
+                    }`}
+                  >
+                    {val === "auto" ? "Auto" : val === "true" ? "On" : "Off"}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {thinking === "auto"
+                  ? "Enable thinking for known reasoning models (DeepSeek-R1, etc.)"
+                  : thinking === "true"
+                  ? "Force thinking mode on for all models"
+                  : "Disable thinking mode"}
+              </p>
             </div>
             <Button
               size="sm"

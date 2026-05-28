@@ -42,6 +42,8 @@ class ConversationCollector:
         p = event.get("payload", {})
         if t == "agent.text_delta":
             self._on_text_delta(p)
+        elif t == "agent.thinking_delta":
+            self._on_thinking_delta(p)
         elif t == "node.completed":
             self._on_node_completed(p)
         elif t == "node.failed":
@@ -74,6 +76,30 @@ class ConversationCollector:
                 "nodeId": node_id,
                 "agentName": agent_name,
                 "content": text,
+                "status": "streaming",
+                "timestamp": p.get("ts", 0),
+            }
+
+    # ---- agent thinking ----
+
+    def _on_thinking_delta(self, p: dict) -> None:
+        node_id = p.get("node_id", "")
+        text = p.get("text", "")
+        agent_name = p.get("agent_name", "")
+        if self._streaming_node and self._streaming_node.get("nodeId") == node_id:
+            self._streaming_node["thinking"] = self._streaming_node.get("thinking", "") + text
+        else:
+            # Flush any previous streaming node
+            if self._streaming_node:
+                self._streaming_node["status"] = "done"
+                self._messages.append(self._streaming_node)
+            self._streaming_node = {
+                "id": self._next_id(),
+                "type": "agent",
+                "nodeId": node_id,
+                "agentName": agent_name,
+                "content": "",
+                "thinking": text,
                 "status": "streaming",
                 "timestamp": p.get("ts", 0),
             }

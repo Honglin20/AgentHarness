@@ -203,6 +203,7 @@ async def set_config(request: Request) -> dict:
         model=body.get("model"),
         api_url=body.get("api_url"),
         stop_regen_ttl=body.get("stop_regen_ttl"),
+        thinking=body.get("thinking"),
         persist=body.get("persist", True),
     )
 
@@ -1215,6 +1216,92 @@ async def get_benchmark_result(name: str, run_id: str, request: Request) -> dict
     _enrich_benchmark_result(result, repo, store, name)
 
     return result
+
+
+def _compute_run_averages(result: dict) -> dict:
+    """Compute per-run average metrics from task_results."""
+    scores = []
+    durations = []
+    costs = []
+    tokens = []
+
+    for tr in result.get("task_results", []):
+        score = tr.get("score")
+        if score is not None:
+            scores.append(score)
+        dur = tr.get("duration_ms")
+        if dur:
+            durations.append(dur)
+        cost = tr.get("cost_usd")
+        if cost is not None:
+            costs.append(cost)
+        tu = tr.get("token_usage")
+        if tu and isinstance(tu, dict):
+            tokens.append(tu.get("total", 0))
+
+    averages: dict = {}
+    if scores:
+        averages["avg_score"] = sum(scores) / len(scores)
+    if costs:
+        averages["avg_cost"] = sum(costs) / len(costs)
+    if durations:
+        averages["avg_duration_ms"] = sum(durations) / len(durations)
+    if tokens:
+        averages["avg_tokens"] = sum(tokens) / len(tokens)
+    return averages
+
+
+@router.get("/benchmarks/{name}/regression")
+async def benchmark_regression(
+    name: str,
+    baseline_run: str | None = None,
+    request: Request = None,
+) -> dict:
+    """Compare latest benchmark run against a baseline for regressions.
+
+    If baseline_run is not specified, compares against the second-most-recent run.
+    """
+    from harness.extensions.plugins.regression_detector import detect_regressions
+
+    store = _get_benchmark_store()
+    bm = store.load_benchmark(name)
+    if not bm:
+        raise HTTPException(status_code=404, detail="Benchmark not found")
+
+    results = store.list_results(name)
+    if len(results) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 benchmark runs to compare")
+
+    # Sort by created_at descending (newest first)
+    results.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+
+    current_result = results[0]
+
+    if baseline_run:
+        baseline_result = store.get_result(baseline_run, benchmark_name=name)
+        if not baseline_result:
+            raise HTTPException(status_code=404, detail="Baseline run not found")
+    else:
+        baseline_result = results[1]
+
+    # Enrich both results with live scores
+    repo = get_repository()
+    _enrich_benchmark_result(current_result, repo, store, name)
+    _enrich_benchmark_result(baseline_result, repo, store, name)
+
+    baseline_avg = _compute_run_averages(baseline_result)
+    current_avg = _compute_run_averages(current_result)
+
+    regressions = detect_regressions(baseline_avg, current_avg)
+
+    return {
+        "benchmark_name": name,
+        "baseline_run_id": baseline_result.get("run_id"),
+        "current_run_id": current_result.get("run_id"),
+        "baseline": baseline_avg,
+        "current": current_avg,
+        "regressions": regressions,
+    }
 
 
 @router.get("/workflows/{workflow_id}", response_model=WorkflowStatusResponse)
