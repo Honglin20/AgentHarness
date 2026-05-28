@@ -25,7 +25,7 @@ from rich.progress import Progress, BarColumn, TextColumn
 from rich.layout import Layout
 from rich.align import Align
 
-from harness.extensions.base import BaseHook, WorkflowCtx, NodeCtx, ToolCtx, Any
+from harness.extensions.base import AgentConfig, BaseHook, WorkflowCtx, NodeCtx, ToolCtx, Any
 
 # 创建全局 console 实例
 console = Console()
@@ -96,6 +96,10 @@ class ConsoleOutput(BaseHook):
         """格式化输出为 Panel"""
         if not self.verbose:
             return None
+
+        # Normalize Pydantic BaseModel to dict
+        if hasattr(output, "model_dump"):
+            output = output.model_dump()
 
         content_parts = []
 
