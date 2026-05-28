@@ -110,10 +110,43 @@ export default function BenchmarkRunner({ benchmark, onBack }: Props) {
   }, [selectedWf, benchmark.name, createBatch]);
 
   const handleSelectRun = useCallback(
-    (wid: string) => {
+    async (wid: string) => {
       const manager = getWorkflowManager();
       manager.setActiveWorkflowId(wid);
       useBatchStore.getState().selectRun(wid);
+
+      // Immediately load run data from REST for the switched run.
+      // Non-selected batch runs don't receive WS events, so we must
+      // populate their stores from the API instead of waiting 2s.
+      const stores = manager.getStores(wid);
+      if (stores && !stores.workflow.getState().dag) {
+        try {
+          const r = await fetchWithAuth(`/api/runs/${wid}`);
+          if (!r.ok) return;
+          const data = await r.json();
+          if (stores.workflow.getState().dag) return; // WS beat us
+
+          if (data.conversation?.length || data.chart_groups) {
+            const { loadLegacyRunData } = await import("@/contexts/workflow-context/replayEvents");
+            loadLegacyRunData(wid, data.conversation ?? [], data.chart_groups ?? null);
+          }
+
+          if (!stores.workflow.getState().dag && data.dag) {
+            stores.workflow.getState().handleWorkflowStarted({
+              workflow_id: wid,
+              name: data.workflow_name,
+              dag: data.dag,
+              inputs: data.inputs,
+            });
+          }
+          if (data.status === "completed" || data.status === "failed") {
+            stores.workflow.getState().handleWorkflowCompleted({
+              workflow_id: wid,
+              status: data.status === "failed" ? "failed" : "completed",
+            });
+          }
+        } catch {}
+      }
     },
     [],
   );
