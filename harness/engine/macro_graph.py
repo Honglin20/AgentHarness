@@ -120,6 +120,39 @@ class ReviewDecision(BaseModel):
     score: float | None = None
 
 
+def _strip_schema(schema: dict) -> dict:
+    """Remove fields from JSON Schema that add no value for LLMs.
+
+    Strips: title, description (on the type itself, not on properties),
+    anyOf [{type}, {type: null}] → inline "| null", default: null.
+    Keeps: type, description (on properties), required, properties, items, enum.
+    """
+    if not isinstance(schema, dict):
+        return schema
+
+    out = {}
+    for k, v in schema.items():
+        if k in ("title", "default"):
+            continue
+        if k == "anyOf" and isinstance(v, list) and len(v) == 2:
+            types = [e.get("type") for e in v if isinstance(e, dict)]
+            if "null" in types:
+                non_null = [t for t in types if t != "null"]
+                if non_null:
+                    out["type"] = f"{non_null[0]} | null"
+                    continue
+        if k == "description" and "properties" in schema:
+            # Skip top-level description (class docstring), keep property descriptions
+            continue
+        if isinstance(v, dict):
+            out[k] = _strip_schema(v)
+        elif isinstance(v, list):
+            out[k] = [_strip_schema(i) for i in v]
+        else:
+            out[k] = v
+    return out
+
+
 def _validate_output(output, result_type):
     """Validate agent output against its result_type.
 
@@ -391,12 +424,11 @@ class MacroGraphBuilder:
         if result_type is not None:
             try:
                 import json as _json
-                schema = result_type.model_json_schema()
+                schema = _strip_schema(result_type.model_json_schema())
                 augmented_prompt += (
                     "\n\n## Output Format\n"
-                    "Think and reason freely — you may use any available tools as needed. "
-                    "When you are ready to give your final answer, respond with a valid JSON object "
-                    "conforming to this schema (no markdown fences, no extra text):\n"
+                    "Use tools freely. Before each tool call, briefly state what you intend to do and why.\n"
+                    "When finished, respond with JSON matching this schema (no markdown fences):\n"
                     + _json.dumps(schema, indent=2, ensure_ascii=False)
                 )
             except Exception:
