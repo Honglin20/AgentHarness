@@ -2,6 +2,17 @@
 
 ---
 
+## 2026-05-28 README 更新 + 根目录冗余文件清理
+
+**Commit:** (pending)
+
+### 改动
+- **更新** `README.md` — 新增"项目根目录解析"章节（三级优先链 + 两层发现机制）、新增 `pip install` 安装方式、新增 CLI 命令参考、更新项目结构（paths.py, registry.py, cli.py, builtin/, runs/）
+- **删除** `main.py` — 旧版 demo，已被 `examples/01_minimal.py` 替代
+- **删除** `hello.py`, `hello_printer.py`, `fibonacci.py` — 与项目无关的 AI 编程练习产物
+
+---
+
 ## 2026-05-28 结构化输出 schema 注入 + fail-fast 上游错误传播 + Console prompt 可见性
 
 **Commits:** (pending)

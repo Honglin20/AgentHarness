@@ -22,9 +22,28 @@
 npm install -g @modelcontextprotocol/server-filesystem
 ```
 
-### 一键安装
+### 方式一：pip install（推荐）
 
 ```bash
+pip install agent-harness
+```
+
+安装后即可在任意项目目录使用：
+
+```bash
+# 在你的项目目录下创建 workflows/ 并启动 UI
+cd my-project
+harness ui                # 自动以 CWD 为项目根目录
+harness ui --port 3000    # 指定端口
+harness ui --project-root /path/to/project  # 显式指定项目根
+harness list              # 列出已发现的 workflow 和 benchmark
+```
+
+### 方式二：源码安装
+
+```bash
+git clone https://github.com/your-repo/AgentHarness.git
+cd AgentHarness
 python install.py          # 交互模式，会提示输入 API Key
 python install.py --quick  # 非交互模式
 ```
@@ -49,11 +68,66 @@ configure(api_key="sk-...", model="openai:gpt-4o", persist=True)  # 保存到 .e
 print(get_config())
 ```
 
-Key 解析顺序：`.env` 文件 → `ANTHROPIC_AUTH_TOKEN` 环境变量 → `ANTHROPIC_API_KEY` 环境变量。
+Key 解析顺序：`CWD/.env` → 项目根 `.env` → `ANTHROPIC_AUTH_TOKEN` 环境变量 → `ANTHROPIC_API_KEY` 环境变量。
 
 也可以通过 REST API 或 Web UI 设置面板配置：
 ```bash
 POST /api/config {"api_key":"sk-...", "model":"openai:gpt-4o"}
+```
+
+---
+
+## 项目根目录解析
+
+所有数据路径（workflows/、benchmarks/、runs/、.env）基于 **项目根目录** 解析。
+
+### 解析优先级
+
+`get_project_root()` 三级优先链：
+
+| 优先级 | 来源 | 场景 |
+|--------|------|------|
+| 1 | `HARNESS_PROJECT_ROOT` 环境变量 | CI/CD、脚本调用、显式指定 |
+| 2 | CWD heuristic（CWD 含 `workflows/` 或 `harness/`） | `cd my-project && harness ui` |
+| 3 | 包目录的父目录（fallback） | 开发模式（editable install） |
+
+### Workflow 发现机制
+
+框架通过两层发现找到 workflow 定义：
+
+| 层 | 路径 | 来源 |
+|----|------|------|
+| **Project** | `<project_root>/workflows/<name>/` | 用户创建的 workflow |
+| **Builtin** | `harness/builtin/workflows/<name>/` | 随 pip 安装的内置 workflow（如 `demo_pipeline`） |
+
+同名资源 Project 层优先。
+
+### Agent MD 查找规则
+
+每个 Agent 的 system prompt 从 Markdown 文件加载，查找顺序：
+
+1. `workflows/<wf>/agents/<name>.md` — 私有（优先）
+2. `workflows/_shared/agents/<name>.md` — 共享（fallback）
+
+### 典型目录结构
+
+```
+my-project/                    ← 项目根目录
+├── .env                       ← API Key 等配置
+├── workflows/
+│   ├── _shared/
+│   │   ├── agents/            ← 共享 Agent prompt（如 runner.md）
+│   │   └── scripts/           ← 跨 workflow 共享脚本
+│   ├── <name>/
+│   │   ├── workflow.json      ← Agent 定义 + DAG 拓扑
+│   │   ├── agents/            ← 私有 Agent prompt
+│   │   └── scripts/           ← 私有脚本
+│   └── users/{id}/workflows/  ← 多用户私有 workflow
+├── benchmarks/
+│   └── <name>/
+│       ├── benchmark.json
+│       └── results/
+└── runs/                      ← 运行记录 + checkpoints.db
 ```
 
 ---
@@ -869,6 +943,13 @@ WebSocket 连接时自动从 Header 解析用户 ID，实现事件级隔离。
 ├── harness/
 │   ├── api.py              Agent, Workflow, WorkflowResult
 │   ├── config.py           configure(), .env 自动加载
+│   ├── paths.py            项目根目录解析（get_project_root）
+│   ├── registry.py         资源发现（Project + Builtin 两层）
+│   ├── cli.py              harness ui / harness list 命令
+│   ├── builtin/            随 pip 安装的内置资源
+│   │   ├── workflows/      内置 workflow（demo_pipeline）
+│   │   ├── benchmarks/     内置 benchmark（smoke-test）
+│   │   └── frontend/       预构建前端
 │   ├── engine/             LangGraph 状态图 + Pydantic AI 执行
 │   ├── tools/              bash, sub_agent, ask_human, chart
 │   ├── compiler/           DAG 构建, Markdown 解析, Agent 查找
@@ -884,7 +965,7 @@ WebSocket 连接时自动从 Header 解析用户 ID，实现事件级隔离。
 │   │   ├── agents/         私有 Agent 提示词（优先级 > _shared）
 │   │   └── scripts/        私有脚本（路径注入到 Agent prompt）
 │   └── _shared/
-│       ├── agents/         共享 Agent（v1: runner.md）
+│       ├── agents/         共享 Agent（如 runner.md）
 │       └── scripts/        跨 Workflow 共享脚本
 ├── benchmarks/             Benchmark 评测定义 + 结果
 │   └── <name>/
@@ -892,7 +973,8 @@ WebSocket 连接时自动从 Header 解析用户 ID，实现事件级隔离。
 │       ├── setup.sh        Prep 脚本（可选）
 │       ├── agents/         Prep Agent MD（可选）
 │       └── results/        运行历史（含分数 + 图表）
-├── examples/               可运行的示例（01-14）
+├── runs/                   运行记录 + checkpoints.db
+├── examples/               可运行的示例（01-15）
 ├── tests/                  测试
 └── docs/plans/             设计文档
 ```
@@ -916,6 +998,22 @@ WebSocket 连接时自动从 Header 解析用户 ID，实现事件级隔离。
 | 13 | `13_console_output.py` | ConsoleOutput 命令行美化输出 | 是 |
 | 14 | `14_benchmark_prep.py` | Benchmark Prep 前置准备 | 是 |
 | 15 | `15_benchmark_prep_agent.py` | Benchmark Prep Agent 类型 | 是 |
+
+---
+
+## CLI 命令
+
+`pip install` 后提供 `harness` 命令：
+
+```bash
+harness ui                              # 启动 Web UI（端口 8000）
+harness ui --port 3000                  # 指定端口
+harness ui --project-root /path/to/prj  # 显式指定项目根目录
+harness ui --open                       # 自动打开浏览器
+harness list                            # 列出已发现的 workflow 和 benchmark
+harness list --scope builtin            # 只列出内置资源
+harness list --scope project            # 只列出项目级资源
+```
 
 ---
 
