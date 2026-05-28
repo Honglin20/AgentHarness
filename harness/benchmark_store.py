@@ -69,9 +69,16 @@ class BenchmarkStore:
 
     def load_benchmark(self, name: str) -> dict | None:
         path = self._benchmark_path(name)
-        if not path.exists():
-            return None
-        return json.loads(path.read_text())
+        if path.exists():
+            return json.loads(path.read_text())
+        # Fallback: search registry paths (builtin + project)
+        from harness.registry import get_registry
+        for meta in get_registry().list_benchmarks():
+            if meta.name == name:
+                bm_path = meta.resource_dir / "benchmark.json"
+                if bm_path.exists():
+                    return json.loads(bm_path.read_text())
+        return None
 
     def list_benchmarks(self, user_id: str | None = None) -> list[dict]:
         if not self._dir.exists():

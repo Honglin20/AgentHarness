@@ -21,10 +21,16 @@ def test_list_saved_includes_description(tmp_path, monkeypatch):
     import harness.api as api_mod
     monkeypatch.setattr(api_mod, "_WORKFLOWS_DIR", tmp_path / "workflows")
 
+    from harness.registry import configure_registry, get_registry
+    old_reg = get_registry()
+    monkeypatch.setattr("harness.registry._global_registry", old_reg)
+    configure_registry(tmp_path)
+
     from harness.api import Workflow
     result = Workflow.list_saved()
 
-    assert len(result) == 1
-    agent = result[0]["agents"][0]
+    demo = [r for r in result if r["name"] == "demo"]
+    assert len(demo) == 1
+    agent = demo[0]["agents"][0]
     assert "description" in agent
     assert agent["description"] == "Analyzes the input data and produces insights."

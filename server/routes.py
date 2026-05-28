@@ -117,9 +117,10 @@ def _check_workflow_owner(workflow_id: str, request: Request) -> None:
 
 
 def _validate_workflow_dir(workflow: str, user_id: str | None = None) -> Path:
-    """Validate a workflow folder name and return its absolute path under workflows/.
+    """Validate a workflow folder name and return its absolute path.
 
     Search order:
+      0. Registry (builtin + project + extra registrations)
       1. workflows/_shared/workflows/{workflow}/
       2. workflows/users/{user_id}/workflows/{workflow}/
       3. workflows/{workflow}/ (legacy)
@@ -132,6 +133,13 @@ def _validate_workflow_dir(workflow: str, user_id: str | None = None) -> Path:
     """
     if not workflow or "/" in workflow or "\\" in workflow or workflow.startswith("."):
         raise HTTPException(status_code=400, detail="invalid workflow name")
+
+    # Try registry first (builtin + project resources)
+    from harness.registry import get_registry
+    try:
+        return get_registry().resolve_workflow(workflow).resource_dir
+    except FileNotFoundError:
+        pass
 
     # Try shared workflows first
     shared_path = (_WORKFLOWS_DIR / "_shared" / "workflows" / workflow).resolve()

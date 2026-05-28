@@ -1,37 +1,41 @@
 # Current Task
 
-**当前任务**: Benchmark 修复 + 用户隔离
-**状态**: completed
-**优先级**: P0
+**当前任务**: Resource Registry + CLI Command
+**状态**: completed (Phase 1-3)
+**优先级**: P1
 
 ---
 
-## 完成内容
+## 必读文件
 
-### 后端（4 commits）
-1. `harness/benchmark_store.py` — save_benchmark/list_benchmarks/list_results 新增 user_id 参数
-2. `server/routes.py` — 8 个 benchmark 端点全部加 get_current_user + ownership check
-3. `tests/test_benchmark_isolation.py` — 5 个测试覆盖用户隔离场景
-4. `server/routes.py` — batch metadata 存储 user_id，修复 ownership check
+1. `docs/specs/2026-05-28-resource-registry-and-cli.md` — 完整 SPEC + 实施记录
+2. `harness/registry.py` — 核心：ResourceRegistry 两层发现
+3. `harness/cli.py` — CLI 入口：`harness ui` / `harness list`
+4. `server/app.py` — `_resolve_frontend_dir()` 前端三路径 fallback
 
-### 前端（3 commits）
-1. `BenchmarkRunner.tsx` — 去掉全局 store，改用 WorkflowManager + fetchWithAuth
-2. `Sidebar/BenchmarkCompare/ScopedCenterPanel` — 全部 fetch → fetchWithAuth
-3. `useWorkflowEvents.ts` — 清理 legacy batch code，setActiveWorkflowId 标记 @deprecated
+## 已完成
 
-### 验证
-- 220 backend tests pass
-- TypeScript 编译无错误
-- Frontend build 成功
+### Phase 1: 核心 Registry + 内置资源
+- `harness/registry.py` — ResourceRegistry + 全局单例 (22 测试)
+- `harness/builtin/workflows/demo_pipeline/` — 内置 workflow
+- `harness/builtin/benchmarks/smoke-test/` — 内置 benchmark
+- `harness/builtin/frontend/` — 预构建前端 (4.2MB)
+- `pyproject.toml` — package-data + console_scripts
 
-## Commits (0a63c28..9173fda)
-```
-9173fda build: deploy frontend with batch metadata fix
-8733ae0 fix(benchmark): store user_id in batch metadata + fix workflow definitions auth
-58a09f8 build: deploy frontend with benchmark isolation support
-ab3998e fix(benchmark): add auth headers and clean up legacy batch code
-eed3e12 fix(benchmark): rewrite BenchmarkRunner to use scoped stores
-4ec60a3 test(benchmark): add user isolation tests for BenchmarkStore
-cb541e8 feat(benchmark): enforce user isolation on all API endpoints
-e77aa77 feat(benchmark): add user_id to BenchmarkStore for isolation
-```
+### Phase 2: CLI 命令
+- `harness/cli.py` — `harness ui` + `harness list`
+
+### Phase 3: 后端最小适配
+- `harness/api.py` — Workflow.load/list_saved/Benchmark._execute 加 registry fallback
+- `harness/benchmark_store.py` — load_benchmark 加 registry fallback
+- `server/routes.py` — _validate_workflow_dir 加 registry fallback
+- `server/app.py` — _resolve_frontend_dir 三路径 fallback
+
+## 验证
+- 248/248 测试通过（1 个预先存在的失败无关）
+- `harness list` 从任意目录显示 builtin 资源
+- pip install 模拟：`Workflow.list_saved()` 返回 builtin + scope 字段
+
+## 待做 (Phase 4)
+- 前端 scope badge (builtin/project)
+- Builtin 资源只读控制 (隐藏 Delete, 禁用 Save)

@@ -141,6 +141,12 @@ def test_list_definitions_skips_shared(tmp_path, monkeypatch):
     from harness import api
 
     monkeypatch.setattr(api, "_WORKFLOWS_DIR", tmp_path)
+
+    from harness.registry import configure_registry, get_registry
+    old_reg = get_registry()
+    monkeypatch.setattr("harness.registry._global_registry", old_reg)
+    configure_registry(tmp_path)
+
     # Create one real workflow and a _shared dir.
     (tmp_path / "demo" / "agents").mkdir(parents=True)
     (tmp_path / "demo" / "scripts").mkdir()
@@ -150,7 +156,8 @@ def test_list_definitions_skips_shared(tmp_path, monkeypatch):
     (tmp_path / "_shared" / "agents").mkdir(parents=True)
     # _shared has no workflow.json but ensure presence of dir doesn't cause issues
     defs = api.Workflow.list_saved()
-    assert [d["name"] for d in defs] == ["demo"]
+    # Only check non-builtin resources (builtin demo_pipeline comes from registry)
+    assert [d["name"] for d in defs if d.get("scope") != "builtin"] == ["demo"]
 
 
 def test_validate_workflow_dir_rejects_traversal():

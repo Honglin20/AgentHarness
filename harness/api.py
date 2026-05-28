@@ -262,10 +262,20 @@ class Workflow:
     def load(cls, name: str, agents_dir: str | None = None) -> Workflow:
         """Load a saved workflow definition from workflows/<name>/workflow.json.
 
+        Resolution order:
+          1. Registry (builtin + project + extra registrations)
+          2. Legacy _WORKFLOWS_DIR fallback
+
         ``agents_dir`` is retained for back-compat; new layout derives it from
         ``workflows/<name>/agents``.
         """
-        wf_dir = _WORKFLOWS_DIR / name
+        from harness.registry import get_registry
+        try:
+            meta = get_registry().resolve_workflow(name)
+            wf_dir = meta.resource_dir
+        except FileNotFoundError:
+            wf_dir = _WORKFLOWS_DIR / name
+
         path = wf_dir / "workflow.json"
         if not path.exists():
             raise FileNotFoundError(f"Workflow '{name}' not found at {path}")
@@ -286,8 +296,6 @@ class Workflow:
                      - None or "default": returns shared + legacy (backward compatibility)
                      - Other values: returns shared + user's private (legacy hidden)
         """
-        if not _WORKFLOWS_DIR.exists():
-            return []
         from harness.compiler.dag_builder import build_dag
 
         result = []
@@ -374,6 +382,44 @@ class Workflow:
                     "workflow_dir": str(f.parent),
                     "scope": "legacy",
                 })
+
+        # 4. Merge registry resources (builtin only — project-level already covered above)
+        from harness.registry import get_registry
+        registry = get_registry()
+        existing_names = {r["name"] for r in result}
+        for meta in registry.list_workflows(scope="builtin"):
+            if meta.name in existing_names:
+                continue
+            wf_dir = meta.resource_dir
+            wf_json = wf_dir / "workflow.json"
+            if not wf_json.exists():
+                continue
+            try:
+                data = json.loads(wf_json.read_text())
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+            agents = [Agent.from_dict(a) for a in data.get("agents", [])]
+            node_order = build_dag(agents)
+            edges = []
+            conditional_edges = []
+            for a in agents:
+                for dep in a.after or []:
+                    edges.append([dep, a.name])
+                if a.on_pass is not None:
+                    conditional_edges.append({"from": a.name, "to": a.on_pass, "label": "pass"})
+                if a.on_fail is not None:
+                    conditional_edges.append({"from": a.name, "to": a.on_fail, "label": "fail"})
+            agent_dicts = [a.to_dict() for a in agents]
+            for ad in agent_dicts:
+                ad["description"] = _extract_description(ad["name"], wf_dir)
+            result.append({
+                "name": data["name"],
+                "agents": agent_dicts,
+                "dag": {"nodes": node_order, "edges": edges, "conditional_edges": conditional_edges},
+                "workflow_dir": str(wf_dir),
+                "scope": meta.scope,
+                "description": meta.description,
+            })
 
         return result
 
@@ -683,10 +729,13 @@ class Benchmark:
 
     async def _execute(self, workflow_name: str, ui: bool = False, plugins: list | None = None) -> "BenchmarkResult":
         # 1. Resolve workflow definition
-        wf_dir = _WORKFLOWS_DIR / workflow_name
-        if not wf_dir.exists():
-            # Try shared workflows
-            wf_dir = _WORKFLOWS_DIR / "_shared" / "workflows" / workflow_name
+        from harness.registry import get_registry
+        try:
+            wf_dir = get_registry().resolve_workflow(workflow_name).resource_dir
+        except FileNotFoundError:
+            wf_dir = _WORKFLOWS_DIR / workflow_name
+            if not wf_dir.exists():
+                wf_dir = _WORKFLOWS_DIR / "_shared" / "workflows" / workflow_name
         if not (wf_dir / "workflow.json").exists():
             raise FileNotFoundError(f"Workflow '{workflow_name}' not found")
 

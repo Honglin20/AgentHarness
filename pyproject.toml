@@ -18,8 +18,14 @@ console = [
     "rich>=13.0",
 ]
 
+[project.scripts]
+harness = "harness.cli:main"
+
 [tool.setuptools.packages.find]
 include = ["harness", "harness.*", "server", "server.*"]
+
+[tool.setuptools.package-data]
+harness = ["builtin/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

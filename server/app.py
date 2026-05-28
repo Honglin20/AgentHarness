@@ -14,6 +14,29 @@ from .event_bus import get_event_bus
 from .runner import get_runner
 
 
+def _resolve_frontend_dir() -> Path:
+    """Find the frontend static build directory."""
+    import os
+
+    # 1. Explicit override
+    env_dir = os.environ.get("HARNESS_FRONTEND_DIR")
+    if env_dir:
+        return Path(env_dir)
+
+    # 2. Editable install / dev: frontend/out in repo root
+    dev_path = Path(__file__).resolve().parent.parent / "frontend" / "out"
+    if dev_path.exists():
+        return dev_path
+
+    # 3. Pip install: pre-built in package
+    pkg_path = Path(__file__).resolve().parent.parent / "harness" / "builtin" / "frontend"
+    if pkg_path.exists():
+        return pkg_path
+
+    # Fallback to dev path (triggers "not built" page)
+    return dev_path
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan manager: startup/shutdown."""
@@ -93,7 +116,11 @@ def create_app() -> FastAPI:
         return response
 
     # Serve frontend static build (if exists)
-    frontend_out = Path(__file__).resolve().parent.parent / "frontend" / "out"
+    # Resolution order:
+    #   1. HARNESS_FRONTEND_DIR env var (manual override)
+    #   2. <repo>/frontend/out (editable install / dev mode)
+    #   3. harness/builtin/frontend (pip install — pre-built)
+    frontend_out = _resolve_frontend_dir()
     next_assets = frontend_out / "_next"
     if frontend_out.exists() and next_assets.exists():
         app.mount("/_next", HttpOnlyStaticFiles(directory=next_assets), name="next_assets")
