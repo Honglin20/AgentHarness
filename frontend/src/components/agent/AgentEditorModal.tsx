@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Save, RotateCcw } from "lucide-react";
+import { fetchWithAuth } from "@/lib/api";
 
 interface AgentEditorModalProps {
   open: boolean;
@@ -47,7 +48,7 @@ export function AgentEditorModal({
     }
     if (!workflowName) return;
     const url = `/api/agents/${encodeURIComponent(agentName)}/md?workflow=${encodeURIComponent(workflowName)}`;
-    fetch(url)
+    fetchWithAuth(url)
       .then(async (r) => {
         if (!r.ok) {
           const text = await r.text();
@@ -81,7 +82,7 @@ export function AgentEditorModal({
     setSaving(true); setError("");
     try {
       const body = { workflow: workflowName, target: saveTarget, md_content: mdContent };
-      const r = await fetch(`/api/agents/${encodeURIComponent(agentName)}/md`, {
+      const r = await fetchWithAuth(`/api/agents/${encodeURIComponent(agentName)}/md`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

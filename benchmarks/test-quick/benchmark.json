@@ -15,7 +15,14 @@
       "inputs": {
         "task": "Say goodbye world"
       }
+    },
+    {
+      "id": "task_3",
+      "label": "say yo",
+      "inputs": {
+        "task": "say yo"
+      }
     }
   ],
-  "created_at": "2026-05-25T06:33:54.000330+00:00"
+  "created_at": "2026-05-27T23:11:58.079928+00:00"
 }

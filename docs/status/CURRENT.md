@@ -1,47 +1,37 @@
 # Current Task
 
-**当前任务**: 修复前端数据流三大缺陷（实时对话、Chart渲染、Collapsible交互）
-**状态**: in_progress
-**优先级**: P0 — 最高优先级，阻塞所有其他工作
+**当前任务**: Benchmark 修复 + 用户隔离
+**状态**: completed
+**优先级**: P0
 
 ---
 
-## 问题描述
+## 完成内容
 
-运行 workflow 后存在三个前端缺陷：
+### 后端（4 commits）
+1. `harness/benchmark_store.py` — save_benchmark/list_benchmarks/list_results 新增 user_id 参数
+2. `server/routes.py` — 8 个 benchmark 端点全部加 get_current_user + ownership check
+3. `tests/test_benchmark_isolation.py` — 5 个测试覆盖用户隔离场景
+4. `server/routes.py` — batch metadata 存储 user_id，修复 ownership check
 
-1. **实时对话不可见**：workflow 启动后运行过程中，Conversation 标签页无流式输出，看不到 agent 文字和工具调用
-2. **Charts 不显示**：workflow 完成后 Results 标签页为空，图表不渲染
-3. **Collapsible 不可交互**：点击图表组标题行无法收起/展开
+### 前端（3 commits）
+1. `BenchmarkRunner.tsx` — 去掉全局 store，改用 WorkflowManager + fetchWithAuth
+2. `Sidebar/BenchmarkCompare/ScopedCenterPanel` — 全部 fetch → fetchWithAuth
+3. `useWorkflowEvents.ts` — 清理 legacy batch code，setActiveWorkflowId 标记 @deprecated
 
-## 已完成的诊断和改动
+### 验证
+- 220 backend tests pass
+- TypeScript 编译无错误
+- Frontend build 成功
 
-详见 `docs/status/2026-05-27-frontend-data-flow-issues.md`
-
-### 后端改动（已验证正确）
-- `harness/run_store.py` — 新增 `events` 字段持久化
-- `server/runner.py` — 用 `ConversationCollector` 替代 `build_conversation()` 修复消息排序
-- `harness/extensions/bus.py` — buffer 从 500 增大到 2000
-- 后端测试全部通过（215/215）
-
-### 前端改动（仍有问题）
-- `contexts/workflow-context/replayEvents.ts` — 新建事件回放工具
-- `stores/viewStore.ts` — showReplay 时回放事件到 scoped stores
-- `components/layout/WorkflowCenterPanel.tsx` — 统一 live/replay 走 scoped 架构
-- `components/layout/ScopedCenterPanel.tsx` — 移除 isReplay 组件分支
-- `components/results/ResultsTab.tsx` 等 4 文件 — Collapsible 用 localCollapsed
-- `contexts/workflow-context/useWorkflowWS.ts` — onEvent 用 workflowId 替代全局 store
-
-### 仍存在的问题
-- 从 landing page 启动 workflow 后，事件流没有到达 scoped stores
-- 根因疑似：CenterPanel(legacy) → WorkflowScope(scoped) 的渲染切换时序中，
-  WebSocket 连接和 store 创建之间存在断裂
-- 需要在浏览器 DevTools 中实际调试事件流，不能用猜测驱动开发
-
-## 必读文件
-
-1. `docs/status/2026-05-27-frontend-data-flow-issues.md` — 完整诊断文档
-2. `docs/plans/2026-05-27-unified-event-stream-architecture.md` — 架构改进计划
-3. `frontend/src/contexts/workflow-context/useWorkflowWS.ts` — 事件路由入口
-4. `frontend/src/contexts/workflow-context/eventRouter.ts` — 事件到 store 的路由
-5. `frontend/src/components/layout/WorkflowCenterPanel.tsx` — live/replay 渲染决策
+## Commits (0a63c28..9173fda)
+```
+9173fda build: deploy frontend with batch metadata fix
+8733ae0 fix(benchmark): store user_id in batch metadata + fix workflow definitions auth
+58a09f8 build: deploy frontend with benchmark isolation support
+ab3998e fix(benchmark): add auth headers and clean up legacy batch code
+eed3e12 fix(benchmark): rewrite BenchmarkRunner to use scoped stores
+4ec60a3 test(benchmark): add user isolation tests for BenchmarkStore
+cb541e8 feat(benchmark): enforce user isolation on all API endpoints
+e77aa77 feat(benchmark): add user_id to BenchmarkStore for isolation
+```

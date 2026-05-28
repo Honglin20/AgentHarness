@@ -7,6 +7,7 @@ import { useViewStore } from "@/stores/viewStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useBatchStore } from "@/stores/batchStore";
 import { setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
+import { fetchWithAuth } from "@/lib/api";
 
 const STATUS_ICON: Record<string, React.ReactNode> = {
   completed: <CheckCircle className="h-3 w-3 text-emerald-500" />,
@@ -36,7 +37,7 @@ function formatTime(iso: string): string {
 
 async function pauseWorkflow(runId: string): Promise<void> {
   try {
-    await fetch(`/api/workflows/${runId}/cancel`, { method: "POST" });
+    await fetchWithAuth(`/api/workflows/${runId}/cancel`, { method: "POST" });
   } catch {
     // best effort
   }
@@ -113,7 +114,7 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
   const handleResume = async (e: React.MouseEvent, runId: string) => {
     e.stopPropagation();
     try {
-      const r = await fetch(`/api/runs/${runId}/resume`, {
+      const r = await fetchWithAuth(`/api/runs/${runId}/resume`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -129,7 +130,7 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
   const handleRerun = async (e: React.MouseEvent, runId: string) => {
     e.stopPropagation();
     try {
-      const r = await fetch(`/api/runs/${runId}/rerun`, { method: "POST" });
+      const r = await fetchWithAuth(`/api/runs/${runId}/rerun`, { method: "POST" });
       if (!r.ok) return;
       const data = await r.json();
       setActiveWorkflowId(data.workflow_id);
@@ -142,7 +143,7 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
   const handleDeleteRun = async (e: React.MouseEvent, runId: string) => {
     e.stopPropagation();
     if (!confirm("Delete this run record?")) return;
-    await fetch(`/api/runs/${runId}`, { method: "DELETE" });
+    await fetchWithAuth(`/api/runs/${runId}`, { method: "DELETE" });
     await fetchRuns();
   };
 

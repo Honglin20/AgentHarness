@@ -65,8 +65,9 @@ export function useWebSocket({
       userId = getUserFromApiKey(apiKey);
     }
     if (!userId) {
-      console.warn("[WebSocket] No user context — waiting for authentication");
-      return;
+      // No stored credentials — use default identity. Per-workflow WS
+      // endpoints don't filter by user (Bus isolation is sufficient).
+      userId = "default";
     }
 
     const base = getWsBaseUrl();

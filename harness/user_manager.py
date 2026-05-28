@@ -35,6 +35,17 @@ class UserManager:
             return default
         return json.loads(self._path.read_text())
 
+    def list_users(self) -> list[User]:
+        """返回所有去重的用户（按 user_id 去重）"""
+        seen: set[str] = set()
+        result: list[User] = []
+        for data in self._users.values():
+            uid = data.get("user_id")
+            if uid and uid not in seen:
+                seen.add(uid)
+                result.append(User(**data))
+        return result
+
     def reload(self):
         """重新加载配置（用于热更新）"""
         self._users = self._load()
@@ -50,15 +61,21 @@ class UserManager:
         """从请求获取当前用户
 
         优先级：
-        1. Header X-API-Key
-        2. 降级到默认用户（向后兼容）
+        1. Header X-API-Key → 查 users.json
+        2. Header X-User-Id → 按 user_id 查找
+        3. 降级到默认用户（向后兼容）
         """
         api_key = request.headers.get("X-API-Key")
-
         if api_key:
             user = self.get_user(api_key)
             if user:
                 return user
+
+        user_id = request.headers.get("X-User-Id")
+        if user_id:
+            for data in self._users.values():
+                if data.get("user_id") == user_id:
+                    return User(**data)
 
         # 降级：使用默认用户（向后兼容）
         return User(user_id="default", name="Default User", role="developer")

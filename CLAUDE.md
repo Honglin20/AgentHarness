@@ -27,6 +27,12 @@ cd frontend && npm run dev  # http://localhost:3000
 cd frontend && npm run build
 ```
 
+### 部署注意
+- `next.config.js` 配置 `output: "export", distDir: "out"`，构建产物在 `frontend/out/`
+- 服务器从 `frontend/out/` 提供静态文件
+- **前端源码改动后，必须 `cd frontend && npm run build`，然后将 `frontend/out/` 的变更一起提交并推送**
+- 仅推送源码不推送构建产物 = 部署了旧代码
+
 ### 测试
 ```bash
 pytest                         # 跳过慢速测试（不调用 LLM/MCP）

@@ -15,14 +15,9 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 
-interface AgentMessageProps {
-  message: ConversationMessage;
-  collapsed: boolean;
-  onToggleCollapse: () => void;
-  sectionItemCount: number;
-  getAgentIO?: (nodeId: string) => { inputPrompt?: string; outputResult?: unknown; systemPrompt?: string } | undefined;
-  getNodeState?: (nodeId: string) => { tokenUsage?: { input: number; output: number; total: number }; tools?: ToolBrief[] } | undefined;
-}
+// ---------------------------------------------------------------------------
+// Shared utilities
+// ---------------------------------------------------------------------------
 
 const AGENT_STATUS_BADGE_BG: Record<string, string> = {
   streaming: "bg-blue-500/10 text-blue-500",
@@ -55,7 +50,6 @@ function formatOutputAsMd(output: unknown): string {
     if (obj.summary) lines.push(String(obj.summary));
     if (obj.details) lines.push("", String(obj.details));
 
-    // If there are other fields beyond summary/details, render them as a table
     const extra = Object.entries(obj).filter(
       ([k]) => k !== "summary" && k !== "details"
     );
@@ -72,7 +66,9 @@ function formatOutputAsMd(output: unknown): string {
   return JSON.stringify(output, null, 2);
 }
 
-type IOTab = "input" | "output";
+// ---------------------------------------------------------------------------
+// ToolsBadge
+// ---------------------------------------------------------------------------
 
 function ToolsBadge({ tools }: { tools: ToolBrief[] }) {
   const [open, setOpen] = useState(false);
@@ -125,7 +121,35 @@ function ToolsBadge({ tools }: { tools: ToolBrief[] }) {
   );
 }
 
-export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItemCount, getAgentIO, getNodeState }: AgentMessageProps) {
+// ---------------------------------------------------------------------------
+// Shared props type
+// ---------------------------------------------------------------------------
+
+type IOTab = "input" | "output";
+
+interface AgentNodeHeaderProps {
+  message: ConversationMessage;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+  sectionItemCount?: number;
+  getAgentIO?: (nodeId: string) => { inputPrompt?: string; outputResult?: unknown; systemPrompt?: string } | undefined;
+  getNodeState?: (nodeId: string) => { tokenUsage?: { input: number; output: number; total: number }; tools?: ToolBrief[] } | undefined;
+}
+
+// ---------------------------------------------------------------------------
+// AgentNodeHeader — the top bar of an agent node card
+// Renders: agent name badge, duration, tokens, IO buttons, tools badge,
+// collapse toggle, and the IO Sheet.
+// ---------------------------------------------------------------------------
+
+export function AgentNodeHeader({
+  message,
+  collapsed,
+  onToggleCollapse,
+  sectionItemCount,
+  getAgentIO,
+  getNodeState,
+}: AgentNodeHeaderProps) {
   const { agentName, content, status, durationMs, nodeId } = message;
   const badgeClass = AGENT_STATUS_BADGE_BG[status ?? "done"] ?? AGENT_STATUS_BADGE_BG.done;
   const isStreaming = status === "streaming";
@@ -150,11 +174,10 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
   const text = content ?? "";
   const preview = firstNonEmptyLine(text);
   const lineCount = text.split("\n").length;
-  const hasMore = lineCount > 1 || text.length > preview.length || sectionItemCount > 1;
-  const showCollapsed = collapsed && !isStreaming;
+  const hasMore = lineCount > 1 || text.length > preview.length || (sectionItemCount ?? 0) > 1;
 
   return (
-    <div className="flex min-w-0 flex-col gap-1 py-1">
+    <>
       <div className="flex min-w-0 items-center gap-2">
         {agentName && (
           <span className={`inline-flex max-w-[40%] shrink items-center truncate rounded-md px-2 py-0.5 text-xs font-medium ${badgeClass}`}>
@@ -195,7 +218,7 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
         {tools != null && tools.length > 0 && (
           <ToolsBadge tools={tools} />
         )}
-        {!isStreaming && hasMore && (
+        {!isStreaming && hasMore && onToggleCollapse && (
           <button
             type="button"
             onClick={onToggleCollapse}
@@ -207,31 +230,13 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
               className={`h-3 w-3 transition-transform ${collapsed ? "" : "rotate-90"}`}
             />
             {collapsed
-              ? sectionItemCount > 1
+              ? sectionItemCount && sectionItemCount > 1
                 ? `Show (${sectionItemCount})`
                 : `Show ${lineCount} lines`
               : "Collapse"}
           </button>
         )}
       </div>
-
-      {status === "error" && !text ? (
-        <p className="text-sm text-red-500">An error occurred</p>
-      ) : showCollapsed ? (
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          className="block w-full min-w-0 truncate text-left text-sm text-muted-foreground hover:text-app-text-primary"
-          title="Click to expand"
-        >
-          {preview || "(empty output)"}
-        </button>
-      ) : (
-        <div className="min-w-0 text-sm">
-          <MarkdownText>{text}</MarkdownText>
-          {isStreaming && <span className="animate-pulse">▎</span>}
-        </div>
-      )}
 
       {hasIO && (
         <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
@@ -273,6 +278,57 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
             </div>
           </SheetContent>
         </Sheet>
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AgentMessage — backward-compatible: header + content
+// Used by ConversationTab (non-scoped).
+// ---------------------------------------------------------------------------
+
+interface AgentMessageProps {
+  message: ConversationMessage;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
+  sectionItemCount: number;
+  getAgentIO?: (nodeId: string) => { inputPrompt?: string; outputResult?: unknown; systemPrompt?: string } | undefined;
+  getNodeState?: (nodeId: string) => { tokenUsage?: { input: number; output: number; total: number }; tools?: ToolBrief[] } | undefined;
+}
+
+export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItemCount, getAgentIO, getNodeState }: AgentMessageProps) {
+  const { content, status } = message;
+  const text = content ?? "";
+  const isStreaming = status === "streaming";
+  const showCollapsed = collapsed && !isStreaming;
+
+  return (
+    <div className="flex min-w-0 flex-col gap-1 py-1">
+      <AgentNodeHeader
+        message={message}
+        collapsed={collapsed}
+        onToggleCollapse={onToggleCollapse}
+        sectionItemCount={sectionItemCount}
+        getAgentIO={getAgentIO}
+        getNodeState={getNodeState}
+      />
+      {status === "error" && !text ? (
+        <p className="text-sm text-red-500">An error occurred</p>
+      ) : showCollapsed ? (
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          className="block w-full min-w-0 truncate text-left text-sm text-muted-foreground hover:text-app-text-primary"
+          title="Click to expand"
+        >
+          {firstNonEmptyLine(text) || "(empty output)"}
+        </button>
+      ) : (
+        <div className="min-w-0 text-sm">
+          <MarkdownText>{text}</MarkdownText>
+          {isStreaming && <span className="animate-pulse">▎</span>}
+        </div>
       )}
     </div>
   );

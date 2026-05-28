@@ -62,11 +62,14 @@ class ConnectionManager:
         websocket: WebSocket,
         event_bus: EventBus,
         user_id: str | None = None,
+        filter_by_user: bool = True,
     ) -> str:
         """Accept a WebSocket connection and subscribe to EventBus.
 
         Args:
             user_id: User ID for event filtering
+            filter_by_user: When False, skip user filtering (per-workflow WS
+                already has its own isolated Bus).
         """
         await websocket.accept()
 
@@ -104,7 +107,10 @@ class ConnectionManager:
 
         # Start background task to forward events (filtered by user)
         task = asyncio.create_task(
-            self._forward_events_filtered(sub_id, queue, websocket, ws_user_id)
+            self._forward_events_filtered(
+                sub_id, queue, websocket, ws_user_id,
+                filter_by_user=filter_by_user,
+            )
         )
         async with self._lock:
             self._tasks[sub_id] = task
@@ -138,6 +144,7 @@ class ConnectionManager:
         queue: asyncio.Queue,
         websocket: WebSocket,
         user_id: str,
+        filter_by_user: bool = True,
     ) -> None:
         """Forward events to WebSocket, filtered by user and broadcast rules.
 
@@ -145,38 +152,42 @@ class ConnectionManager:
         - self: only sender receives
         - admin: all admin users receive
         - all: all users receive (rare, for system alerts)
+
+        When filter_by_user=False (per-workflow WS with isolated Bus),
+        all events are forwarded without user filtering.
         """
         try:
             while True:
                 event = await queue.get()
 
-                # Filter events by user_id and broadcast rules
-                # Priority: payload.user_id > event.user_id
-                event_user_id = (
-                    event.get("payload", {}).get("user_id") or
-                    event.get("user_id")
-                )
-                event_type = event.get("type", "")
-                broadcast_rule = BROADCAST_RULES.get(event_type, "self")
+                if filter_by_user:
+                    # Filter events by user_id and broadcast rules
+                    # Priority: payload.user_id > event.user_id
+                    event_user_id = (
+                        event.get("payload", {}).get("user_id") or
+                        event.get("user_id")
+                    )
+                    event_type = event.get("type", "")
+                    broadcast_rule = BROADCAST_RULES.get(event_type, "self")
 
-                # Check broadcast rule
-                if broadcast_rule == "self":
-                    # 只有发起者接收
-                    if not event_user_id or event_user_id != user_id:
-                        continue
-                elif broadcast_rule == "admin":
-                    # 管理员事件：只发给 admin
-                    user_mgr = get_user_manager()
-                    user = user_mgr.get_user_by_id(user_id)
-                    if not user or user.role != "admin":
-                        continue
-                elif broadcast_rule == "all":
-                    # 所有人接收（默认情况）
-                    pass
-                else:
-                    # 其他情况只发给对应用户
-                    if event_user_id != user_id:
-                        continue
+                    # Check broadcast rule
+                    if broadcast_rule == "self":
+                        # 只有发起者接收
+                        if not event_user_id or event_user_id != user_id:
+                            continue
+                    elif broadcast_rule == "admin":
+                        # 管理员事件：只发给 admin
+                        user_mgr = get_user_manager()
+                        user = user_mgr.get_user_by_id(user_id)
+                        if not user or user.role != "admin":
+                            continue
+                    elif broadcast_rule == "all":
+                        # 所有人接收（默认情况）
+                        pass
+                    else:
+                        # 其他情况只发给对应用户
+                        if event_user_id != user_id:
+                            continue
 
                 # Send as JSON
                 await websocket.send_text(json.dumps(event))
@@ -242,10 +253,18 @@ async def websocket_endpoint(
     data = repo.get(workflow_id)
     event_bus = data.get("event_bus") if data else None
     if not event_bus:
-        # Fallback: create a standalone Bus for completed/missing runs
-        event_bus = get_event_bus()
+        # Workflow completed — per-workflow Bus was removed after persistence.
+        # Create a fresh empty Bus so the WS still works for bidirectional
+        # messages (chat.answer, stop_and_regenerate) but won't replay stale
+        # events from the global Bus.
+        from server.routes import _new_bus
+        event_bus = _new_bus()
 
-    sub_id = await manager.connect(workflow_id, websocket, event_bus, user_id=user_id)
+    # Per-workflow WS: Bus is already isolated, no need for user filtering.
+    sub_id = await manager.connect(
+        workflow_id, websocket, event_bus,
+        user_id=user_id, filter_by_user=False,
+    )
 
     try:
         while True:

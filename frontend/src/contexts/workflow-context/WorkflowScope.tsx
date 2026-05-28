@@ -11,6 +11,8 @@
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
 import { WorkflowProvider } from "./WorkflowContext";
 import { getWorkflowManager } from "./WorkflowManager";
+import { replayEventsToStores, loadLegacyRunData } from "./replayEvents";
+import { fetchWithAuth } from "@/lib/api";
 
 // ============================================================
 // WSMethodContext — React context for WebSocket send methods
@@ -74,6 +76,57 @@ export function WorkflowScope({ workflowId, children }: WorkflowScopeProps) {
 
   useEffect(() => {
     manager.setActiveWorkflowId(workflowId);
+  }, [manager, workflowId]);
+
+  // REST fallback: if WS events haven't populated stores after 2s, fetch from API
+  useEffect(() => {
+    if (!workflowId) return;
+    let cancelled = false;
+
+    const timer = setTimeout(async () => {
+      const stores = manager.getStores(workflowId);
+      if (!stores || cancelled) return;
+
+      // Only restore if workflow.started was never received (no DAG)
+      if (stores.workflow.getState().dag) return;
+
+      try {
+        const r = await fetchWithAuth(`/api/runs/${workflowId}`);
+        if (!r.ok || cancelled) return;
+        const data = await r.json();
+
+        // Re-check after async gap — WS events may have arrived
+        if (stores.workflow.getState().dag) return;
+
+        if (data.events?.length) {
+          replayEventsToStores(workflowId, data.events);
+        } else {
+          loadLegacyRunData(workflowId, data.conversation ?? [], data.chart_groups ?? null);
+        }
+
+        // Set DAG/status if still missing
+        const wf = stores.workflow.getState();
+        if (!wf.dag && data.dag) {
+          wf.handleWorkflowStarted({
+            workflow_id: workflowId,
+            name: data.workflow_name,
+            dag: data.dag,
+            inputs: data.inputs,
+          });
+        }
+        if (data.status === "completed" || data.status === "failed") {
+          stores.workflow.getState().handleWorkflowCompleted({
+            workflow_id: workflowId,
+            status: data.status === "failed" ? "failed" : "completed",
+          });
+        }
+      } catch {}
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [manager, workflowId]);
 
   if (!stores) return <>{children}</>;

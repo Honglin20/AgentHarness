@@ -46,7 +46,7 @@ export default function LineChartWidget({ chart }: { chart: ChartPayload }) {
       <div className="flex flex-col">
         <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
         <div className="aspect-[4/3] w-full">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={300}>
             <LineChart data={pivotedData} margin={{ ...CHART_MARGIN, right: 60 }}>
               <CartesianGrid {...gridProps} />
               <XAxis dataKey={xKey} tick={axisTick} />
@@ -78,7 +78,7 @@ export default function LineChartWidget({ chart }: { chart: ChartPayload }) {
     <div className="flex flex-col">
       <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
       <div className="aspect-[4/3] w-full">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={300}>
           <LineChart data={data} margin={CHART_MARGIN}>
             <CartesianGrid {...gridProps} />
             <XAxis dataKey={xKey} tick={axisTick} />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { memo, useState } from "react";
 import { Check, Loader2 } from "lucide-react";
 import type { ConversationMessage } from "@/stores/conversationStore";
 import {
@@ -92,21 +92,12 @@ function renderToolResult(toolName: string | undefined, toolArgs: unknown, toolR
   );
 }
 
-export function ToolCallMessage({ message }: ToolCallMessageProps) {
+export const ToolCallMessage = memo(function ToolCallMessage({ message }: ToolCallMessageProps) {
   const { toolName, toolArgs, toolResult, toolStatus, toolDurationMs, toolStreamingOutput } = message;
   const isRunning = toolStatus === "running";
   const isDone = toolStatus === "done";
   const argsPreview = previewArgs(toolName, toolArgs);
   const [open, setOpen] = useState(false);
-
-  // Streaming → auto-expand; Done → auto-collapse
-  useEffect(() => {
-    if (isRunning && toolStreamingOutput) setOpen(true);
-  }, [isRunning, toolStreamingOutput]);
-
-  useEffect(() => {
-    if (isDone) setOpen(false);
-  }, [isDone]);
 
   const isFileTool = toolName === "write_file" || toolName === "edit_file" || toolName === "read_file";
 
@@ -165,4 +156,4 @@ export function ToolCallMessage({ message }: ToolCallMessageProps) {
       </Collapsible>
     </div>
   );
-}
+});

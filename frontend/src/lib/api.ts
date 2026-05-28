@@ -80,6 +80,11 @@ export function fetchWithAuth(
     headers["X-API-Key"] = apiKey;
   }
 
+  const userId = getUserId();
+  if (userId) {
+    headers["X-User-Id"] = userId;
+  }
+
   return fetch(url, {
     ...options,
     headers,

@@ -41,7 +41,7 @@ export default function RadarChartWidget({ chart }: { chart: ChartPayload }) {
       <div className="flex flex-col">
         <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
         <div className="aspect-square w-full max-w-[400px] mx-auto">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={300}>
             <RadarChart data={pivoted} cx="50%" cy="50%" outerRadius="75%">
               <PolarGrid stroke={gridStroke} />
               <PolarAngleAxis dataKey={xKey} tick={{ fontSize: 10, fill: axisTick.fill }} />
@@ -70,7 +70,7 @@ export default function RadarChartWidget({ chart }: { chart: ChartPayload }) {
     <div className="flex flex-col">
       <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
       <div className="aspect-square w-full max-w-[400px] mx-auto">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={300}>
           <RadarChart data={data} cx="50%" cy="50%" outerRadius="75%">
             <PolarGrid stroke={gridStroke} />
             <PolarAngleAxis dataKey={xKey} tick={{ fontSize: 10, fill: axisTick.fill }} />

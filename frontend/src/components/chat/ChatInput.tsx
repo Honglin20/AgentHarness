@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConversationStore, type ConversationMessage } from "@/stores/conversationStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
+import { fetchWithAuth } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Play, Square } from "lucide-react";
@@ -122,7 +123,7 @@ export default function ChatInput({
     sendStopAndRegenerate(agentName, partialContent, "");
     if (workflowId) {
       try {
-        await fetch(`/api/workflows/${workflowId}/cancel`, { method: "POST" });
+        await fetchWithAuth(`/api/workflows/${workflowId}/cancel`, { method: "POST" });
       } catch {
         // best effort
       }
@@ -140,7 +141,7 @@ export default function ChatInput({
       addUserMsg(guidance);
     }
     try {
-      await fetch(`/api/runs/${workflowId}/resume`, {
+      await fetchWithAuth(`/api/runs/${workflowId}/resume`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),

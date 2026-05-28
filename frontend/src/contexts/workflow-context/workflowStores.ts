@@ -261,7 +261,13 @@ export function createConversationStore(
           (m) => m.nodeId === nodeId && m.type === "agent" && m.status === "streaming"
         );
         if (streamingIdx !== -1) {
-          msgs[streamingIdx] = { ...msgs[streamingIdx], status: "done" as const };
+          if (!msgs[streamingIdx].content.trim()) {
+            // No text before this tool call — remove the empty placeholder
+            // so the final output appears AFTER tool calls, not before.
+            msgs.splice(streamingIdx, 1);
+          } else {
+            msgs[streamingIdx] = { ...msgs[streamingIdx], status: "done" as const };
+          }
         }
 
         return {

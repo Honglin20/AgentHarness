@@ -206,7 +206,7 @@ class WorkflowRunner:
             try:
                 # Check cancellation before starting
                 if await self._is_cancelled(workflow_id):
-                    event_bus.emit("workflow.cancelled", {"workflow_id": workflow_id})
+                    event_bus.emit("workflow.cancelled", {"workflow_id": workflow_id, "user_id": user_id})
                     return
 
                 # Change to working directory if specified
@@ -304,6 +304,7 @@ class WorkflowRunner:
                 # Emit completion
                 completion_payload = {
                     "workflow_id": workflow_id,
+                    "user_id": user_id,
                     "outputs": _serialize_outputs(result.outputs),
                     "errors": result.errors,
                     "trace": [t.model_dump() for t in result.trace],
@@ -373,6 +374,7 @@ class WorkflowRunner:
 
                 error_payload = {
                     "workflow_id": workflow_id,
+                    "user_id": user_id,
                     "error": str(e),
                 }
                 if batch_id:

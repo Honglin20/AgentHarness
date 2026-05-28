@@ -13,6 +13,7 @@ import type { NodeFailedPayload } from "@/types/events";
 import type { AgentTextDeltaPayload } from "@/types/events";
 import type { AgentToolCallPayload } from "@/types/events";
 import type { AgentToolResultPayload } from "@/types/events";
+import { fetchWithAuth } from "@/lib/api";
 import type { AgentToolOutputDeltaPayload } from "@/types/events";
 import type { ChatQuestionPayload } from "@/types/events";
 import type { ChartRenderPayload } from "@/types/events";
@@ -82,7 +83,7 @@ async function saveConversation(workflowId: string): Promise<void> {
   const messages = stores.conversation.getState().messages;
   if (messages.length === 0) return;
 
-  await fetch(`/api/runs/${workflowId}/conversation`, {
+  await fetchWithAuth(`/api/runs/${workflowId}/conversation`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ conversation: messages }),
@@ -98,7 +99,7 @@ async function saveCharts(workflowId: string): Promise<void> {
   const { groups, groupOrder } = stores.chart.getState();
   if (groupOrder.length === 0) return;
 
-  await fetch(`/api/runs/${workflowId}/charts`, {
+  await fetchWithAuth(`/api/runs/${workflowId}/charts`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chart_groups: { groups, groupOrder } }),
@@ -288,6 +289,12 @@ export function dispatchSingleEvent(event: WSEvent, currentWorkflowId: string | 
   // Only process events from the currently active workflow
   if (wid && currentWorkflowId && wid !== currentWorkflowId) {
     return;
+  }
+
+  // Inject workflow_id for events that lack it (e.g. chart.render)
+  // so routeEventToStores can locate the scoped stores
+  if (!wid && currentWorkflowId) {
+    event = { ...event, payload: { ...event.payload, workflow_id: currentWorkflowId } };
   }
 
   routeEventToStores(event);
