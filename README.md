@@ -76,6 +76,9 @@ wf.save()
 # 运行
 result = wf.run({"task": "审查这段代码: def div(a,b): return a/b"})
 
+# 运行（指定工作目录）
+result = wf.run({"task": "..."}, work_dir="/path/to/project")
+
 # 查看结果
 for t in result.trace:
     print(f"{t.agent_name}: {t.status} {t.duration_ms}ms")
@@ -389,6 +392,10 @@ wf.use(ConsoleOutput(
     verbose=True,         # 显示详细信息
     show_system=True,     # 显示 system prompt 框
     show_upstream=True,   # 显示上游 agent 输出
+    show_model=True,      # 显示 agent 使用的 LLM model
+    show_tools=True,      # 显示 agent 可用的 tools (name + description)
+    show_critique=True,   # 显示 eval 评审反馈（重试时）
+    show_config=False,    # 显示 agent_md_path / retries / result_type
     use_colors=True,      # 使用颜色
 ))
 
@@ -397,23 +404,30 @@ result = wf.run({"task": "..."})
 
 **输出示例：**
 ```
-╔══════════════════════════════════════════════════════════╗
-║ 🔹 analyzer 开始执行                                    ║
-╚══════════════════════════════════════════════════════════╝
+╭─ 🔹 analyzer 开始执行 ─╮
+│                           │
+╰───────────────────────────╯
 
-┌────────────────────────── 📌 User Prompt ───────────────────────────┐
-│ ## Task                                                                │
-│ {   "task": "分析这段代码: print('hello')" }                          │
-└───────────────────────────────────────────────────────────────────────┘
+╭─ 📌 System Prompt ─╮
+│ You are a code analyst.  │
+╰────────────────────────╯
 
-╔══════════════════════════════════════════════════════════╗
-║ ✓ analyzer 执行完成                                       ║
-╚══════════════════════════════════════════════════════════╝
+╭─ 📌 User Prompt ────────────╮
+│ ## Task                       │
+│ {"task": "分析这段代码"}       │
+╰───────────────────────────────╯
 
-┌──────────────────────────────────── Agent 输出 ────────────────────────────────────┐
-│ 输出摘要:                                                                               │
-│ 该代码为 Python 3 中的 print 函数调用，功能简单明确，无复杂逻辑。                     │
-└─────────────────────────────────────────────────────────────────────────────────────┘
+╭─ Model ─╮
+│ gpt-4o  │
+╰─────────╯
+
+╭─ Tools ─────────────────╮
+│ Tool     Description     │
+│ bash     Execute shell   │
+╰─────────────────────────╯
+
+╭─ ✓ analyzer 执行完成 ─╮
+╰────────────────────────╯
 ```
 
 > 完整示例: [examples/13_console_output.py](examples/13_console_output.py)

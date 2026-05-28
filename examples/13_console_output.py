@@ -8,6 +8,7 @@
 3. 上游 Agent 输出（summary + details）
 4. Agent 输出美化框
 5. 执行摘要和路径追踪
+6. Model / Tools / Config / Critique 信息（新增）
 
 特点：不影响 Web UI，仅在命令行使用时激活。
 
@@ -32,11 +33,24 @@ wf.workflow_dir = Path(__file__).resolve().parent.parent / "workflows" / "_share
 
 # 注册 ConsoleOutput（手动，不影响 UI）
 # 参数说明：
-#   stream=False      - 流式打印 LLM 输出
-#   verbose=True      - 显示详细信息
-#   show_system=True  - 显示 system prompt 框
+#   stream=False       - 流式打印 LLM 输出
+#   verbose=True       - 显示详细信息
+#   show_system=True   - 显示 system prompt 框
 #   show_upstream=True - 显示上游输出框
-wf.use(ConsoleOutput(stream=False, verbose=True, show_system=True, show_upstream=True))
+#   show_model=True    - 显示 agent 使用的 LLM model
+#   show_tools=True    - 显示 agent 可用的 tools (name + description)
+#   show_critique=True - 显示 eval 评审反馈（重试时）
+#   show_config=True   - 显示 agent_md_path / retries / result_type
+wf.use(ConsoleOutput(
+    stream=False,
+    verbose=True,
+    show_system=True,
+    show_upstream=True,
+    show_model=True,
+    show_tools=True,
+    show_critique=True,
+    show_config=True,
+))
 
 print("\n测试: analyzer → classifier → (pass→summary | fail→debugger)")
 print("=" * 50)
