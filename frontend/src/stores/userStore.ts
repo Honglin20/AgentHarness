@@ -37,6 +37,9 @@ function resetAllStores() {
   useAgentIOStore.getState().reset();
   useRunHistoryStore.getState().reset();
   useViewStore.getState().showLive();
+  if (typeof window !== "undefined") {
+    window.history.replaceState(null, "", window.location.pathname);
+  }
 }
 
 export const useUserStore = create<UserState>()((set) => ({

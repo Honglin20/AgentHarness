@@ -1,41 +1,38 @@
 # Current Task
 
-**当前任务**: Resource Registry + CLI Command
-**状态**: completed (Phase 1-3)
-**优先级**: P1
+**当前任务**: Frontend UX 持久化与体验改进
+**状态**: completed
+**优先级**: P0
 
 ---
 
 ## 必读文件
 
-1. `docs/specs/2026-05-28-resource-registry-and-cli.md` — 完整 SPEC + 实施记录
-2. `harness/registry.py` — 核心：ResourceRegistry 两层发现
-3. `harness/cli.py` — CLI 入口：`harness ui` / `harness list`
-4. `server/app.py` — `_resolve_frontend_dir()` 前端三路径 fallback
+1. `docs/plans/2026-05-28-frontend-ux-persistence.md` — 完整实施计划
+2. `frontend/src/hooks/useUrlState.ts` — URL 状态同步核心
+3. `docs/status/CHANGELOG.md` — 变更记录
 
 ## 已完成
 
-### Phase 1: 核心 Registry + 内置资源
-- `harness/registry.py` — ResourceRegistry + 全局单例 (22 测试)
-- `harness/builtin/workflows/demo_pipeline/` — 内置 workflow
-- `harness/builtin/benchmarks/smoke-test/` — 内置 benchmark
-- `harness/builtin/frontend/` — 预构建前端 (4.2MB)
-- `pyproject.toml` — package-data + console_scripts
+### P0: URL Search Params 双向同步
+- `useUrlState.ts` — mount 恢复 + subscribe 写入 URL
+- `page.tsx` — 集成 hook + benchmark 恢复
+- `CenterPanel.tsx` — tab URL 同步
 
-### Phase 2: CLI 命令
-- `harness/cli.py` — `harness ui` + `harness list`
+### P1: 用户上下文恢复
+- `userStore.ts` — resetAllStores 清除 URL
 
-### Phase 3: 后端最小适配
-- `harness/api.py` — Workflow.load/list_saved/Benchmark._execute 加 registry fallback
-- `harness/benchmark_store.py` — load_benchmark 加 registry fallback
-- `server/routes.py` — _validate_workflow_dir 加 registry fallback
-- `server/app.py` — _resolve_frontend_dir 三路径 fallback
+### P2: Toast 通知系统
+- Sonner 集成，替代所有 alert/confirm
 
-## 验证
-- 248/248 测试通过（1 个预先存在的失败无关）
-- `harness list` 从任意目录显示 builtin 资源
-- pip install 模拟：`Workflow.list_saved()` 返回 builtin + scope 字段
+### P3: Skeleton 加载态
+- RunHistorySkeleton 替代 Radio spinner
 
-## 待做 (Phase 4)
-- 前端 scope badge (builtin/project)
-- Builtin 资源只读控制 (隐藏 Delete, 禁用 Save)
+### P4: 全局 ErrorBoundary
+- 防白屏，显示错误 + Reload 按钮
+
+### P5: WebSocket 连接状态
+- 断连时顶部黄色提示条
+
+## 待做
+- (无) 已全部完成，待 Phase 4 of Resource Registry

@@ -19,6 +19,7 @@ import { useBatchStore } from "@/stores/batchStore";
 import { WorkflowScope, WSMethodProvider } from "@/contexts/workflow-context/WorkflowScope";
 import { useWorkflowWS } from "@/contexts/workflow-context/useWorkflowWS";
 import { ScopedCenterPanel } from "./ScopedCenterPanel";
+import { ConnectionStatusBar } from "./ConnectionStatusBar";
 
 interface WorkflowCenterPanelProps {
   activeBenchmark?: string | null;
@@ -62,6 +63,7 @@ export function WorkflowCenterPanel({ activeBenchmark }: WorkflowCenterPanelProp
 
   return (
     <WorkflowScope workflowId={workflowId}>
+      {!isReplay && <ConnectionStatusBar isConnected={wsMethods.isConnected} />}
       <WSMethodProvider
         sendAnswer={wsMethods.sendAnswer}
         sendStopAndRegenerate={wsMethods.sendStopAndRegenerate}

@@ -13,6 +13,7 @@ import { dispatchBatchEvent } from "./eventRouter";
 import { useBatchStore } from "@/stores/batchStore";
 
 export interface WorkflowWSReturn {
+  isConnected: boolean;
   sendAnswer: (questionId: string, answer: string) => void;
   sendStopAndRegenerate: (agentName: string, partialOutput: string, userGuidance: string) => void;
 }
@@ -64,5 +65,5 @@ export function useWorkflowWS(workflowId: string | null): WorkflowWSReturn {
     [ws, workflowId],
   );
 
-  return { sendAnswer, sendStopAndRegenerate };
+  return { isConnected: ws.isConnected, sendAnswer, sendStopAndRegenerate };
 }

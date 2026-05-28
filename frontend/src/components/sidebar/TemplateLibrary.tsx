@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { LayoutTemplate, Trash2, Lock, Globe } from "lucide-react";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { getApiKey, fetchWithAuth } from "@/lib/api";
+import { showError, confirmAction } from "@/lib/confirm";
 
 interface SavedWorkflow {
   name: string;
@@ -39,10 +40,11 @@ export function TemplateLibrary() {
   const handleDelete = async (e: React.MouseEvent, name: string, scope?: string) => {
     e.stopPropagation();
     if (scope === "shared" && !isAdmin) {
-      alert("不能删除共享的 workflow");
+      showError("无法删除", "不能删除共享的 workflow");
       return;
     }
-    if (!confirm(`Delete workflow "${name}"?`)) return;
+    const ok = await confirmAction(`Delete workflow "${name}"?`);
+    if (!ok) return;
     const res = await fetchWithAuth(`/api/workflows/definitions/${name}`, { method: "DELETE" });
     if (res.ok) {
       if (selectedTemplate?.name === name) {
@@ -52,7 +54,7 @@ export function TemplateLibrary() {
       fetchTemplates();
     } else {
       const err = await res.json();
-      alert(err.detail || "删除失败");
+      showError("删除失败", err.detail || "未知错误");
     }
   };
 

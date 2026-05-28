@@ -21,6 +21,7 @@ import BenchmarkRunner from "@/components/benchmark/BenchmarkRunner";
 import BenchmarkCompare from "@/components/benchmark/BenchmarkCompare";
 import type { ConversationMessage } from "@/stores/conversationStore";
 import { fetchWithAuth } from "@/lib/api";
+import { readTabFromUrl, syncTabToUrl } from "@/hooks/useUrlState";
 
 type Tab = "conversation" | "results" | "analysis";
 type BenchmarkView = "editor" | "runner" | "compare";
@@ -35,8 +36,17 @@ interface Props {
   activeBenchmark?: string | null;
 }
 
+const VALID_TABS = new Set(["conversation", "results", "analysis"]);
+
 export function CenterPanel({ activeBenchmark }: Props) {
-  const [activeTab, setActiveTab] = useState<Tab>("conversation");
+  const initialTab = readTabFromUrl();
+  const [activeTab, setActiveTabRaw] = useState<Tab>(
+    initialTab && VALID_TABS.has(initialTab) ? (initialTab as Tab) : "conversation",
+  );
+  const setActiveTab = useCallback((tab: Tab) => {
+    setActiveTabRaw(tab);
+    syncTabToUrl(tab);
+  }, []);
   const [templates, setTemplates] = useState<SavedWorkflow[]>([]);
   const [editAgentName, setEditAgentName] = useState<string | null>(null);
   const [benchmarkView, setBenchmarkView] = useState<BenchmarkView>("runner");
@@ -80,7 +90,7 @@ export function CenterPanel({ activeBenchmark }: Props) {
   // land on a stale Results view from the previous run.
   useEffect(() => {
     if (workflowId && !isReplay) setActiveTab("conversation");
-  }, [workflowId, isReplay]);
+  }, [workflowId, isReplay, setActiveTab]);
 
   // Replay-mode data, derived once per active view
   const replayMessages: ConversationMessage[] | undefined = useMemo(() => {

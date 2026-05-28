@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
-import { CheckCircle, XCircle, X, Radio, Trash2, Play, RotateCcw, Pause } from "lucide-react";
+import { CheckCircle, XCircle, X, Trash2, Play, RotateCcw, Pause } from "lucide-react";
 import { useRunHistoryStore, type RunRecord } from "@/stores/runHistoryStore";
 import { useViewStore } from "@/stores/viewStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useBatchStore } from "@/stores/batchStore";
 import { setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
 import { fetchWithAuth } from "@/lib/api";
+import { confirmAction } from "@/lib/confirm";
+import { RunHistorySkeleton } from "./RunHistorySkeleton";
 
 const STATUS_ICON: Record<string, React.ReactNode> = {
   completed: <CheckCircle className="h-3 w-3 text-emerald-500" />,
@@ -142,17 +144,14 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
 
   const handleDeleteRun = async (e: React.MouseEvent, runId: string) => {
     e.stopPropagation();
-    if (!confirm("Delete this run record?")) return;
+    const ok = await confirmAction("Delete this run record?");
+    if (!ok) return;
     await fetchWithAuth(`/api/runs/${runId}`, { method: "DELETE" });
     await fetchRuns();
   };
 
   if (loading && runs.length === 0) {
-    return (
-      <div className="flex items-center justify-center py-8">
-        <Radio className="h-4 w-4 animate-pulse text-muted-foreground" />
-      </div>
-    );
+    return <RunHistorySkeleton />;
   }
 
   if (runs.length === 0) {
