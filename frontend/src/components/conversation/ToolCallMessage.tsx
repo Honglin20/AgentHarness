@@ -30,7 +30,7 @@ function previewArgs(toolName: string | undefined, args: unknown): string {
     if (toolName === "bash" && entries[0]?.[0] === "command") {
       return "$ " + truncate(String(entries[0][1]), 58);
     }
-    if ((toolName === "read_file" || toolName === "write_file" || toolName === "edit_file") && entries[0]?.[0] === "path") {
+    if (FILE_TOOLS.has(toolName ?? "") && entries[0]?.[0] === "path") {
       return truncate(String(entries[0][1]), 60);
     }
     if (toolName === "sub_agent" && entries[0]?.[0] === "agent_name") {
@@ -61,29 +61,65 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+const FILE_TOOLS = new Set(["write_file", "edit_file", "read_file", "read_text_file"]);
+
+function normalizeArgs(args: unknown): Record<string, unknown> | null {
+  if (args == null) return null;
+  if (typeof args === "object" && !Array.isArray(args)) return args as Record<string, unknown>;
+  if (typeof args === "string") {
+    try {
+      const p = JSON.parse(args);
+      return typeof p === "object" && p !== null ? p : { _raw: args };
+    } catch {
+      return { _raw: args };
+    }
+  }
+  return null;
+}
+
 function getStringArg(args: unknown, key: string): string | undefined {
-  if (args == null || typeof args !== "object") return undefined;
-  return (args as Record<string, unknown>)[key] as string | undefined;
+  const obj = normalizeArgs(args);
+  if (!obj) return undefined;
+  return obj[key] as string | undefined;
 }
 
 function renderToolResult(toolName: string | undefined, toolArgs: unknown, toolResult: string) {
   const name = toolName ?? "";
+  const norm = normalizeArgs(toolArgs);
+  // If args couldn't be parsed into a meaningful dict, fall through to generic render
+  const hasParsedArgs = norm !== null && !("_raw" in norm);
 
-  if (name === "write_file") {
+  if (hasParsedArgs && name === "write_file") {
     const path = getStringArg(toolArgs, "path");
     const content = getStringArg(toolArgs, "content") ?? "";
     return <DiffView oldText="" newText={content} fileName={path} mode="create" />;
   }
 
-  if (name === "edit_file") {
-    const path = getStringArg(toolArgs, "path");
-    const oldStr = getStringArg(toolArgs, "old_string") ?? "";
-    const newStr = getStringArg(toolArgs, "new_string") ?? "";
+  if (hasParsedArgs && name === "edit_file") {
+    const path = norm?.path as string | undefined;
+    const edits = norm?.edits;
+    if (Array.isArray(edits) && edits.length > 0) {
+      return (
+        <div className="space-y-2">
+          {edits.map((edit: Record<string, unknown>, i: number) => (
+            <DiffView
+              key={i}
+              oldText={String(edit.oldText ?? "")}
+              newText={String(edit.newText ?? "")}
+              fileName={i === 0 ? path : undefined}
+              mode="edit"
+            />
+          ))}
+        </div>
+      );
+    }
+    const oldStr = getStringArg(toolArgs, "old_string") ?? getStringArg(toolArgs, "oldText") ?? "";
+    const newStr = getStringArg(toolArgs, "new_string") ?? getStringArg(toolArgs, "newText") ?? "";
     return <DiffView oldText={oldStr} newText={newStr} fileName={path} mode="edit" />;
   }
 
-  if (name === "read_file") {
-    const path = getStringArg(toolArgs, "path");
+  if (name === "read_file" || name === "read_text_file") {
+    const path = hasParsedArgs ? getStringArg(toolArgs, "path") : undefined;
     return <FileContentView content={toolResult} filePath={path} />;
   }
 
@@ -99,7 +135,7 @@ export const ToolCallMessage = memo(function ToolCallMessage({ message }: ToolCa
   const argsPreview = previewArgs(toolName, toolArgs);
   const [open, setOpen] = useState(false);
 
-  const isFileTool = toolName === "write_file" || toolName === "edit_file" || toolName === "read_file";
+  const isFileTool = FILE_TOOLS.has(toolName ?? "");
 
   return (
     <div className="ml-6 border-l-2 border-muted pl-3">

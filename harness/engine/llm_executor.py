@@ -6,6 +6,7 @@ call + streaming + interrupt-checking logic lives in one focused class.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -201,9 +202,18 @@ class LLMExecutor:
         })
 
     def _emit_tool_call(self, part) -> None:
+        raw_args = part.args if hasattr(part, "args") else {}
+        if isinstance(raw_args, str):
+            try:
+                raw_args = json.loads(raw_args)
+            except (json.JSONDecodeError, TypeError):
+                raw_args = {"_raw": raw_args}
+        if not isinstance(raw_args, dict):
+            raw_args = {}
+
         entry = {
             "tool_name": part.tool_name,
-            "tool_args": part.args if hasattr(part, "args") else {},
+            "tool_args": raw_args,
         }
         self.tool_calls.append(entry)
         if not self._bus:
@@ -213,7 +223,7 @@ class LLMExecutor:
             "node_id": self._node_id,
             "agent_name": self._agent_name,
             "tool_name": part.tool_name,
-            "tool_args": entry["tool_args"],
+            "tool_args": raw_args,
         })
 
     def _emit_tool_result(self, part) -> None:
@@ -247,10 +257,16 @@ class LLMExecutor:
         if self._ext_ctx is None or self._bus is None:
             return
         if hasattr(self._bus, "run_hooks"):
+            # Reuse the normalized args stored by _emit_tool_call
+            last_tc = next(
+                (tc for tc in reversed(self.tool_calls)
+                 if tc["tool_name"] == part.tool_name),
+                None,
+            )
             tctx = ToolCtx(
                 node=self._ext_ctx,
                 tool_name=part.tool_name,
-                tool_args={},
+                tool_args=last_tc["tool_args"] if last_tc else {},
             )
             await self._bus.run_hooks(
                 "on_tool_call",
