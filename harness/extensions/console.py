@@ -36,7 +36,7 @@ class ConsoleOutput(BaseHook):
 
     name = "console-output"
 
-    def __init__(self, stream: bool = False, verbose: bool = True, show_system: bool = True, show_upstream: bool = True, use_colors: bool = True, show_model: bool = True, show_tools: bool = True, show_config: bool = False, show_critique: bool = True):
+    def __init__(self, stream: bool = False, verbose: bool = True, show_system: bool = True, show_upstream: bool = True, use_colors: bool = True, show_model: bool = True, show_tools: bool = True, show_config: bool = False, show_critique: bool = True, show_full_prompt: bool = True):
         self.stream = stream
         self.verbose = verbose
         self.show_system = show_system
@@ -46,6 +46,7 @@ class ConsoleOutput(BaseHook):
         self.show_tools = show_tools
         self.show_config = show_config
         self.show_critique = show_critique
+        self.show_full_prompt = show_full_prompt
         self._buffer = ""
         # 禁用颜色
         if not use_colors:
@@ -53,12 +54,15 @@ class ConsoleOutput(BaseHook):
         else:
             self.console = console
 
-    def _extract_system_prompt(self, messages: list[dict]) -> str | None:
-        """从 messages 中提取 system prompt"""
+    def _extract_system_prompt(self, messages: list[dict], config: AgentConfig | None = None) -> str | None:
+        """从 messages 或 config 中提取 system prompt"""
         for msg in messages:
             if msg.get("role") == "system":
                 content = msg.get("content", "")
                 return content.lstrip("\n")
+        # Fallback to config
+        if config and config.system_prompt:
+            return config.system_prompt.lstrip("\n")
         return None
 
     def _extract_user_prompt(self, messages: list[dict]) -> str | None:
@@ -189,14 +193,16 @@ class ConsoleOutput(BaseHook):
         if self.verbose:
             # System prompt（如果有）
             if self.show_system:
-                system = self._extract_system_prompt(ctx.messages)
+                system = self._extract_system_prompt(ctx.messages, ctx.config)
                 if system:
-                    self.console.print(Panel(Markdown(system[:500]), title="📌 System Prompt", border_style="magenta", padding=(0, 1)))
+                    display = system if self.show_full_prompt else system[:500]
+                    self.console.print(Panel(Markdown(display), title="📌 System Prompt", border_style="magenta", padding=(0, 1)))
 
             # User prompt
             user = self._extract_user_prompt(ctx.messages)
             if user:
-                self.console.print(Panel(user[:300], title="📌 User Prompt", border_style="cyan", padding=(0, 1)))
+                display = user if self.show_full_prompt else user[:300]
+                self.console.print(Panel(display, title="📌 User Prompt", border_style="cyan", padding=(0, 1)))
 
             # 上游输出
             if self.show_upstream and ctx.upstream_outputs:

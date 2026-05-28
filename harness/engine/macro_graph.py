@@ -386,6 +386,21 @@ class MacroGraphBuilder:
         tool_info = micro_factory.tool_registry.get_tool_info(final_tool_names)
         upstream_names = dep_map[agent_def.name] or []
 
+        # Build augmented system prompt with output format schema
+        augmented_prompt = parsed.prompt
+        if result_type is not None:
+            try:
+                import json as _json
+                schema = result_type.model_json_schema()
+                augmented_prompt += (
+                    "\n\n## Output Format\n"
+                    "You MUST respond with ONLY a valid JSON object conforming to this schema. "
+                    "Do NOT wrap in markdown code fences. Do NOT add any text before or after the JSON:\n"
+                    + _json.dumps(schema, indent=2, ensure_ascii=False)
+                )
+            except Exception:
+                pass
+
         async def node_func(state: HarnessState) -> dict:
             start_time = time.time()
 
@@ -421,6 +436,26 @@ class MacroGraphBuilder:
                     "tools": tool_info,
                     "model": model,
                 })
+
+            # Check if any upstream dependency has failed — skip this node
+            upstream_errors = state.get(STATE_ERRORS, {})
+            for dep_name in upstream_names:
+                if dep_name in upstream_errors:
+                    if bus:
+                        bus.emit("node.failed", {
+                            "workflow_id": builder_self.workflow_id,
+                            "node_id": agent_def.name,
+                            "agent_name": agent_def.name,
+                            "error": f"Skipped: upstream '{dep_name}' failed",
+                            "duration_ms": 0,
+                            "attempt": 1,
+                            "will_retry": False,
+                        })
+                    return {
+                        STATE_OUTPUTS: {},
+                        STATE_ERRORS: {agent_name: f"Skipped: upstream '{dep_name}' failed: {upstream_errors[dep_name]}"},
+                        STATE_METADATA: {agent_name: {"duration_ms": 0, "skipped": True}},
+                    }
 
             # Gather upstream outputs
             upstream_outputs = {}
@@ -480,7 +515,10 @@ class MacroGraphBuilder:
                     node_id=agent_def.name,
                     agent_name=agent_def.name,
                     prompt=context,
-                    messages=[{"role": "user", "content": context}],
+                    messages=[
+                        {"role": "system", "content": augmented_prompt},
+                        {"role": "user", "content": context},
+                    ],
                     upstream_outputs=upstream_outputs,
                     config=AgentConfig(
                         model=model,
@@ -490,6 +528,7 @@ class MacroGraphBuilder:
                         agent_md_path=md_path or None,
                         critique=critique,
                         result_type_name=result_type.__name__ if result_type else None,
+                        system_prompt=augmented_prompt,
                     ),
                 )
                 mw_result = await bus.run_middleware_chain("before_node", ext_ctx)
@@ -517,7 +556,7 @@ class MacroGraphBuilder:
             # Create the Pydantic AI agent with resolved tools
             pydantic_agent = micro_factory.create(
                 name=agent_def.name,
-                prompt=parsed.prompt,
+                prompt=augmented_prompt,
                 tools=final_tool_names,
                 model=model,
                 retries=retries,
@@ -575,7 +614,7 @@ class MacroGraphBuilder:
                                 "duration_ms": duration_ms,
                                 "status": "success",
                                 "input_prompt": context,
-                                "system_prompt": parsed.prompt,
+                                "system_prompt": augmented_prompt,
                                 "output_result": {"summary": output, "details": None},
                             }
                             bus.emit("node.completed", event_payload)
@@ -678,7 +717,7 @@ class MacroGraphBuilder:
                 # Emit node.completed event + collect I/O for persistence
                 io_data = {
                     "input_prompt": context,
-                    "system_prompt": parsed.prompt,
+                    "system_prompt": augmented_prompt,
                     "output_result": output.model_dump() if isinstance(output, BaseModel) else str(output),
                 }
                 if hasattr(executor, "tool_calls") and executor.tool_calls:

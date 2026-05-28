@@ -63,6 +63,7 @@ class AgentConfig:
     agent_md_path: str | None = None
     critique: str | None = None
     result_type_name: str | None = None
+    system_prompt: str | None = None
 
 
 @dataclass

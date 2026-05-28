@@ -2,6 +2,29 @@
 
 ---
 
+## 2026-05-28 结构化输出 schema 注入 + fail-fast 上游错误传播 + Console prompt 可见性
+
+**Commits:** (pending)
+
+### 改动
+- **修改** `harness/engine/macro_graph.py` — 三项改动:
+  - 自动将 `result_type`（默认 AgentResult）的 JSON schema 追加到 system prompt 末尾，LLM 明确知道输出格式要求
+  - node_func 执行前检查所有 upstream deps 是否有 error，有则 skip 当前节点并 emit `node.failed`
+  - `ext_ctx.messages` 从只有 user message 改为包含 `[system, user]` 两条消息
+- **修改** `harness/extensions/base.py` — `AgentConfig` 新增 `system_prompt: str | None` 字段
+- **修改** `harness/extensions/console.py` — 三项改动:
+  - `_extract_system_prompt` 新增 config fallback 路径
+  - 新增 `show_full_prompt=True` 参数，默认不截断 system/user prompt
+  - `on_node_start` 传入 `ctx.config` 提取 system prompt
+
+### 行为
+- LLM 收到的 system prompt 包含 MD 文件内容 + JSON schema 格式要求，减少 retry
+- 节点 retry 耗尽后 error 写入 state.errors，下游节点检测到上游失败自动 skip（fail-fast）
+- ConsoleOutput 完整显示 system prompt（含 schema）和 user prompt
+- 268 passed, 0 regression
+
+---
+
 ## 2026-05-28 集中式项目根目录路径解析 — 支持 pip install 外部目录使用
 
 **Commits:**
