@@ -2,6 +2,39 @@
 
 ---
 
+## 2026-05-28 NodeCtx Agent 配置元数据补全 — Console + Frontend
+
+**Commit:** (pending)
+
+### 改动
+- **新增** `AgentConfig` dataclass — 聚合 agent 配置元数据 (model, retries, tools, tool_info, agent_md_path, critique, result_type_name)
+- **修改** `NodeCtx` — 新增 `config: AgentConfig | None = None` 字段，默认 None 向后兼容
+- **修改** `macro_graph.py` — 构造 NodeCtx 时填充 AgentConfig；修复 WorkflowCtx.workflow_name 为空；node.started 事件增加 model 字段
+- **修改** `console.py` — 新增 4 个 toggle 开关 (show_model, show_tools, show_config, show_critique)，按开关显示 agent 配置信息
+- **修改** 前端事件类型/Store/UI — NodeStartedPayload 增加 model，NodeState 增加 model?，AgentMessage 显示 model badge
+
+### 行为
+- Console plugin 默认显示 model、tools、critique；show_config=False 时隐藏路径/重试/schema
+- 前端 agent 消息头显示 model badge（如事件中包含 model）
+- 所有新字段有默认值，不影响现有功能
+
+---
+
+## 2026-05-28 Agent 工作目录 (work_dir) 支持
+
+**Commit:** (pending)
+
+### 改动
+- **修改** `harness/api.py` — `Workflow.setup(work_dir=)` 接受显式参数传给 MCP filesystem server；`run()` / `_execute()` 加 `work_dir` 参数并校验；默认 MCP workdir 从 `agents_dir` 改为 `os.getcwd()`
+- **修改** `server/runner.py` — `setup(work_dir=work_dir)` 显式传递；`work_dir: "/"` 跳过 forbidden 检查允许全盘访问
+
+### 行为
+- 不传 `work_dir` → agent 可访问启动脚本所在目录的所有文件
+- 传 `work_dir: "/some/path"` → agent 访问该目录
+- 传 `work_dir: "/"` → agent 全盘访问
+
+---
+
 ## 2026-05-28 Frontend UX 持久化与体验改进
 
 **Commit:** (pending)

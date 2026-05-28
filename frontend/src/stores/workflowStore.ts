@@ -18,6 +18,7 @@ export interface NodeState {
   willRetry?: boolean;
   tokenUsage?: { input: number; output: number; total: number };
   tools?: ToolBrief[];
+  model?: string;
 }
 
 interface WorkflowSnapshot {
@@ -145,6 +146,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
           status: "running",
           attempt: payload.attempt,
           tools: payload.tools,
+          model: payload.model,
         },
       },
     })),
@@ -241,6 +243,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
         status: "running",
         attempt: p.attempt,
         tools: p.tools,
+        model: p.model,
       };
     }
 

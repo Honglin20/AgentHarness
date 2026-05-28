@@ -50,6 +50,22 @@ class WorkflowCtx:
 
 
 @dataclass
+class AgentConfig:
+    """Agent configuration metadata — populated by MacroGraphBuilder.
+
+    Carries all information fed to the agent that isn't already in prompt/messages,
+    so extensions (e.g. ConsoleOutput) can display it with toggle switches.
+    """
+    model: str | None = None
+    retries: int = 3
+    tools: list[str] = field(default_factory=list)
+    tool_info: list[dict] = field(default_factory=list)  # [{name, description}, ...]
+    agent_md_path: str | None = None
+    critique: str | None = None
+    result_type_name: str | None = None
+
+
+@dataclass
 class NodeCtx:
     """Per-agent-step context.
 
@@ -59,6 +75,7 @@ class NodeCtx:
     prompt              – mutable: the user-message text fed to the LLM this step
     messages            – mutable: full message history (system+user+assistant+tool)
     upstream_outputs    – read-only: outputs from agents this one depends on
+    config              – agent configuration metadata (tools, model, paths, etc.)
     metadata            – per-extension scratchpad, keyed by extension name
     _side_effects       – internal: observational artifacts produced by hooks
                           via emit(); cleared after Bus flushes them to WS layer
@@ -72,6 +89,7 @@ class NodeCtx:
     prompt: str
     messages: list[dict[str, Any]]
     upstream_outputs: dict[str, Any]
+    config: AgentConfig | None = None
     metadata: dict[str, dict[str, Any]] = field(default_factory=dict)
     _side_effects: list[dict] = field(default_factory=list, repr=False)
 

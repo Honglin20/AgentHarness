@@ -757,6 +757,7 @@ export function createWorkflowStore(
             status: "running",
             attempt: payload.attempt,
             tools: payload.tools,
+            model: payload.model,
           },
         },
       })),
@@ -853,6 +854,7 @@ export function createWorkflowStore(
           status: "running",
           attempt: p.attempt,
           tools: p.tools,
+          model: p.model,
         };
       }
 

@@ -36,12 +36,16 @@ class ConsoleOutput(BaseHook):
 
     name = "console-output"
 
-    def __init__(self, stream: bool = False, verbose: bool = True, show_system: bool = True, show_upstream: bool = True, use_colors: bool = True):
+    def __init__(self, stream: bool = False, verbose: bool = True, show_system: bool = True, show_upstream: bool = True, use_colors: bool = True, show_model: bool = True, show_tools: bool = True, show_config: bool = False, show_critique: bool = True):
         self.stream = stream
         self.verbose = verbose
         self.show_system = show_system
         self.show_upstream = show_upstream
         self.use_colors = use_colors
+        self.show_model = show_model
+        self.show_tools = show_tools
+        self.show_config = show_config
+        self.show_critique = show_critique
         self._buffer = ""
         # 禁用颜色
         if not use_colors:
@@ -198,6 +202,48 @@ class ConsoleOutput(BaseHook):
             if self.show_upstream and ctx.upstream_outputs:
                 upstream_table = self._format_upstream_outputs(ctx.upstream_outputs)
                 self.console.print(Panel(upstream_table, title="📤 上游输出", border_style="blue", padding=(0, 1)))
+
+            # Agent config (tools, model, paths, critique)
+            if ctx.config is not None:
+                if self.show_model and ctx.config.model:
+                    self.console.print(Panel(
+                        ctx.config.model,
+                        title="Model",
+                        border_style="blue",
+                        padding=(0, 1),
+                    ))
+
+                if self.show_tools and ctx.config.tool_info:
+                    tools_table = Table(show_header=True, box=None, pad_edge=False)
+                    tools_table.add_column("Tool", style="cyan", width=20)
+                    tools_table.add_column("Description", style="dim")
+                    for ti in ctx.config.tool_info:
+                        tools_table.add_row(ti.get("name", ""), ti.get("description", "")[:80])
+                    self.console.print(Panel(tools_table, title="Tools", border_style="blue", padding=(0, 1)))
+
+                if self.show_critique and ctx.config.critique:
+                    self.console.print(Panel(
+                        ctx.config.critique[:300],
+                        title="Critique (retry feedback)",
+                        border_style="red",
+                        padding=(0, 1),
+                    ))
+
+                if self.show_config:
+                    config_lines = []
+                    if ctx.config.retries is not None:
+                        config_lines.append(f"Retries: {ctx.config.retries}")
+                    if ctx.config.result_type_name:
+                        config_lines.append(f"Result type: {ctx.config.result_type_name}")
+                    if ctx.config.agent_md_path:
+                        config_lines.append(f"Agent MD: {ctx.config.agent_md_path}")
+                    if config_lines:
+                        self.console.print(Panel(
+                            "\n".join(config_lines),
+                            title="Config",
+                            border_style="dim",
+                            padding=(0, 1),
+                        ))
 
         self.console.print()
 

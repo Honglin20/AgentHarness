@@ -63,6 +63,7 @@ export interface NodeStartedPayload {
   agent_name: string;
   attempt: number;
   tools?: ToolBrief[];
+  model?: string;
 }
 
 export interface TokenUsage {

@@ -133,7 +133,7 @@ interface AgentNodeHeaderProps {
   onToggleCollapse?: () => void;
   sectionItemCount?: number;
   getAgentIO?: (nodeId: string) => { inputPrompt?: string; outputResult?: unknown; systemPrompt?: string } | undefined;
-  getNodeState?: (nodeId: string) => { tokenUsage?: { input: number; output: number; total: number }; tools?: ToolBrief[] } | undefined;
+  getNodeState?: (nodeId: string) => { tokenUsage?: { input: number; output: number; total: number }; tools?: ToolBrief[]; model?: string } | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -182,6 +182,11 @@ export function AgentNodeHeader({
         {agentName && (
           <span className={`inline-flex max-w-[40%] shrink items-center truncate rounded-md px-2 py-0.5 text-xs font-medium ${badgeClass}`}>
             {agentName}
+          </span>
+        )}
+        {nodeState?.model && (
+          <span className="shrink-0 inline-flex items-center rounded px-1.5 py-0.5 text-xs text-muted-foreground bg-muted" title="LLM Model">
+            {nodeState.model}
           </span>
         )}
         {durationMs != null && (
@@ -294,7 +299,7 @@ interface AgentMessageProps {
   onToggleCollapse: () => void;
   sectionItemCount: number;
   getAgentIO?: (nodeId: string) => { inputPrompt?: string; outputResult?: unknown; systemPrompt?: string } | undefined;
-  getNodeState?: (nodeId: string) => { tokenUsage?: { input: number; output: number; total: number }; tools?: ToolBrief[] } | undefined;
+  getNodeState?: (nodeId: string) => { tokenUsage?: { input: number; output: number; total: number }; tools?: ToolBrief[]; model?: string } | undefined;
 }
 
 export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItemCount, getAgentIO, getNodeState }: AgentMessageProps) {

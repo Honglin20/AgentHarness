@@ -14,7 +14,7 @@ from harness.compiler.md_parser import parse_agent_md, resolve_agent_md
 from harness.extensions.eval.decisions import EvalJudge
 from harness.extensions.eval.summarizer import summarize_target
 from harness.constants import STATE_ERRORS, STATE_INPUTS, STATE_METADATA, STATE_OUTPUTS
-from harness.extensions.base import NodeCtx, RejectAction, RetryAction, WorkflowCtx
+from harness.extensions.base import AgentConfig, NodeCtx, RejectAction, RetryAction, WorkflowCtx
 from harness.engine.llm_executor import LLMExecutor
 from harness.engine.micro_agent import MicroAgentFactory
 from harness.engine.state import HarnessState
@@ -151,6 +151,7 @@ class MacroGraphBuilder:
         self.event_bus = event_bus
         self.max_iterations = max_iterations
         self.workflow_id: str | None = None  # Set by runner before execution
+        self._workflow_name: str = ""  # Set by build()
         self.agent_io: dict[str, dict] = {}  # Collected per-node I/O for persistence
 
         # Stop-and-regenerate signal state (instance-scoped)
@@ -213,6 +214,7 @@ class MacroGraphBuilder:
         Before building, apply any registered GraphMutator extensions so
         eval-judge nodes / sub-agent insertions take effect transparently.
         """
+        self._workflow_name = workflow.name
         # === Extension: apply GraphMutators ===
         if self.event_bus is not None and hasattr(self.event_bus, "get_mutators"):
             for mutator in self.event_bus.get_mutators():
@@ -231,12 +233,14 @@ class MacroGraphBuilder:
         # Parse all agent MD files via resolve_agent_md (private first, shared fallback)
         # Skip synthetic judge/passthrough nodes (no MD on disk)
         parsed_agents = {}
+        agent_md_paths = {}
         for agent in agents:
             if getattr(agent, "_eval_target", None) is not None:
                 continue  # _judge_X — no MD file
             if "_passthrough" in agent.name:
                 continue  # passthrough node — no MD file
             md_path = resolve_agent_md(agent.name, workflow_dir)
+            agent_md_paths[agent.name] = str(md_path)
             parsed = parse_agent_md(md_path)
             parsed_agents[agent.name] = parsed
 
@@ -273,7 +277,7 @@ class MacroGraphBuilder:
                 node_func = self._make_passthrough_node_func(agent_def)
             else:
                 parsed = parsed_agents[agent_name]
-                node_func = self._make_node_func(agent_def, parsed, dep_map, workflow_dir)
+                node_func = self._make_node_func(agent_def, parsed, dep_map, workflow_dir, agent_md_paths.get(agent_name, ""))
             graph.add_node(agent_name, node_func)
 
         # Collect conditional edge targets — these are activated by routing,
@@ -372,13 +376,14 @@ class MacroGraphBuilder:
 
         return final_tool_names, model, retries, result_type
 
-    def _make_node_func(self, agent_def, parsed, dep_map, workflow_dir):
+    def _make_node_func(self, agent_def, parsed, dep_map, workflow_dir, md_path=""):
         """Create an async LangGraph node function for an agent."""
         micro_factory = self.micro_factory
         bus = self.event_bus
         max_iterations = self.max_iterations
         builder_self = self  # Capture for workflow_id access
         final_tool_names, model, retries, result_type = self._resolve_agent_config(agent_def, parsed)
+        tool_info = micro_factory.tool_registry.get_tool_info(final_tool_names)
         upstream_names = dep_map[agent_def.name] or []
 
         async def node_func(state: HarnessState) -> dict:
@@ -408,14 +413,13 @@ class MacroGraphBuilder:
 
             # Emit node.started event (legacy WS path)
             if bus:
-                # Build tool info for UI display (no resolve overhead)
-                tool_info = micro_factory.tool_registry.get_tool_info(final_tool_names)
                 bus.emit("node.started", {
                     "workflow_id": builder_self.workflow_id,
                     "node_id": agent_def.name,
                     "agent_name": agent_def.name,
                     "attempt": 1,
                     "tools": tool_info,
+                    "model": model,
                 })
 
             # Gather upstream outputs
@@ -470,7 +474,7 @@ class MacroGraphBuilder:
                 ext_ctx = NodeCtx(
                     workflow=WorkflowCtx(
                         workflow_id=builder_self.workflow_id or "",
-                        workflow_name="",
+                        workflow_name=builder_self._workflow_name,
                         inputs=state.get(STATE_INPUTS, {}),
                     ),
                     node_id=agent_def.name,
@@ -478,6 +482,15 @@ class MacroGraphBuilder:
                     prompt=context,
                     messages=[{"role": "user", "content": context}],
                     upstream_outputs=upstream_outputs,
+                    config=AgentConfig(
+                        model=model,
+                        retries=retries,
+                        tools=final_tool_names,
+                        tool_info=tool_info,
+                        agent_md_path=md_path or None,
+                        critique=critique,
+                        result_type_name=result_type.__name__ if result_type else None,
+                    ),
                 )
                 mw_result = await bus.run_middleware_chain("before_node", ext_ctx)
                 if isinstance(mw_result, RejectAction):
@@ -796,7 +809,7 @@ class MacroGraphBuilder:
                 judge_ext_ctx = NodeCtx(
                     workflow=WorkflowCtx(
                         workflow_id=builder_self.workflow_id or "",
-                        workflow_name="",
+                        workflow_name=builder_self._workflow_name,
                         inputs=state.get(STATE_INPUTS, {}),
                     ),
                     node_id=judge_name,
@@ -807,6 +820,13 @@ class MacroGraphBuilder:
                         {"role": "user", "content": user_msg},
                     ],
                     upstream_outputs={target_name: target_output},
+                    config=AgentConfig(
+                        model=agent_def.model,
+                        retries=1,
+                        tools=[],
+                        tool_info=[],
+                        result_type_name="ReviewDecision",
+                    ),
                 )
                 hook_result = bus.run_hooks("on_node_start", judge_ext_ctx)
                 if hook_result is not None and hasattr(hook_result, "__await__"):
@@ -820,6 +840,7 @@ class MacroGraphBuilder:
                     "agent_name": judge_name,
                     "attempt": current_count + 1,
                     "tools": [],
+                    "model": agent_def.model,
                 })
 
             try:
