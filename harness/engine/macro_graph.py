@@ -136,8 +136,9 @@ def _strip_schema(schema: dict) -> dict:
             continue
         if k == "anyOf" and isinstance(v, list) and len(v) == 2:
             types = [e.get("type") for e in v if isinstance(e, dict)]
-            if "null" in types:
-                non_null = [t for t in types if t != "null"]
+            has_ref = any("$ref" in e for e in v if isinstance(e, dict))
+            if "null" in types and not has_ref:
+                non_null = [t for t in types if t != "null" and t is not None]
                 if non_null:
                     out["type"] = f"{non_null[0]} | null"
                     continue
