@@ -2,6 +2,36 @@
 
 ---
 
+## 2026-05-28 集中式项目根目录路径解析 — 支持 pip install 外部目录使用
+
+**Commits:**
+- `a6f8709` feat: add harness/paths.py — centralized project root resolution
+- `644c86b` refactor: migrate 8 modules to centralized paths from harness/paths.py
+- `4c56fdc` fix: add doc comment to get_project_root + align ResourceRegistry with paths module
+
+### 改动
+- **新增** `harness/paths.py` — `get_project_root()` 三级优先链：HARNESS_PROJECT_ROOT env → CWD heuristic → package parent fallback；+ 7 个派生路径函数
+- **新增** `tests/test_paths.py` — 20 个测试覆盖 env 覆盖、CWD heuristic、fallback、派生路径
+- **迁移** 8 个模块，消除所有 `Path(__file__).resolve().parent.parent` 硬编码：
+  - `harness/api.py` — `_WORKFLOWS_DIR`, `_BENCHMARKS_DIR`
+  - `harness/config.py` — `_ENV_FILE`
+  - `harness/compiler/md_parser.py` — `_SHARED_AGENTS_DIR`
+  - `harness/run_store.py` — `_DEFAULT_RUNS_DIR`
+  - `harness/benchmark_store.py` — `_BENCHMARKS_DIR`
+  - `harness/checkpoint.py` — `_DEFAULT_DB_PATH`
+  - `harness/prep_executor.py` — `_benchmark_dir()`
+  - `harness/engine/micro_agent.py` — `_SHARED_SCRIPTS_DIR`
+- **修改** `harness/registry.py` — `ResourceRegistry.__init__` 默认使用 `get_project_root()` 替代 `Path.cwd()`
+
+### 行为
+- 开发模式（editable install）：CWD heuristic 识别 repo 根目录，零配置
+- pip install 后外部目录：`cd my-project && harness ui` 自动以 CWD 为项目根
+- 显式指定：`harness ui --project-root /path/to/project`
+- `config.py` 的 `.env` 搜索增加 CWD 优先级
+- 268 passed, 0 regression
+
+---
+
 ## 2026-05-28 NodeCtx Agent 配置元数据补全 — Console + Frontend
 
 **Commit:** (pending)
