@@ -199,15 +199,12 @@ function _routeToUIStores(event: WSEvent): void {
           (m) => m.nodeId === p.node_id && m.type === "agent" && (m.status === "streaming" || m.status === "done" || m.status === "interrupted")
         );
         if (idx !== -1) {
-          if (!conversationStore.messages[idx].content.trim()) {
-            // Directly set content instead of using appendAgentText which requires streaming status
-            const formattedOutput = formatOutputAsMd(p.output_result);
-            useConversationStore.setState((state) => {
-              const messages = [...state.messages];
-              messages[idx] = { ...messages[idx], content: formattedOutput };
-              return { messages };
-            });
-          }
+          const formattedOutput = formatOutputAsMd(p.output_result);
+          useConversationStore.setState((state) => {
+            const messages = [...state.messages];
+            messages[idx] = { ...messages[idx], content: formattedOutput };
+            return { messages };
+          });
         } else {
           // No existing agent message for this node — likely node.started was
           // missed (e.g. conditional branch target after on_pass/on_fail route).

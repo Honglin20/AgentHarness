@@ -122,14 +122,12 @@ function routeReplayEvent(
               m.status === "interrupted")
         );
         if (idx !== -1) {
-          if (!conversationState.messages[idx].content.trim()) {
-            const formattedOutput = formatOutputAsMd(p.output_result);
-            stores.conversation.setState((state) => {
-              const messages = [...state.messages];
-              messages[idx] = { ...messages[idx], content: formattedOutput };
-              return { messages };
-            });
-          }
+          const formattedOutput = formatOutputAsMd(p.output_result);
+          stores.conversation.setState((state) => {
+            const messages = [...state.messages];
+            messages[idx] = { ...messages[idx], content: formattedOutput };
+            return { messages };
+          });
         } else {
           const formattedOutput = formatOutputAsMd(p.output_result);
           conversationState.addAgentMessage(p.node_id, p.agent_name);
