@@ -446,16 +446,18 @@ class Workflow:
             checkpointer=checkpointer,
         )
 
-    def run(self, inputs: dict, ui: bool = False) -> WorkflowResult:
+    def run(self, inputs: dict, ui: bool = False, work_dir: str | None = None) -> WorkflowResult:
         """Run the workflow. Primary API — synchronous, simple.
 
         Args:
             inputs: Task input dict.
             ui: If True, auto-start server + open browser to visualize execution.
+            work_dir: Working directory for agent file access and bash cwd.
+                Defaults to os.getcwd(). Use "/" for full filesystem access.
         """
         if ui:
             self._launch_ui(inputs)
-        return asyncio.run(self._execute(inputs))
+        return asyncio.run(self._execute(inputs, work_dir=work_dir))
 
     def _launch_ui(self, inputs: dict) -> None:
         """Start backend server and open browser for UI visualization."""
@@ -528,17 +530,22 @@ class Workflow:
         final_state = await self._compiled.ainvoke(initial_state, config=config)
         return self._build_result(final_state)
 
-    async def setup(self):
+    async def setup(self, work_dir: str | None = None):
         """Connect MCP servers and register their tools, then compile.
 
         For advanced usage with arun(). Not needed if using run().
+
+        Args:
+            work_dir: Working directory for MCP filesystem access.
+                Defaults to os.getcwd(). Use "/" for full filesystem access.
         """
         if not self.tool_registry.list_tools():
             self.tool_registry = default_tool_registry()
 
+        mcp_workdir = work_dir or os.getcwd()
         bridges: list[McpBridge] = []
         try:
-            bridges = await setup_default_mcp(self.tool_registry, workdir=self.agents_dir)
+            bridges = await setup_default_mcp(self.tool_registry, workdir=mcp_workdir)
         except Exception as e:
             import sys
             print(
@@ -577,13 +584,19 @@ class Workflow:
         self._mcp_bridges = []
         self._mcp_setup_done = False
 
-    async def _execute(self, inputs: dict) -> WorkflowResult:
+    async def _execute(self, inputs: dict, work_dir: str | None = None) -> WorkflowResult:
         """Internal: full lifecycle in one event loop.
 
         LangGraph's ainvoke() is auto-traced by LangSmith when
         LANGCHAIN_TRACING_V2=true, forming the top-level trace.
         """
-        await self.setup()
+        if work_dir is not None:
+            p = Path(work_dir).resolve()
+            if not p.exists():
+                raise FileNotFoundError(f"Work directory does not exist: {work_dir}")
+            if not p.is_dir():
+                raise NotADirectoryError(f"Work path is not a directory: {work_dir}")
+        await self.setup(work_dir=work_dir)
         try:
             result = await self.arun(inputs)
         finally:

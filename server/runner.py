@@ -213,11 +213,12 @@ class WorkflowRunner:
                 if work_dir:
                     # Resolve to absolute path and validate bounds
                     work_path = Path(work_dir).resolve()
-                    # Restrict to reasonable paths (prevent /etc/, /proc/, etc.)
-                    forbidden_prefixes = ["/etc", "/proc", "/sys", "/root", "/var"]
-                    for prefix in forbidden_prefixes:
-                        if str(work_path).startswith(prefix):
-                            raise RuntimeError(f"Work directory cannot be under {prefix}")
+                    # "/" means full filesystem access — skip all checks
+                    if str(work_path) != "/":
+                        forbidden_prefixes = ["/etc", "/proc", "/sys", "/root", "/var"]
+                        for prefix in forbidden_prefixes:
+                            if str(work_path).startswith(prefix):
+                                raise RuntimeError(f"Work directory cannot be under {prefix}")
 
                     if not work_path.exists():
                         raise RuntimeError(f"Work directory does not exist: {work_dir}")
@@ -228,7 +229,7 @@ class WorkflowRunner:
                     os.chdir(work_path)
 
                 # Connect MCP servers and register their tools
-                await workflow.setup()
+                await workflow.setup(work_dir=work_dir)
 
                 # Set workflow_id on builder for interrupt support
                 if workflow._builder is not None:
