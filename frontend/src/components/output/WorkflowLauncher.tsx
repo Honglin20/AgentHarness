@@ -102,7 +102,7 @@ export default function WorkflowLauncher() {
           workflow: selectedWf || agentList.join(" → "),
           agents,
           inputs: { task: task.trim() },
-          work_dir: workDir.trim() || undefined,
+          work_dir: workDir.trim() || useSettingsStore.getState().defaultWorkDir.trim() || undefined,
         }),
       });
 
