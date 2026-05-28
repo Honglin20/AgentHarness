@@ -868,6 +868,7 @@ async def create_batch(
             workflow_name=request_obj.workflow,
             inputs=item.inputs,
             batch_id=batch_id,
+            work_dir=request_obj.work_dir,
             user_id=user.user_id,
         )
         runs.append(BatchRunSummary(
@@ -1399,6 +1400,7 @@ async def resume_run(
     await runner.submit(
         run_id, workflow, data.get("inputs", {}), event_bus,
         config=config, resume=True, user_id=run_user_id,
+        work_dir=data.get("work_dir"),
     )
 
     return {

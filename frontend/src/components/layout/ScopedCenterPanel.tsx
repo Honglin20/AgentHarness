@@ -41,6 +41,7 @@ import {
   usePendingQuestion,
   useConversationMessages,
 } from "@/contexts/workflow-context";
+import { useSettingsStore } from "@/stores/settingsStore";
 
 type Tab = "conversation" | "results" | "analysis";
 type BenchmarkView = "runner" | "compare" | "editor";
@@ -188,6 +189,7 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
           workflow: t.name,
           agents,
           inputs: { task },
+          work_dir: useSettingsStore.getState().defaultWorkDir.trim() || undefined,
         }),
       });
       if (!r.ok) throw new Error(await r.text());

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect } from "react";
-import { Settings, Key, Cpu, Globe, X, RotateCcw, Square, Timer, Play, Sun, Moon, User, Check, Shield } from "lucide-react";
+import { Settings, Key, Cpu, Globe, X, RotateCcw, Square, Timer, Play, Sun, Moon, User, Check, Shield, Folder } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +20,7 @@ import DAGStatusBar from "@/components/dag/DAGStatusBar";
 import ApiKeySettings from "@/components/settings/ApiKeySettings";
 import { getCurrentUser, fetchWithAuth } from "@/lib/api";
 import { useUserStore } from "@/stores/userStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 
 const API_BASE = "";
 
@@ -54,6 +55,8 @@ export function HeaderBar() {
   const [apiUrl, setApiUrl] = useState("");
   const [stopRegenTtl, setStopRegenTtl] = useState("60");
   const [saved, setSaved] = useState(false);
+  const defaultWorkDir = useSettingsStore((s) => s.defaultWorkDir);
+  const setDefaultWorkDir = useSettingsStore((s) => s.setDefaultWorkDir);
   const [stopping, setStopping] = useState(false);
   const resetWorkflow = useResetWorkflow();
   const currentUser = useUserStore((s) => s);
@@ -290,6 +293,17 @@ export function HeaderBar() {
               <p className="mt-1 text-xs text-muted-foreground">
                 Orphan stop-and-regenerate signals expire after this many seconds.
               </p>
+            </div>
+            <div>
+              <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-app-text-secondary">
+                <Folder className="h-3 w-3" /> Default Work Directory
+              </label>
+              <Input
+                value={defaultWorkDir}
+                onChange={(e) => setDefaultWorkDir(e.target.value)}
+                placeholder="/path/to/code (留空 = 当前目录, / = 全盘访问)"
+                className="h-8 text-xs"
+              />
             </div>
             <Button
               size="sm"

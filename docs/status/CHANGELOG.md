@@ -24,14 +24,23 @@
 
 **Commit:** (pending)
 
-### 改动
+### 后端改动
 - **修改** `harness/api.py` — `Workflow.setup(work_dir=)` 接受显式参数传给 MCP filesystem server；`run()` / `_execute()` 加 `work_dir` 参数并校验；默认 MCP workdir 从 `agents_dir` 改为 `os.getcwd()`
 - **修改** `server/runner.py` — `setup(work_dir=work_dir)` 显式传递；`work_dir: "/"` 跳过 forbidden 检查允许全盘访问
+- **修改** `server/routes.py` — resume 路径从 repo 恢复 `work_dir`；batch 端点转发 `work_dir`
+- **修改** `server/schemas.py` — `CreateBatchRequest` 加 `work_dir` 字段
+
+### 前端改动
+- **新增** `frontend/src/stores/settingsStore.ts` — Zustand store + localStorage 持久化 `defaultWorkDir`
+- **修改** `HeaderBar.tsx` — Settings popover 加 "Default Work Directory" 输入框
+- **修改** `WorkflowLauncher.tsx` — 初始值从 settingsStore 读取，去掉 Browse 按钮，更新提示文字
+- **修改** `CenterPanel.tsx` / `ScopedCenterPanel.tsx` — POST body 传 `work_dir`
 
 ### 行为
 - 不传 `work_dir` → agent 可访问启动脚本所在目录的所有文件
 - 传 `work_dir: "/some/path"` → agent 访问该目录
 - 传 `work_dir: "/"` → agent 全盘访问
+- 前端 Settings 设默认目录 → 所有启动入口自动使用；WorkflowLauncher 可覆盖
 
 ---
 

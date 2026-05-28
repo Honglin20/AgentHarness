@@ -11,6 +11,7 @@ import { useChatStore } from "@/stores/chatStore";
 import { setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
 import { useChartStore } from "@/stores/chartStore";
 import { fetchWithAuth } from "@/lib/api";
+import { useSettingsStore } from "@/stores/settingsStore";
 
 const API_BASE = "";
 
@@ -37,7 +38,7 @@ export default function WorkflowLauncher() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const [task, setTask] = useState("");
-  const [workDir, setWorkDir] = useState("");
+  const [workDir, setWorkDir] = useState(useSettingsStore.getState().defaultWorkDir);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
 
@@ -200,31 +201,18 @@ export default function WorkflowLauncher() {
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-app-text-secondary">
           Work Directory
         </h3>
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Folder className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              value={workDir}
-              onChange={(e) => setWorkDir(e.target.value)}
-              placeholder="/path/to/your/code (optional)"
-              className="pl-9 h-9 text-sm"
-              onKeyDown={(e) => e.key === "Enter" && run()}
-            />
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              // 可以在这里添加文件选择器逻辑
-              setWorkDir("/Users/$(whoami)/code");
-            }}
-            className="h-9"
-          >
-            Browse
-          </Button>
+        <div className="relative">
+          <Folder className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={workDir}
+            onChange={(e) => setWorkDir(e.target.value)}
+            placeholder="/path/to/code (optional)"
+            className="pl-9 h-9 text-sm"
+            onKeyDown={(e) => e.key === "Enter" && run()}
+          />
         </div>
         <p className="mt-1 text-[10px] text-muted-foreground">
-          Workflow will run in this directory (optional)
+          留空 = 当前目录 · 填路径 = 指定目录 · 填 / = 全盘访问
         </p>
       </div>
 

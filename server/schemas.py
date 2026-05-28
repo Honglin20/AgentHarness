@@ -112,6 +112,7 @@ class CreateBatchRequest(BaseModel):
     agents: list[AgentDef]
     workflow: str
     items: list[BatchRunItem]
+    work_dir: str | None = None
 
 
 class BatchRunSummary(BaseModel):

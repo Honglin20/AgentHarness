@@ -22,6 +22,7 @@ import BenchmarkCompare from "@/components/benchmark/BenchmarkCompare";
 import type { ConversationMessage } from "@/stores/conversationStore";
 import { fetchWithAuth } from "@/lib/api";
 import { readTabFromUrl, syncTabToUrl } from "@/hooks/useUrlState";
+import { useSettingsStore } from "@/stores/settingsStore";
 
 type Tab = "conversation" | "results" | "analysis";
 type BenchmarkView = "editor" | "runner" | "compare";
@@ -181,6 +182,7 @@ export function CenterPanel({ activeBenchmark }: Props) {
           workflow: t.name,
           agents,
           inputs: { task },
+          work_dir: useSettingsStore.getState().defaultWorkDir.trim() || undefined,
         }),
       });
       if (!r.ok) throw new Error(await r.text());
