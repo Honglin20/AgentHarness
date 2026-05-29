@@ -16,8 +16,18 @@ def cmd_ui(args) -> None:
     port = args.port or int(os.environ.get("HARNESS_PORT", "8000"))
     host = args.host or os.environ.get("HARNESS_HOST", "0.0.0.0")
 
-    import uvicorn
-    print(f"AgentHarness UI: http://{host}:{port}")
+    display_host = "localhost" if host == "0.0.0.0" else host
+    print(f"\n  AgentHarness UI: http://{display_host}:{port}")
+    if host == "0.0.0.0":
+        import socket
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            print(f"  Network:        http://{s.getsockname()[0]}:{port}")
+            s.close()
+        except Exception:
+            pass
+    print()
     if args.open_browser:
         import webbrowser
         webbrowser.open(f"http://localhost:{port}")

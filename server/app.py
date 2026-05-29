@@ -52,6 +52,19 @@ async def lifespan(app: FastAPI):
     port = os.environ.get("HARNESS_PORT", "8000")
     os.environ["HARNESS_SERVER_URL"] = f"http://{host}:{port}"
 
+    # Print accessible URL — works whether bound to 0.0.0.0 or localhost
+    import socket
+    display_host = "localhost" if host in ("0.0.0.0", "") else host
+    print(f"  AgentHarness UI: http://{display_host}:{port}")
+    if host in ("0.0.0.0", ""):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            print(f"  Network:        http://{s.getsockname()[0]}:{port}")
+            s.close()
+        except Exception:
+            pass
+
     yield
 
 

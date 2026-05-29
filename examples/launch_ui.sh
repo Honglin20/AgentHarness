@@ -35,6 +35,6 @@ if [ ! -d "$ROOT/frontend/out" ]; then
   cd "$ROOT"
 fi
 
-echo "=== Starting AgentHarness (http://localhost:8000) ==="
+echo "=== Starting AgentHarness ==="
 cd "$ROOT"
-python -m uvicorn server.app:app --host 0.0.0.0 --port 8000
+python -m harness.cli ui --host 0.0.0.0 --port 8000
