@@ -42,6 +42,7 @@ class RunStore:
         conversation: list[dict] | None = None,
         events: list[dict] | None = None,
         created_at: str | None = None,
+        work_dir: str | None = None,
     ) -> Path:
         record = {
             "run_id": run_id,
@@ -65,6 +66,8 @@ class RunStore:
             record["conversation"] = conversation
         if events:
             record["events"] = events
+        if work_dir:
+            record["work_dir"] = work_dir
         path = self._safe_path(run_id)
         if path is None:
             raise ValueError(f"Invalid run_id: {run_id}")

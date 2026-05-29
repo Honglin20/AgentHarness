@@ -222,14 +222,16 @@ analyzer → classifier
 wf = Workflow("conditional_route", agents=[
     Agent("analyzer",    after=[]),
     Agent("classifier",  after=["analyzer"], on_pass="summary", on_fail="debugger"),
-    Agent("summary",     after=[]),
-    Agent("debugger",    after=[], tools=["bash"]),
+    Agent("summary",     after=None),               # 仅通过条件边触发
+    Agent("debugger",    after=None, tools=["bash"]),  # 仅通过条件边触发
 ])
 ```
 
 通过 `on_pass` 和 `on_fail` 参数定义条件边。
 Agent 的输出需要包含 `decision` 字段（`"pass"` 或 `"fail"`），
 框架据此路由到对应节点。
+
+**`after=None` vs `after=[]`**：`after=[]` 表示无上游依赖，从 START 自动触发；`after=None` 表示不从 START 触发，仅作为条件路由的目标节点。
 
 > 完整示例: [examples/04_conditional_routing.py](examples/04_conditional_routing.py)
 
@@ -751,7 +753,7 @@ python -m uvicorn server.app:app --host 0.0.0.0 --port 8000
 ```python
 Agent(
     name: str,                          # 对应 agents/<name>.md
-    after: list[str] = [],             # 上游依赖
+    after: list[str] | None = [],      # 上游依赖；None=仅条件边触发，不从 START 开始
     tools: list[str] | None = None,    # None=全部可用, []=无, ["bash"]=仅 bash
     model: str | None = None,          # 默认读 HARNESS_MODEL
     retries: int = 3,                  # 重试次数

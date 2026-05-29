@@ -2,6 +2,33 @@
 
 ---
 
+## 2026-05-30 条件路由缺陷修复 + 跨重启恢复
+
+### 缺陷修复
+- **修复** `after=None` 条件专属节点被错误识别为根节点 — `deps is not None and not deps` 替代 `not deps`，`after=None` 的 agent 不再从 START 触发
+- **修复** `Agent.from_dict` 将 `after` 默认值从 `[]` 改为 `None` — 保持 `after=None` 语义不丢失
+- **修复** `_build_agents_snapshot` 缺失 `on_pass`/`on_fail`/`eval` 字段 — snapshot/rerun/resume 现在完整保留条件路由信息
+- **修复** `AgentDef.after` 类型从 `list[str]` 改为 `list[str] | None` — 匹配实际 `after=None` 用法
+- **修复** `AgentSnapshot` 缺少 `on_pass`/`on_fail`/`eval` 字段 — 前端可读取条件边信息
+
+### 跨重启恢复
+- **新增** `_reconstruct_run_to_repo` — 进程重启后从磁盘记录重建 Workflow 并注入 repo，支持 resume
+- **修改** `resume_run` — 检测到 repo 无记录时自动尝试从磁盘重建（仅 paused 状态）
+- **修改** `resume_run` — 自动补 compile + checkpointer（重建的 workflow 未编译）
+- **修改** `rerun` — 用 `Agent.from_dict` 保留 on_pass/on_fail/eval，替代旧的 `Agent(name=..., after=...)`
+
+### 数据持久化增强
+- **新增** `work_dir` 字段贯穿 RunStore / Runner / routes — 用于 MCP 重连
+- **修改** 暂停运行持久化 — 合并已有磁盘记录（保留 agent_io/conversation/events），不再覆盖丢失
+- **修改** `get_run` API — 返回 `events` 和 `work_dir` 字段
+- **修改** `RunDetail` schema — 新增 `events: list[dict] | None`、`work_dir: str | None`
+
+### 测试
+- **新增** `test_agents_snapshot_includes_conditional_edges` — 验证 snapshot 包含 on_pass/on_fail/eval
+- **新增** `test_agent_snapshot_schema_accepts_new_fields` — 验证 AgentSnapshot schema 接受新字段
+
+---
+
 ## 2026-05-29 可视化增强：Waterfall Timeline + BudgetBar + Regression UI
 
 **Commits:** `f52abdb` `c34a852` `86c0025` `1852810` `f545967` `9fc15d3` `b37c162`

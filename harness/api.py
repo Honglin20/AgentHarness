@@ -105,7 +105,7 @@ class Agent:
     def from_dict(cls, d: dict) -> Agent:
         return cls(
             name=d["name"],
-            after=d.get("after", []),
+            after=d.get("after"),
             tools=d.get("tools"),
             model=d.get("model"),
             retries=d.get("retries", 3),
@@ -342,7 +342,7 @@ class Workflow:
                     edges = []
                     conditional_edges = []
                     for a in agents:
-                        for dep in a.after:
+                        for dep in a.after or []:
                             edges.append([dep, a.name])
                         if a.on_pass is not None:
                             conditional_edges.append({"from": a.name, "to": a.on_pass, "label": "pass"})

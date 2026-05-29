@@ -587,6 +587,8 @@ async def get_run(run_id: str, request: Request) -> RunDetail:
             "dag": run.get("dag"),
             "chart_groups": run.get("chart_groups"),
             "agent_io": run.get("agent_io"),
+            "events": run.get("events"),
+            "work_dir": run.get("work_dir"),
             "batch_id": run.get("batch_id"),
             "user_id": run.get("user_id"),
         }
@@ -610,6 +612,8 @@ async def get_run(run_id: str, request: Request) -> RunDetail:
             "dag": repo.get_dag(run_id),
             "chart_groups": None,
             "agent_io": None,
+            "events": None,
+            "work_dir": data.get("work_dir"),
             "batch_id": data.get("batch_id"),
             "user_id": data.get("user_id"),
         }
@@ -1423,6 +1427,91 @@ async def list_checkpoints(run_id: str, request: Request) -> list[CheckpointInfo
     ]
 
 
+def _reconstruct_run_to_repo(repo, run_id: str, record: dict, request: Request) -> None:
+    """Reconstruct a Workflow from a persisted run record and inject into the in-memory repo.
+
+    Called when resume_run() finds the run on disk but not in the repo
+    (e.g., after process restart).
+    """
+    from harness.api import Agent, Workflow
+    from harness.tools.registry import ToolRegistry
+    from server.runner import _build_agents_snapshot
+    from datetime import datetime, timezone
+
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+    is_admin = user_mgr.is_admin(user)
+    if not is_admin and record.get("user_id", "default") != user.user_id:
+        raise HTTPException(status_code=403, detail="Not your run")
+
+    workflow_name = record["workflow_name"]
+    agents_snapshot = record.get("agents_snapshot", [])
+    work_dir = record.get("work_dir")
+
+    # Reconstruct agents from snapshot (includes on_pass/on_fail/eval).
+    # Skip auto-generated nodes (_judge_X, _passthrough) — they will be
+    # re-created by EvalJudge.use() if any agent has eval=True.
+    agents = [
+        Agent.from_dict({
+            "name": a["name"],
+            "after": a.get("after"),
+            "tools": a.get("tools"),
+            "model": a.get("model"),
+            "retries": a.get("retries", 3),
+            "on_pass": a.get("on_pass"),
+            "on_fail": a.get("on_fail"),
+            "eval": a.get("eval", False),
+        })
+        for a in agents_snapshot
+        if not a["name"].startswith("_judge_") and "_passthrough" not in a["name"]
+    ]
+
+    # Resolve workflow dir
+    user_id = user.user_id if user.user_id != "default" else None
+    try:
+        wf_dir = _validate_workflow_dir(workflow_name, user_id)
+    except HTTPException:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Workflow definition for '{workflow_name}' not found — "
+                   f"restore the workflow directory before resuming this run.",
+        )
+
+    # Create fresh Bus
+    event_bus = _new_bus()
+
+    # Create workflow (checkpointer injected later in resume_run)
+    workflow = Workflow(
+        name=workflow_name,
+        agents=agents,
+        workflow_dir=wf_dir,
+        tool_registry=ToolRegistry(),
+        event_bus=event_bus,
+    )
+
+    # Auto-register extensions
+    from harness.extensions.eval import EvalJudge
+    if any(a.eval for a in agents):
+        workflow.use(EvalJudge(max_retries=2))
+
+    # Store in repo
+    dag = record.get("dag")
+    repo.put(run_id, {
+        "workflow": workflow,
+        "status": "paused",
+        "result": record.get("result"),
+        "inputs": record.get("inputs", {}),
+        "thread_id": run_id,
+        "created_at": record.get("created_at", datetime.now(timezone.utc).isoformat()),
+        "agents_snapshot": _build_agents_snapshot(workflow),
+        "event_bus": event_bus,
+        "user_id": record.get("user_id"),
+        "work_dir": work_dir,
+    })
+    if dag:
+        repo.put_dag(run_id, dag)
+
+
 @router.post("/runs/{run_id}/resume")
 async def resume_run(
     run_id: str,
@@ -1433,10 +1522,23 @@ async def resume_run(
 
     If checkpoint_id is not provided, resumes from the latest non-final
     checkpoint (the last state that still has pending nodes).
+
+    After a process restart, reconstructs the Workflow from the persisted
+    disk record and resumes from the last checkpoint.
     """
     repo = get_repository()
     if not repo.contains(run_id):
-        raise HTTPException(status_code=404, detail="Run not found")
+        # Cross-restart: try to reconstruct from disk record
+        from harness.run_store import RunStore
+        disk_record = RunStore().get_run(run_id)
+        if disk_record is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        # Only reconstruct paused runs
+        if disk_record.get("status") != "paused":
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        _reconstruct_run_to_repo(repo, run_id, disk_record, req)
 
     data = repo.get(run_id)
     user = get_current_user(req)
@@ -1450,8 +1552,15 @@ async def resume_run(
 
     # Get workflow and compiled graph
     workflow = data["workflow"]
+
+    # Ensure checkpointer is set (needed for reconstructed workflows after restart)
+    if workflow.checkpointer is None:
+        checkpoint_mgr = get_checkpoint_manager()
+        workflow.checkpointer = await checkpoint_mgr.get_checkpointer()
+
+    # Compile if needed (reconstructed workflows are not yet compiled)
     if workflow._compiled is None:
-        raise HTTPException(status_code=400, detail="Workflow has no compiled graph")
+        workflow.compile()
 
     run_user_id = data.get("user_id", user.user_id)
 
@@ -1533,7 +1642,16 @@ async def rerun(
 
     # Reconstruct agents from snapshot
     agents = [
-        Agent(name=a["name"], after=a.get("after", []))
+        Agent.from_dict({
+            "name": a["name"],
+            "after": a.get("after"),
+            "tools": a.get("tools"),
+            "model": a.get("model"),
+            "retries": a.get("retries", 3),
+            "on_pass": a.get("on_pass"),
+            "on_fail": a.get("on_fail"),
+            "eval": a.get("eval", False),
+        })
         for a in agents_snapshot
     ]
 

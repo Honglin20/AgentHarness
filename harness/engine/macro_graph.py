@@ -110,6 +110,7 @@ def _save_incremental(builder, event_bus):
             conversation=conversation,
             chart_groups=chart_groups,
             created_at=data.get("created_at"),
+            work_dir=data.get("work_dir"),
         )
     except Exception:
         pass
@@ -335,7 +336,7 @@ class MacroGraphBuilder:
                     conditional_targets.add(agent.on_fail)
 
         # Build a set of root nodes (agents with no static dependencies)
-        root_nodes = {agent_name for agent_name, deps in dep_map.items() if not deps}
+        root_nodes = {agent_name for agent_name, deps in dep_map.items() if deps is not None and not deps}
 
         # Add edges from START to root nodes
         # Exclude nodes that are conditional-only (after=None)

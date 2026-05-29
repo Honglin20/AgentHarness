@@ -60,6 +60,9 @@ def _build_agents_snapshot(workflow) -> list[dict]:
             "tools": agent_def.tools,
             "model": agent_def.model,
             "retries": agent_def.retries,
+            "on_pass": agent_def.on_pass,
+            "on_fail": agent_def.on_fail,
+            "eval": agent_def.eval if eval_target is None else True,
         })
     return snapshot
 
@@ -151,6 +154,8 @@ class WorkflowRunner:
                 pass
 
             # Persist as paused so the run stays in history and can be resumed
+            # Merge with existing disk record to preserve agent_io/conversation/events
+            # (written by _save_incremental after each node completion)
             from server.repository import get_repository
             repo = get_repository()
             data = repo.get(workflow_id)
@@ -159,6 +164,7 @@ class WorkflowRunner:
                 data["status"] = "paused"
                 batch_id = data.get("batch_id")
                 from harness.run_store import RunStore
+                existing = RunStore().get_run(workflow_id) or {}
                 try:
                     RunStore().save(
                         run_id=workflow_id,
@@ -167,12 +173,20 @@ class WorkflowRunner:
                             or _build_agents_snapshot(workflow),
                         status="paused",
                         inputs=data.get("inputs", {}),
-                        result=None,
+                        result=existing.get("result"),
                         dag=repo.get_dag(workflow_id),
-                        batch_id=batch_id,
+                        agent_io=existing.get("agent_io"),
+                        batch_id=batch_id or existing.get("batch_id"),
+                        user_id=data.get("user_id") or existing.get("user_id"),
+                        conversation=existing.get("conversation"),
+                        chart_groups=existing.get("chart_groups"),
+                        events=existing.get("events"),
+                        created_at=existing.get("created_at"),
+                        work_dir=data.get("work_dir") or existing.get("work_dir"),
                     )
                 except Exception:
-                    pass
+                    import logging
+                    logging.getLogger(__name__).exception("Failed to persist paused run %s", workflow_id)
 
             return True
 
@@ -300,6 +314,7 @@ class WorkflowRunner:
                     chart_groups=chart_groups,
                     events=events,
                     created_at=data.get("created_at") if data else None,
+                    work_dir=work_dir,
                 )
 
                 # Emit completion
@@ -371,6 +386,7 @@ class WorkflowRunner:
                     chart_groups=chart_groups,
                     events=events,
                     created_at=data.get("created_at") if data else None,
+                    work_dir=work_dir,
                 )
 
                 error_payload = {

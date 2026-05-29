@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 class AgentDef(BaseModel):
     """Agent definition for workflow creation."""
     name: str
-    after: list[str] = Field(default_factory=list)
+    after: list[str] | None = Field(default_factory=list)
     on_pass: str | None = None
     on_fail: str | None = None
     eval: bool = False
@@ -61,11 +61,14 @@ class HealthResponse(BaseModel):
 class AgentSnapshot(BaseModel):
     """Snapshot of an agent definition at run time."""
     name: str
-    after: list[str] = []
+    after: list[str] | None = []
     md_content: str = ""
     tools: list[str] | None = None
     model: str | None = None
     retries: int = 3
+    on_pass: str | None = None
+    on_fail: str | None = None
+    eval: bool = False
 
 
 class RunDetail(BaseModel):
@@ -81,6 +84,8 @@ class RunDetail(BaseModel):
     dag: dict | None = None  # {nodes, edges, conditional_edges} — needed so replay view can render the DAG identically to live view
     chart_groups: dict | None = None  # {groups: {label: ChartGroup}, groupOrder: [labels]} — snapshot of frontend chartStore so Results tab replays
     agent_io: dict | None = None  # {agent_name: {input_prompt, system_prompt, output_result}} — for conversation replay
+    events: list[dict] | None = None  # Raw event buffer for full replay fidelity (IO, tools, thinking, etc.)
+    work_dir: str | None = None  # Working directory for MCP reconnection on resume
     batch_id: str | None = None
     user_id: str | None = None
 

@@ -2,7 +2,7 @@
 
 import pytest
 
-from server.schemas import AgentDef, AgentInfo, ToolInfo
+from server.schemas import AgentDef, AgentInfo, AgentSnapshot, ToolInfo
 from harness.api import WorkflowResult
 
 
@@ -79,6 +79,42 @@ This is a test agent.
     assert len(agents) == 1
     assert agents[0].name == "test1"
     assert agents[0].model == "gpt-4"
+
+
+def test_agents_snapshot_includes_conditional_edges():
+    """_build_agents_snapshot captures on_pass/on_fail/eval from agent defs."""
+    from harness.api import Agent, Workflow
+    from server.runner import _build_agents_snapshot
+
+    agents = [
+        Agent(name="a", after=[]),
+        Agent(name="b", after=["a"], on_pass="c", on_fail="d"),
+        Agent(name="c", after=[]),
+        Agent(name="d", after=[], eval=True),
+    ]
+    wf = Workflow(name="test", agents=agents)
+    snapshot = _build_agents_snapshot(wf)
+
+    by_name = {s["name"]: s for s in snapshot}
+    assert by_name["a"].get("on_pass") is None
+    assert by_name["a"].get("on_fail") is None
+    assert by_name["b"]["on_pass"] == "c"
+    assert by_name["b"]["on_fail"] == "d"
+    assert by_name["d"].get("eval") is True
+
+
+def test_agent_snapshot_schema_accepts_new_fields():
+    """AgentSnapshot model accepts on_pass/on_fail/eval."""
+    snap = AgentSnapshot(
+        name="b",
+        after=["a"],
+        on_pass="c",
+        on_fail="d",
+        eval=True,
+    )
+    assert snap.on_pass == "c"
+    assert snap.on_fail == "d"
+    assert snap.eval is True
 
 
 @pytest.mark.asyncio
