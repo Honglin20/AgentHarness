@@ -2,6 +2,47 @@
 
 ---
 
+## 2026-05-29 可视化增强：Waterfall Timeline + BudgetBar + Regression UI
+
+**Commits:** `f52abdb` `c34a852` `86c0025` `1852810` `f545967` `9fc15d3` `b37c162`
+
+### 后端改动
+- **修改** `harness/engine/llm_executor.py` — `span.start`/`span.end` 事件新增 `ts` 字段（epoch ms），4 处 emit 调用
+- **修改** `server/routes.py` — `workflow.started` 事件新增 `envelope` 字段（3 处：create/resume/rerun）
+- **新增** `tests/harness/engine/test_span_tracing.py` — TestSpanTimestamps 验证 LLM 和 tool span 时间戳
+
+### 前端改动 — Waterfall Timeline
+- **新增** `frontend/src/stores/spanStore.ts` — zustand store 收集 span 事件，提供 `computeWaterfallData()` 生成瀑布图数据
+- **新增** `frontend/src/components/output/charts/WaterfallChartWidget.tsx` — SVG Gantt 图，每 agent 一行，LLM/tool 分色
+- **修改** `frontend/src/types/events.ts` — `ChartPayload.chart_type` 新增 `"waterfall"`；`SpanStartPayload`/`SpanEndPayload` 新增 `ts: number`；`WorkflowStartedPayload` 新增 `envelope`
+- **修改** `frontend/src/components/output/ChartWidget.tsx` — 注册 waterfall case
+- **修改** `frontend/src/lib/summary/runSummary.ts` — `computeRunSummary` 新增可选 `spanStore` 参数，workflow 完成时生成 "Execution Timeline" 图表
+- **修改** `frontend/src/contexts/workflow-context/eventRouter.ts` — 激活 span handler（替换 no-op），传入 scoped spanStore
+- **修改** `frontend/src/hooks/useWorkflowEvents.ts` — 激活 span handler
+- **修改** `frontend/src/contexts/workflow-context/workflowStores.ts` — 新增 `createSpanStore` factory
+
+### 前端改动 — BudgetBar
+- **新增** `frontend/src/components/diagnostics/BudgetBar.tsx` — 3 个进度条（Tokens/Steps/Duration），>80% 黄色，>100% 红色，无 envelope 时隐藏
+- **修改** `frontend/src/stores/workflowStore.ts` — state 新增 `envelope` 字段
+- **修改** `frontend/src/components/diagnostics/DiagnosticsPanel.tsx` — 集成 BudgetBar
+
+### 前端改动 — Regression UI
+- **修改** `frontend/src/components/benchmark/BenchmarkCompare.tsx` — 新增 Regression tab，调用 `GET /api/benchmarks/{name}/regression`，红/绿色标记 regressed/improved
+
+### Code Review 修复 (`b37c162`)
+- ChartWidget 缺少 waterfall case（waterfall 是死代码）→ 已补
+- runSummary 读单例 spanStore，scoped 上下文无数据 → 传入 scoped store
+- BudgetBar barColor 用 capped pct，红色永远不触发 → 改用 rawPct
+- waterfall start_ms 竞态可能为负 → Math.max(0, ...) 钳制
+- RegressionTab HTTP 400 显示原始错误 → 解析 backend detail 消息
+
+### 行为
+- Analysis Tab 完成后新增 "Execution Timeline" 瀑布图，展示每个 agent 的 LLM/tool 调用时序
+- 配置 envelope 时，Diagnostics 面板顶部显示预算进度条
+- Benchmark Compare 新增 Regression tab，对比两次运行的 score/cost/latency/tokens 回归
+
+---
+
 ## 2026-05-28 System Prompt 优化 — Schema 精简 + 工具调用引导 + Token 图表合并 + 前端格式化修复
 
 **Commits:** `49afc7c` `d0b8258` `db835b2` `2243960` `ae11dba`
