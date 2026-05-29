@@ -80,6 +80,7 @@ function resetAllStores(stores: WorkflowStores): void {
   stores.toolCall.getState().reset();
   stores.agentIO.getState().reset();
   stores.chat.getState().reset();
+  stores.span.getState().reset();
 }
 
 // ---------------------------------------------------------------------------

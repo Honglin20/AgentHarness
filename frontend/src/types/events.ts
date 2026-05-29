@@ -210,6 +210,7 @@ export interface SpanStartPayload {
   span_type: "llm" | "tool";
   model?: string;
   tool_name?: string;
+  ts: number; // epoch ms — when span started
 }
 
 export interface SpanEndPayload {
@@ -219,6 +220,7 @@ export interface SpanEndPayload {
   span_id: string;
   span_type: "llm" | "tool";
   tool_name?: string;
+  ts: number; // epoch ms — when span ended
 }
 
 // Step counter

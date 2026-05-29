@@ -20,6 +20,8 @@ import type { ChatQuestionPayload } from "@/types/events";
 import type { ChartRenderPayload } from "@/types/events";
 import type { StepSummaryPayload } from "@/types/events";
 import type { CircularWarningPayload } from "@/types/events";
+import type { SpanStartPayload } from "@/types/events";
+import type { SpanEndPayload } from "@/types/events";
 import { getWorkflowManager } from "./WorkflowManager";
 import { getToolCallCounter } from "./workflowStores";
 import { useBatchStore } from "@/stores/batchStore";
@@ -116,6 +118,8 @@ function routeEventToStores(event: WSEvent): void {
   switch (event.type) {
     case "workflow.started": {
       const p = payload<WorkflowStartedPayload>(event);
+      stores.span.getState().reset();
+      stores.span.getState().setWorkflowStartTs(event.ts);
       stores.workflow.getState().setActiveWorkflowId(p.workflow_id);
       stores.workflow.getState().handleWorkflowStarted(p);
       break;
@@ -297,8 +301,14 @@ function routeEventToStores(event: WSEvent): void {
       break;
     }
 
-    case "span.start":
+    case "span.start": {
+      const p = payload<SpanStartPayload>(event);
+      stores.span.getState().startSpan(p);
+      break;
+    }
     case "span.end": {
+      const p = payload<SpanEndPayload>(event);
+      stores.span.getState().endSpan(p.span_id, p.ts);
       break;
     }
 

@@ -1139,6 +1139,85 @@ export function createChatStore(
 }
 
 // ============================================================
+// Span Store
+// ============================================================
+export function createSpanStore(
+  workflowId: string,
+): StoreApi<import("@/stores/spanStore").SpanState> {
+  const initialState: import("@/stores/spanStore").SpanState = {
+    spans: {},
+    workflowStartTs: null,
+
+    startSpan: (payload) => {
+      /* Phase 2 实现 */
+    },
+    endSpan: (spanId, ts) => {
+      /* Phase 2 实现 */
+    },
+    setWorkflowStartTs: (ts) => {
+      /* Phase 2 实现 */
+    },
+    computeWaterfallData: () => [],
+    reset: () => {
+      /* Phase 2 实现 */
+    },
+  };
+
+  return createStore<import("@/stores/spanStore").SpanState>()((set, get) => ({
+    ...initialState,
+
+    startSpan: (payload) =>
+      set((state) => ({
+        spans: {
+          ...state.spans,
+          [payload.span_id]: {
+            spanId: payload.span_id,
+            agentName: payload.agent_name,
+            spanType: payload.span_type,
+            startTs: payload.ts,
+            endTs: null,
+            model: payload.model,
+            toolName: payload.tool_name,
+          },
+        },
+      })),
+
+    endSpan: (spanId, ts) => {
+      const span = get().spans[spanId];
+      if (!span) return;
+      set((state) => ({
+        spans: {
+          ...state.spans,
+          [spanId]: { ...span, endTs: ts },
+        },
+      }));
+    },
+
+    setWorkflowStartTs: (ts) => set({ workflowStartTs: ts }),
+
+    computeWaterfallData: () => {
+      const { spans, workflowStartTs } = get();
+      if (!workflowStartTs) return [];
+
+      const rows: import("@/stores/spanStore").WaterfallRow[] = [];
+      for (const span of Object.values(spans)) {
+        if (span.endTs === null) continue;
+        rows.push({
+          agent: span.agentName,
+          start_ms: span.startTs - workflowStartTs,
+          duration_ms: span.endTs - span.startTs,
+          kind: span.spanType,
+          label: span.spanType === "llm" ? (span.model ?? "LLM") : (span.toolName ?? "tool"),
+        });
+      }
+      return rows;
+    },
+
+    reset: () => set({ spans: {}, workflowStartTs: null }),
+  }));
+}
+
+// ============================================================
 // Workflow Stores Container
 // ============================================================
 export interface WorkflowStores {
@@ -1149,6 +1228,7 @@ export interface WorkflowStores {
   toolCall: StoreApi<ToolCallState>;
   agentIO: StoreApi<AgentIOState>;
   chat: StoreApi<ChatState>;
+  span: StoreApi<import("@/stores/spanStore").SpanState>;
 }
 
 export function createWorkflowStores(workflowId: string): WorkflowStores {
@@ -1160,6 +1240,7 @@ export function createWorkflowStores(workflowId: string): WorkflowStores {
     toolCall: createToolCallStore(workflowId),
     agentIO: createAgentIOStore(workflowId),
     chat: createChatStore(workflowId),
+    span: createSpanStore(workflowId),
   };
 }
 

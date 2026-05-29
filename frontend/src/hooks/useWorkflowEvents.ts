@@ -18,6 +18,8 @@ import type {
 import type {
   StepSummaryPayload,
   CircularWarningPayload,
+  SpanStartPayload,
+  SpanEndPayload,
 } from "@/types/events";
 import { useWebSocket } from "./useWebSocket";
 import type { UseWebSocketReturn } from "./useWebSocket";
@@ -32,6 +34,7 @@ import { useBatchStore } from "@/stores/batchStore";
 import { useRunHistoryStore } from "@/stores/runHistoryStore";
 import { computeRunSummary } from "@/lib/summary/runSummary";
 import { useObservabilityStore } from "@/stores/observabilityStore";
+import { useSpanStore } from "@/stores/spanStore";
 
 /** Replicate formatOutputAsMd from AgentMessage to avoid circular dependency */
 function formatOutputAsMd(output: unknown): string {
@@ -138,6 +141,8 @@ function _routeToUIStores(event: WSEvent): void {
   switch (event.type) {
     case "workflow.started": {
       const p = payload<WorkflowStartedPayload>(event);
+      useSpanStore.getState().reset();
+      useSpanStore.getState().setWorkflowStartTs(event.ts);
       useWorkflowStore.getState().setActiveWorkflowId(p.workflow_id);
       useWorkflowStore.getState().handleWorkflowStarted(p);
       break;
@@ -334,8 +339,14 @@ function _routeToUIStores(event: WSEvent): void {
       break;
     }
 
-    case "span.start":
+    case "span.start": {
+      const p = payload<SpanStartPayload>(event);
+      useSpanStore.getState().startSpan(p);
+      break;
+    }
     case "span.end": {
+      const p = payload<SpanEndPayload>(event);
+      useSpanStore.getState().endSpan(p.span_id, p.ts);
       break;
     }
 

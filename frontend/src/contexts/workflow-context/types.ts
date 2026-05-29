@@ -46,6 +46,7 @@ export interface WorkflowStores {
   toolCall: StoreApi<import("@/stores/toolCallStore").ToolCallState>;
   agentIO: StoreApi<import("@/stores/agentIOStore").AgentIOState>;
   chat: StoreApi<import("@/stores/chatStore").ChatState>;
+  span: StoreApi<import("@/stores/spanStore").SpanState>;
 }
 
 /**
