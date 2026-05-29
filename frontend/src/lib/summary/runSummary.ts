@@ -1,5 +1,6 @@
 import type { NodeState } from "@/stores/workflowStore";
 import type { ChartPayload } from "@/types/events";
+import { useSpanStore } from "@/stores/spanStore";
 
 const LABEL = "Run Summary";
 const CATEGORY = "analysis";
@@ -109,6 +110,20 @@ function stepsByAgent(nodes: NodeState[]): ChartPayload[] {
   }];
 }
 
+function executionTimeline(_nodes: NodeState[]): ChartPayload[] {
+  const rows = useSpanStore.getState().computeWaterfallData();
+  if (rows.length === 0) return [];
+
+  return [{
+    label: LABEL,
+    title: "Execution Timeline",
+    chart_type: "waterfall",
+    category: CATEGORY,
+    data: rows as unknown as Record<string, unknown>[],
+    columns: ["agent", "start_ms", "duration_ms", "kind", "label"],
+  }];
+}
+
 function runOverviewTable(nodes: NodeState[]): ChartPayload[] {
   if (nodes.length === 0) return [];
   const rows = nodes.map((n) => ({
@@ -138,6 +153,7 @@ const summaryComputers: SummaryComputer[] = [
   costByAgent,
   ttftByAgent,
   stepsByAgent,
+  executionTimeline,
   runOverviewTable,
 ];
 
