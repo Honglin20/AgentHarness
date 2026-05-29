@@ -791,6 +791,7 @@ async def _create_and_start_workflow(
         "dag": dag,
         "workflow": workflow_name,
         "batch_id": batch_id,
+        "envelope": workflow.envelope,
     })
 
     from server.runner import get_runner
@@ -1481,6 +1482,7 @@ async def resume_run(
             "inputs": data.get("inputs", {}),
             "dag": get_repository().get_dag(run_id),
             "resumed_from": config["configurable"].get("checkpoint_id"),
+            "envelope": workflow.envelope,
         })
 
     # Submit resume to runner
@@ -1590,6 +1592,7 @@ async def rerun(
             "inputs": inputs,
             "dag": dag_struct,
             "workflow": workflow_name,
+            "envelope": workflow.envelope,
         })
 
     run_config = {"configurable": {"thread_id": new_id}}
