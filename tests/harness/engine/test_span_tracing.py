@@ -371,3 +371,97 @@ class _async_iter:
             return next(self._items)
         except StopIteration:
             raise StopAsyncIteration
+
+
+# ---------------------------------------------------------------------------
+# Span timestamps
+# ---------------------------------------------------------------------------
+
+class TestSpanTimestamps:
+    """All span.start and span.end payloads carry a positive ts field."""
+
+    def test_llm_span_timestamps(self):
+        """LLM span.start and span.end include positive ts (epoch ms)."""
+        bus = _FakeBus()
+        agent_mock = MagicMock()
+        agent_mock.model = MagicMock()
+        agent_mock.model.model_name = "test-model"
+
+        executor = LLMExecutor(
+            agent_mock, MagicMock(),
+            event_bus=bus, workflow_id="wf1", node_id="node1", agent_name="agent1",
+        )
+
+        mock_stream = AsyncMock()
+        mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
+        mock_stream.__aexit__ = AsyncMock(return_value=False)
+
+        text_part = MagicMock()
+        text_part.part_kind = "text"
+        text_part.content = "hello"
+        response = MagicMock()
+        response.parts = [text_part]
+        mock_stream.stream_response = MagicMock(return_value=_async_iter([response]))
+
+        mock_node = MagicMock()
+        mock_node.stream = MagicMock(return_value=mock_stream)
+
+        asyncio.get_event_loop().run_until_complete(
+            executor._handle_model_request(mock_node, MagicMock())
+        )
+
+        span_events = [(et, p) for et, p in bus.events if et in ("span.start", "span.end")]
+        assert len(span_events) == 2, f"Expected 2 span events, got {len(span_events)}"
+
+        for event_type, payload in span_events:
+            assert "ts" in payload, f"{event_type} missing 'ts' field"
+            assert isinstance(payload["ts"], int), f"{event_type} ts should be int, got {type(payload['ts'])}"
+            assert payload["ts"] > 0, f"{event_type} ts should be positive, got {payload['ts']}"
+
+    def test_tool_span_timestamps(self):
+        """Tool span.start and span.end include positive ts (epoch ms)."""
+        bus = _FakeBus()
+        executor = LLMExecutor(
+            MagicMock(), MagicMock(),
+            event_bus=bus, workflow_id="wf1", node_id="node1", agent_name="agent1",
+        )
+
+        call_part = _make_part("bash", args={"command": "ls"})
+        call_event = MagicMock()
+        call_event.event_kind = "function_tool_call"
+        call_event.part = call_part
+
+        result_part = _make_part("bash", content="file.txt")
+        result_event = MagicMock()
+        result_event.event_kind = "function_tool_result"
+        result_event.part = result_part
+
+        type(result_part)._span_call_key = property(
+            lambda self: getattr(call_part, "_span_call_key", None),
+        )
+
+        mock_stream = AsyncMock()
+        mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
+        mock_stream.__aexit__ = AsyncMock(return_value=False)
+        mock_stream.__aiter__ = MagicMock(
+            return_value=_async_iter([call_event, result_event])
+        )
+
+        mock_node = MagicMock()
+        mock_node.stream = MagicMock(return_value=mock_stream)
+
+        executor._fire_tool_call_hook = AsyncMock()
+
+        asyncio.get_event_loop().run_until_complete(
+            executor._handle_call_tools(mock_node, MagicMock())
+        )
+
+        span_events = [(et, p) for et, p in bus.events if et in ("span.start", "span.end")]
+        assert len(span_events) == 2, f"Expected 2 span events, got {len(span_events)}"
+
+        for event_type, payload in span_events:
+            assert "ts" in payload, f"{event_type} missing 'ts' field"
+            assert isinstance(payload["ts"], int), f"{event_type} ts should be int, got {type(payload['ts'])}"
+            assert payload["ts"] > 0, f"{event_type} ts should be positive, got {payload['ts']}"
+
+        del type(result_part)._span_call_key

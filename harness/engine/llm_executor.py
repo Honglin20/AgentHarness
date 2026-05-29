@@ -138,6 +138,7 @@ class LLMExecutor:
                 "span_id": span_id,
                 "span_type": "llm",
                 "model": model_name,
+                "ts": int(time.time() * 1000),
             })
 
         stream_start = time.monotonic()
@@ -189,6 +190,7 @@ class LLMExecutor:
                 "agent_name": self._agent_name,
                 "span_id": span_id,
                 "span_type": "llm",
+                "ts": int(time.time() * 1000),
             })
 
         return None
@@ -227,6 +229,7 @@ class LLMExecutor:
                             "span_id": tool_span_id,
                             "span_type": "tool",
                             "tool_name": event.part.tool_name,
+                            "ts": int(time.time() * 1000),
                         })
                         # Store the call_key on the part for matching with result
                         event.part._span_call_key = call_key
@@ -243,6 +246,7 @@ class LLMExecutor:
                                 "span_id": _tool_span_ids.pop(matched_key),
                                 "span_type": "tool",
                                 "tool_name": event.part.tool_name,
+                                "ts": int(time.time() * 1000),
                             })
         else:
             # No bus — still need interrupt checks
