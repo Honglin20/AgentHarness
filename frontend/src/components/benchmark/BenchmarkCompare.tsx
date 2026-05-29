@@ -9,7 +9,7 @@ import { fetchWithAuth } from "@/lib/api";
 import { useBatchStore } from "@/stores/batchStore";
 import { useRunHistoryStore } from "@/stores/runHistoryStore";
 
-type CompareTab = "scores" | "charts" | "workflows" | "history";
+type CompareTab = "scores" | "charts" | "workflows" | "history" | "regression";
 
 interface TaskResult {
   task_id: string;
@@ -124,7 +124,7 @@ export default function BenchmarkCompare({ benchmarkName }: Props) {
     <div className="flex h-full flex-col overflow-hidden">
       {/* Tab bar */}
       <div className="flex shrink-0 items-center gap-1 border-b border-app-border px-2 pt-1">
-        {(["scores", "charts", "workflows", "history"] as CompareTab[]).map((t) => (
+        {(["scores", "charts", "workflows", "history", "regression"] as CompareTab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -150,6 +150,7 @@ export default function BenchmarkCompare({ benchmarkName }: Props) {
           />
         )}
         {tab === "history" && <HistoryTab results={results} />}
+        {tab === "regression" && <RegressionTab benchmarkName={benchmarkName} />}
       </div>
     </div>
   );
@@ -471,6 +472,150 @@ function HistoryTab({ results }: { results: BenchmarkResult[] }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ---- Tab: Regression ----
+
+interface RegressionMetric {
+  metric: string;
+  baseline: number;
+  current: number;
+  delta_pct: number;
+  direction: "up" | "down" | "ok";
+  threshold: number;
+}
+
+interface RegressionSummary {
+  avg_score: number;
+  avg_cost: number;
+  avg_duration_ms: number;
+  avg_tokens: number;
+}
+
+interface RegressionData {
+  benchmark_name: string;
+  baseline_run_id: string;
+  current_run_id: string;
+  baseline: RegressionSummary;
+  current: RegressionSummary;
+  regressions: RegressionMetric[];
+}
+
+function RegressionTab({ benchmarkName }: { benchmarkName: string }) {
+  const [data, setData] = useState<RegressionData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    fetchWithAuth(`/api/benchmarks/${encodeURIComponent(benchmarkName)}/regression`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(setData)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [benchmarkName]);
+
+  if (loading) {
+    return <p className="text-sm text-muted-foreground">Loading regression data...</p>;
+  }
+
+  if (error) {
+    return <p className="text-sm text-red-500">Error: {error}</p>;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  if (!data.baseline_run_id || !data.current_run_id) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Need at least 2 benchmark runs to detect regressions.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Header showing compared runs */}
+      <div className="text-xs text-muted-foreground">
+        Comparing{" "}
+        <span className="font-mono text-app-text-primary">{data.baseline_run_id.slice(0, 8)}</span>
+        {" "}(baseline) vs{" "}
+        <span className="font-mono text-app-text-primary">{data.current_run_id.slice(0, 8)}</span>
+        {" "}(current)
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded border border-app-border p-3">
+          <div className="text-xs text-muted-foreground mb-1">Baseline</div>
+          <div className="text-sm font-medium">
+            Score: {data.baseline.avg_score.toFixed(2)} | Cost: ${data.baseline.avg_cost.toFixed(4)} | Tokens: {data.baseline.avg_tokens}
+          </div>
+        </div>
+        <div className="rounded border border-app-border p-3">
+          <div className="text-xs text-muted-foreground mb-1">Current</div>
+          <div className="text-sm font-medium">
+            Score: {data.current.avg_score.toFixed(2)} | Cost: ${data.current.avg_cost.toFixed(4)} | Tokens: {data.current.avg_tokens}
+          </div>
+        </div>
+      </div>
+
+      {/* Regressions table */}
+      {data.regressions.length === 0 ? (
+        <p className="text-sm text-green-500">No regressions detected. All metrics within threshold.</p>
+      ) : (
+        <table className="text-xs">
+          <thead>
+            <tr className="border-b border-app-border text-left text-muted-foreground">
+              <th className="pb-1 pr-4">Metric</th>
+              <th className="pb-1 pr-4">Baseline</th>
+              <th className="pb-1 pr-4">Current</th>
+              <th className="pb-1 pr-4">Delta</th>
+              <th className="pb-1">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.regressions.map((r, i) => {
+              const isRegressed = r.direction === "down";
+              const isImproved = r.direction === "up";
+              return (
+                <tr key={i} className={`border-b border-app-border/50 ${isRegressed ? "bg-red-500/5" : isImproved ? "bg-green-500/5" : ""}`}>
+                  <td className="py-1.5 pr-4 font-medium">{r.metric}</td>
+                  <td className="py-1.5 pr-4">{r.baseline.toFixed(2)}</td>
+                  <td className="py-1.5 pr-4">{r.current.toFixed(2)}</td>
+                  <td className="py-1.5 pr-4">
+                    <span className={isRegressed ? "text-red-500" : isImproved ? "text-green-500" : ""}>
+                      {r.direction === "up" ? "↑" : r.direction === "down" ? "↓" : "→"}{" "}
+                      {Math.abs(r.delta_pct).toFixed(1)}%
+                    </span>
+                  </td>
+                  <td className="py-1.5">
+                    <span
+                      className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                        isRegressed
+                          ? "bg-red-500/10 text-red-500"
+                          : isImproved
+                            ? "bg-green-500/10 text-green-500"
+                            : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      {isRegressed ? "Regressed" : isImproved ? "Improved" : "OK"}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

@@ -646,6 +646,7 @@ export function createWorkflowStore(
     status: "idle",
     nodes: {},
     dag: null,
+    envelope: null,
     selectedNodeId: null,
     selectedTemplate: null,
     activeWorkflowId: workflowId,
@@ -752,6 +753,7 @@ export function createWorkflowStore(
         workflowId: payload.workflow_id,
         workflowName: payload.name,
         dag: payload.dag ?? state.dag,
+        envelope: payload.envelope ?? null,
       })),
 
     handleWorkflowCompleted: (payload) =>
@@ -811,8 +813,8 @@ export function createWorkflowStore(
       })),
 
     saveToCache: (wid) => {
-      const { nodes, status, workflowId, workflowName, dag, _cache } = get();
-      _cache[wid] = { nodes, status, workflowId, workflowName, dag };
+      const { nodes, status, workflowId, workflowName, dag, envelope, _cache } = get();
+      _cache[wid] = { nodes, status, workflowId, workflowName, dag, envelope };
       set({ _cache });
     },
 
@@ -825,6 +827,7 @@ export function createWorkflowStore(
         workflowId: snap.workflowId,
         workflowName: snap.workflowName,
         dag: snap.dag,
+        envelope: snap.envelope,
       });
       return true;
     },
@@ -832,7 +835,7 @@ export function createWorkflowStore(
     updateNodeInCache: (wid, payload) => {
       const _cache = { ...get()._cache };
       if (!_cache[wid]) {
-        _cache[wid] = { nodes: {}, status: "running", workflowId: wid, workflowName: null, dag: null };
+        _cache[wid] = { nodes: {}, status: "running", workflowId: wid, workflowName: null, dag: null, envelope: null };
       }
       const snap = _cache[wid];
       const nodes = { ...snap.nodes };
@@ -888,6 +891,7 @@ export function createWorkflowStore(
           workflowId: get().workflowId,
           workflowName: get().workflowName,
           dag: get().dag,
+          envelope: get().envelope,
         };
       }
       if (wid && cache[wid]) {
@@ -898,6 +902,7 @@ export function createWorkflowStore(
           workflowId: snap.workflowId,
           workflowName: snap.workflowName,
           dag: snap.dag,
+          envelope: snap.envelope,
           _cache: cache,
         });
       } else {
@@ -907,6 +912,7 @@ export function createWorkflowStore(
           workflowId: wid,
           workflowName: null,
           dag: null,
+          envelope: null,
           _cache: cache,
         });
       }

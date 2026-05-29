@@ -6,6 +6,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import TraceTab from "./TraceTab";
 import ToolCallsTab from "./ToolCallsTab";
 import ErrorsTab from "./ErrorsTab";
+import BudgetBar, { BudgetBarScoped } from "./BudgetBar";
 import { useWorkflowStore, type NodeState } from "@/stores/workflowStore";
 import { useToolCallStore, type ToolCallRecord } from "@/stores/toolCallStore";
 import { useObservabilityStore } from "@/stores/observabilityStore";
@@ -56,7 +57,7 @@ function ScopedDiagnosticsPanel({ stores }: { stores: WorkflowStores }) {
   const toolCallCount = toolOrder ? toolOrder.length : liveToolCallCount;
   const errorCount = countErrors(nodes);
 
-  return renderPanel({ activeTab, setActiveTab, nodes, status, toolRecords, toolOrder, toolCallCount, errorCount, replayDerived, circularWarnings });
+  return renderPanel({ activeTab, setActiveTab, nodes, status, toolRecords, toolOrder, toolCallCount, errorCount, replayDerived, circularWarnings, scopedStores: stores });
 }
 
 // ── Global fallback: reads from singleton stores (legacy / no workflow) ──
@@ -89,7 +90,7 @@ function GlobalDiagnosticsPanel() {
   const toolCallCount = replayDerived?.order ? replayDerived.order.length : liveToolCallCount;
   const errorCount = countErrors(nodes);
 
-  return renderPanel({ activeTab, setActiveTab, nodes, status, toolRecords: replayDerived?.records, toolOrder: replayDerived?.order, toolCallCount, errorCount, replayDerived, circularWarnings });
+  return renderPanel({ activeTab, setActiveTab, nodes, status, toolRecords: replayDerived?.records, toolOrder: replayDerived?.order, toolCallCount, errorCount, replayDerived, circularWarnings, scopedStores: null });
 }
 
 // ── Shared helpers ───────────────────────────────────────────────────
@@ -141,7 +142,7 @@ function countErrors(nodes: Record<string, NodeState>): number {
 function renderPanel({
   activeTab, setActiveTab,
   nodes, status, toolRecords, toolOrder, toolCallCount, errorCount, replayDerived,
-  circularWarnings,
+  circularWarnings, scopedStores,
 }: {
   activeTab: string;
   setActiveTab: (t: string) => void;
@@ -153,9 +154,11 @@ function renderPanel({
   errorCount: number;
   replayDerived: { nodes: Record<string, NodeState>; status: string } | null;
   circularWarnings?: import("@/stores/observabilityStore").CircularWarning[];
+  scopedStores: WorkflowStores | null;
 }) {
   return (
     <aside aria-label="Diagnostics" className="flex h-full flex-col border-l border-app-border bg-app-bg-secondary">
+      {scopedStores ? <BudgetBarScoped stores={scopedStores} /> : <BudgetBar />}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-1 flex-col">
         <TabsList className="mx-2 mt-2 grid w-auto grid-cols-3">
           <TabsTrigger value="trace" className="text-xs">

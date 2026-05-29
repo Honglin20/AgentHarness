@@ -49,6 +49,8 @@ export interface WorkflowStartedPayload {
   workflow?: string;
   /** Full agent specs including per-agent flags such as `eval`. */
   agents?: WorkflowAgentDef[];
+  /** Budget envelope limits from backend cost controller. */
+  envelope?: Record<string, number>;
 }
 
 export interface WorkflowCompletedPayload {
@@ -161,7 +163,8 @@ export interface ChartPayload {
     | "bubble"
     | "area"
     | "radar"
-    | "table";
+    | "table"
+    | "waterfall";
   data: Record<string, unknown>[];
   columns: string[];
   x?: string;

@@ -34,6 +34,7 @@ interface WorkflowSnapshot {
   workflowId: string | null;
   workflowName: string | null;
   dag: { nodes: string[]; edges: [string, string][]; conditional_edges?: { from: string; to: string; label: string }[] } | null;
+  envelope: Record<string, number> | null;
 }
 
 export interface WorkflowState {
@@ -47,6 +48,9 @@ export interface WorkflowState {
 
   // DAG structure from backend
   dag: { nodes: string[]; edges: [string, string][]; conditional_edges?: { from: string; to: string; label: string }[] } | null;
+
+  // Budget envelope from workflow.started
+  envelope: Record<string, number> | null;
 
   selectedNodeId: string | null;
   selectedTemplate: Record<string, unknown> | null;
@@ -87,6 +91,7 @@ const initialState = {
   status: "idle" as const,
   nodes: {} as Record<string, NodeState>,
   dag: null as { nodes: string[]; edges: [string, string][] } | null,
+  envelope: null as Record<string, number> | null,
   _cache: {} as Record<string, WorkflowSnapshot>,
 };
 
@@ -132,6 +137,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
       workflowId: payload.workflow_id,
       workflowName: payload.name,
       dag: payload.dag ?? state.dag,
+      envelope: payload.envelope ?? null,
     })),
 
   handleWorkflowCompleted: (payload) =>
@@ -195,8 +201,8 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
     })),
 
   saveToCache: (wid) => {
-    const { nodes, status, workflowId, workflowName, dag, _cache } = get();
-    _cache[wid] = { nodes, status, workflowId, workflowName, dag };
+    const { nodes, status, workflowId, workflowName, dag, envelope, _cache } = get();
+    _cache[wid] = { nodes, status, workflowId, workflowName, dag, envelope };
     set({ _cache });
   },
 
@@ -209,6 +215,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
       workflowId: snap.workflowId,
       workflowName: snap.workflowName,
       dag: snap.dag,
+      envelope: snap.envelope,
     });
     return true;
   },
@@ -216,7 +223,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
   updateNodeInCache: (wid, payload) => {
     const _cache = { ...get()._cache };
     if (!_cache[wid]) {
-      _cache[wid] = { nodes: {}, status: "running", workflowId: wid, workflowName: null, dag: null };
+      _cache[wid] = { nodes: {}, status: "running", workflowId: wid, workflowName: null, dag: null, envelope: null };
     }
     const snap = _cache[wid];
     const nodes = { ...snap.nodes };
@@ -275,6 +282,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
         workflowId: get().workflowId,
         workflowName: get().workflowName,
         dag: get().dag,
+        envelope: get().envelope,
       };
     }
     if (wid && cache[wid]) {
@@ -285,6 +293,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
         workflowId: snap.workflowId,
         workflowName: snap.workflowName,
         dag: snap.dag,
+        envelope: snap.envelope,
         _cache: cache,
       });
     } else {
@@ -294,6 +303,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
         workflowId: wid,
         workflowName: null,
         dag: null,
+        envelope: null,
         _cache: cache,
       });
     }
