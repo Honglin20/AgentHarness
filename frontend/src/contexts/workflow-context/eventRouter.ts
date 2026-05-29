@@ -130,7 +130,7 @@ function routeEventToStores(event: WSEvent): void {
       stores.workflow.getState().handleWorkflowCompleted(p);
       const summaryNodes = Object.values(stores.workflow.getState().nodes);
       const addChart = stores.chart.getState().addChart;
-      computeRunSummary(summaryNodes, addChart);
+      computeRunSummary(summaryNodes, addChart, stores.span);
       saveConversation(wid);
       saveCharts(wid);
       break;
@@ -145,7 +145,7 @@ function routeEventToStores(event: WSEvent): void {
       stores.output.getState().setWorkflowError(p.error);
       const summaryNodes = Object.values(stores.workflow.getState().nodes);
       const addChart = stores.chart.getState().addChart;
-      computeRunSummary(summaryNodes, addChart);
+      computeRunSummary(summaryNodes, addChart, stores.span);
       saveConversation(p.workflow_id);
       saveCharts(p.workflow_id);
       break;

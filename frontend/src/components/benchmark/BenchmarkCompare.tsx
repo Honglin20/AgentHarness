@@ -513,10 +513,16 @@ function RegressionTab({ benchmarkName }: { benchmarkName: string }) {
     setError(null);
     fetchWithAuth(`/api/benchmarks/${encodeURIComponent(benchmarkName)}/regression`)
       .then((r) => {
+        if (r.status === 400) {
+          return r.json().then((body) => {
+            setError(body.detail || "Need at least 2 benchmark runs to compare");
+            return null;
+          });
+        }
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
-      .then(setData)
+      .then((d) => { if (d) setData(d); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [benchmarkName]);
@@ -526,7 +532,7 @@ function RegressionTab({ benchmarkName }: { benchmarkName: string }) {
   }
 
   if (error) {
-    return <p className="text-sm text-red-500">Error: {error}</p>;
+    return <p className="text-sm text-muted-foreground">{error}</p>;
   }
 
   if (!data) {

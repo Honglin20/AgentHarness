@@ -35,7 +35,8 @@ function ProgressBar({ label, current, max, fmt }: {
   max: number;
   fmt: (n: number) => string;
 }) {
-  const pct = Math.min((current / max) * 100, 100);
+  const rawPct = (current / max) * 100;
+  const pct = Math.min(rawPct, 100);
   const over = current > max;
 
   return (
@@ -43,8 +44,8 @@ function ProgressBar({ label, current, max, fmt }: {
       <span className="w-10 shrink-0 truncate text-muted-foreground">{label}</span>
       <div className="h-1.5 flex-1 rounded-full bg-muted overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all ${barColor(pct)}`}
-          style={{ width: `${Math.min(pct, 100)}%` }}
+          className={`h-full rounded-full transition-all ${barColor(rawPct)}`}
+          style={{ width: `${pct}%` }}
         />
       </div>
       <span className={`shrink-0 tabular-nums ${over ? "text-red-500 font-medium" : "text-muted-foreground"}`}>

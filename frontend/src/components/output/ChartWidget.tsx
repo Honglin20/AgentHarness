@@ -11,6 +11,7 @@ import BoxPlotWidget from "./charts/BoxPlotWidget";
 import BubbleChartWidget from "./charts/BubbleChartWidget";
 import AreaChartWidget from "./charts/AreaChartWidget";
 import RadarChartWidget from "./charts/RadarChartWidget";
+import WaterfallChartWidget from "./charts/WaterfallChartWidget";
 
 export default function ChartWidget({ chart }: { chart: ChartPayload }) {
   switch (chart.chart_type) {
@@ -34,6 +35,8 @@ export default function ChartWidget({ chart }: { chart: ChartPayload }) {
       return <AreaChartWidget chart={chart} />;
     case "radar":
       return <RadarChartWidget chart={chart} />;
+    case "waterfall":
+      return <WaterfallChartWidget chart={chart} />;
     case "table":
       return null; // tables handled by ChartGroup
     default:

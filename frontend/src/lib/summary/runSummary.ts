@@ -1,12 +1,13 @@
 import type { NodeState } from "@/stores/workflowStore";
 import type { ChartPayload } from "@/types/events";
-import { useSpanStore } from "@/stores/spanStore";
+import { useSpanStore, type SpanState } from "@/stores/spanStore";
+import type { StoreApi } from "zustand";
 
 const LABEL = "Run Summary";
 const CATEGORY = "analysis";
 
 type AddChartFn = (payload: ChartPayload) => void;
-type SummaryComputer = (nodes: NodeState[]) => ChartPayload[];
+type SummaryComputer = (nodes: NodeState[], spanStore?: StoreApi<SpanState>) => ChartPayload[];
 
 function tokensByAgent(nodes: NodeState[]): ChartPayload[] {
   const withTokens = nodes.filter((n) => n.tokenUsage);
@@ -110,8 +111,9 @@ function stepsByAgent(nodes: NodeState[]): ChartPayload[] {
   }];
 }
 
-function executionTimeline(_nodes: NodeState[]): ChartPayload[] {
-  const rows = useSpanStore.getState().computeWaterfallData();
+function executionTimeline(_nodes: NodeState[], spanStore?: StoreApi<SpanState>): ChartPayload[] {
+  const store = spanStore ?? useSpanStore;
+  const rows = store.getState().computeWaterfallData();
   if (rows.length === 0) return [];
 
   return [{
@@ -161,9 +163,10 @@ const summaryComputers: SummaryComputer[] = [
 export function computeRunSummary(
   nodes: NodeState[],
   addChart: AddChartFn,
+  spanStore?: StoreApi<SpanState>,
 ): void {
   if (nodes.length === 0) return;
   for (const computer of summaryComputers) {
-    for (const payload of computer(nodes)) addChart(payload);
+    for (const payload of computer(nodes, spanStore)) addChart(payload);
   }
 }

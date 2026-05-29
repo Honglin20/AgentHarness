@@ -87,7 +87,7 @@ export const useSpanStore = create<SpanState>()((set, get) => ({
       if (span.endTs === null) continue;
       rows.push({
         agent: span.agentName,
-        start_ms: span.startTs - workflowStartTs,
+        start_ms: Math.max(0, span.startTs - workflowStartTs),
         duration_ms: span.endTs - span.startTs,
         kind: span.spanType,
         label: span.spanType === "llm" ? (span.model ?? "LLM") : (span.toolName ?? "tool"),
