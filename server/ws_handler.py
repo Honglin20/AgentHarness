@@ -72,6 +72,7 @@ class ConnectionManager:
         event_bus: EventBus,
         user_id: str | None = None,
         filter_by_user: bool = True,
+        since_seq: int | None = None,
     ) -> str:
         """Accept a WebSocket connection and subscribe to EventBus.
 
@@ -79,6 +80,9 @@ class ConnectionManager:
             user_id: User ID for event filtering
             filter_by_user: When False, skip user filtering (per-workflow WS
                 already has its own isolated Bus).
+            since_seq: Cursor for replay. If provided, only buffered events
+                with seq > since_seq are delivered (used to resume from a
+                known position after reconnect).
         """
         await websocket.accept()
 
@@ -98,7 +102,7 @@ class ConnectionManager:
             ws_user_id = f"anon-{uuid.uuid4().hex[:8]}"
 
         # Subscribe to EventBus
-        sub_id, queue = await event_bus.subscribe()
+        sub_id, queue = await event_bus.subscribe(since_seq=since_seq)
 
         # Store connection by user
         if self._lock is None:
@@ -252,6 +256,7 @@ async def websocket_endpoint(
     workflow_id: str,
     websocket: WebSocket,
     user_id: str | None = Query(None),
+    since_seq: int | None = Query(None),
 ):
     """WebSocket endpoint for real-time workflow events."""
     manager = get_connection_manager()
@@ -272,7 +277,7 @@ async def websocket_endpoint(
     # Per-workflow WS: Bus is already isolated, no need for user filtering.
     sub_id = await manager.connect(
         workflow_id, websocket, event_bus,
-        user_id=user_id, filter_by_user=False,
+        user_id=user_id, filter_by_user=False, since_seq=since_seq,
     )
 
     try:

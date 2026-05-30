@@ -194,6 +194,72 @@ async def test_multi_user_isolation():
     await bus.unsubscribe(sub_id)
 
 
+def test_ws_since_seq_param():
+    """WS endpoint accepts since_seq query param: only events with seq > since_seq are replayed."""
+    from server.repository import get_repository
+    from server.app import app
+
+    bus = EventBus()
+    bus.emit("test.event", {"i": 1})  # seq=1
+    bus.emit("test.event", {"i": 2})  # seq=2
+
+    repo = get_repository()
+    repo.put("test-wf-seq", {"event_bus": bus, "status": "running"})
+
+    try:
+        with TestClient(app) as client:
+            with client.websocket_connect(
+                "/ws/workflows/test-wf-seq?user_id=test&since_seq=1"
+            ) as ws:
+                data = ws.receive_json()
+                assert data["seq"] == 2
+                assert data["payload"]["i"] == 2
+    finally:
+        repo.remove("test-wf-seq")
+
+
+@pytest.mark.asyncio
+async def test_connection_manager_connect_passes_since_seq():
+    """ConnectionManager.connect forwards since_seq to event_bus.subscribe."""
+    from server.ws_handler import ConnectionManager
+
+    bus = EventBus()
+    bus.emit("test.event", {"i": 1})  # seq=1
+    bus.emit("test.event", {"i": 2})  # seq=2
+
+    captured = []
+
+    class MockWebSocket:
+        def __init__(self):
+            self.query_params = {}
+            self.headers = {}
+
+        async def accept(self): pass
+
+        async def send_text(self, text):
+            captured.append(json.loads(text))
+
+        async def receive_text(self):
+            await asyncio.sleep(3600)
+
+    ws = MockWebSocket()
+    manager = ConnectionManager()
+
+    sub_id = await manager.connect(
+        "wf-x", ws, bus, user_id="u1", filter_by_user=False, since_seq=1,
+    )
+
+    # Allow forward task to flush replay buffer
+    await asyncio.sleep(0.05)
+
+    # Only seq=2 should have been forwarded (seq=1 filtered out)
+    assert len(captured) == 1
+    assert captured[0]["seq"] == 2
+    assert captured[0]["payload"]["i"] == 2
+
+    await manager.disconnect(sub_id, bus)
+
+
 @pytest.mark.asyncio
 async def test_event_payload_priority():
     """测试 user_id 优先级：payload.user_id > event.user_id > default"""
