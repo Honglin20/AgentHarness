@@ -251,6 +251,29 @@ def get_connection_manager() -> ConnectionManager:
     return _manager
 
 
+def _rebuild_bus_from_events(workflow_id: str):
+    """Reconstruct a read-only Bus from persisted events for completed runs.
+
+    Returns None if no events file exists or events list is empty.
+    """
+    from harness.run_store import RunStore
+    run = RunStore().get_run(workflow_id)
+    if not run or not run.get("events"):
+        return None
+
+    from harness.extensions.bus import Bus
+    bus = Bus()
+    events = run["events"]
+    max_seq = 0
+    for event in events:
+        seq = event.get("seq", 0)
+        if seq > max_seq:
+            max_seq = seq
+        bus._buffer.append(event)
+    bus._seq = max_seq
+    return bus
+
+
 @router.websocket("/workflows/{workflow_id}")
 async def websocket_endpoint(
     workflow_id: str,
@@ -267,12 +290,12 @@ async def websocket_endpoint(
     data = repo.get(workflow_id)
     event_bus = data.get("event_bus") if data else None
     if not event_bus:
-        # Workflow completed — per-workflow Bus was removed after persistence.
-        # Create a fresh empty Bus so the WS still works for bidirectional
-        # messages (chat.answer, stop_and_regenerate) but won't replay stale
-        # events from the global Bus.
-        from server.routes import _new_bus
-        event_bus = _new_bus()
+        # Workflow completed — Bus was GC'd. Try rebuilding from persisted events.
+        event_bus = _rebuild_bus_from_events(workflow_id)
+        if not event_bus:
+            # No persisted events either — empty Bus for bidirectional messages only.
+            from server.routes import _new_bus
+            event_bus = _new_bus()
 
     # Per-workflow WS: Bus is already isolated, no need for user filtering.
     sub_id = await manager.connect(

@@ -260,6 +260,54 @@ async def test_connection_manager_connect_passes_since_seq():
     await manager.disconnect(sub_id, bus)
 
 
+def test_ws_completed_run_replays_persisted_events(tmp_path, monkeypatch):
+    """Connecting to a completed workflow's WS replays events from disk."""
+    from harness.run_store import RunStore
+    from server.repository import get_repository
+
+    # Use an isolated runs directory so we don't pollute the real one.
+    # RunStore() reads the module-level _DEFAULT_RUNS_DIR at __init__ time
+    # via attribute lookup, so monkeypatching the module attr works.
+    monkeypatch.setattr("harness.run_store._DEFAULT_RUNS_DIR", tmp_path)
+
+    run_id = "completed-replay-test"
+    events = [
+        {"type": "workflow.started", "ts": 1.0, "seq": 1, "payload": {"workflow_id": run_id}},
+        {"type": "node.started", "ts": 2.0, "seq": 2, "payload": {"workflow_id": run_id, "node_id": "n1", "agent_name": "agent1"}},
+    ]
+
+    RunStore(runs_dir=tmp_path).save(
+        run_id=run_id,
+        workflow_name="test-wf",
+        agents_snapshot=[],
+        status="completed",
+        inputs={},
+        result=None,
+        events=events,
+    )
+
+    # Make sure repo has no in-memory entry for this workflow
+    repo = get_repository()
+    if hasattr(repo, "remove"):
+        repo.remove(run_id)
+
+    with TestClient(app) as client:
+        with client.websocket_connect(f"/ws/workflows/{run_id}?user_id=test&since_seq=0") as ws:
+            received = []
+            try:
+                while True:
+                    data = ws.receive_json(mode="text")
+                    received.append(data)
+                    if len(received) >= 2:
+                        break
+            except Exception:
+                pass
+
+            assert len(received) >= 2
+            assert received[0]["type"] == "workflow.started"
+            assert received[1]["type"] == "node.started"
+
+
 @pytest.mark.asyncio
 async def test_event_payload_priority():
     """测试 user_id 优先级：payload.user_id > event.user_id > default"""
