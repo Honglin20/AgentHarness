@@ -54,20 +54,14 @@ class RunStore:
             "dag": dag,
             "created_at": created_at or datetime.now(timezone.utc).isoformat(),
         }
-        if agent_io:
-            record["agent_io"] = agent_io
-        if batch_id:
-            record["batch_id"] = batch_id
-        if user_id:
-            record["user_id"] = user_id
-        if chart_groups:
-            record["chart_groups"] = chart_groups
-        if conversation:
-            record["conversation"] = conversation
-        if events:
-            record["events"] = events
-        if work_dir:
-            record["work_dir"] = work_dir
+        # Always write optional fields — frontend expects them present even if empty/null
+        record["agent_io"] = agent_io or None
+        record["batch_id"] = batch_id or None
+        record["user_id"] = user_id or None
+        record["chart_groups"] = chart_groups or None
+        record["conversation"] = conversation if conversation is not None else []
+        record["events"] = events if events is not None else None
+        record["work_dir"] = work_dir or None
         path = self._safe_path(run_id)
         if path is None:
             raise ValueError(f"Invalid run_id: {run_id}")
