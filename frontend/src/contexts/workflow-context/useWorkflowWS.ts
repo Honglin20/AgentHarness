@@ -33,6 +33,7 @@ export function useWorkflowWS(workflowId: string | null): WorkflowWSReturn {
   const singleWs = useWebSocket({
     workflowId: batchMode ? null : workflowId,
     onEvent,
+    sinceSeq: 0,
   });
 
   const batchWs = useBatchWebSocket({

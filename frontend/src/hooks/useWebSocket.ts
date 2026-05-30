@@ -17,6 +17,7 @@ export interface UseWebSocketOptions {
   onEvent?: (event: WSEvent) => void;
   autoReconnect?: boolean;
   reconnectDelay?: number;
+  sinceSeq?: number;
 }
 
 export interface UseWebSocketReturn {
@@ -31,6 +32,7 @@ export function useWebSocket({
   onEvent,
   autoReconnect = true,
   reconnectDelay = 3000,
+  sinceSeq,
 }: UseWebSocketOptions): UseWebSocketReturn {
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
@@ -71,7 +73,10 @@ export function useWebSocket({
     }
 
     const base = getWsBaseUrl();
-    const url = `${base}/ws/workflows/${workflowId}?user_id=${userId}`;
+    let url = `${base}/ws/workflows/${workflowId}?user_id=${userId}`;
+    if (sinceSeq !== undefined) {
+      url += `&since_seq=${sinceSeq}`;
+    }
     const ws = new WebSocket(url);
 
     wsRef.current = ws;
@@ -105,7 +110,7 @@ export function useWebSocket({
     ws.onerror = () => {
       ws.close();
     };
-  }, [workflowId, autoReconnect, reconnectDelay, disconnect]);
+  }, [workflowId, autoReconnect, reconnectDelay, sinceSeq, disconnect]);
 
   useEffect(() => {
     connect();
