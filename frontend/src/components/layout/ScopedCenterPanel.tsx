@@ -173,6 +173,7 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
       after: a.after,
       ...(a.on_pass != null ? { on_pass: a.on_pass } : {}),
       ...(a.on_fail != null ? { on_fail: a.on_fail } : {}),
+      ...(a.eval ? { eval: true } : {}),
     }));
 
     // Reset scoped stores

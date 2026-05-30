@@ -168,6 +168,7 @@ export function CenterPanel({ activeBenchmark }: Props) {
       after: a.after,
       ...(a.on_pass != null ? { on_pass: a.on_pass } : {}),
       ...(a.on_fail != null ? { on_fail: a.on_fail } : {}),
+      ...(a.eval ? { eval: true } : {}),
     }));
     useOutputStore.getState().reset();
     useChatStore.getState().reset();
