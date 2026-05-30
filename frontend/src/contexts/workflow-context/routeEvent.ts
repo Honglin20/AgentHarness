@@ -337,7 +337,13 @@ export function routeEvent(
 
     case "chart.render": {
       const p = payload<ChartRenderPayload>(event);
-      stores.chart.getState().addChart(p.chart);
+      // Accept both shapes:
+      //   - nested: { chart: {label, title, chart_type, ...} }  (harness/tools/chart.py)
+      //   - flat:   { label, title, chart_type, ... }            (plugins like perf_metrics)
+      const chart = (p as any).chart ?? p;
+      if (chart && (chart as any).label) {
+        stores.chart.getState().addChart(chart as any);
+      }
       break;
     }
 

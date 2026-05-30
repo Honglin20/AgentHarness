@@ -320,7 +320,10 @@ function _routeToUIStores(event: WSEvent): void {
 
     case "chart.render": {
       const p = payload<ChartRenderPayload>(event);
-      useChartStore.getState().addChart(p.chart);
+      const chart = (p as any).chart ?? p;
+      if (chart && (chart as any).label) {
+        useChartStore.getState().addChart(chart as any);
+      }
       break;
     }
 
