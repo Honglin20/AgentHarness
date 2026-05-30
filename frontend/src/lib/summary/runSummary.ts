@@ -116,14 +116,34 @@ function executionTimeline(_nodes: NodeState[], spanStore?: StoreApi<SpanState>)
   const rows = store.getState().computeWaterfallData();
   if (rows.length === 0) return [];
 
-  return [{
-    label: LABEL,
-    title: "Execution Timeline",
-    chart_type: "waterfall",
-    category: CATEGORY,
-    data: rows as unknown as Record<string, unknown>[],
-    columns: ["agent", "start_ms", "duration_ms", "kind", "label"],
-  }];
+  // Group rows by agent, preserving first-seen order
+  const byAgent = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const list = byAgent.get(row.agent);
+    if (list) list.push(row);
+    else byAgent.set(row.agent, [row]);
+  }
+
+  // Per-agent timelines: normalize each agent's bars to its own local t=0
+  // so each chart's x-axis starts at 0 rather than the agent's offset within
+  // the whole workflow. This makes single-agent durations easy to read.
+  const charts: ChartPayload[] = [];
+  for (const [agent, agentRows] of Array.from(byAgent.entries())) {
+    const minStart = Math.min(...agentRows.map((r) => r.start_ms));
+    const normalized = agentRows.map((r) => ({
+      ...r,
+      start_ms: r.start_ms - minStart,
+    }));
+    charts.push({
+      label: LABEL,
+      title: `Execution Timeline — ${agent}`,
+      chart_type: "waterfall",
+      category: CATEGORY,
+      data: normalized as unknown as Record<string, unknown>[],
+      columns: ["agent", "start_ms", "duration_ms", "kind", "label"],
+    });
+  }
+  return charts;
 }
 
 function runOverviewTable(nodes: NodeState[]): ChartPayload[] {

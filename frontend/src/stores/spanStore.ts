@@ -80,15 +80,29 @@ export const useSpanStore = create<SpanState>()((set, get) => ({
 
   computeWaterfallData: () => {
     const { spans, workflowStartTs } = get();
-    if (!workflowStartTs) return [];
+    const completed = Object.values(spans).filter((s) => s.endTs !== null);
+    if (completed.length === 0) return [];
+
+    // Determine baseline. Prefer workflowStartTs, but fall back to the earliest
+    // span ts if the configured baseline is missing or wildly out of range
+    // (e.g. legacy events where event.ts was monotonic seconds, not epoch ms).
+    const minSpanTs = Math.min(...completed.map((s) => s.startTs));
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    let baseline = workflowStartTs ?? minSpanTs;
+    if (
+      baseline == null ||
+      minSpanTs - baseline < 0 ||
+      minSpanTs - baseline > ONE_DAY_MS
+    ) {
+      baseline = minSpanTs;
+    }
 
     const rows: WaterfallRow[] = [];
-    for (const span of Object.values(spans)) {
-      if (span.endTs === null) continue;
+    for (const span of completed) {
       rows.push({
         agent: span.agentName,
-        start_ms: Math.max(0, span.startTs - workflowStartTs),
-        duration_ms: span.endTs - span.startTs,
+        start_ms: Math.max(0, span.startTs - baseline),
+        duration_ms: (span.endTs as number) - span.startTs,
         kind: span.spanType,
         label: span.spanType === "llm" ? (span.model ?? "LLM") : (span.toolName ?? "tool"),
       });

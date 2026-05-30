@@ -51,6 +51,8 @@ export interface WorkflowStartedPayload {
   agents?: WorkflowAgentDef[];
   /** Budget envelope limits from backend cost controller. */
   envelope?: Record<string, number>;
+  /** Workflow start time as epoch ms — used as baseline for span timelines. */
+  started_ts_ms?: number;
 }
 
 export interface WorkflowCompletedPayload {

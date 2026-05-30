@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useEffect, useState, useCallback } from "react";
+import React, { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import type { ChartPayload } from "@/types/events";
 import { PALETTE, getAxisTick, getTooltipStyle } from "./chartTheme";
 
@@ -24,12 +24,12 @@ function toRows(data: Record<string, unknown>[]): WaterfallRow[] {
 
 function formatMs(ms: number): string {
   if (ms < 1000) return `${ms.toFixed(0)}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
+  return `${(ms / 1000).toFixed(2)}s`;
 }
 
-const ROW_HEIGHT = 28;
-const BAR_HEIGHT = 18;
-const LABEL_WIDTH = 80;
+const ROW_HEIGHT = 24;
+const BAR_HEIGHT = 16;
+const LABEL_WIDTH = 120;
 const TOP_PADDING = 20;
 const BOTTOM_PADDING = 28;
 const RIGHT_PADDING = 16;
@@ -70,19 +70,19 @@ export default function WaterfallChartWidget({ chart }: { chart: ChartPayload })
       const svg = (e.target as SVGElement).closest("svg");
       if (!svg) return;
       const rect = svg.getBoundingClientRect();
-      const pt = svg.createSVGPoint();
-      pt.x = e.clientX - rect.left;
-      pt.y = e.clientY - rect.top;
-      setTooltip({ row, x: pt.x, y: pt.y });
+      setTooltip({ row, x: e.clientX - rect.left, y: e.clientY - rect.top });
     },
     [],
   );
 
-  const handleMouseLeave = useCallback(() => {
-    setTooltip(null);
-  }, []);
+  const handleMouseLeave = useCallback(() => setTooltip(null), []);
 
-  if (!data || data.length === 0) {
+  const rows = useMemo(() => {
+    if (!data || data.length === 0) return [] as WaterfallRow[];
+    return [...toRows(data)].sort((a, b) => a.start_ms - b.start_ms);
+  }, [data]);
+
+  if (rows.length === 0) {
     return (
       <div className="flex flex-col">
         <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
@@ -93,32 +93,17 @@ export default function WaterfallChartWidget({ chart }: { chart: ChartPayload })
     );
   }
 
-  const rows = toRows(data);
-
-  // Build unique agent list preserving insertion order
-  const agentSet = new Set<string>();
-  const agents: string[] = [];
-  for (const r of rows) {
-    if (!agentSet.has(r.agent)) {
-      agentSet.add(r.agent);
-      agents.push(r.agent);
-    }
-  }
-
   const maxEnd = Math.max(...rows.map((r) => r.start_ms + r.duration_ms), 1);
-  const chartWidth = containerWidth - LABEL_WIDTH - RIGHT_PADDING;
-  const svgHeight = TOP_PADDING + agents.length * ROW_HEIGHT + BOTTOM_PADDING;
+  const chartWidth = Math.max(containerWidth - LABEL_WIDTH - RIGHT_PADDING, 80);
+  const svgHeight = TOP_PADDING + rows.length * ROW_HEIGHT + BOTTOM_PADDING;
 
-  function xScale(ms: number): number {
-    return (ms / maxEnd) * chartWidth;
-  }
+  const xScale = (ms: number) => (ms / maxEnd) * chartWidth;
 
-  // Tick marks on x-axis
   const tickCount = Math.min(6, Math.max(2, Math.floor(chartWidth / 80)));
   const ticks: number[] = [];
-  for (let i = 0; i <= tickCount; i++) {
-    ticks.push((maxEnd * i) / tickCount);
-  }
+  for (let i = 0; i <= tickCount; i++) ticks.push((maxEnd * i) / tickCount);
+
+  const truncate = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 
   return (
     <div className="flex flex-col">
@@ -148,25 +133,25 @@ export default function WaterfallChartWidget({ chart }: { chart: ChartPayload })
           width="100%"
           className="block"
         >
-          {/* Agent labels (y-axis) */}
-          {agents.map((agent, i) => {
+          {/* Row labels (y-axis) — one per span */}
+          {rows.map((row, i) => {
             const cy = TOP_PADDING + i * ROW_HEIGHT + ROW_HEIGHT / 2;
             return (
               <text
-                key={agent}
+                key={`label-${i}`}
                 x={LABEL_WIDTH - 6}
                 y={cy + 3}
                 textAnchor="end"
                 fontSize={axisTick.fontSize}
                 fill={axisTick.fill}
               >
-                {agent.length > 10 ? agent.slice(0, 10) + "..." : agent}
+                {truncate(row.label, 16)}
               </text>
             );
           })}
 
           {/* Row separators */}
-          {agents.map((_, i) => {
+          {rows.map((_, i) => {
             const ly = TOP_PADDING + (i + 1) * ROW_HEIGHT;
             return (
               <line
@@ -182,10 +167,10 @@ export default function WaterfallChartWidget({ chart }: { chart: ChartPayload })
           })}
 
           {/* X-axis ticks */}
-          {ticks.map((t) => {
+          {ticks.map((t, ti) => {
             const tx = LABEL_WIDTH + xScale(t);
             return (
-              <g key={`tick-${t}`}>
+              <g key={`tick-${ti}`}>
                 <text
                   x={tx}
                   y={svgHeight - 6}
@@ -199,7 +184,7 @@ export default function WaterfallChartWidget({ chart }: { chart: ChartPayload })
                   x1={tx}
                   y1={TOP_PADDING}
                   x2={tx}
-                  y2={TOP_PADDING + agents.length * ROW_HEIGHT}
+                  y2={TOP_PADDING + rows.length * ROW_HEIGHT}
                   stroke="currentColor"
                   strokeOpacity={0.04}
                   strokeDasharray="3 3"
@@ -210,12 +195,9 @@ export default function WaterfallChartWidget({ chart }: { chart: ChartPayload })
 
           {/* Bars */}
           {rows.map((row, i) => {
-            const agentIndex = agents.indexOf(row.agent);
-            if (agentIndex < 0) return null;
-            const barY =
-              TOP_PADDING + agentIndex * ROW_HEIGHT + (ROW_HEIGHT - BAR_HEIGHT) / 2;
+            const barY = TOP_PADDING + i * ROW_HEIGHT + (ROW_HEIGHT - BAR_HEIGHT) / 2;
             const barX = LABEL_WIDTH + xScale(row.start_ms);
-            const barW = Math.max(xScale(row.duration_ms), 2); // minimum 2px width
+            const barW = Math.max(xScale(row.duration_ms), 2);
             const color = row.kind === "tool" ? TOOL_COLOR : LLM_COLOR;
 
             return (
@@ -226,13 +208,13 @@ export default function WaterfallChartWidget({ chart }: { chart: ChartPayload })
                 width={barW}
                 height={BAR_HEIGHT}
                 fill={color}
-                fillOpacity={0.75}
+                fillOpacity={0.8}
                 rx={BAR_RADIUS}
                 onMouseEnter={(e) => handleMouseEnter(row, e)}
                 onMouseLeave={handleMouseLeave}
                 style={{ cursor: "pointer" }}
               >
-                <title>{`${row.agent} — ${row.label} (${formatMs(row.duration_ms)})`}</title>
+                <title>{`${row.label} — ${formatMs(row.duration_ms)}`}</title>
               </rect>
             );
           })}
@@ -240,10 +222,10 @@ export default function WaterfallChartWidget({ chart }: { chart: ChartPayload })
           {/* Tooltip */}
           {tooltip && (
             <foreignObject
-              x={Math.min(tooltip.x + 12, LABEL_WIDTH + chartWidth - 160)}
-              y={Math.max(tooltip.y - 50, 0)}
-              width={160}
-              height={60}
+              x={Math.min(tooltip.x + 12, LABEL_WIDTH + chartWidth - 180)}
+              y={Math.max(tooltip.y - 56, 0)}
+              width={180}
+              height={70}
               style={{ pointerEvents: "none" }}
             >
               <div
@@ -254,9 +236,12 @@ export default function WaterfallChartWidget({ chart }: { chart: ChartPayload })
                   pointerEvents: "none",
                 }}
               >
-                <div style={{ fontWeight: 600 }}>{tooltip.row.agent}</div>
-                <div>{tooltip.row.label}</div>
-                <div>{formatMs(tooltip.row.duration_ms)}</div>
+                <div style={{ fontWeight: 600 }}>{tooltip.row.label}</div>
+                <div>kind: {tooltip.row.kind}</div>
+                <div>
+                  {formatMs(tooltip.row.start_ms)} → {formatMs(tooltip.row.start_ms + tooltip.row.duration_ms)}
+                </div>
+                <div>duration: {formatMs(tooltip.row.duration_ms)}</div>
               </div>
             </foreignObject>
           )}

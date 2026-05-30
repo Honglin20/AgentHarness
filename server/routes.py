@@ -1,6 +1,7 @@
 """REST API routes."""
 
 import json
+import time
 import uuid
 from pathlib import Path
 
@@ -796,6 +797,7 @@ async def _create_and_start_workflow(
         "workflow": workflow_name,
         "batch_id": batch_id,
         "envelope": workflow.envelope,
+        "started_ts_ms": int(time.time() * 1000),
     })
 
     from server.runner import get_runner
@@ -1592,6 +1594,7 @@ async def resume_run(
             "dag": get_repository().get_dag(run_id),
             "resumed_from": config["configurable"].get("checkpoint_id"),
             "envelope": workflow.envelope,
+            "started_ts_ms": int(time.time() * 1000),
         })
 
     # Submit resume to runner
@@ -1711,6 +1714,7 @@ async def rerun(
             "dag": dag_struct,
             "workflow": workflow_name,
             "envelope": workflow.envelope,
+            "started_ts_ms": int(time.time() * 1000),
         })
 
     run_config = {"configurable": {"thread_id": new_id}}

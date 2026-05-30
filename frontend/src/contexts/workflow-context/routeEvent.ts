@@ -124,7 +124,7 @@ export function routeEvent(
       if (!sameWorkflow) {
         resetAllStores(stores);
       }
-      stores.span.getState().setWorkflowStartTs(event.ts);
+      stores.span.getState().setWorkflowStartTs(p.started_ts_ms ?? event.ts);
       stores.workflow.getState().setActiveWorkflowId(p.workflow_id);
       stores.workflow.getState().handleWorkflowStarted(p);
       break;
