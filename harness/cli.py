@@ -32,7 +32,12 @@ def cmd_ui(args) -> None:
         import webbrowser
         webbrowser.open(f"http://localhost:{port}")
     import uvicorn
-    uvicorn.run("server.app:app", host=host, port=port, log_level="info")
+    # Suppress uvicorn's default "Uvicorn running on http://0.0.0.0:..." message
+    # since we already printed the correct display address above.
+    import logging
+    log_config = uvicorn.config.LOGGING_CONFIG.copy()
+    log_config["loggers"]["uvicorn.error"]["level"] = "WARNING"
+    uvicorn.run("server.app:app", host=host, port=port, log_level="info", log_config=log_config)
 
 
 def cmd_list(args) -> None:
