@@ -56,8 +56,8 @@ def test_graph_mutator_appends_agent(two_agents_dir):
     assert names == {"a", "b", "c"}
 
 
-def test_mutator_exception_does_not_break_build(two_agents_dir):
-    """A buggy mutator emits ext.error but doesn't fail compilation."""
+def test_mutator_exception_propagates_from_compile(two_agents_dir):
+    """A buggy mutator aborts compile (fail-loud, per SPEC)."""
 
     class Boom(BaseGraphMutator):
         name = "boom"
@@ -67,14 +67,6 @@ def test_mutator_exception_does_not_break_build(two_agents_dir):
     bus = Bus()
     bus.register(Boom())
 
-    errors = []
-    original_emit = bus.emit
-    def capture(t, p):
-        if t == "ext.error":
-            errors.append(p)
-        original_emit(t, p)
-    bus.emit = capture  # type: ignore[method-assign]
-
     wf = Workflow(
         name="t",
         agents=[Agent("a", after=[])],
@@ -82,9 +74,8 @@ def test_mutator_exception_does_not_break_build(two_agents_dir):
         event_bus=bus,
         tool_registry=ToolRegistry(),
     )
-    graph = wf.compile()
-    assert graph is not None
-    assert any(e.get("extension") == "boom" for e in errors)
+    with pytest.raises(RuntimeError, match="intentional"):
+        wf.compile()
 
 
 def test_empty_extension_registry_unchanged_compile(two_agents_dir):

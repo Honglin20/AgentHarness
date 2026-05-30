@@ -185,12 +185,25 @@ class BaseMiddleware:
 
 
 class BaseGraphMutator:
-    """Alter the workflow DAG at build time. Runs once before execution."""
+    """Alter the workflow DAG at build time. Runs once before execution.
+
+    Two phases, both invoked by ``Workflow.compile()``:
+
+      mutate()  — in-memory DAG rewrite (insert nodes, rewire edges).
+      persist() — durable side files (e.g. agent MD). Default: no-op.
+
+    A mutator that needs to write something to disk so the change survives
+    save() should override persist(). The summary file is read at runtime
+    via the usual ``resolve_agent_md`` resolution.
+    """
 
     name: str = "unnamed-mutator"
 
     def mutate(self, workflow: "Workflow") -> "Workflow":
         return workflow
+
+    def persist(self, workflow: "Workflow") -> None:
+        return None
 
 
 # ============================================================

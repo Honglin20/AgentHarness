@@ -250,21 +250,10 @@ class MacroGraphBuilder:
     def build(self, workflow) -> StateGraph:
         """Build a LangGraph StateGraph from a Workflow definition.
 
-        Before building, apply any registered GraphMutator extensions so
-        eval-judge nodes / sub-agent insertions take effect transparently.
+        Mutators are invoked by ``Workflow.compile()`` (two-phase mutate+persist),
+        not here. By the time we see the workflow, the DAG is final.
         """
         self._workflow_name = workflow.name
-        # === Extension: apply GraphMutators ===
-        if self.event_bus is not None and hasattr(self.event_bus, "get_mutators"):
-            for mutator in self.event_bus.get_mutators():
-                try:
-                    workflow = mutator.mutate(workflow)
-                except Exception as e:
-                    self.event_bus.emit("ext.error", {
-                        "extension": getattr(mutator, "name", "unknown"),
-                        "phase": "mutate",
-                        "error": str(e),
-                    })
 
         agents = workflow.agents
         workflow_dir = workflow.workflow_dir

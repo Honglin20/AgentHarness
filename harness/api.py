@@ -64,6 +64,7 @@ class Agent:
         on_pass: str | None = None,
         on_fail: str | None = None,
         eval: bool = False,
+        eval_target: str | None = None,
     ):
         self.name = name
         # None 表示仅通过条件边触发，不作为入口节点
@@ -80,6 +81,13 @@ class Agent:
         self.on_pass = on_pass
         self.on_fail = on_fail
         self.eval = eval
+        # eval_target: set on materialized judge agents; survives save/load so
+        # the engine can route them through _make_judge_node_func after reload.
+        # Stored as a public attr (also assigned to the legacy _eval_target
+        # alias for back-compat with code that still reads the private form).
+        self.eval_target = eval_target
+        if eval_target is not None:
+            self._eval_target = eval_target
 
     @property
     def has_conditional_edges(self) -> bool:
@@ -99,6 +107,8 @@ class Agent:
             d["on_fail"] = self.on_fail
         if self.eval:
             d["eval"] = True
+        if self.eval_target is not None:
+            d["eval_target"] = self.eval_target
         return d
 
     @classmethod
@@ -112,6 +122,7 @@ class Agent:
             on_pass=d.get("on_pass"),
             on_fail=d.get("on_fail"),
             eval=bool(d.get("eval", False)),
+            eval_target=d.get("eval_target"),
         )
 
 
@@ -197,6 +208,15 @@ class Workflow:
         Uses whatever tools are currently in the ToolRegistry.
         If registry is empty, registers default self-built tools (sub_agent + bash).
         Does NOT connect MCP servers — call run() for full setup.
+
+        Also runs the two-phase GraphMutator pipeline:
+
+          1. ``mutator.mutate(workflow)``  — in-memory DAG rewrite
+          2. ``mutator.persist(workflow)`` — durable side files (e.g. judge MD)
+          3. clear ``eval=True`` on every agent — materialization is one-shot
+
+        After compile() returns, ``save()`` can persist a workflow.json that
+        reflects the materialized DAG with no ``eval`` flags remaining.
         """
         from harness.engine.macro_graph import MacroGraphBuilder
 
@@ -207,6 +227,23 @@ class Workflow:
         if self._event_bus is not None:
             from harness.extensions.plugins import register_default_hooks
             register_default_hooks(self._event_bus)
+
+        # Two-phase mutator pipeline: mutate (in-memory) then persist (side files).
+        # Persist failures (e.g. summarizer LLM error) propagate — compile aborts.
+        if self._event_bus is not None and hasattr(self._event_bus, "get_mutators"):
+            for mutator in self._event_bus.get_mutators():
+                mutator.mutate(self)
+                mutator.persist(self)
+
+        # Any remaining eval=True means no mutator claimed it (e.g. user forgot
+        # to .use(EvalJudge())). Fail loud rather than silently strip the flag.
+        unhandled = [a.name for a in self.agents if getattr(a, "eval", False)]
+        if unhandled:
+            from harness.extensions.eval.errors import EvalCompileError
+            raise EvalCompileError(
+                f"Agents {unhandled} have eval=True but no GraphMutator handled them. "
+                f"Call workflow.use(EvalJudge()) before compile()."
+            )
 
         builder = MacroGraphBuilder(
             tool_registry=self.tool_registry,
@@ -254,7 +291,21 @@ class Workflow:
 
         Creates the per-workflow directory plus its ``agents/`` and ``scripts/``
         subdirectories if they don't exist.
+
+        Strict: if any agent still has ``eval=True``, raises
+        ``EvalNotCompiledError``. Call ``compile()`` first so EvalJudge
+        materializes the judge nodes into the DAG.
         """
+        from harness.extensions.eval.errors import EvalNotCompiledError
+
+        uncompiled = [a.name for a in self.agents if getattr(a, "eval", False)]
+        if uncompiled:
+            raise EvalNotCompiledError(
+                f"Cannot save workflow '{self.name}': agents {uncompiled} have eval=True "
+                f"but compile() has not run. Call workflow.compile() before save() so "
+                f"EvalJudge can materialize judge nodes into workflow.json."
+            )
+
         self.workflow_dir.mkdir(parents=True, exist_ok=True)
         (self.workflow_dir / "agents").mkdir(exist_ok=True)
         (self.workflow_dir / "scripts").mkdir(exist_ok=True)

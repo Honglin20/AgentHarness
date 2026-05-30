@@ -742,7 +742,10 @@ async def _create_and_start_workflow(
 
     has_eval = any(a.eval for a in agents)
     if has_eval:
-        # Validate LLM config before mutation — fail fast if no model available
+        # Runtime fallback: API callers can POST eval=true directly without
+        # having gone through Workflow.compile() + save() first. We materialize
+        # the judge nodes in-memory so the DAG snapshot below includes them.
+        # Saved workflows already have judges materialized into workflow.json.
         import os
         judge_model = os.environ.get("HARNESS_MODEL", "")
         if not judge_model:
@@ -751,9 +754,12 @@ async def _create_and_start_workflow(
                 detail="LLM model not configured. Set HARNESS_MODEL in Settings to use the eval feature.",
             )
         workflow.use(EvalJudge(max_retries=2))
-        # Apply mutation NOW so the DAG includes _judge_X nodes
         for mutator in event_bus.get_mutators():
-            workflow = mutator.mutate(workflow)
+            mutator.mutate(workflow)
+        # Clear flags so downstream compile() doesn't try to re-materialize/persist
+        for a in workflow.agents:
+            if getattr(a, "eval", False):
+                a.eval = False
 
     from datetime import datetime, timezone
     from server.runner import _build_agents_snapshot
