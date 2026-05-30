@@ -276,6 +276,20 @@ class WorkflowRunner:
                     if batch_id:
                         repo.update_batch_run_status(batch_id, workflow_id, "completed")
 
+                # Emit completion BEFORE persisting so the event lands in the
+                # buffer and gets saved with the run — replay needs it to
+                # trigger computeRunSummary on the frontend.
+                completion_payload = {
+                    "workflow_id": workflow_id,
+                    "user_id": user_id,
+                    "outputs": _serialize_outputs(result.outputs),
+                    "errors": result.errors,
+                    "trace": [t.model_dump() for t in result.trace],
+                }
+                if batch_id:
+                    completion_payload["batch_id"] = batch_id
+                event_bus.emit("workflow.completed", completion_payload)
+
                 # Persist run to disk (with event-ordered conversation + charts)
                 from harness.run_store import RunStore
                 from harness.extensions.collectors import ConversationCollector, ChartCollector
@@ -317,18 +331,6 @@ class WorkflowRunner:
                     work_dir=work_dir,
                 )
 
-                # Emit completion
-                completion_payload = {
-                    "workflow_id": workflow_id,
-                    "user_id": user_id,
-                    "outputs": _serialize_outputs(result.outputs),
-                    "errors": result.errors,
-                    "trace": [t.model_dump() for t in result.trace],
-                }
-                if batch_id:
-                    completion_payload["batch_id"] = batch_id
-                event_bus.emit("workflow.completed", completion_payload)
-
             except Exception as e:
                 # Store error for REST endpoints
                 from server.repository import get_repository
@@ -347,6 +349,17 @@ class WorkflowRunner:
                         repo.update_batch_run_status(
                             batch_id, workflow_id, "failed", error=str(e)
                         )
+
+                # Emit error BEFORE persisting so the event lands in the buffer
+                # and gets saved with the run (replay parity with success path).
+                error_payload = {
+                    "workflow_id": workflow_id,
+                    "user_id": user_id,
+                    "error": str(e),
+                }
+                if batch_id:
+                    error_payload["batch_id"] = batch_id
+                event_bus.emit("workflow.error", error_payload)
 
                 # Persist failed run to disk (with event-ordered conversation)
                 from harness.run_store import RunStore
@@ -388,15 +401,6 @@ class WorkflowRunner:
                     created_at=data.get("created_at") if data else None,
                     work_dir=work_dir,
                 )
-
-                error_payload = {
-                    "workflow_id": workflow_id,
-                    "user_id": user_id,
-                    "error": str(e),
-                }
-                if batch_id:
-                    error_payload["batch_id"] = batch_id
-                event_bus.emit("workflow.error", error_payload)
 
             finally:
                 # Restore working directory

@@ -50,6 +50,23 @@ export function replayEventsToStores(
     routeEvent(stores, event, ctx);
   }
 
+  // Fallback: legacy runs persisted before the backend started saving
+  // workflow.completed in the event buffer never trigger computeRunSummary
+  // via the routeEvent switch. Run it here so Analysis charts still appear.
+  const hasTerminal = events.some(
+    (e) =>
+      e.type === "workflow.completed" ||
+      e.type === "workflow.error" ||
+      e.type === "workflow.cancelled"
+  );
+  if (!hasTerminal) {
+    const summaryNodes = Object.values(stores.workflow.getState().nodes);
+    if (summaryNodes.length > 0) {
+      const addChart = stores.chart.getState().addChart;
+      computeRunSummary(summaryNodes, addChart, stores.span);
+    }
+  }
+
   manager.setWorkflowStatus(workflowId, "completed");
 }
 
