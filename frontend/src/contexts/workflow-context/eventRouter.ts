@@ -1,76 +1,22 @@
 /**
- * Event Router - Context 架构事件路由
+ * Event Router — dispatches WS events to scoped stores via shared routeEvent.
  *
- * 负责将 WebSocket 事件分发到正确的 workflow-scoped stores
+ * Live mode entry. Replay path uses replayEvents.ts.
+ * Both delegate to the shared routeEvent() switch in routeEvent.ts.
  */
 
 import type { WSEvent } from "@/types/events";
-import type { WorkflowStartedPayload } from "@/types/events";
-import type { WorkflowCompletedPayload } from "@/types/events";
-import type { NodeStartedPayload } from "@/types/events";
-import type { NodeCompletedPayload } from "@/types/events";
-import type { NodeFailedPayload } from "@/types/events";
-import type { AgentTextDeltaPayload } from "@/types/events";
-import type { AgentToolCallPayload } from "@/types/events";
-import type { AgentToolResultPayload } from "@/types/events";
-import type { AgentThinkingDeltaPayload } from "@/types/events";
 import { fetchWithAuth } from "@/lib/api";
-import type { AgentToolOutputDeltaPayload } from "@/types/events";
-import type { ChatQuestionPayload } from "@/types/events";
-import type { ChartRenderPayload } from "@/types/events";
-import type { StepSummaryPayload } from "@/types/events";
-import type { CircularWarningPayload } from "@/types/events";
-import type { SpanStartPayload } from "@/types/events";
-import type { SpanEndPayload } from "@/types/events";
 import { getWorkflowManager } from "./WorkflowManager";
-import { getToolCallCounter } from "./workflowStores";
+import { getToolCallCounter, type WorkflowStores } from "./workflowStores";
 import { useBatchStore } from "@/stores/batchStore";
 import { useRunHistoryStore } from "@/stores/runHistoryStore";
-import { computeRunSummary } from "@/lib/summary/runSummary";
-import { useObservabilityStore } from "@/stores/observabilityStore";
+import { routeEvent, type RouteContext } from "./routeEvent";
 
-/** Replicate formatOutputAsMd from AgentMessage to avoid circular dependency */
-function formatOutputAsMd(output: unknown): string {
-  if (output == null) return "";
-  if (typeof output === "string") {
-    try {
-      const parsed = JSON.parse(output);
-      return formatOutputAsMd(parsed);
-    } catch {
-      return output;
-    }
-  }
+// ---------------------------------------------------------------------------
+// Persistence (live-only side effects)
+// ---------------------------------------------------------------------------
 
-  if (typeof output === "object" && !Array.isArray(output)) {
-    const obj = output as Record<string, unknown>;
-    const lines: string[] = [];
-    for (const [k, v] of Object.entries(obj)) {
-      if (v != null) lines.push(`**${k}:** ${typeof v === "object" ? JSON.stringify(v) : String(v)}`);
-    }
-    if (lines.length > 0) return lines.join("\n\n");
-  }
-
-  return JSON.stringify(output, null, 2);
-}
-
-/** Typed payload extractor. */
-function payload<T>(event: WSEvent): T {
-  return event.payload as unknown as T;
-}
-
-/** Check if batch mode is active. */
-function isBatchMode(): boolean {
-  return useBatchStore.getState().activeBatchId !== null;
-}
-
-/** Check if a workflow_id matches the selected run in batch mode. */
-function isSelectedRun(wid: string | undefined): boolean {
-  if (!wid) return false;
-  const { selectedRunId } = useBatchStore.getState();
-  return selectedRunId !== null && selectedRunId === wid;
-}
-
-/** Save conversation to backend. */
 async function saveConversation(workflowId: string): Promise<void> {
   const manager = getWorkflowManager();
   const stores = manager.getStores(workflowId);
@@ -86,7 +32,6 @@ async function saveConversation(workflowId: string): Promise<void> {
   }).catch(() => {});
 }
 
-/** Save charts to backend. */
 async function saveCharts(workflowId: string): Promise<void> {
   const manager = getWorkflowManager();
   const stores = manager.getStores(workflowId);
@@ -102,7 +47,28 @@ async function saveCharts(workflowId: string): Promise<void> {
   }).catch(() => {});
 }
 
-/** Route event to the appropriate workflow stores. */
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+function isBatchMode(): boolean {
+  return useBatchStore.getState().activeBatchId !== null;
+}
+
+function isSelectedRun(wid: string | undefined): boolean {
+  if (!wid) return false;
+  const { selectedRunId } = useBatchStore.getState();
+  return selectedRunId !== null && selectedRunId === wid;
+}
+
+function buildLiveContext(stores: WorkflowStores): RouteContext {
+  return {
+    mode: "live",
+    persistence: { saveConversation, saveCharts },
+    counter: getToolCallCounter(stores.toolCall),
+  };
+}
+
 function routeEventToStores(event: WSEvent): void {
   const wid = event.payload?.workflow_id as string | undefined;
   if (!wid) return;
@@ -115,216 +81,12 @@ function routeEventToStores(event: WSEvent): void {
     return;
   }
 
-  switch (event.type) {
-    case "workflow.started": {
-      const p = payload<WorkflowStartedPayload>(event);
-      stores.span.getState().reset();
-      stores.span.getState().setWorkflowStartTs(event.ts);
-      stores.workflow.getState().setActiveWorkflowId(p.workflow_id);
-      stores.workflow.getState().handleWorkflowStarted(p);
-      break;
-    }
-
-    case "workflow.completed": {
-      const p = payload<WorkflowCompletedPayload>(event);
-      stores.workflow.getState().handleWorkflowCompleted(p);
-      const summaryNodes = Object.values(stores.workflow.getState().nodes);
-      const addChart = stores.chart.getState().addChart;
-      computeRunSummary(summaryNodes, addChart, stores.span);
-      saveConversation(wid);
-      saveCharts(wid);
-      break;
-    }
-
-    case "workflow.error": {
-      const p = payload<{ workflow_id: string; error: string }>(event);
-      stores.workflow.getState().handleWorkflowCompleted({
-        workflow_id: p.workflow_id,
-        status: "failed",
-      });
-      stores.output.getState().setWorkflowError(p.error);
-      const summaryNodes = Object.values(stores.workflow.getState().nodes);
-      const addChart = stores.chart.getState().addChart;
-      computeRunSummary(summaryNodes, addChart, stores.span);
-      saveConversation(p.workflow_id);
-      saveCharts(p.workflow_id);
-      break;
-    }
-
-    case "workflow.cancelled": {
-      const p = payload<{ workflow_id: string }>(event);
-      stores.workflow.getState().handleWorkflowCompleted({
-        workflow_id: p.workflow_id,
-        status: "paused",
-      });
-      saveConversation(p.workflow_id);
-      saveCharts(p.workflow_id);
-      break;
-    }
-
-    case "workflow.resumed": {
-      const p = payload<{ workflow_id: string; node_id: string; directive?: string }>(event);
-      stores.conversation.getState().resumeAgentMessage(p.node_id, "");
-      break;
-    }
-
-    case "node.started": {
-      const p = payload<NodeStartedPayload>(event);
-      stores.workflow.getState().handleNodeStarted(p);
-      stores.output.getState().setActiveNode(p.node_id);
-      stores.conversation.getState().addAgentMessage(p.node_id, p.agent_name);
-      break;
-    }
-
-    case "node.completed": {
-      const p = payload<NodeCompletedPayload>(event);
-      stores.workflow.getState().handleNodeCompleted(p);
-      const conversationState = stores.conversation.getState();
-
-      // Populate message content with formatted output
-      if (p.output_result) {
-        const formattedOutput = formatOutputAsMd(p.output_result);
-        const idx = conversationState.messages.findLastIndex(
-          (m) => m.nodeId === p.node_id && m.type === "agent" && (m.status === "streaming" || m.status === "done" || m.status === "interrupted")
-        );
-        if (idx !== -1) {
-          stores.conversation.setState((state) => {
-            const messages = [...state.messages];
-            const existing = messages[idx].content.trim();
-            // Append formatted output after streaming reasoning text
-            messages[idx] = { ...messages[idx], content: existing ? `${existing}\n\n---\n\n${formattedOutput}` : formattedOutput };
-            return { messages };
-          });
-        } else {
-          // Create placeholder message
-          const formattedOutput = formatOutputAsMd(p.output_result);
-          conversationState.addAgentMessage(p.node_id, p.agent_name);
-          const newState = stores.conversation.getState();
-          const newIdx = newState.messages.findLastIndex(
-            (m) => m.nodeId === p.node_id && m.type === "agent" && m.status === "streaming"
-          );
-          if (newIdx !== -1) {
-            stores.conversation.setState((state) => {
-              const messages = [...state.messages];
-              messages[newIdx] = { ...messages[newIdx], content: formattedOutput };
-              return { messages };
-            });
-          }
-        }
-      }
-
-      conversationState.completeAgentMessage(p.node_id, p.agent_name, p.duration_ms);
-
-      if (p.input_prompt || p.output_result || p.system_prompt) {
-        stores.agentIO.getState().setAgentIO(p.node_id, p.input_prompt ?? "", p.output_result, p.system_prompt);
-      }
-      break;
-    }
-
-    case "node.failed": {
-      const p = payload<NodeFailedPayload>(event);
-      stores.workflow.getState().handleNodeFailed(p);
-      stores.conversation.getState().failAgentMessage(p.node_id, p.agent_name, p.error, p.duration_ms);
-      break;
-    }
-
-    case "agent.text_delta": {
-      const p = payload<AgentTextDeltaPayload>(event);
-      stores.output.getState().appendText(p.node_id, p.text);
-      stores.conversation.getState().appendAgentText(p.node_id, p.text);
-      break;
-    }
-
-    case "agent.thinking_delta": {
-      const p = payload<AgentThinkingDeltaPayload>(event);
-      stores.conversation.getState().appendAgentThinking(p.node_id, p.text);
-      break;
-    }
-
-    case "agent.tool_call": {
-      const p = payload<AgentToolCallPayload>(event);
-      const counter = getToolCallCounter(stores.toolCall);
-      const id = counter.next();
-      stores.toolCall.getState().addToolCall(id, p.node_id, p.agent_name, p.tool_name, p.tool_args || {});
-      stores.conversation.getState().addToolCall(p.node_id, p.agent_name, p.tool_name, p.tool_args || {});
-      break;
-    }
-
-    case "agent.tool_result": {
-      const p = payload<AgentToolResultPayload>(event);
-      const store = stores.toolCall.getState();
-      const match = store.order
-        .map((oid) => store.records[oid])
-        .reverse()
-        .find((r) => r.nodeId === p.node_id && r.toolName === p.tool_name && r.result === undefined);
-      if (match) {
-        stores.toolCall.getState().addToolResult(match.id, String(p.result ?? ""));
-      }
-      stores.conversation.getState().addToolResult(p.node_id, p.tool_name, String(p.result ?? ""));
-      break;
-    }
-
-    case "agent.tool_output_delta": {
-      const p = payload<AgentToolOutputDeltaPayload>(event);
-      stores.conversation.getState().appendToolOutput(p.node_id, p.tool_name, p.line, p.stream);
-      break;
-    }
-
-    case "chat.question": {
-      const p = payload<ChatQuestionPayload>(event);
-      stores.chat.getState().addAgentQuestion(p.question_id, p.question);
-      const conv = stores.conversation.getState();
-      const lastStreaming = [...conv.messages].reverse().find((m) => m.type === "agent" && m.status === "streaming");
-      const agentName = lastStreaming?.agentName ?? "agent";
-      conv.addAgentQuestion(p.question_id, p.question, agentName);
-      break;
-    }
-
-    case "chart.render": {
-      const p = payload<ChartRenderPayload>(event);
-      stores.chart.getState().addChart(p.chart);
-      break;
-    }
-
-    case "step.summary": {
-      const p = payload<StepSummaryPayload>(event);
-      stores.workflow.setState((state) => ({
-        nodes: {
-          ...state.nodes,
-          [p.node_id]: {
-            ...state.nodes[p.node_id],
-            toolCallCount: p.node_tool_calls,
-            llmCallCount: p.node_llm_calls,
-          },
-        },
-      }));
-      break;
-    }
-
-    case "span.start": {
-      const p = payload<SpanStartPayload>(event);
-      stores.span.getState().startSpan(p);
-      break;
-    }
-    case "span.end": {
-      const p = payload<SpanEndPayload>(event);
-      stores.span.getState().endSpan(p.span_id, p.ts);
-      break;
-    }
-
-    case "circular.warning": {
-      const p = payload<CircularWarningPayload>(event);
-      useObservabilityStore.getState().addCircularWarning({
-        nodeId: p.node_id,
-        agentName: p.agent_name,
-        message: p.message,
-        lastTool: p.last_tool,
-        ts: Date.now(),
-      });
-      break;
-    }
-  }
+  routeEvent(stores, event, buildLiveContext(stores));
 }
+
+// ---------------------------------------------------------------------------
+// Public dispatchers
+// ---------------------------------------------------------------------------
 
 /**
  * Dispatch event for single-workflow mode
@@ -332,13 +94,11 @@ function routeEventToStores(event: WSEvent): void {
 export function dispatchSingleEvent(event: WSEvent, currentWorkflowId: string | null): void {
   const wid = event.payload?.workflow_id as string | undefined;
 
-  // Only process events from the currently active workflow
   if (wid && currentWorkflowId && wid !== currentWorkflowId) {
     return;
   }
 
   // Inject workflow_id for events that lack it (e.g. chart.render)
-  // so routeEventToStores can locate the scoped stores
   if (!wid && currentWorkflowId) {
     event = { ...event, payload: { ...event.payload, workflow_id: currentWorkflowId } };
   }
@@ -356,7 +116,6 @@ export function dispatchSingleEvent(event: WSEvent, currentWorkflowId: string | 
 export function dispatchBatchEvent(event: WSEvent): void {
   const wid = event.payload?.workflow_id as string | undefined;
 
-  // Batch-level events
   if (event.type === "batch.completed") {
     useRunHistoryStore.getState().fetchRuns();
     return;
@@ -366,12 +125,10 @@ export function dispatchBatchEvent(event: WSEvent): void {
     return;
   }
 
-  // Per-run events: only route UI updates for the selected run
   if (isSelectedRun(wid)) {
     routeEventToStores(event);
   }
 
-  // Always update batchStore status for lifecycle events
   if (wid && isBatchMode()) {
     if (event.type === "workflow.started") {
       useBatchStore.getState().updateRunStatus(wid, "running");

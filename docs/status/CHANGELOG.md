@@ -2,6 +2,22 @@
 
 ---
 
+## 2026-05-30 修复 replay 数据丢失(Bug A + Bug B)
+
+### 缺陷修复
+- **修复 Bug A**:刷新后点击 sidebar history 中央/右栏全空白 — `WorkflowScope` 的 reset useEffect 在 `replayEventsToStores` 写入 scoped stores 之后才触发,清空了刚 replay 的数据
+- **修复 Bug B**:replay 视图比 live 时显示少 — `replayEvents.ts` 的 `routeReplayEvent` switch 漏了 `step.summary`(BudgetBar 进度条不显示)和 `circular.warning`(右栏 ErrorsTab 看不到警告)
+
+### 结构性重构(消除 live/replay 两套 router 漂移)
+- **新增** `routeEvent.ts` — 共享 router,live/replay 共用同一 switch,通过 `RouteContext.persistence` 区分模式(`null` ⇔ replay 模式,跳过 API 副作用)
+- **改造** `eventRouter.ts` — `routeEventToStores` 委托共享 `routeEvent`,仅保留 live 特有的 batch/single dispatch 与 saveConversation/saveCharts
+- **改造** `replayEvents.ts` — 删除 `routeReplayEvent` / 本地 `resetAllStores` / `formatOutputAsMd`,改为调用共享 `routeEvent`(replay ctx 持 `persistence: null`)
+- **改造** `WorkflowScope.tsx` — 删除 reset useEffect 与本地 `resetAllStores`,降格为纯 DI 容器。Reset 责任下放:
+  - live:`routeEvent` 在 `workflow.started` 时 reset,带幂等保护(同一 workflow + 已有 nodes 时跳过,防止 WS 重连 since_seq=0 清空数据)
+  - replay:`replayEventsToStores` / `loadLegacyRunData` 入口显式 reset
+
+---
+
 ## 2026-05-30 条件路由缺陷修复 + 跨重启恢复
 
 ### 缺陷修复

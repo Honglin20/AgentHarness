@@ -1,22 +1,13 @@
 # Current Task
 
-**当前任务**: (空闲)
+**当前任务**: (无)
 **状态**: idle
-**优先级**: -
 
 ---
 
-## 必读文件
+## 上一任务
 
-1. `docs/status/CHANGELOG.md` — 变更记录
-
-## 已完成
-
-### 2026-05-28 集中式项目根目录路径解析
-- `harness/paths.py` — get_project_root() + 7 派生函数
-- 8 模块迁移消除 Path(__file__).parent.parent 硬编码
-- ResourceRegistry 对齐 paths 模块
-- 20 新测试，268 passed，0 regression
-
-### 2026-05-28 Frontend UX 持久化
-- URL 同步、Toast、Skeleton、ErrorBoundary、WebSocket 状态
+修复 replay 数据丢失(Bug A 刷新后 history 空白 + Bug B replay 显示少)
+完成时间:2026-05-30
+方案:抽出共享 `routeEvent`,删除 `WorkflowScope` reset 副作用,reset 责任下放到数据写入入口
+详情:`docs/status/CHANGELOG.md` 2026-05-30 条目

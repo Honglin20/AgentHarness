@@ -115,6 +115,9 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
   const handleResume = async (e: React.MouseEvent, runId: string) => {
     e.stopPropagation();
     try {
+      // Pre-load existing run data for immediate conversation display
+      const existingRun = await fetchRun(runId);
+
       const r = await fetchWithAuth(`/api/runs/${runId}/resume`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -122,6 +125,14 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
       });
       if (!r.ok) return;
       const data = await r.json();
+
+      // Replay existing events into scoped stores before connecting to live WS,
+      // so completed agent conversations appear immediately
+      if (existingRun?.events?.length) {
+        const { replayEventsToStores } = await import("@/contexts/workflow-context/replayEvents");
+        replayEventsToStores(data.workflow_id ?? runId, existingRun.events as any);
+      }
+
       setActiveWorkflowId(data.workflow_id ?? runId);
       showLive();
     } catch {}

@@ -1,17 +1,24 @@
 /**
- * WorkflowScope - Context Provider wrapper
+ * WorkflowScope — pure DI container for per-workflow scoped stores.
  *
  * WS lifecycle lives in WorkflowCenterPanel (stable parent).
- * WorkflowScope just provides per-workflow scoped stores via WorkflowProvider.
+ * WorkflowScope just provides the scoped stores via WorkflowProvider.
  * WSMethodContext is a real React context — no window globals.
+ *
+ * Reset responsibility has been moved out of this component (see fix plan
+ * 2026-05-30): reset now happens at data write entries:
+ *   - live: routeEvent on `workflow.started` (with idempotent guard)
+ *   - replay: replayEventsToStores entry calls resetAllStores
+ * This eliminates the Bug A: refresh-then-history blank-panel regression
+ * (the previous reset effect wiped data that replayEventsToStores had just
+ * populated, before React handed control back to the renderer).
  */
 
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
 import { WorkflowProvider } from "./WorkflowContext";
 import { getWorkflowManager } from "./WorkflowManager";
-import type { WorkflowStores } from "./workflowStores";
 
 // ============================================================
 // WSMethodContext — React context for WebSocket send methods
@@ -62,7 +69,6 @@ interface WorkflowScopeProps {
 
 export function WorkflowScope({ workflowId, children }: WorkflowScopeProps) {
   const manager = useMemo(() => getWorkflowManager(), []);
-  const prevWorkflowIdRef = useRef<string | null>(null);
 
   const stores = useMemo(() => {
     if (!workflowId) return null;
@@ -75,16 +81,8 @@ export function WorkflowScope({ workflowId, children }: WorkflowScopeProps) {
   );
 
   useEffect(() => {
-    // Reset scoped stores when switching to a DIFFERENT workflow,
-    // so a fresh WS replay populates clean state (no stacking).
-    if (workflowId && workflowId !== prevWorkflowIdRef.current) {
-      const entry = manager.getOrCreate(workflowId);
-      // Safe to reset BEFORE WS reconnects: WS messages cannot arrive
-      // until after the network handshake, by which time React has flushed
-      // all sibling effects (including useWorkflowWS reconnect with since_seq=0).
-      resetAllStores(entry.stores);
-    }
-    prevWorkflowIdRef.current = workflowId;
+    // Tell the manager which workflow is active for cross-cutting reads.
+    // Reset responsibility lives at data write entries (see file header).
     manager.setActiveWorkflowId(workflowId);
   }, [manager, workflowId]);
 
@@ -99,15 +97,4 @@ export function WorkflowScope({ workflowId, children }: WorkflowScopeProps) {
       {children}
     </WorkflowProvider>
   );
-}
-
-function resetAllStores(stores: WorkflowStores): void {
-  stores.conversation.getState().reset();
-  stores.output.getState().reset();
-  stores.workflow.getState().reset();
-  stores.chart.getState().reset();
-  stores.toolCall.getState().reset();
-  stores.agentIO.getState().reset();
-  stores.chat.getState().reset();
-  stores.span.getState().reset();
 }
