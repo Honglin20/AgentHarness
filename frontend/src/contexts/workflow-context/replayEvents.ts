@@ -380,9 +380,8 @@ export function loadLegacyRunData(
   const manager = getWorkflowManager();
   const stores = manager.getOrCreate(workflowId).stores;
 
-  stores.conversation.getState().reset();
-  stores.chart.getState().reset();
-  stores.workflow.getState().reset();
+  // Reset ALL 8 scoped stores (not just conversation/chart/workflow) so stale toolCall/agentIO/chat/span data doesn't leak
+  resetAllStores(stores);
 
   // Set DAG and workflow name if available
   if (dag) {
