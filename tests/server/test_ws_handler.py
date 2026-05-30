@@ -196,6 +196,7 @@ async def test_multi_user_isolation():
 
 def test_ws_since_seq_param():
     """WS endpoint accepts since_seq query param: only events with seq > since_seq are replayed."""
+    import os
     from server.repository import get_repository
     from server.app import app
 
@@ -216,6 +217,9 @@ def test_ws_since_seq_param():
                 assert data["payload"]["i"] == 2
     finally:
         repo.remove("test-wf-seq")
+        # FastAPI lifespan sets HARNESS_SERVER_URL globally; clear it so
+        # other tests (e.g. tests/tools/test_chart.py) still take the EventBus path.
+        os.environ.pop("HARNESS_SERVER_URL", None)
 
 
 @pytest.mark.asyncio
@@ -262,6 +266,7 @@ async def test_connection_manager_connect_passes_since_seq():
 
 def test_ws_completed_run_replays_persisted_events(tmp_path, monkeypatch):
     """Connecting to a completed workflow's WS replays events from disk."""
+    import os
     from harness.run_store import RunStore
     from server.repository import get_repository
 
@@ -291,15 +296,20 @@ def test_ws_completed_run_replays_persisted_events(tmp_path, monkeypatch):
     if hasattr(repo, "remove"):
         repo.remove(run_id)
 
-    with TestClient(app) as client:
-        with client.websocket_connect(f"/ws/workflows/{run_id}?user_id=test&since_seq=0") as ws:
-            # Read exactly the 2 replayed events. If the rebuilt-Bus path is
-            # broken, this blocks and the test runner times out — loud failure
-            # (CLAUDE.md rule #12), not a swallowed exception.
-            received = [ws.receive_json(mode="text") for _ in range(2)]
+    try:
+        with TestClient(app) as client:
+            with client.websocket_connect(f"/ws/workflows/{run_id}?user_id=test&since_seq=0") as ws:
+                # Read exactly the 2 replayed events. If the rebuilt-Bus path is
+                # broken, this blocks and the test runner times out — loud failure
+                # (CLAUDE.md rule #12), not a swallowed exception.
+                received = [ws.receive_json(mode="text") for _ in range(2)]
 
-        assert received[0]["type"] == "workflow.started"
-        assert received[1]["type"] == "node.started"
+            assert received[0]["type"] == "workflow.started"
+            assert received[1]["type"] == "node.started"
+    finally:
+        # FastAPI lifespan sets HARNESS_SERVER_URL globally; clear it so
+        # other tests (e.g. tests/tools/test_chart.py) still take the EventBus path.
+        os.environ.pop("HARNESS_SERVER_URL", None)
 
 
 @pytest.mark.asyncio
