@@ -97,8 +97,7 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
     onLeaveBenchmark?.();
     selectRun(run.run_id);
     if (run.status === "running") {
-      // Switch to live view for this running workflow
-      setActiveWorkflowId(run.run_id);
+      // Switch to live view — WorkflowScope handles scoped store reset + WS replay
       setWorkflow(run.run_id, run.workflow_name, null);
       showLive();
       return;
