@@ -26,38 +26,35 @@ export default function DiagnosticsPanel() {
 // ── Scoped version: reads from workflow-isolated stores ──────────────
 
 function ScopedDiagnosticsPanel({ stores }: { stores: WorkflowStores }) {
-  const liveNodes = useStore(stores.workflow, (s) => s.nodes);
-  const liveStatus = useStore(stores.workflow, (s) => s.status);
-  const liveSelectedNodeId = useStore(stores.workflow, (s) => s.selectedNodeId);
-  const liveToolCallCount = useStore(stores.toolCall, (s) => s.order.length);
-  const scopedToolRecords = useStore(stores.toolCall, (s) => s.records);
-  const scopedToolOrder = useStore(stores.toolCall, (s) => s.order);
+  const nodes = useStore(stores.workflow, (s) => s.nodes);
+  const status = useStore(stores.workflow, (s) => s.status);
+  const selectedNodeId = useStore(stores.workflow, (s) => s.selectedNodeId);
+  const toolRecords = useStore(stores.toolCall, (s) => s.records);
+  const toolOrder = useStore(stores.toolCall, (s) => s.order);
   const circularWarnings = useObservabilityStore((s) => s.circularWarnings);
 
-  const activeView = useViewStore((s) => s.activeView);
   const [activeTab, setActiveTab] = useState("trace");
 
   useEffect(() => {
-    if (liveSelectedNodeId) setActiveTab("trace");
-  }, [liveSelectedNodeId]);
+    if (selectedNodeId) setActiveTab("trace");
+  }, [selectedNodeId]);
 
-  // Clear circular warnings when workflow resets
   useEffect(() => {
-    if (liveStatus === "idle") {
+    if (status === "idle") {
       useObservabilityStore.getState().clear();
     }
-  }, [liveStatus]);
+  }, [status]);
 
-  const replayDerived = useReplayDerived(activeView);
-
-  const nodes = replayDerived?.nodes ?? liveNodes;
-  const status = replayDerived?.status ?? liveStatus;
-  const toolRecords = replayDerived?.records ?? scopedToolRecords;
-  const toolOrder = replayDerived?.order ?? scopedToolOrder;
-  const toolCallCount = toolOrder ? toolOrder.length : liveToolCallCount;
+  const toolCallCount = toolOrder.length;
   const errorCount = countErrors(nodes);
 
-  return renderPanel({ activeTab, setActiveTab, nodes, status, toolRecords, toolOrder, toolCallCount, errorCount, replayDerived, circularWarnings, scopedStores: stores });
+  return renderPanel({
+    activeTab, setActiveTab, nodes, status,
+    toolRecords, toolOrder, toolCallCount, errorCount,
+    replayDerived: null,
+    circularWarnings,
+    scopedStores: stores,
+  });
 }
 
 // ── Global fallback: reads from singleton stores (legacy / no workflow) ──
@@ -172,13 +169,13 @@ function renderPanel({
           </TabsTrigger>
         </TabsList>
         <TabsContent value="trace" className="flex-1 overflow-hidden">
-          <TraceTab nodes={replayDerived ? nodes : undefined} status={replayDerived ? status : undefined} />
+          <TraceTab nodes={nodes} status={status} />
         </TabsContent>
         <TabsContent value="tools" className="flex-1 overflow-hidden">
           <ToolCallsTab records={toolRecords} order={toolOrder} />
         </TabsContent>
         <TabsContent value="errors" className="flex-1 overflow-hidden">
-          <ErrorsTab nodes={replayDerived ? nodes : undefined} circularWarnings={circularWarnings} />
+          <ErrorsTab nodes={nodes} circularWarnings={circularWarnings} />
         </TabsContent>
       </Tabs>
     </aside>
