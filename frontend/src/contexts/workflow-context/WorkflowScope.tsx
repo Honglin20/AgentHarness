@@ -79,6 +79,9 @@ export function WorkflowScope({ workflowId, children }: WorkflowScopeProps) {
     // so a fresh WS replay populates clean state (no stacking).
     if (workflowId && workflowId !== prevWorkflowIdRef.current) {
       const entry = manager.getOrCreate(workflowId);
+      // Safe to reset BEFORE WS reconnects: WS messages cannot arrive
+      // until after the network handshake, by which time React has flushed
+      // all sibling effects (including useWorkflowWS reconnect with since_seq=0).
       resetAllStores(entry.stores);
     }
     prevWorkflowIdRef.current = workflowId;
