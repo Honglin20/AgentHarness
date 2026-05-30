@@ -1,15 +1,26 @@
 import { create } from "zustand";
 
+export interface QuestionOption {
+  label: string;
+  description?: string | null;
+  value?: string | null;
+}
+
+export interface QuestionAnswer {
+  selected: string[];
+  customInput: string;
+}
+
 export interface ConversationMessage {
   id: string;
-  type: "agent" | "user" | "tool_call" | "system";
+  type: "agent" | "user" | "tool_call" | "system" | "question";
   nodeId?: string;
   agentName?: string;
   content: string;
   toolName?: string;
   toolArgs?: Record<string, unknown>;
   toolResult?: string;
-  status?: "streaming" | "done" | "error" | "interrupted";
+  status?: "streaming" | "done" | "error" | "interrupted" | "pending" | "answered" | "timeout";
   /** For tool_call messages: "running" while tool executes, "done" when result arrives */
   toolStatus?: "running" | "done";
   toolDurationMs?: number;
@@ -19,6 +30,29 @@ export interface ConversationMessage {
   thinking?: string;
   durationMs?: number;
   timestamp: number;
+
+  // ── question-specific fields (type === "question") ──
+  questionId?: string;
+  questionHeader?: string | null;
+  questionOptions?: QuestionOption[] | null;
+  questionMultiSelect?: boolean;
+  questionAllowCustomInput?: boolean;
+  questionInputType?: "text" | "number" | "url" | "textarea";
+  questionInputPlaceholder?: string | null;
+  questionAnswer?: QuestionAnswer;
+}
+
+export interface AgentQuestionPayload {
+  question_id: string;
+  agent_name?: string;
+  node_id?: string;
+  question: string;
+  header?: string | null;
+  options?: QuestionOption[] | null;
+  multi_select?: boolean;
+  allow_custom_input?: boolean;
+  input_type?: "text" | "number" | "url" | "textarea";
+  input_placeholder?: string | null;
 }
 
 export interface ConversationState {
@@ -41,6 +75,9 @@ export interface ConversationState {
   addToolResult: (nodeId: string, toolName: string, result: string) => void;
   appendToolOutput: (nodeId: string, toolName: string, line: string, stream: string) => void;
   addAgentQuestion: (questionId: string, question: string, agentName: string) => void;
+  addUserQuestion: (payload: AgentQuestionPayload) => void;
+  answerUserQuestion: (questionId: string, answer: QuestionAnswer) => void;
+  markQuestionTimeout: (questionId: string) => void;
   addUserMessage: (content: string) => void;
   clearPendingQuestion: (questionId: string) => void;
   interruptAgentMessage: (agentName: string) => void;
@@ -266,16 +303,70 @@ export const useConversationStore = create<ConversationState>()((set) => ({
         ...state.messages,
         {
           id: `msg-${++msgCounter}`,
-          type: "agent",
+          type: "question",
           content: question,
           agentName,
-          status: "done",
+          status: "pending",
           timestamp: Date.now(),
+          questionId,
+          questionHeader: null,
+          questionOptions: null,
+          questionMultiSelect: false,
+          questionAllowCustomInput: true,
+          questionInputType: "textarea",
+          questionInputPlaceholder: null,
         },
       ],
-      pendingQuestionId: questionId,
-      pendingQuestionAgent: agentName,
     })),
+
+  addUserQuestion: (payload) =>
+    set((state) => ({
+      messages: [
+        ...state.messages,
+        {
+          id: `msg-${++msgCounter}`,
+          type: "question",
+          content: payload.question,
+          agentName: payload.agent_name ?? "agent",
+          nodeId: payload.node_id,
+          status: "pending",
+          timestamp: Date.now(),
+          questionId: payload.question_id,
+          questionHeader: payload.header ?? null,
+          questionOptions: payload.options ?? null,
+          questionMultiSelect: payload.multi_select ?? false,
+          questionAllowCustomInput: payload.allow_custom_input ?? true,
+          questionInputType: payload.input_type ?? "text",
+          questionInputPlaceholder: payload.input_placeholder ?? null,
+        },
+      ],
+    })),
+
+  answerUserQuestion: (questionId, answer) =>
+    set((state) => {
+      const idx = state.messages.findLastIndex(
+        (m) => m.type === "question" && m.questionId === questionId && m.status === "pending",
+      );
+      if (idx === -1) return state;
+      const messages = [...state.messages];
+      messages[idx] = {
+        ...messages[idx],
+        status: "answered",
+        questionAnswer: answer,
+      };
+      return { messages };
+    }),
+
+  markQuestionTimeout: (questionId) =>
+    set((state) => {
+      const idx = state.messages.findLastIndex(
+        (m) => m.type === "question" && m.questionId === questionId && m.status === "pending",
+      );
+      if (idx === -1) return state;
+      const messages = [...state.messages];
+      messages[idx] = { ...messages[idx], status: "timeout" };
+      return { messages };
+    }),
 
   addUserMessage: (content) =>
     set((state) => ({

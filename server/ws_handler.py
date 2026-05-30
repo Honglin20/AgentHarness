@@ -14,6 +14,29 @@ from .batch_fan_in import BatchFanIn
 
 router = APIRouter()
 
+
+def parse_chat_answer_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a chat.answer payload into the canonical structured form
+    consumed by harness.tools.ask_user.
+
+    Accepts both:
+      - new   : {selected: [...], custom_input: "..."}
+      - legacy: {answer: "..."}
+
+    Returns either {"selected": [...], "custom_input": str}
+    or {"answer": str} so downstream assemble_answer can fall back.
+    """
+    if "selected" in payload or "custom_input" in payload:
+        selected = payload.get("selected") or []
+        if not isinstance(selected, list):
+            selected = []
+        return {
+            "selected": [s for s in selected if isinstance(s, str)],
+            "custom_input": str(payload.get("custom_input") or ""),
+        }
+    return {"answer": str(payload.get("answer") or "")}
+
+
 # Broadcast rules for different event types
 # self: only sender receives
 # admin: admin users receive
@@ -312,14 +335,18 @@ async def websocket_endpoint(
             data = await websocket.receive_text()
             message = json.loads(data)
 
-            # Handle ask_human responses
+            # Handle ask_user / ask_human responses (chat.answer).
+            # Accepts both:
+            #   new: {question_id, selected: [...], custom_input: "..."}
+            #   legacy: {question_id, answer: "..."}
             if message.get("type") == "chat.answer":
-                question_id = message.get("payload", {}).get("question_id")
-                answer = message.get("payload", {}).get("answer")
+                payload = message.get("payload", {}) or {}
+                question_id = payload.get("question_id")
 
-                if question_id and answer:
-                    from harness.tools.ask_human import resolve_question
-                    await resolve_question(question_id, answer)
+                if question_id:
+                    from harness.tools.ask_user import resolve_answer
+                    answer_payload = parse_chat_answer_payload(payload)
+                    await resolve_answer(question_id, answer_payload)
 
             # Handle stop + regenerate requests
             elif message.get("type") == "agent.stop_and_regenerate":

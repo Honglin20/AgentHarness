@@ -112,6 +112,15 @@ export function createConversationStore(
     addAgentQuestion: (questionId, question, agentName) => {
       /* Phase 2 实现 */
     },
+    addUserQuestion: (_payload) => {
+      /* Phase 2 implementation: see lower createConversationStore */
+    },
+    answerUserQuestion: (_questionId, _answer) => {
+      /* Phase 2 implementation: see lower createConversationStore */
+    },
+    markQuestionTimeout: (_questionId) => {
+      /* Phase 2 implementation: see lower createConversationStore */
+    },
     addUserMessage: (content) => {
       /* Phase 2 实现 */
     },
@@ -347,16 +356,73 @@ export function createConversationStore(
           ...state.messages,
           {
             id: `msg-${msgCounter.next()}`,
-            type: "agent",
+            type: "question",
             content: question,
             agentName,
-            status: "done",
+            status: "pending",
             timestamp: Date.now(),
+            questionId,
+            questionHeader: null,
+            questionOptions: null,
+            questionMultiSelect: false,
+            questionAllowCustomInput: true,
+            questionInputType: "textarea",
+            questionInputPlaceholder: null,
           },
         ],
-        pendingQuestionId: questionId,
-        pendingQuestionAgent: agentName,
       })),
+
+    addUserQuestion: (payload) =>
+      set((state) => ({
+        messages: [
+          ...state.messages,
+          {
+            id: `msg-${msgCounter.next()}`,
+            type: "question",
+            content: payload.question,
+            agentName: payload.agent_name ?? "agent",
+            nodeId: payload.node_id,
+            status: "pending",
+            timestamp: Date.now(),
+            questionId: payload.question_id,
+            questionHeader: payload.header ?? null,
+            questionOptions: payload.options ?? null,
+            questionMultiSelect: payload.multi_select ?? false,
+            questionAllowCustomInput: payload.allow_custom_input ?? true,
+            questionInputType: payload.input_type ?? "text",
+            questionInputPlaceholder: payload.input_placeholder ?? null,
+          },
+        ],
+      })),
+
+    answerUserQuestion: (questionId, answer) =>
+      set((state) => {
+        const idx = state.messages.findLastIndex(
+          (m) => m.type === "question" && m.questionId === questionId && m.status === "pending",
+        );
+        if (idx === -1) return state;
+        const messages = [...state.messages];
+        messages[idx] = {
+          ...messages[idx],
+          status: "answered",
+          questionAnswer: answer,
+        };
+        return { messages };
+      }),
+
+    markQuestionTimeout: (questionId) =>
+      set((state) => {
+        const idx = state.messages.findLastIndex(
+          (m) => m.type === "question" && m.questionId === questionId && m.status === "pending",
+        );
+        if (idx === -1) return state;
+        const messages = [...state.messages];
+        messages[idx] = { ...messages[idx], status: "timeout" };
+        const clear = state.pendingQuestionId === questionId
+          ? { pendingQuestionId: null, pendingQuestionAgent: null }
+          : {};
+        return { messages, ...clear };
+      }),
 
     addUserMessage: (content) =>
       set((state) => ({

@@ -141,6 +141,45 @@ def test_resolve_question():
     asyncio.run(test())
 
 
+def test_parse_chat_answer_new_shape():
+    from server.ws_handler import parse_chat_answer_payload
+
+    out = parse_chat_answer_payload(
+        {"question_id": "x", "selected": ["a", "b"], "custom_input": "c"}
+    )
+    assert out == {"selected": ["a", "b"], "custom_input": "c"}
+
+
+def test_parse_chat_answer_legacy_shape():
+    from server.ws_handler import parse_chat_answer_payload
+
+    out = parse_chat_answer_payload({"question_id": "x", "answer": "hi"})
+    assert out == {"answer": "hi"}
+
+
+def test_parse_chat_answer_filters_non_string_selected():
+    from server.ws_handler import parse_chat_answer_payload
+
+    out = parse_chat_answer_payload(
+        {"selected": ["a", 42, None, "b"], "custom_input": ""}
+    )
+    assert out == {"selected": ["a", "b"], "custom_input": ""}
+
+
+def test_parse_chat_answer_defaults_missing_custom_input():
+    from server.ws_handler import parse_chat_answer_payload
+
+    out = parse_chat_answer_payload({"selected": ["a"]})
+    assert out == {"selected": ["a"], "custom_input": ""}
+
+
+def test_parse_chat_answer_legacy_missing_answer_defaults_empty():
+    from server.ws_handler import parse_chat_answer_payload
+
+    out = parse_chat_answer_payload({})
+    assert out == {"answer": ""}
+
+
 @pytest.mark.asyncio
 async def test_multi_user_isolation():
     """验证 EventBus 自动注入 user_id 和事件过滤逻辑"""

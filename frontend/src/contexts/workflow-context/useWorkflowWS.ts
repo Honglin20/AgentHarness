@@ -15,6 +15,7 @@ import { useBatchStore } from "@/stores/batchStore";
 export interface WorkflowWSReturn {
   isConnected: boolean;
   sendAnswer: (questionId: string, answer: string) => void;
+  sendStructuredAnswer: (questionId: string, answer: { selected: string[]; customInput: string }) => void;
   sendStopAndRegenerate: (agentName: string, partialOutput: string, userGuidance: string) => void;
 }
 
@@ -50,6 +51,20 @@ export function useWorkflowWS(workflowId: string | null): WorkflowWSReturn {
     [ws],
   );
 
+  const sendStructuredAnswer = useCallback(
+    (questionId: string, answer: { selected: string[]; customInput: string }) => {
+      ws.send({
+        type: "chat.answer",
+        payload: {
+          question_id: questionId,
+          selected: answer.selected,
+          custom_input: answer.customInput,
+        },
+      });
+    },
+    [ws],
+  );
+
   const sendStopAndRegenerate = useCallback(
     (agentName: string, partialOutput: string, userGuidance: string) => {
       if (!workflowId) return;
@@ -66,5 +81,5 @@ export function useWorkflowWS(workflowId: string | null): WorkflowWSReturn {
     [ws, workflowId],
   );
 
-  return { isConnected: ws.isConnected, sendAnswer, sendStopAndRegenerate };
+  return { isConnected: ws.isConnected, sendAnswer, sendStructuredAnswer, sendStopAndRegenerate };
 }

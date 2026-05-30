@@ -83,7 +83,7 @@ export function CenterPanel({ activeBenchmark }: Props) {
   const activeBatchId = useBatchStore((s) => s.activeBatchId);
   const batchRunning = activeBatchId !== null;
 
-  const { sendAnswer, sendStopAndRegenerate } = useWorkflowEvents(
+  const { sendAnswer, sendStructuredAnswer, sendStopAndRegenerate } = useWorkflowEvents(
     batchRunning ? null : workflowId,
   );
 
@@ -271,7 +271,7 @@ export function CenterPanel({ activeBenchmark }: Props) {
         </div>
         <div className="flex-1 overflow-hidden">
           {benchmarkView === "runner" && showBenchmarkDetail && activeTab === "conversation" ? (
-            <ConversationTab />
+            <ConversationTab onSubmitQuestion={sendStructuredAnswer} />
           ) : benchmarkView === "runner" && showBenchmarkDetail && activeTab === "results" ? (
             <ResultsTab />
           ) : benchmarkView === "runner" ? (
@@ -438,7 +438,7 @@ export function CenterPanel({ activeBenchmark }: Props) {
           isReplay ? (
             <ConversationTab messages={replayMessages} autoScroll={false} />
           ) : (
-            <ConversationTab />
+            <ConversationTab onSubmitQuestion={sendStructuredAnswer} />
           )
         ) : activeTab === "analysis" ? (
           isReplay ? (

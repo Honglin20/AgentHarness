@@ -87,6 +87,9 @@ harness/                        # 核心框架
 │   ├── md_parser.py            # YAML frontmatter + prompt 提取
 │   └── dag_builder.py          # 依赖解析 + 拓扑排序 + 循环检测
 ├── tools/                      # 工具系统
+│   ├── ask_user.py             # ask_user: 结构化提问（单选/多选/自由输入）
+│   ├── ask_human.py            # ask_human: 旧版薄壳，转调 ask_user
+│   ├── _human_io.py            # 共享 Future 注册表（ask_user/ask_human 共用）
 │   ├── chart.py                # 图表渲染（非 tool，纯函数）
 │   └── tool_registry.py        # 工具注册表
 └── extensions/                 # 扩展系统

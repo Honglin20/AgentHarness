@@ -26,6 +26,7 @@ import { getWorkflowManager } from "./WorkflowManager";
 
 interface WSMethods {
   sendAnswer: (questionId: string, answer: string) => void;
+  sendStructuredAnswer: (questionId: string, answer: { selected: string[]; customInput: string }) => void;
   sendStopAndRegenerate: (agentName: string, partialOutput: string, userGuidance: string) => void;
 }
 
@@ -33,12 +34,13 @@ const WSMethodContext = createContext<WSMethods | null>(null);
 
 export function WSMethodProvider({
   sendAnswer,
+  sendStructuredAnswer,
   sendStopAndRegenerate,
   children,
 }: WSMethods & { children: ReactNode }) {
   const value = useMemo(
-    () => ({ sendAnswer, sendStopAndRegenerate }),
-    [sendAnswer, sendStopAndRegenerate],
+    () => ({ sendAnswer, sendStructuredAnswer, sendStopAndRegenerate }),
+    [sendAnswer, sendStructuredAnswer, sendStopAndRegenerate],
   );
   return (
     <WSMethodContext.Provider value={value}>

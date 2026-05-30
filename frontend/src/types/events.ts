@@ -183,14 +183,32 @@ export interface ChartPayload {
 }
 
 // Chat events (human-in-the-loop)
+export interface ChatQuestionOption {
+  label: string;
+  description?: string | null;
+  value?: string | null;
+}
+
 export interface ChatQuestionPayload {
   question_id: string;
   question: string;
+  node_id?: string;
+  agent_name?: string;
+  header?: string | null;
+  options?: ChatQuestionOption[] | null;
+  multi_select?: boolean;
+  allow_custom_input?: boolean;
+  input_type?: "text" | "number" | "url" | "textarea";
+  input_placeholder?: string | null;
 }
 
 export interface ChatAnswerPayload {
   question_id: string;
-  answer: string;
+  // Legacy: free text answer.
+  answer?: string;
+  // New: structured answer.
+  selected?: string[];
+  custom_input?: string;
 }
 
 // Batch events

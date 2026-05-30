@@ -221,7 +221,7 @@ class Workflow:
         from harness.engine.macro_graph import MacroGraphBuilder
 
         if not self.tool_registry.list_tools():
-            self.tool_registry = default_tool_registry()
+            self.tool_registry = default_tool_registry(event_bus=self._event_bus)
 
         # Auto-register built-in Hook plugins (idempotent)
         if self._event_bus is not None:
@@ -594,7 +594,7 @@ class Workflow:
                 Defaults to os.getcwd(). Use "/" for full filesystem access.
         """
         if not self.tool_registry.list_tools():
-            self.tool_registry = default_tool_registry()
+            self.tool_registry = default_tool_registry(event_bus=self._event_bus)
 
         mcp_workdir = work_dir or os.getcwd()
         bridges: list[McpBridge] = []

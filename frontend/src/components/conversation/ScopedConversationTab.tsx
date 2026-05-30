@@ -16,7 +16,10 @@ import { UserMessage } from "./UserMessage";
 import { SystemMessage } from "./SystemMessage";
 import { ToolCallMessage } from "./ToolCallMessage";
 import { MarkdownText } from "./MarkdownText";
+import { AgentQuestionCard } from "./AgentQuestionCard";
 import type { ConversationMessage } from "@/stores/conversationStore";
+import { useWSMethods } from "@/contexts/workflow-context/WorkflowScope";
+import { useConversationActions } from "@/contexts/workflow-context/hooks";
 
 interface ScopedConversationTabProps {
   autoScroll?: boolean;
@@ -87,6 +90,8 @@ function groupMessages(messages: ConversationMessage[]): Block[] {
 
 export function ScopedConversationTab({ autoScroll = true }: ScopedConversationTabProps = {}) {
   const messages = useConversationMessages();
+  const { sendStructuredAnswer } = useWSMethods();
+  const conversationActions = useConversationActions();
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -126,6 +131,20 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
             const m = b.message;
             if (m.type === "user") return <UserMessage key={m.id} message={m} />;
             if (m.type === "system") return <SystemMessage key={m.id} message={m} />;
+            if (m.type === "question") {
+              return (
+                <AgentQuestionCard
+                  key={m.id}
+                  message={m}
+                  onSubmit={(answer) => {
+                    if (m.questionId) {
+                      sendStructuredAnswer(m.questionId, answer);
+                      conversationActions.answerUserQuestion(m.questionId, answer);
+                    }
+                  }}
+                />
+              );
+            }
             return <ToolCallMessage key={m.id} message={m} />;
           }
 
@@ -170,6 +189,20 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
                   {items.map((item) => {
                     if (item.type === "tool_call") {
                       return <ToolCallMessage key={item.id} message={item} />;
+                    }
+                    if (item.type === "question") {
+                      return (
+                        <AgentQuestionCard
+                          key={item.id}
+                          message={item}
+                          onSubmit={(answer) => {
+                            if (item.questionId) {
+                              sendStructuredAnswer(item.questionId, answer);
+                              conversationActions.answerUserQuestion(item.questionId, answer);
+                            }
+                          }}
+                        />
+                      );
                     }
                     if (item.type === "agent") {
                       const isStreaming = item.status === "streaming";

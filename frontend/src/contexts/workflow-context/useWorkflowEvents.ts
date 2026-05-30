@@ -10,6 +10,7 @@ import { useWSMethods } from "./WorkflowScope";
 
 export interface ScopedWorkflowEventsReturn {
   sendAnswer: (questionId: string, answer: string) => void;
+  sendStructuredAnswer: (questionId: string, answer: { selected: string[]; customInput: string }) => void;
   sendStopAndRegenerate: (agentName: string, partialOutput: string, userGuidance: string) => void;
 }
 
@@ -28,6 +29,15 @@ export function useScopedWorkflowEvents(): ScopedWorkflowEventsReturn {
     [ws, chatActions, conversationActions],
   );
 
+  const sendStructuredAnswer = useCallback(
+    (questionId: string, answer: { selected: string[]; customInput: string }) => {
+      ws.sendStructuredAnswer(questionId, answer);
+      chatActions.addUserAnswer(questionId, answer.customInput || answer.selected.join(", "));
+      conversationActions.answerUserQuestion(questionId, answer);
+    },
+    [ws, chatActions, conversationActions],
+  );
+
   const sendStopAndRegenerate = useCallback(
     (agentName: string, partialOutput: string, userGuidance: string) => {
       ws.sendStopAndRegenerate(agentName, partialOutput, userGuidance);
@@ -36,7 +46,7 @@ export function useScopedWorkflowEvents(): ScopedWorkflowEventsReturn {
     [ws, conversationActions],
   );
 
-  return { sendAnswer, sendStopAndRegenerate };
+  return { sendAnswer, sendStructuredAnswer, sendStopAndRegenerate };
 }
 
 export function setActiveWorkflowId(id: string | null): void {

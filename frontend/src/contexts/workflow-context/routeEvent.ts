@@ -328,8 +328,19 @@ export function routeEvent(
       const lastStreaming = [...conv.messages]
         .reverse()
         .find((m) => m.type === "agent" && m.status === "streaming");
-      const agentName = lastStreaming?.agentName ?? "agent";
-      conv.addAgentQuestion(p.question_id, p.question, agentName);
+      const fallbackAgent = lastStreaming?.agentName ?? "agent";
+      conv.addUserQuestion({
+        question_id: p.question_id,
+        question: p.question,
+        agent_name: p.agent_name ?? fallbackAgent,
+        node_id: p.node_id,
+        header: p.header ?? null,
+        options: p.options ?? null,
+        multi_select: p.multi_select ?? false,
+        allow_custom_input: p.allow_custom_input ?? true,
+        input_type: p.input_type ?? "text",
+        input_placeholder: p.input_placeholder ?? null,
+      });
       break;
     }
 

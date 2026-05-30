@@ -62,6 +62,7 @@ export function WorkflowCenterPanel({ activeBenchmark }: WorkflowCenterPanelProp
       {!isReplay && <ConnectionStatusBar isConnected={wsMethods.isConnected} />}
       <WSMethodProvider
         sendAnswer={wsMethods.sendAnswer}
+        sendStructuredAnswer={wsMethods.sendStructuredAnswer}
         sendStopAndRegenerate={wsMethods.sendStopAndRegenerate}
       >
         <ScopedCenterPanel activeBenchmark={activeBenchmark} isReplay={isReplay} />

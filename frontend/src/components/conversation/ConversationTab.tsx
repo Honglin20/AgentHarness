@@ -1,16 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useConversationStore, type ConversationMessage } from "@/stores/conversationStore";
+import { useConversationStore, type ConversationMessage, type QuestionAnswer } from "@/stores/conversationStore";
 import { AgentMessage } from "./AgentMessage";
 import { UserMessage } from "./UserMessage";
 import { SystemMessage } from "./SystemMessage";
 import { ToolCallMessage } from "./ToolCallMessage";
 import { ToolCallGroup } from "./ToolCallGroup";
+import { AgentQuestionCard } from "./AgentQuestionCard";
 
 interface ConversationTabProps {
   messages?: ConversationMessage[];
   autoScroll?: boolean;
+  /** Called when the user answers a structured question from the conversation.
+   *  If omitted, the question card falls back to a no-op submit. */
+  onSubmitQuestion?: (questionId: string, answer: QuestionAnswer) => void;
 }
 
 interface ToolGroup {
@@ -40,7 +44,7 @@ function groupMessages(messages: ConversationMessage[]): Block[] {
   return blocks;
 }
 
-export function ConversationTab({ messages: messagesProp, autoScroll = true }: ConversationTabProps = {}) {
+export function ConversationTab({ messages: messagesProp, autoScroll = true, onSubmitQuestion }: ConversationTabProps = {}) {
   const storeMessages = useConversationStore((s) => s.messages);
   const messages = messagesProp ?? storeMessages;
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -97,6 +101,18 @@ export function ConversationTab({ messages: messagesProp, autoScroll = true }: C
               return <UserMessage key={m.id} message={m} />;
             case "system":
               return <SystemMessage key={m.id} message={m} />;
+            case "question":
+              return (
+                <AgentQuestionCard
+                  key={m.id}
+                  message={m}
+                  onSubmit={(answer) => {
+                    if (m.questionId && onSubmitQuestion) {
+                      onSubmitQuestion(m.questionId, answer);
+                    }
+                  }}
+                />
+              );
             case "agent": {
               const isCollapsed = collapsed[m.id] ?? false;
               return (

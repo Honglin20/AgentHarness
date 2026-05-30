@@ -310,11 +310,25 @@ function _routeToUIStores(event: WSEvent): void {
 
     case "chat.question": {
       const p = payload<ChatQuestionPayload>(event);
+      // Keep chatStore in sync for any legacy listeners that still observe
+      // pending question state; the actual rendering lives on the question
+      // message we push into the conversation store below.
       useChatStore.getState().addAgentQuestion(p.question_id, p.question);
       const conv = useConversationStore.getState();
       const lastStreaming = [...conv.messages].reverse().find((m) => m.type === "agent" && m.status === "streaming");
-      const agentName = lastStreaming?.agentName ?? "agent";
-      conv.addAgentQuestion(p.question_id, p.question, agentName);
+      const fallbackAgent = lastStreaming?.agentName ?? "agent";
+      conv.addUserQuestion({
+        question_id: p.question_id,
+        question: p.question,
+        agent_name: p.agent_name ?? fallbackAgent,
+        node_id: p.node_id,
+        header: p.header ?? null,
+        options: p.options ?? null,
+        multi_select: p.multi_select ?? false,
+        allow_custom_input: p.allow_custom_input ?? true,
+        input_type: p.input_type ?? "text",
+        input_placeholder: p.input_placeholder ?? null,
+      });
       break;
     }
 
@@ -426,6 +440,7 @@ export function useWorkflowEvents(
   workflowId: string | null,
 ): UseWebSocketReturn & {
   sendAnswer: (questionId: string, answer: string) => void;
+  sendStructuredAnswer: (questionId: string, answer: { selected: string[]; customInput: string }) => void;
   sendStopAndRegenerate: (agentName: string, partialOutput: string, userGuidance: string) => void;
 } {
   const onEvent = useCallback((event: WSEvent) => {
@@ -448,6 +463,22 @@ export function useWorkflowEvents(
     [ws.send],
   );
 
+  const sendStructuredAnswer = useCallback(
+    (questionId: string, answer: { selected: string[]; customInput: string }) => {
+      ws.send({
+        type: "chat.answer",
+        payload: {
+          question_id: questionId,
+          selected: answer.selected,
+          custom_input: answer.customInput,
+        },
+      });
+      useChatStore.getState().addUserAnswer(questionId, answer.customInput || answer.selected.join(", "));
+      useConversationStore.getState().answerUserQuestion(questionId, answer);
+    },
+    [ws.send],
+  );
+
   const sendStopAndRegenerate = useCallback(
     (agentName: string, partialOutput: string, userGuidance: string) => {
       if (!workflowId) return;
@@ -464,6 +495,6 @@ export function useWorkflowEvents(
     [ws.send, workflowId],
   );
 
-  return { ...ws, sendAnswer, sendStopAndRegenerate };
+  return { ...ws, sendAnswer, sendStructuredAnswer, sendStopAndRegenerate };
 }
 

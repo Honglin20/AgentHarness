@@ -1,0 +1,34 @@
+{
+  "name": "ask_user_demo",
+  "agents": [
+    {
+      "name": "greeter",
+      "after": [],
+      "tools": [
+        "ask_user"
+      ],
+      "model": null,
+      "retries": 3
+    },
+    {
+      "name": "survey",
+      "after": [
+        "greeter"
+      ],
+      "tools": [
+        "ask_user"
+      ],
+      "model": null,
+      "retries": 3
+    },
+    {
+      "name": "reporter",
+      "after": [
+        "survey"
+      ],
+      "tools": null,
+      "model": null,
+      "retries": 3
+    }
+  ]
+}
