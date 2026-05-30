@@ -68,6 +68,7 @@ class Bus:
         self._lock = asyncio.Lock()
         self._buffer: list[dict] = []
         self._buffer_size = buffer_size
+        self._seq: int = 0
 
         # Extensions
         self._hooks: dict[str, BaseHook] = {}
@@ -112,12 +113,14 @@ class Bus:
         return list(self._mutators.values())
 
     # ----- WS subscriber API (preserved from old EventBus) -----
-    async def subscribe(self) -> tuple[str, asyncio.Queue]:
+    async def subscribe(self, since_seq: int | None = None) -> tuple[str, asyncio.Queue]:
         async with self._lock:
             sub_id = str(uuid.uuid4())
             queue: asyncio.Queue[dict] = asyncio.Queue()
             self._subscribers[sub_id] = queue
             for event in self._buffer:
+                if since_seq is not None and event.get("seq", 0) <= since_seq:
+                    continue
                 try:
                     queue.put_nowait(event)
                 except asyncio.QueueFull:
@@ -142,7 +145,8 @@ class Bus:
         if "user_id" not in payload and self._user_context.get("user_id"):
             payload["user_id"] = self._user_context["user_id"]
 
-        event = {"type": event_type, "ts": _now(), "payload": payload}
+        event = {"type": event_type, "ts": _now(), "seq": self._seq + 1, "payload": payload}
+        self._seq += 1
         self._buffer.append(event)
         if len(self._buffer) > self._buffer_size:
             self._buffer = self._buffer[-self._buffer_size:]

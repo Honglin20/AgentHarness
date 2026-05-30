@@ -3,6 +3,7 @@
 import asyncio
 import pytest
 
+from harness.extensions.bus import Bus
 from server.event_bus import EventBus, get_event_bus
 
 
@@ -129,3 +130,50 @@ async def test_subscribe_unsubscribe_subscribe(event_bus):
 
     event = await asyncio.wait_for(queue2.get(), timeout=1.0)
     assert event["type"] == "test"
+
+
+@pytest.mark.asyncio
+async def test_emit_assigns_monotonic_seq():
+    """emit() assigns seq 1, 2, 3... to successive events."""
+    bus = Bus()
+    bus.emit("test.event", {"a": 1})
+    bus.emit("test.event", {"b": 2})
+    bus.emit("test.event", {"c": 3})
+    buf = bus.buffer
+    assert [e["seq"] for e in buf] == [1, 2, 3]
+
+
+@pytest.mark.asyncio
+async def test_subscribe_since_seq():
+    """subscribe(since_seq=N) only replays events with seq > N."""
+    bus = Bus()
+    bus.emit("test.event", {"i": 1})  # seq=1
+    bus.emit("test.event", {"i": 2})  # seq=2
+    bus.emit("test.event", {"i": 3})  # seq=3
+
+    # Subscribe from seq=2 → should only get event with seq=3
+    sub_id, queue = await bus.subscribe(since_seq=2)
+    events = []
+    while not queue.empty():
+        events.append(await queue.get())
+    assert len(events) == 1
+    assert events[0]["seq"] == 3
+    assert events[0]["payload"]["i"] == 3
+
+    await bus.unsubscribe(sub_id)
+
+
+@pytest.mark.asyncio
+async def test_subscribe_since_seq_default_replays_all():
+    """subscribe() with no since_seq replays entire buffer (backward compat)."""
+    bus = Bus()
+    bus.emit("test.event", {"i": 1})
+    bus.emit("test.event", {"i": 2})
+
+    sub_id, queue = await bus.subscribe()
+    events = []
+    while not queue.empty():
+        events.append(await queue.get())
+    assert len(events) == 2
+
+    await bus.unsubscribe(sub_id)
