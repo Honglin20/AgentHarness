@@ -21,14 +21,14 @@
     },
     {
       "name": "summary",
-      "after": [],
+      "after": null,
       "tools": null,
       "model": null,
       "retries": 3
     },
     {
       "name": "debugger",
-      "after": [],
+      "after": null,
       "tools": [
         "bash"
       ],
