@@ -270,6 +270,9 @@ def _rebuild_bus_from_events(workflow_id: str):
         if seq > max_seq:
             max_seq = seq
         bus._buffer.append(event)
+    # Respect Bus buffer cap invariant (matches emit() semantics):
+    # keep only the latest _buffer_size events.
+    bus._buffer = bus._buffer[-bus._buffer_size:]
     bus._seq = max_seq
     return bus
 

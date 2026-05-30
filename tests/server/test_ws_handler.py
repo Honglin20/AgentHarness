@@ -293,19 +293,13 @@ def test_ws_completed_run_replays_persisted_events(tmp_path, monkeypatch):
 
     with TestClient(app) as client:
         with client.websocket_connect(f"/ws/workflows/{run_id}?user_id=test&since_seq=0") as ws:
-            received = []
-            try:
-                while True:
-                    data = ws.receive_json(mode="text")
-                    received.append(data)
-                    if len(received) >= 2:
-                        break
-            except Exception:
-                pass
+            # Read exactly the 2 replayed events. If the rebuilt-Bus path is
+            # broken, this blocks and the test runner times out — loud failure
+            # (CLAUDE.md rule #12), not a swallowed exception.
+            received = [ws.receive_json(mode="text") for _ in range(2)]
 
-            assert len(received) >= 2
-            assert received[0]["type"] == "workflow.started"
-            assert received[1]["type"] == "node.started"
+        assert received[0]["type"] == "workflow.started"
+        assert received[1]["type"] == "node.started"
 
 
 @pytest.mark.asyncio
