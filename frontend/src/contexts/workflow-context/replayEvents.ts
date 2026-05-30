@@ -2,9 +2,10 @@
  * Replay Events - Replays persisted events through scoped stores
  *
  * Mirrors the event routing logic from eventRouter.ts but:
- * - Skips lifecycle events (workflow.started/completed) that trigger API calls
+ * - Handles lifecycle events (workflow.started/completed) to populate UI state
+ * - Does NOT trigger API calls (those are live-mode-only side effects)
  * - Resets all stores before replaying
- * - Handles node, agent, chat, and chart events identically to live routing
+ * - Handles node, agent, chat, chart, span, and lifecycle events
  */
 
 import type { WSEvent } from "@/types/events";
@@ -20,7 +21,12 @@ import type {
   AgentToolOutputDeltaPayload,
   ChatQuestionPayload,
   ChartRenderPayload,
+  WorkflowStartedPayload,
+  WorkflowCompletedPayload,
+  SpanStartPayload,
+  SpanEndPayload,
 } from "@/types/events";
+import { computeRunSummary } from "@/lib/summary/runSummary";
 import { getWorkflowManager } from "./WorkflowManager";
 import { getToolCallCounter } from "./workflowStores";
 
@@ -90,9 +96,8 @@ function resetAllStores(stores: WorkflowStores): void {
 /**
  * Route a single replay event to the appropriate stores.
  *
- * Unlike the live router, this skips lifecycle events that would trigger
- * API calls (workflow.started, workflow.completed, workflow.error, etc.)
- * and focuses purely on populating UI state.
+ * Unlike the live router, this handles lifecycle events to populate UI state
+ * (DAG, status, spans, summary charts) but does NOT trigger API calls.
  */
 function routeReplayEvent(
   stores: WorkflowStores,
@@ -254,10 +259,66 @@ function routeReplayEvent(
       break;
     }
 
-    // -- Lifecycle events: skipped during replay ----------------------------
-    // workflow.started, workflow.completed, workflow.error, workflow.cancelled,
-    // workflow.resumed — these trigger API calls in live mode and should not
-    // be replayed. The replay utility only populates UI state.
+    // -- Lifecycle events: populate UI state only (no API calls) -------
+
+    case "workflow.started": {
+      const p = payload<WorkflowStartedPayload>(event);
+      stores.workflow.getState().setActiveWorkflowId(p.workflow_id);
+      stores.workflow.getState().handleWorkflowStarted(p);
+      stores.span.getState().setWorkflowStartTs(event.ts);
+      break;
+    }
+
+    case "workflow.completed": {
+      const p = payload<WorkflowCompletedPayload>(event);
+      stores.workflow.getState().handleWorkflowCompleted(p);
+      const summaryNodes = Object.values(stores.workflow.getState().nodes);
+      const addChart = stores.chart.getState().addChart;
+      computeRunSummary(summaryNodes, addChart, stores.span);
+      break;
+    }
+
+    case "workflow.error": {
+      const p = payload<{ workflow_id: string; error: string }>(event);
+      stores.workflow.getState().handleWorkflowCompleted({
+        workflow_id: p.workflow_id,
+        status: "failed",
+      });
+      stores.output.getState().setWorkflowError(p.error);
+      const summaryNodes = Object.values(stores.workflow.getState().nodes);
+      const addChart = stores.chart.getState().addChart;
+      computeRunSummary(summaryNodes, addChart, stores.span);
+      break;
+    }
+
+    case "workflow.cancelled": {
+      const p = payload<{ workflow_id: string }>(event);
+      stores.workflow.getState().handleWorkflowCompleted({
+        workflow_id: p.workflow_id,
+        status: "paused",
+      });
+      break;
+    }
+
+    case "workflow.resumed": {
+      const p = payload<{ workflow_id: string; node_id: string; directive?: string }>(event);
+      stores.conversation.getState().resumeAgentMessage(p.node_id, "");
+      break;
+    }
+
+    // -- Span events (needed for lifecycle deps) ---
+    case "span.start": {
+      const p = payload<SpanStartPayload>(event);
+      stores.span.getState().startSpan(p);
+      break;
+    }
+    case "span.end": {
+      const p = payload<SpanEndPayload>(event);
+      stores.span.getState().endSpan(p.span_id, p.ts);
+      break;
+    }
+
+    // -- Unrecognized events: skip ------------------------------------
     default:
       break;
   }
