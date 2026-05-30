@@ -90,8 +90,11 @@ export function WorkflowScope({ workflowId, children }: WorkflowScopeProps) {
       const stores = manager.getStores(workflowId);
       if (!stores || cancelled) return;
 
-      // Only restore if workflow.started was never received (no DAG)
-      if (stores.workflow.getState().dag) return;
+      // Don't overwrite if we already have a DAG and the workflow is in a terminal state
+      const wfState = stores.workflow.getState();
+      if (wfState.dag && (wfState.status === "completed" || wfState.status === "failed" || wfState.status === "paused")) return;
+      // Also don't overwrite if we have a DAG and nodes are being populated (WS events arriving)
+      if (wfState.dag && Object.keys(wfState.nodes).length > 0) return;
 
       console.warn(
         `[WorkflowScope] REST fallback triggered for ${workflowId} — WS did not deliver DAG within 5s`
