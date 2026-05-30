@@ -407,6 +407,7 @@ export function loadLegacyRunData(
           node_id: t.agent_name,
           agent_name: t.agent_name,
           duration_ms: t.duration_ms,
+          status: "success",
           token_usage: t.token_usage ?? undefined,
         });
       } else {
