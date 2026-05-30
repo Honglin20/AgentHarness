@@ -119,7 +119,10 @@ class Bus:
             queue: asyncio.Queue[dict] = asyncio.Queue()
             self._subscribers[sub_id] = queue
             for event in self._buffer:
-                if since_seq is not None and event.get("seq", 0) <= since_seq:
+                # Only filter events that actually carry a seq field. Legacy
+                # events persisted before the seq cursor was introduced lack
+                # this field and must always be replayed for backward compat.
+                if since_seq is not None and "seq" in event and event["seq"] <= since_seq:
                     continue
                 try:
                     queue.put_nowait(event)

@@ -177,3 +177,26 @@ async def test_subscribe_since_seq_default_replays_all():
     assert len(events) == 2
 
     await bus.unsubscribe(sub_id)
+
+@pytest.mark.asyncio
+async def test_subscribe_since_seq_passes_through_legacy_events_without_seq():
+    """Legacy events lacking 'seq' field are always replayed regardless of since_seq.
+
+    Persisted runs created before the seq cursor was introduced have events
+    without a 'seq' field. When a rebuilt Bus is reconstructed from such a
+    run and the client connects with since_seq=0, those legacy events MUST
+    still be delivered — otherwise historical runs appear empty.
+    """
+    bus = Bus()
+    bus._buffer.append({"type": "node.started", "ts": 1.0, "payload": {"i": 1}})  # no seq
+    bus._buffer.append({"type": "node.completed", "ts": 2.0, "payload": {"i": 2}})  # no seq
+
+    sub_id, queue = await bus.subscribe(since_seq=0)
+    events = []
+    while not queue.empty():
+        events.append(await queue.get())
+    assert len(events) == 2, "legacy events without seq must be replayed"
+    assert events[0]["payload"]["i"] == 1
+    assert events[1]["payload"]["i"] == 2
+
+    await bus.unsubscribe(sub_id)
