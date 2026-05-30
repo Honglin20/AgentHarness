@@ -373,12 +373,60 @@ export function loadLegacyRunData(
   workflowId: string,
   conversation: any[],
   chartGroups: { groups: Record<string, any>; groupOrder: string[] } | null,
+  dag?: { nodes: string[]; edges: [string, string][]; conditional_edges?: { from: string; to: string; label: string }[] } | null,
+  workflowName?: string,
+  runResult?: { trace: Array<{ agent_name: string; status: string; duration_ms: number; error: string | null; token_usage?: { input: number; output: number; total: number } | null }> } | null,
 ): void {
   const manager = getWorkflowManager();
   const stores = manager.getOrCreate(workflowId).stores;
 
   stores.conversation.getState().reset();
   stores.chart.getState().reset();
+  stores.workflow.getState().reset();
+
+  // Set DAG and workflow name if available
+  if (dag) {
+    stores.workflow.getState().handleWorkflowStarted({
+      workflow_id: workflowId,
+      name: workflowName ?? "",
+      dag,
+      inputs: {},
+    });
+  }
+
+  // Build node states from result.trace
+  if (runResult?.trace) {
+    for (const t of runResult.trace) {
+      stores.workflow.getState().handleNodeStarted({
+        node_id: t.agent_name,
+        agent_name: t.agent_name,
+        attempt: 0,
+      });
+      if (t.status === "success") {
+        stores.workflow.getState().handleNodeCompleted({
+          node_id: t.agent_name,
+          agent_name: t.agent_name,
+          duration_ms: t.duration_ms,
+          token_usage: t.token_usage ?? undefined,
+        });
+      } else {
+        stores.workflow.getState().handleNodeFailed({
+          node_id: t.agent_name,
+          agent_name: t.agent_name,
+          error: t.error ?? "Unknown error",
+          duration_ms: t.duration_ms,
+          attempt: 0,
+          will_retry: false,
+        });
+      }
+    }
+  }
+
+  // Mark workflow as completed
+  stores.workflow.getState().handleWorkflowCompleted({
+    workflow_id: workflowId,
+    status: "completed",
+  });
 
   if (conversation && conversation.length > 0) {
     const messages = conversation.map((m: any, i: number) => ({
@@ -421,4 +469,13 @@ export function loadLegacyRunData(
       }
     }
   }
+
+  // Compute summary charts from reconstructed node data
+  const summaryNodes = Object.values(stores.workflow.getState().nodes);
+  if (summaryNodes.length > 0) {
+    const addChart = stores.chart.getState().addChart;
+    computeRunSummary(summaryNodes, addChart, stores.span);
+  }
+
+  manager.setWorkflowStatus(workflowId, "completed");
 }

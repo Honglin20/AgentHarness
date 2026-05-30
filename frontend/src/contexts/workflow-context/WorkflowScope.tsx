@@ -121,7 +121,14 @@ export function WorkflowScope({ workflowId, children }: WorkflowScopeProps) {
         if (data.events?.length) {
           replayEventsToStores(workflowId, data.events);
         } else {
-          loadLegacyRunData(workflowId, data.conversation ?? [], data.chart_groups ?? null);
+          loadLegacyRunData(
+            workflowId,
+            data.conversation ?? [],
+            data.chart_groups ?? null,
+            data.dag,
+            data.workflow_name,
+            data.result,
+          );
         }
 
         // Set DAG/status if still missing
