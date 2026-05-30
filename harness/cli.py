@@ -31,6 +31,7 @@ def cmd_ui(args) -> None:
     if args.open_browser:
         import webbrowser
         webbrowser.open(f"http://localhost:{port}")
+    import uvicorn
     uvicorn.run("server.app:app", host=host, port=port, log_level="info")
 
 
