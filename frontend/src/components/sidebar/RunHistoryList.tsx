@@ -96,14 +96,17 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
     // Leave benchmark view if we're in one
     onLeaveBenchmark?.();
     selectRun(run.run_id);
-    if (run.status === "running") {
+    // Fetch fresh record — sidebar list status can lag behind by up to one poll
+    // cycle (5s). Trust backend status, not the cached list item.
+    const full = await fetchRun(run.run_id);
+    if (!full) return;
+    if (full.status === "running") {
       // Switch to live view — WorkflowScope handles scoped store reset + WS replay
-      setWorkflow(run.run_id, run.workflow_name, null);
+      setWorkflow(full.run_id, full.workflow_name, full.dag ?? null);
       showLive();
       return;
     }
-    const full = await fetchRun(run.run_id);
-    if (full) showReplay(full);
+    showReplay(full);
   };
 
   const handlePause = async (e: React.MouseEvent, runId: string) => {

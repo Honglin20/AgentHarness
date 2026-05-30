@@ -88,6 +88,14 @@ function routeEventToStores(event: WSEvent): void {
 // Public dispatchers
 // ---------------------------------------------------------------------------
 
+/** Workflow terminal lifecycle events — trigger sidebar refresh so status icons
+ * (LiveDot → ✓/✗) update immediately instead of waiting up to 5s for the poll. */
+const TERMINAL_EVENT_TYPES = new Set([
+  "workflow.completed",
+  "workflow.error",
+  "workflow.cancelled",
+]);
+
 /**
  * Dispatch event for single-workflow mode
  */
@@ -104,6 +112,10 @@ export function dispatchSingleEvent(event: WSEvent, currentWorkflowId: string | 
   }
 
   routeEventToStores(event);
+
+  if (TERMINAL_EVENT_TYPES.has(event.type)) {
+    useRunHistoryStore.getState().fetchRuns();
+  }
 }
 
 /**
@@ -137,5 +149,9 @@ export function dispatchBatchEvent(event: WSEvent): void {
     } else if (event.type === "workflow.error") {
       useBatchStore.getState().updateRunStatus(wid, "failed");
     }
+  }
+
+  if (TERMINAL_EVENT_TYPES.has(event.type)) {
+    useRunHistoryStore.getState().fetchRuns();
   }
 }
