@@ -2,6 +2,34 @@
 
 ---
 
+## 2026-05-31 sub_agent 工具修复 + ask_human 清理 + token 计数问题
+
+### 缺陷修复（sub_agent）
+- **修复** `ask_user.py` — `question_id = str(uuid.uuid4())` 被意外删除，导致 `NameError`，sub_agent 子 agent 调用 ask_user 时直接崩溃
+- **修复** `sub_agent.py` — 子 agent 泄露 ask_user/ask_human 工具，这些工具需要 event_bus 和 workflow_id，子 agent 无法正常使用
+- **修复** `sub_agent.py` — 子 agent 执行失败时异常冒泡到父 agent，导致整个节点失败；改为 try/except 捕获，返回错误消息字符串
+- **修复** `llm.py` — LLMClient 创建的 httpx.AsyncClient 从不关闭，资源泄漏；新增 `aclose()` 方法
+- **修复** `sub_agent.py` — finally 中调用 `client.aclose()` 确保资源释放
+
+### ask_human 清理
+- **删除** `harness/tools/ask_human.py` — 已被 ask_user 完全替代，无任何 workflow 引用
+- **删除** `tests/tools/test_ask_human.py` — 对应测试
+- **删除** `examples/07_ask_human.py` — 对应示例
+- **修改** `harness/tools/defaults.py` — 移除 ask_human 注册
+- **修改** `harness/engine/macro_graph.py` — ask_human → ask_user 注册
+- **修改** `harness/tools/sub_agent.py` — _EXCLUDE_FROM_CHILD 移除 ask_human
+- **修改** `server/ws_handler.py` / `harness/tools/_human_io.py` / `harness/tools/ask_user.py` — 清理 ask_human 注释
+
+### Token 计数问题（已识别，待修复）
+- **问题 1: sub_agent 子 agent token 未计入** — 父 agent 的 usage 只记录自身 LLM 调用，子 agent 的 token 消耗完全丢失
+- **问题 2: 缓存命中 token 计费不准确** — DeepSeek 返回 `prompt_cache_hit_tokens`（按 0.1x 计费），harness 仅记录 `input_tokens`（包含缓存命中），导致成本高估。实测：缓存命中时 73% 的 input tokens 被按原价计算
+- **问题 3: reasoning_tokens 未单独记录** — DeepSeek 返回 `reasoning_tokens`（含在 output_tokens 中），但 harness 不区分
+
+### 配置
+- **新增** `.claude/mcp.json` — 配置 codegraph MCP server（`codegraph serve --mcp`）
+
+---
+
 ## 2026-05-30 修复 replay 数据丢失(Bug A + Bug B)
 
 ### 缺陷修复

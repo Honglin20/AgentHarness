@@ -1,28 +1,28 @@
 # Current Task
 
-**当前任务**: ask_user 结构化提问工具（方案 B）
-**状态**: 实现完成，待 E2E 验证
+**当前任务**: AgentPrompt 封装一期（收拢现有 prompt 组件）
+**状态**: SPEC 完成，待确认
 
 ---
 
 ## 已完成
 
-- B-1: 后端 ask_user 工具 + _human_io 抽取 + ask_human 薄壳 + 单测
-- B-2: 事件 payload 扩展 + WS handler 兼容新旧 answer + 单测
-- B-3: 前端消息类型 + store action 重写 + 事件路由改动
-- B-4: AgentQuestionCard 组件 + ConversationTab/ScopedConversationTab 渲染分发
-- B-5: 主输入框去耦（pendingQuestionId 不再由新工具设置）
-- B-6: 前端构建通过 + CLAUDE.md 更新
+- 分析当前 prompt 全部组成（6 个 section，散落 3 文件）
+- 确认 Available Scripts 逻辑（双目录扫描 + 非隐藏文件检测）
+- 输出当前 prompt 参考快照（普通节点 / Judge / Sub-agent）
+- 撰写 SPEC: `docs/specs/2026-05-31-agent-prompt-encapsulation.md`
 
 ## 必读文件
 
-- `docs/specs/2026-05-30-ask-user-structured-question.md` — SPEC
-- `harness/tools/ask_user.py` — 核心工具实现
-- `frontend/src/components/conversation/AgentQuestionCard.tsx` — UI 卡片
+- `docs/specs/2026-05-31-agent-prompt-encapsulation.md` — 本期 SPEC
+- `harness/engine/macro_graph.py` — 当前 prompt 拼接主逻辑
+- `harness/engine/micro_agent.py` — build_node_prompt
 
 ---
 
 ## 待做
 
-- 手动 E2E 验证（启动 workflow + LLM 调 ask_user + 卡片交互）
-- 内置 workflow agent prompt 更新（告知 LLM 可用 ask_user + options 参数）
+- Phase 1a: 新增 `agent_prompt.py` + 单测（黄金文件验证渲染一致）
+- Phase 1b: 普通节点迁移（macro_graph.py 用 AgentPrompt 替代散落拼接）
+- Phase 1c: Judge 节点迁移（JudgePrompt 子类）
+- Phase 1d: deprecated 标记 + 全量测试
