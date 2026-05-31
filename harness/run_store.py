@@ -66,6 +66,7 @@ class RunStore:
         if path is None:
             raise ValueError(f"Invalid run_id: {run_id}")
         path.write_text(json.dumps(record, indent=2, ensure_ascii=False))
+        print(f"[run_store] saved run → {path}")
         return path
 
     def list_runs(self, workflow_name: str | None = None, include_batch: bool = False, user_id: str | None = None) -> list[dict]:

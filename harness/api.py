@@ -311,6 +311,7 @@ class Workflow:
         (self.workflow_dir / "scripts").mkdir(exist_ok=True)
         path = self.workflow_dir / "workflow.json"
         path.write_text(json.dumps(self.to_dict(), indent=2, ensure_ascii=False))
+        print(f"[Workflow] saved → {path}")
         return path
 
     @classmethod

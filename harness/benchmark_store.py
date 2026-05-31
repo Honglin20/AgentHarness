@@ -66,6 +66,7 @@ class BenchmarkStore:
             record["user_id"] = user_id
         path = self._benchmark_path(name)
         path.write_text(json.dumps(record, indent=2, ensure_ascii=False))
+        print(f"[benchmark_store] saved benchmark → {path}")
         return path
 
     def load_benchmark(self, name: str) -> dict | None:
@@ -115,6 +116,7 @@ class BenchmarkStore:
         run_id = result.get("run_id", "")
         path = rdir / f"{run_id}.json"
         path.write_text(json.dumps(result, indent=2, ensure_ascii=False))
+        print(f"[benchmark_store] saved result → {path}")
         return path
 
     def list_results(
