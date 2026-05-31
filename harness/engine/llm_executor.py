@@ -206,10 +206,16 @@ class LLMExecutor:
         if interrupt is not None:
             return interrupt
 
-        # tool_name -> list of pending span_ids (FIFO, matched on result)
-        _pending_tool_spans: dict[str, list[str]] = {}
-
+        # Pydantic AI yields ALL function_tool_call events upfront (before any tool
+        # actually runs), then yields function_tool_result events as each tool
+        # completes. Using the call-event timestamp as span.start would collapse
+        # every tool's start to the same instant and inflate durations.
+        # Instead, defer span.start to result time and back-date it to the previous
+        # result's end (or the batch entry time for the first tool). Accurate for
+        # sequential execution (the Pydantic AI default).
         if self._bus:
+            tool_batch_start_ms = int(time.time() * 1000)
+            last_end_ms = tool_batch_start_ms
             async with node.stream(ctx) as stream:
                 async for event in stream:
                     interrupt = self._poll_interrupt()
@@ -219,32 +225,30 @@ class LLMExecutor:
                     ek = getattr(event, "event_kind", "")
                     if ek == "function_tool_call":
                         self._emit_tool_call(event.part)
-                        tool_span_id = self._next_span_id()
-                        _pending_tool_spans.setdefault(event.part.tool_name, []).append(tool_span_id)
+                    elif ek == "function_tool_result":
+                        self._emit_tool_result(event.part)
+                        await self._fire_tool_call_hook(event.part)
+                        now_ms = int(time.time() * 1000)
+                        span_id = self._next_span_id()
                         self._bus.emit("span.start", {
                             "workflow_id": self._wid,
                             "node_id": self._node_id,
                             "agent_name": self._agent_name,
-                            "span_id": tool_span_id,
+                            "span_id": span_id,
                             "span_type": "tool",
                             "tool_name": event.part.tool_name,
-                            "ts": int(time.time() * 1000),
+                            "ts": last_end_ms,
                         })
-                    elif ek == "function_tool_result":
-                        self._emit_tool_result(event.part)
-                        await self._fire_tool_call_hook(event.part)
-                        pending = _pending_tool_spans.get(event.part.tool_name)
-                        if pending:
-                            span_id = pending.pop(0)
-                            self._bus.emit("span.end", {
-                                "workflow_id": self._wid,
-                                "node_id": self._node_id,
-                                "agent_name": self._agent_name,
-                                "span_id": span_id,
-                                "span_type": "tool",
-                                "tool_name": event.part.tool_name,
-                                "ts": int(time.time() * 1000),
-                            })
+                        self._bus.emit("span.end", {
+                            "workflow_id": self._wid,
+                            "node_id": self._node_id,
+                            "agent_name": self._agent_name,
+                            "span_id": span_id,
+                            "span_type": "tool",
+                            "tool_name": event.part.tool_name,
+                            "ts": now_ms,
+                        })
+                        last_end_ms = now_ms
         else:
             # No bus — still need interrupt checks
             async with node.stream(ctx) as stream:
