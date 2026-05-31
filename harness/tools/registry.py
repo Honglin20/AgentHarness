@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from fnmatch import fnmatchcase
 
 from pydantic_ai import Tool as PydanticAITool
 
@@ -25,6 +26,46 @@ class ToolRegistry:
 
     def register(self, name: str, factory: ToolFactory) -> None:
         self._factories[name] = factory
+
+    def expand_globs(self, patterns: list[str]) -> list[str]:
+        """Expand glob patterns and ``!`` exclusions against the registry.
+
+        Rules:
+          - Literal names match themselves; must already be registered or raise.
+          - ``*`` / ``?`` / ``[...]`` patterns match any subset of registered
+            tool names; empty matches are allowed (no error).
+          - Leading ``!`` flips the entry into an exclusion. Exclusions are
+            applied last, regardless of position.
+          - Output preserves input order and deduplicates.
+
+        Examples:
+          ["bash"]                              → ["bash"]
+          ["bash", "codegraph_*"]               → ["bash", "codegraph_search", ...]
+          ["bash", "codegraph_*", "!codegraph_trace"]  → all minus trace
+          ["*"]                                 → every registered tool
+        """
+        includes: list[str] = []
+        excludes: set[str] = set()
+        for raw in patterns:
+            if raw.startswith("!"):
+                pattern = raw[1:]
+                if any(c in pattern for c in "*?["):
+                    excludes.update(
+                        n for n in self._factories if fnmatchcase(n, pattern)
+                    )
+                else:
+                    excludes.add(pattern)
+                continue
+            if any(c in raw for c in "*?["):
+                for name in self._factories:
+                    if fnmatchcase(name, raw) and name not in includes:
+                        includes.append(name)
+            else:
+                if raw not in self._factories:
+                    raise ToolNotFoundError(f"Tool '{raw}' not registered")
+                if raw not in includes:
+                    includes.append(raw)
+        return [n for n in includes if n not in excludes]
 
     def resolve(
         self,

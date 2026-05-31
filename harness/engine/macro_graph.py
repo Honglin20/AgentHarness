@@ -393,6 +393,7 @@ class MacroGraphBuilder:
             final_tool_names = None  # → resolve() loads all
         else:
             final_tool_names = md_tools + [t for t in api_tools if t not in md_tools]
+            final_tool_names = self.tool_registry.expand_globs(final_tool_names)
 
         model = agent_def.model or parsed.model
         retries = parsed.retries

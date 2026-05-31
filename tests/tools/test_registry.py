@@ -54,3 +54,68 @@ def test_register_overwrites():
     registry.register("echo", EchoFactory())  # 覆盖
     tools = registry.resolve(None)
     assert len(tools) == 1
+
+
+# ── expand_globs ────────────────────────────────────────────────
+
+
+def _multi_registry() -> ToolRegistry:
+    reg = ToolRegistry()
+    for name in ["bash", "codegraph_status", "codegraph_search", "codegraph_trace", "ask_user"]:
+        f = EchoFactory()
+        f.name = name
+        reg.register(name, f)
+    return reg
+
+
+def test_expand_globs_literal():
+    reg = _multi_registry()
+    assert reg.expand_globs(["bash"]) == ["bash"]
+
+
+def test_expand_globs_literal_unknown_raises():
+    reg = _multi_registry()
+    with pytest.raises(ToolNotFoundError):
+        reg.expand_globs(["nonexistent"])
+
+
+def test_expand_globs_glob_expansion():
+    reg = _multi_registry()
+    result = reg.expand_globs(["bash", "codegraph_*"])
+    assert result[0] == "bash"
+    assert set(result[1:]) == {"codegraph_status", "codegraph_search", "codegraph_trace"}
+
+
+def test_expand_globs_star_matches_all():
+    reg = _multi_registry()
+    result = reg.expand_globs(["*"])
+    assert set(result) == {"bash", "codegraph_status", "codegraph_search", "codegraph_trace", "ask_user"}
+
+
+def test_expand_globs_exclusion_literal():
+    reg = _multi_registry()
+    result = reg.expand_globs(["bash", "codegraph_*", "!codegraph_trace"])
+    assert "codegraph_trace" not in result
+    assert "codegraph_status" in result
+    assert "codegraph_search" in result
+    assert "bash" in result
+
+
+def test_expand_globs_exclusion_glob():
+    reg = _multi_registry()
+    result = reg.expand_globs(["*", "!codegraph_*"])
+    assert set(result) == {"bash", "ask_user"}
+
+
+def test_expand_globs_empty_glob_match_ok():
+    reg = _multi_registry()
+    # Glob that matches nothing should not raise.
+    assert reg.expand_globs(["xyz_*"]) == []
+
+
+def test_expand_globs_dedup_preserves_order():
+    reg = _multi_registry()
+    result = reg.expand_globs(["bash", "codegraph_*", "bash"])
+    assert result.count("bash") == 1
+    assert result[0] == "bash"
+
