@@ -161,6 +161,8 @@ class Workflow:
         max_iterations: int = 3,
         checkpointer: Any | None = None,
         envelope: dict[str, int] | None = None,
+        enable_filesystem_mcp: bool = True,
+        enable_codegraph_mcp: bool = True,
     ):
         self.name = name
         self.agents = agents
@@ -185,6 +187,8 @@ class Workflow:
         self.max_iterations = max_iterations
         self.checkpointer = checkpointer
         self.envelope = envelope
+        self.enable_filesystem_mcp = enable_filesystem_mcp
+        self.enable_codegraph_mcp = enable_codegraph_mcp
         self._compiled = None
         self._builder: Any | None = None  # MacroGraphBuilder, set by compile()
         self._mcp_setup_done = False
@@ -599,37 +603,39 @@ class Workflow:
 
         mcp_workdir = work_dir or os.getcwd()
         bridges: list[McpBridge] = []
-        try:
-            bridges = await setup_default_mcp(self.tool_registry, workdir=mcp_workdir)
-        except Exception as e:
-            import sys
-            print(
-                f"\n⚠  MCP filesystem server failed to start: {e}\n"
-                f"   Install it with:\n"
-                f"     npm install -g @modelcontextprotocol/server-filesystem\n"
-                f"   Or skip MCP tools — bash, sub_agent work without it.\n",
-                file=sys.stderr,
-            )
+        if self.enable_filesystem_mcp:
+            try:
+                bridges = await setup_default_mcp(self.tool_registry, workdir=mcp_workdir)
+            except Exception as e:
+                import sys
+                print(
+                    f"\n⚠  MCP filesystem server failed to start: {e}\n"
+                    f"   Install it with:\n"
+                    f"     npm install -g @modelcontextprotocol/server-filesystem\n"
+                    f"   Or skip MCP tools — bash, sub_agent work without it.\n",
+                    file=sys.stderr,
+                )
 
         # Default-on: codegraph MCP. Provides codegraph_search / codegraph_context /
         # codegraph_callers / codegraph_callees / codegraph_impact / codegraph_node /
         # codegraph_explore / codegraph_status / codegraph_files / codegraph_trace
         # for code-aware agents. Soft-failure — workflow still runs without it.
-        try:
-            from harness.tools.defaults import setup_codegraph_mcp
-            cg_bridge = await setup_codegraph_mcp(self.tool_registry)
-            if cg_bridge is not None:
-                bridges.append(cg_bridge)
-        except Exception as e:
-            import sys
-            print(
-                f"\n⚠  codegraph MCP server failed to start: {e}\n"
-                f"   Install it with:\n"
-                f"     npm install -g @colbymchenry/codegraph\n"
-                f"   Then in the project root: codegraph init -i\n"
-                f"   Agents can still use bash to call `codegraph` directly.\n",
-                file=sys.stderr,
-            )
+        if self.enable_codegraph_mcp:
+            try:
+                from harness.tools.defaults import setup_codegraph_mcp
+                cg_bridge = await setup_codegraph_mcp(self.tool_registry)
+                if cg_bridge is not None:
+                    bridges.append(cg_bridge)
+            except Exception as e:
+                import sys
+                print(
+                    f"\n⚠  codegraph MCP server failed to start: {e}\n"
+                    f"   Install it with:\n"
+                    f"     npm install -g @colbymchenry/codegraph\n"
+                    f"   Then in the project root: codegraph init -i\n"
+                    f"   Agents can still use bash to call `codegraph` directly.\n",
+                    file=sys.stderr,
+                )
 
         for config in self.mcp_servers:
             try:
