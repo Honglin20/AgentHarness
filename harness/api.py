@@ -163,6 +163,7 @@ class Workflow:
         envelope: dict[str, int] | None = None,
         enable_filesystem_mcp: bool = True,
         enable_codegraph_mcp: bool = True,
+        codegraph_path: str | None = None,
     ):
         self.name = name
         self.agents = agents
@@ -189,6 +190,7 @@ class Workflow:
         self.envelope = envelope
         self.enable_filesystem_mcp = enable_filesystem_mcp
         self.enable_codegraph_mcp = enable_codegraph_mcp
+        self.codegraph_path = codegraph_path
         self._compiled = None
         self._builder: Any | None = None  # MacroGraphBuilder, set by compile()
         self._mcp_setup_done = False
@@ -623,7 +625,10 @@ class Workflow:
         if self.enable_codegraph_mcp:
             try:
                 from harness.tools.defaults import setup_codegraph_mcp
-                cg_bridge = await setup_codegraph_mcp(self.tool_registry)
+                cg_bridge = await setup_codegraph_mcp(
+                    self.tool_registry,
+                    path=self.codegraph_path,
+                )
                 if cg_bridge is not None:
                     bridges.append(cg_bridge)
             except Exception as e:

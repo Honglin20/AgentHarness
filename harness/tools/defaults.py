@@ -90,7 +90,10 @@ async def setup_default_mcp(
     return [bridge]
 
 
-async def setup_codegraph_mcp(registry: ToolRegistry) -> McpBridge | None:
+async def setup_codegraph_mcp(
+    registry: ToolRegistry,
+    path: str | None = None,
+) -> McpBridge | None:
     """Connect codegraph MCP server and register its tools.
 
     codegraph is a local code-intelligence index (search / context / callers /
@@ -99,6 +102,13 @@ async def setup_codegraph_mcp(registry: ToolRegistry) -> McpBridge | None:
     ``codegraph_<name>`` since the upstream MCP server already namespaces them
     that way — no extra prefix needed.
 
+    Args:
+        registry: Tool registry to register MCP tools into.
+        path: Project path the codegraph server should operate on. When None,
+            the server uses the directory it was launched from. Pass an
+            absolute path when you want code-graph queries scoped to a
+            different project than the workflow's working directory.
+
     Resolution:
       1. ``codegraph`` on $PATH → run ``codegraph serve --mcp`` directly
       2. Not on PATH → fall back to ``npx -y @colbymchenry/codegraph serve --mcp``
@@ -106,15 +116,19 @@ async def setup_codegraph_mcp(registry: ToolRegistry) -> McpBridge | None:
 
     Returns the bridge, or None if startup failed (caller logs the hint).
     """
+    base_args = ["serve", "--mcp"]
+    if path:
+        base_args += ["-p", path]
+
     command = shutil.which("codegraph")
     if command is not None:
-        config = McpServerConfig(name="", command=command, args=["serve", "--mcp"])
+        config = McpServerConfig(name="", command=command, args=base_args)
     else:
         # Fall back to npx — first invocation will install the package
         config = McpServerConfig(
             name="",
             command="npx",
-            args=["-y", "@colbymchenry/codegraph", "serve", "--mcp"],
+            args=["-y", "@colbymchenry/codegraph", *base_args],
         )
 
     bridge = McpBridge(config, registry=registry)

@@ -33,6 +33,7 @@ workflows/_shared/workflows/coder_review_loop/agents/*.ts
 
 # codegraph local cache
 .codegraph/
+examples/fixtures/*/.codegraph/
 
 # Accidental local scratch files
 iTerm2
