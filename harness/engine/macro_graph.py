@@ -198,9 +198,9 @@ class MacroGraphBuilder:
         self._stop_regen_lock = asyncio.Lock()
 
         # Register event-bus-dependent tools when event_bus is available
-        if event_bus and "ask_human" not in self.tool_registry.list_tools():
-            from harness.tools.ask_human import AskHumanToolFactory
-            self.tool_registry.register("ask_human", AskHumanToolFactory(event_bus=event_bus))
+        if event_bus and "ask_user" not in self.tool_registry.list_tools():
+            from harness.tools.ask_user import AskUserToolFactory
+            self.tool_registry.register("ask_user", AskUserToolFactory(event_bus=event_bus))
 
         self.micro_factory = MicroAgentFactory(tool_registry=self.tool_registry)
 

@@ -117,26 +117,22 @@ async def test_event_bus_with_multiple_subscribers():
     await bus.unsubscribe(sub_id2)
 
 
-def test_resolve_question():
-    """resolve_question() resolves a pending question."""
+def test_resolve_answer():
+    """resolve_answer() resolves a pending question."""
     import asyncio
 
-    from harness.tools.ask_human import resolve_question
+    from harness.tools.ask_user import resolve_answer
+    from harness.tools import _human_io
 
     async def test():
         # Create a pending question manually
-        from harness.tools.ask_human import _pending, get_lock
-        from asyncio import Lock
-
-        lock = Lock()
-        _pending["test-qid"] = asyncio.get_event_loop().create_future()
+        _human_io._pending["test-qid"] = asyncio.get_event_loop().create_future()
 
         # Resolve it
-        await resolve_question("test-qid", "test answer")
+        await resolve_answer("test-qid", {"answer": "test answer"})
 
         # Verify resolved
-        assert _pending.get("test-qid") is None  # Removed after resolve
-        # Future is already resolved, can't check value
+        assert _human_io._pending.get("test-qid") is None  # Removed after resolve
 
     asyncio.run(test())
 

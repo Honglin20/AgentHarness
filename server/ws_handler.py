@@ -331,11 +331,11 @@ async def websocket_endpoint(
 
     try:
         while True:
-            # Receive incoming messages (e.g., ask_human responses)
+            # Receive incoming messages (e.g., ask_user responses)
             data = await websocket.receive_text()
             message = json.loads(data)
 
-            # Handle ask_user / ask_human responses (chat.answer).
+            # Handle ask_user responses (chat.answer).
             # Accepts both:
             #   new: {question_id, selected: [...], custom_input: "..."}
             #   legacy: {question_id, answer: "..."}
