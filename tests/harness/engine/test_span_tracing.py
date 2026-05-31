@@ -132,18 +132,11 @@ class TestToolSpanTracing:
         call_event.event_kind = "function_tool_call"
         call_event.part = call_part
 
-        # Create tool result event
+        # Create tool result event (different object from call_part)
         result_part = _make_part("bash", content="file.txt")
         result_event = MagicMock()
         result_event.event_kind = "function_tool_result"
         result_event.part = result_part
-
-        # The code sets _span_call_key on the call_part, then reads it from
-        # result_part. We bridge them by making result_part._span_call_key
-        # dynamically read from call_part.
-        type(result_part)._span_call_key = property(
-            lambda self: getattr(call_part, "_span_call_key", None),
-        )
 
         mock_stream = AsyncMock()
         mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
@@ -175,9 +168,6 @@ class TestToolSpanTracing:
         assert end_payload["tool_name"] == "bash"
         assert end_payload["span_id"] == start_payload["span_id"]
 
-        # Clean up the property we added
-        del type(result_part)._span_call_key
-
     def test_tool_span_multiple_calls(self):
         """Multiple tool calls produce separate span IDs."""
         bus = _FakeBus()
@@ -208,15 +198,6 @@ class TestToolSpanTracing:
         result_event2.event_kind = "function_tool_result"
         result_event2.part = result_part2
 
-        # Bridge: result parts dynamically read _span_call_key from their
-        # corresponding call parts (set by the production code at runtime).
-        type(result_part1)._span_call_key = property(
-            lambda self: getattr(call_part1, "_span_call_key", None),
-        )
-        type(result_part2)._span_call_key = property(
-            lambda self: getattr(call_part2, "_span_call_key", None),
-        )
-
         mock_stream = AsyncMock()
         mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
         mock_stream.__aexit__ = AsyncMock(return_value=False)
@@ -244,10 +225,6 @@ class TestToolSpanTracing:
         end_ids = {e[1]["span_id"] for e in span_ends}
         assert start_ids == end_ids
         assert len(start_ids) == 2
-
-        # Clean up
-        del type(result_part1)._span_call_key
-        del type(result_part2)._span_call_key
 
 
 # ---------------------------------------------------------------------------
@@ -436,10 +413,6 @@ class TestSpanTimestamps:
         result_event.event_kind = "function_tool_result"
         result_event.part = result_part
 
-        type(result_part)._span_call_key = property(
-            lambda self: getattr(call_part, "_span_call_key", None),
-        )
-
         mock_stream = AsyncMock()
         mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
         mock_stream.__aexit__ = AsyncMock(return_value=False)
@@ -463,5 +436,3 @@ class TestSpanTimestamps:
             assert "ts" in payload, f"{event_type} missing 'ts' field"
             assert isinstance(payload["ts"], int), f"{event_type} ts should be int, got {type(payload['ts'])}"
             assert payload["ts"] > 0, f"{event_type} ts should be positive, got {payload['ts']}"
-
-        del type(result_part)._span_call_key

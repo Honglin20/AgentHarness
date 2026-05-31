@@ -116,6 +116,10 @@ class LLMClient:
 
         self._model = OpenAIChatModel(**model_kwargs)
 
+    async def aclose(self) -> None:
+        """Close the underlying httpx client."""
+        await self._http_client.aclose()
+
     @property
     def model_name(self) -> str:
         return self._model_name

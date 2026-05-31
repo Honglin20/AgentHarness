@@ -206,7 +206,8 @@ class LLMExecutor:
         if interrupt is not None:
             return interrupt
 
-        _tool_span_ids: dict[str, str] = {}
+        # tool_name -> list of pending span_ids (FIFO, matched on result)
+        _pending_tool_spans: dict[str, list[str]] = {}
 
         if self._bus:
             async with node.stream(ctx) as stream:
@@ -219,9 +220,7 @@ class LLMExecutor:
                     if ek == "function_tool_call":
                         self._emit_tool_call(event.part)
                         tool_span_id = self._next_span_id()
-                        # Use tool_name + span_id as key to handle duplicate tool names
-                        call_key = f"{event.part.tool_name}:{tool_span_id}"
-                        _tool_span_ids[call_key] = tool_span_id
+                        _pending_tool_spans.setdefault(event.part.tool_name, []).append(tool_span_id)
                         self._bus.emit("span.start", {
                             "workflow_id": self._wid,
                             "node_id": self._node_id,
@@ -231,19 +230,17 @@ class LLMExecutor:
                             "tool_name": event.part.tool_name,
                             "ts": int(time.time() * 1000),
                         })
-                        # Store the call_key on the part for matching with result
-                        event.part._span_call_key = call_key
                     elif ek == "function_tool_result":
                         self._emit_tool_result(event.part)
                         await self._fire_tool_call_hook(event.part)
-                        # Find the matching call key for this tool
-                        matched_key = getattr(event.part, "_span_call_key", None)
-                        if matched_key and matched_key in _tool_span_ids:
+                        pending = _pending_tool_spans.get(event.part.tool_name)
+                        if pending:
+                            span_id = pending.pop(0)
                             self._bus.emit("span.end", {
                                 "workflow_id": self._wid,
                                 "node_id": self._node_id,
                                 "agent_name": self._agent_name,
-                                "span_id": _tool_span_ids.pop(matched_key),
+                                "span_id": span_id,
                                 "span_type": "tool",
                                 "tool_name": event.part.tool_name,
                                 "ts": int(time.time() * 1000),
