@@ -14,12 +14,15 @@
 ### 前置要求
 
 - Python 3.10+
-- Node.js 18+ 和 npm（用于 MCP 文件系统工具 + Web UI）
+- Node.js 18+ 和 npm（用于 MCP 文件系统工具 + codegraph + Web UI）
 - LLM API Key（支持 OpenAI、Anthropic、DeepSeek、Groq 等 Pydantic AI 支持的模型）
 
 ```bash
 # 安装 MCP 文件系统工具（可选，提供 read_file/write_file 等工具）
 npm install -g @modelcontextprotocol/server-filesystem
+
+# 安装 codegraph（可选，提供代码搜索/调用图/影响分析等工具）
+npm install -g @colbymchenry/codegraph
 ```
 
 ### 方式一：pip install（推荐）
@@ -283,22 +286,22 @@ reviewer_agent 在单次执行中使用 `sub_agent` 工具委托子 Agent 修复
 
 ### 人机协作
 
-Agent 在执行过程中通过 `ask_human` 工具向用户提问，等待回答后继续。
+Agent 在执行过程中通过 `ask_user` 工具向用户提问，等待回答后继续。
 
 ```
-analyzer → decision_maker（ask_human → 等待 → 继续）
+analyzer → decision_maker（ask_user → 等待 → 继续）
 ```
 
 ```python
-wf = Workflow("ask_human_demo", agents=[
+wf = Workflow("ask_user_demo", agents=[
     Agent("analyzer",       after=[], tools=["bash"]),
-    Agent("decision_maker", after=["analyzer"], tools=["ask_human"]),
+    Agent("decision_maker", after=["analyzer"], tools=["ask_user"]),
 ])
 ```
 
-注意：`ask_human` 需要通过 Web UI 使用（依赖 WebSocket 实时交互）。
+`ask_user` 支持单选、多选和自由输入三种提问方式，UI 中以卡片形式展示。
 
-> 完整示例: [examples/07_ask_human.py](examples/07_ask_human.py)
+注意：`ask_user` 需要通过 Web UI 使用（依赖 WebSocket 实时交互）。
 
 ---
 
@@ -312,12 +315,76 @@ Agent("writer", after=[])                          # 无工具限制（默认）
 Agent("analyst", after=[], tools=[])               # 不使用任何工具
 ```
 
-| 工具 | 来源 | 说明 |
-|------|------|------|
-| `bash` | 内置 | 执行 shell 命令 |
-| `sub_agent` | 内置 | 委托子 Agent 执行任务（最大深度 1） |
-| `ask_human` | 内置 | 向用户提问，等待回答（需要 UI） |
-| `read_file`, `write_file` 等 | MCP | 文件系统操作（需要安装 MCP server） |
+### 内置工具
+
+| 工具 | 说明 |
+|------|------|
+| `bash` | 执行 shell 命令 |
+| `grep` | 基于 ripgrep 的内容搜索，结构化输出 + token 预算控制 |
+| `glob` | 基于 ripgrep 的文件模式匹配，按修改时间排序 |
+| `sub_agent` | 委托子 Agent 执行任务（最大深度 1） |
+| `ask_user` | 向用户提问（单选/多选/自由输入），等待回答（需要 UI） |
+
+### MCP 工具
+
+通过 MCP Server 提供的工具，默认自动加载：
+
+| 工具组 | 工具 | 说明 |
+|--------|------|------|
+| **文件系统** | `read_file`, `write_file`, `edit_file`, `list_directory` 等 | 文件读写操作 |
+| **codegraph** | `codegraph_status`, `codegraph_search`, `codegraph_callers`, `codegraph_callees`, `codegraph_impact`, `codegraph_node`, `codegraph_explore`, `codegraph_trace`, `codegraph_context`, `codegraph_files` | 代码搜索、调用图、影响分析 |
+
+MCP Server 需要安装对应的 npm 包（见安装部分）。
+
+### MCP 开关
+
+通过 `Workflow` 参数控制 MCP 加载：
+
+```python
+# 默认：加载文件系统 + codegraph
+wf = Workflow("name", agents=[...])
+
+# 只用 codegraph（禁用文件系统）
+wf = Workflow("name", agents=[...],
+    enable_filesystem_mcp=False,
+    enable_codegraph_mcp=True,
+)
+
+# codegraph 作用域限定到特定目录
+wf = Workflow("name", agents=[...],
+    codegraph_path="/path/to/project",
+)
+
+# 只用文件系统（禁用 codegraph）
+wf = Workflow("name", agents=[...],
+    enable_filesystem_mcp=True,
+    enable_codegraph_mcp=False,
+)
+```
+
+### glob 模式选择工具
+
+`tools` 参数支持 fnmatch 风格的 glob 模式和 `!` 排除：
+
+```python
+# 加载 bash + 所有 codegraph 工具
+Agent("coder", tools=["bash", "codegraph_*"])
+
+# 加载所有工具，排除 codegraph_trace
+Agent("coder", tools=["*", "!codegraph_trace"])
+
+# 加载所有工具，排除整个 codegraph 组
+Agent("analyst", tools=["*", "!codegraph_*"])
+
+# 精确指定（字面量，不存在则报错）
+Agent("coder", tools=["bash", "codegraph_search"])
+```
+
+规则：
+- 字面量名称：精确匹配，未注册则报错
+- 含 `*` / `?` / `[` 的模式：fnmatch 匹配已注册工具，空匹配不报错
+- `!` 前缀：排除，最后应用（无论位置）
+- 输出保持输入顺序，去重
 
 Agent 的行为和工具配置也可以通过 `agents/<name>.md` 文件定义：
 
@@ -977,7 +1044,7 @@ WebSocket 连接时自动从 Header 解析用户 ID，实现事件级隔离。
 │   │   ├── benchmarks/     内置 benchmark（smoke-test）
 │   │   └── frontend/       预构建前端
 │   ├── engine/             LangGraph 状态图 + Pydantic AI 执行
-│   ├── tools/              bash, sub_agent, ask_human, chart
+│   ├── tools/              bash, sub_agent, ask_user, mcp_bridge, chart
 │   ├── compiler/           DAG 构建, Markdown 解析, Agent 查找
 │   └── extensions/         扩展系统（Hook / Middleware / GraphMutator）
 │       ├── eval/           EvalJudge: 自动评审 + 评分 + 重试
@@ -1002,7 +1069,7 @@ WebSocket 连接时自动从 Header 解析用户 ID，实现事件级隔离。
 │       ├── agents/         Prep Agent MD（可选）
 │       └── results/        运行历史（含分数 + 图表）
 ├── runs/                   运行记录 + checkpoints.db
-├── examples/               可运行的示例（01-15）
+├── examples/               可运行的示例（01-17）
 ├── tests/                  测试
 └── docs/plans/             设计文档
 ```
@@ -1017,7 +1084,6 @@ WebSocket 连接时自动从 Header 解析用户 ID，实现事件级隔离。
 | 4 | `04_conditional_routing.py` | 条件路由 | 是 |
 | 5 | `05_loop_retry.py` | DAG 级回环 | 是 |
 | 6 | `06_sub_agent_loop.py` | sub_agent 迭代 | 是 |
-| 7 | `07_ask_human.py` | 人机协作（需 UI） | 是 |
 | 8 | `08_eval_judge.py` | EvalJudge 自动评审 + 评分 + 重试 | 是 |
 | 9 | `09_charts.py` | Chart 可视化（需 UI） | 是 |
 | 10 | `10_save_load_ui.py` | 持久化 + UI | 是 |
@@ -1026,6 +1092,8 @@ WebSocket 连接时自动从 Header 解析用户 ID，实现事件级隔离。
 | 13 | `13_console_output.py` | ConsoleOutput 命令行美化输出 | 是 |
 | 14 | `14_benchmark_prep.py` | Benchmark Prep 前置准备 | 是 |
 | 15 | `15_benchmark_prep_agent.py` | Benchmark Prep Agent 类型 | 是 |
+| 16 | `16_codegraph_mcp.py` | codegraph MCP 集成演示 | 是 |
+| 17 | `17_codegraph_full_tour.py` | codegraph 全工具 12 步演练 | 是 |
 
 ---
 
@@ -1042,6 +1110,22 @@ harness list                            # 列出已发现的 workflow 和 benchm
 harness list --scope builtin            # 只列出内置资源
 harness list --scope project            # 只列出项目级资源
 ```
+
+---
+
+## 工具路线图
+
+参考 Claude Code 工具集，规划中的扩展：
+
+| 工具 | 优先级 | 说明 |
+|------|--------|------|
+| **Skill** | P1 | 可复用 Agent 行为包（SKILL.md + 脚本），跨 workflow 组合复用 |
+| **TodoWrite** | P2 | Agent 任务清单，防止多步任务遗漏，上下文压缩后状态不丢失 |
+| **Monitor** | P2 | 后台进程逐行流式回调（tail -f / watch 场景） |
+| **WebFetch** | P3 | URL 抓取 → Markdown，Agent 需要查文档/API 时使用 |
+| **WebSearch** | P3 | 网页搜索，需要搜索 API key |
+
+**不在规划中**：LSP（codegraph 已覆盖调用图场景）、CronCreate/ScheduleWakeup（会话级调度，不适用单次执行）、EnterPlanMode/Worktree（人机交互模式）
 
 ---
 

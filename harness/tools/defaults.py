@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 
 from harness.tools.bash import BashToolFactory
+from harness.tools.grep_glob import GrepToolFactory, GlobToolFactory
 from harness.tools.mcp_bridge import McpBridge, McpServerConfig
 from harness.tools.registry import ToolRegistry
 from harness.tools.sub_agent import SubAgentToolFactory
@@ -52,6 +53,8 @@ def default_tool_registry(event_bus=None) -> ToolRegistry:
     registry = ToolRegistry()
     registry.register("sub_agent", SubAgentToolFactory(registry=registry))
     registry.register("bash", BashToolFactory())
+    registry.register("grep", GrepToolFactory())
+    registry.register("glob", GlobToolFactory())
     if event_bus:
         from harness.tools.ask_user import AskUserToolFactory
         registry.register("ask_user", AskUserToolFactory(event_bus=event_bus))

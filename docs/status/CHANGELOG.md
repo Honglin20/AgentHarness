@@ -2,7 +2,64 @@
 
 ---
 
-## 2026-05-31 sub_agent 工具修复 + ask_human 清理 + token 计数问题
+## 2026-05-31 Grep/Glob 内置工具
+
+### 新增工具
+- **新增** `harness/tools/grep_glob.py` — `GrepToolFactory` + `GlobToolFactory`
+- **Grep** — 基于 ripgrep 的内容搜索，支持：regex 模式、文件类型过滤、context 行、大小写不敏感、多行模式、glob 过滤、3 种输出模式（files_with_matches / content / count）、head_limit token 预算控制
+- **Glob** — 基于 ripgrep 的文件模式匹配，支持递归 glob、修改时间排序、相对路径输出、100 条上限
+- **修改** `harness/tools/defaults.py` — grep/glob 注册为默认内置工具（和 bash 同级）
+- 两者均自动排除 .git/node_modules/__pycache__/.codegraph 目录
+- rg 未安装时返回安装提示，不抛异常
+
+### 测试
+- **新增** `tests/tools/test_grep_glob.py` — 13 个测试覆盖：模式搜索、输出模式、类型过滤、大小写、glob 过滤、context 行、递归匹配、无匹配
+
+### README 路线图
+- **新增** "工具路线图"章节 — Skill(P1)、TodoWrite(P2)、Monitor(P2)、WebFetch(P3)、WebSearch(P3)
+
+---
+
+## 2026-05-31 codegraph MCP 集成 + glob 工具选择 + ask_human 清理
+
+**Commits:** `81c4f59` `085b13f` `7d77f74` `3d8813f` `57dc2e8` `a6ca245` `8abe15f` `5adc84f` `f522c67`
+
+### codegraph MCP 集成
+- **新增** `setup_codegraph_mcp()` — 自动发现 `codegraph` CLI（$PATH → npx fallback），启动 MCP server 并注册工具
+- **修改** `harness/api.py` — `Workflow.__init__` 新增 `enable_filesystem_mcp` / `enable_codegraph_mcp` / `codegraph_path` 参数，控制 MCP 加载
+- **修改** `install.py` — 安装步骤新增 `npm install -g @colbymchenry/codegraph`
+- **新增** `.claude/mcp.json` — Claude Code 自身的 codegraph MCP 配置
+
+### glob 工具选择（Plan B）
+- **新增** `ToolRegistry.expand_globs()` — 支持 fnmatch 风格 glob（`codegraph_*`、`*`）和 `!` 排除（`!codegraph_trace`）
+- **修改** `harness/engine/macro_graph.py` — `_resolve_agent_config` 调用 `expand_globs()` 展开 glob 模式
+- 示例：`tools=["bash", "codegraph_*"]` 自动加载所有 codegraph 工具；`tools=["*", "!codegraph_*"]` 加载除 codegraph 外的所有工具
+
+### ask_human 清理
+- **删除** `harness/tools/ask_human.py` — 已被 ask_user 完全替代，无任何 workflow 引用
+- **删除** `tests/tools/test_ask_human.py` / `examples/07_ask_human.py`
+- **修改** 多文件 — 移除 ask_human 注册、引用、注释
+
+### 示例
+- **新增** `examples/16_codegraph_mcp.py` — codegraph MCP 使用演示（find/callers/impact）
+- **新增** `examples/17_codegraph_full_tour.py` — 12 步全工具演练，使用 glob 模式 `tools=["bash", "codegraph_*"]`
+- **新增** `examples/fixtures/mini_lib/` — 测试 fixture 项目（3 文件、12 节点、19 边的可预测调用图）
+- **新增** `workflows/codegraph_demo/` / `workflows/codegraph_full_tour/` — 对应 workflow 和 agent MD
+
+### 缺陷修复
+- **修复** `tool span.start` 时间戳过早 — 改用 FIFO 队列按 tool_name 匹配，延迟 start 到 result 返回时
+- **修复** `ask_user.py` — `question_id = str(uuid.uuid4())` 被意外删除导致 NameError
+- **修复** `sub_agent.py` — 子 agent 泄露 ask_user/ask_human 工具；执行失败时异常冒泡改为 try/except 捕获
+- **修复** `llm.py` — httpx.AsyncClient 资源泄漏，新增 `aclose()` 方法
+- **修复** eval demo workflow.json 缺少 judge 节点 — 重新 compile+save 材料化
+
+### 测试
+- **新增** `tests/tools/test_registry.py` — 8 个 expand_globs 测试（literal/glob/star/exclusion/dedup/error）
+- **新增** `tests/server/test_runner_cancel.py` / `tests/harness/test_resume.py` — resume + cancel 测试
+
+---
+
+## 2026-05-31 sub_agent 工具修复 + token 计数问题
 
 ### 缺陷修复（sub_agent）
 - **修复** `ask_user.py` — `question_id = str(uuid.uuid4())` 被意外删除，导致 `NameError`，sub_agent 子 agent 调用 ask_user 时直接崩溃
