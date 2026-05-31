@@ -14,3 +14,22 @@ runs/
 *.png
 !frontend/public/*.png
 users.json
+
+# Benchmark run artifacts — generated per run, not source-of-truth
+benchmarks/*/results/
+
+# Local memory mirror — canonical copy lives in ~/.claude/projects/
+memory/
+
+# Per-user / local-only generated workflows
+workflows/users/
+workflows/eval_code_quality/
+workflows/test/
+workflows/sub_agent_test/
+
+# codegraph local cache
+.codegraph/
+
+# Accidental local scratch files
+iTerm2
+palindrome.py
