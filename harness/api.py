@@ -611,6 +611,26 @@ class Workflow:
                 file=sys.stderr,
             )
 
+        # Default-on: codegraph MCP. Provides codegraph_search / codegraph_context /
+        # codegraph_callers / codegraph_callees / codegraph_impact / codegraph_node /
+        # codegraph_explore / codegraph_status / codegraph_files / codegraph_trace
+        # for code-aware agents. Soft-failure — workflow still runs without it.
+        try:
+            from harness.tools.defaults import setup_codegraph_mcp
+            cg_bridge = await setup_codegraph_mcp(self.tool_registry)
+            if cg_bridge is not None:
+                bridges.append(cg_bridge)
+        except Exception as e:
+            import sys
+            print(
+                f"\n⚠  codegraph MCP server failed to start: {e}\n"
+                f"   Install it with:\n"
+                f"     npm install -g @colbymchenry/codegraph\n"
+                f"   Then in the project root: codegraph init -i\n"
+                f"   Agents can still use bash to call `codegraph` directly.\n",
+                file=sys.stderr,
+            )
+
         for config in self.mcp_servers:
             try:
                 bridge = McpBridge(config, registry=self.tool_registry)

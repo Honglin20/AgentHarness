@@ -88,3 +88,36 @@ async def setup_default_mcp(
     await bridge.connect()
     await bridge.register_tools()
     return [bridge]
+
+
+async def setup_codegraph_mcp(registry: ToolRegistry) -> McpBridge | None:
+    """Connect codegraph MCP server and register its tools.
+
+    codegraph is a local code-intelligence index (search / context / callers /
+    callees / impact / node / explore / status / files / trace) backed by a
+    per-project sqlite DB in ``.codegraph/``. Tools register as
+    ``codegraph_<name>`` since the upstream MCP server already namespaces them
+    that way — no extra prefix needed.
+
+    Resolution:
+      1. ``codegraph`` on $PATH → run ``codegraph serve --mcp`` directly
+      2. Not on PATH → fall back to ``npx -y @colbymchenry/codegraph serve --mcp``
+         (npx will install the package on first use)
+
+    Returns the bridge, or None if startup failed (caller logs the hint).
+    """
+    command = shutil.which("codegraph")
+    if command is not None:
+        config = McpServerConfig(name="", command=command, args=["serve", "--mcp"])
+    else:
+        # Fall back to npx — first invocation will install the package
+        config = McpServerConfig(
+            name="",
+            command="npx",
+            args=["-y", "@colbymchenry/codegraph", "serve", "--mcp"],
+        )
+
+    bridge = McpBridge(config, registry=registry)
+    await bridge.connect()
+    await bridge.register_tools()
+    return bridge

@@ -117,6 +117,18 @@ def main():
         shell=IS_WINDOWS,
     )
 
+    # ── 5. codegraph MCP server (code intelligence) ─────────────
+    # Provides cg_query / cg_callers / cg_callees / cg_impact / cg_context
+    # to agents. Self-contained npm package — no extra runtime needed.
+    cg_pkg = "@colbymchenry/codegraph"
+    run(
+        [npm, "install", "-g", cg_pkg],
+        f"npm install -g {cg_pkg}",
+        shell=IS_WINDOWS,
+    )
+    print("    ℹ  Run `codegraph init -i` inside any project to build its index.")
+    print()
+
     # ── Done ────────────────────────────────────────────────────
     print()
     print("=" * 60)
