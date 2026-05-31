@@ -113,7 +113,7 @@ def test_assemble_option_without_value_falls_back_to_label():
 def test_factory_name_and_description():
     f = AskUserToolFactory(event_bus=None)
     assert f.name == "ask_user"
-    assert "structured question" in f.description.lower()
+    assert "ask the user" in f.description.lower()
 
 
 def test_factory_creates_pydantic_ai_tool():
@@ -257,14 +257,14 @@ async def test_tool_accepts_legacy_string_answer():
     assert result == "plain text"
 
 
-# ---------- ask_human thin shim still works ----------
+# ---------- ask_user open-ended mode (legacy ask_human behavior) ----------
 
 @pytest.mark.asyncio
-async def test_ask_human_shim_round_trip():
-    from harness.tools.ask_human import AskHumanToolFactory, resolve_question
+async def test_ask_user_open_ended_round_trip():
+    from harness.tools.ask_user import AskUserToolFactory, resolve_answer
 
     bus = _StubBus()
-    factory = AskHumanToolFactory(event_bus=bus)
+    factory = AskUserToolFactory(event_bus=bus)
     tool = factory.create()
 
     async def answer_later():
@@ -273,12 +273,11 @@ async def test_ask_human_shim_round_trip():
                 break
             await asyncio.sleep(0.005)
         qid = bus.events[0][1]["question_id"]
-        await resolve_question(qid, "user said hi")
+        await resolve_answer(qid, {"answer": "user said hi"})
 
     coro = tool.function(_Ctx(), question="Hello?")
     result, _ = await asyncio.gather(coro, answer_later())
     assert result == "user said hi"
-    # Emitted event should still carry the new schema (options=None etc.)
+    # Open-ended mode should have options=None
     payload = bus.events[0][1]
     assert payload["options"] is None
-    assert payload["input_type"] == "textarea"

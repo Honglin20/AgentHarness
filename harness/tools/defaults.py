@@ -47,16 +47,14 @@ def default_tool_registry(event_bus=None) -> ToolRegistry:
 
     Args:
         event_bus: Optional EventBus. When provided, registers event-bus-dependent
-            tools (ask_human).
+            tools (ask_user).
     """
     registry = ToolRegistry()
     registry.register("sub_agent", SubAgentToolFactory(registry=registry))
     registry.register("bash", BashToolFactory())
     if event_bus:
-        from harness.tools.ask_human import AskHumanToolFactory
         from harness.tools.ask_user import AskUserToolFactory
         registry.register("ask_user", AskUserToolFactory(event_bus=event_bus))
-        registry.register("ask_human", AskHumanToolFactory(event_bus=event_bus))
     return registry
 
 

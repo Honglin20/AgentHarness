@@ -1,4 +1,4 @@
-"""Shared blocking I/O between agent tools (ask_user / ask_human) and WS handler.
+"""Shared blocking I/O between agent tools (ask_user) and WS handler.
 
 Holds a process-wide registry of pending question Futures, keyed by question_id.
 The WS handler resolves a Future when the user submits an answer.

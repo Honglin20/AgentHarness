@@ -36,7 +36,7 @@ def assemble_answer(
     """Compose the string returned to the LLM from a structured answer payload.
 
     payload = { "selected": [...], "custom_input": "..." }  (new)
-             | { "answer": "..." }                          (legacy ask_human)
+             | { "answer": "..." }                          (legacy format)
     """
     if "answer" in payload and "selected" not in payload and "custom_input" not in payload:
         return str(payload.get("answer") or "")
@@ -87,11 +87,19 @@ class AskUserToolFactory(ToolFactory):
 
     name = "ask_user"
     description = (
-        "Ask the user a structured question. "
-        "Provide `options` for multiple-choice prompts (set `multi_select=true` for checkbox-style). "
-        "Set `allow_custom_input=true` to additionally accept free-form text alongside options. "
-        "Omit `options` to ask an open-ended question. "
-        "Blocks until the user submits and returns their answer as a plain string."
+        "Ask the user a question and wait for their response. "
+        "SUPPORTS THREE MODES — pick the one that fits:\n"
+        "1. Multiple-choice: set options=[{label, description?, value?}, ...]. "
+        "Use multi_select=True for checkbox (pick several). Default multi_select=False for radio (pick one).\n"
+        "2. Open-ended: omit options. The user types a free-form answer. "
+        "Set input_type='textarea' for long answers, 'number' for numeric, 'url' for URLs.\n"
+        "3. Choice + other: set options AND allow_custom_input=True (default). "
+        "The user can pick options AND type extra text.\n\n"
+        "ALWAYS set header (short label like 'Model' or 'Priority') when using options. "
+        "ALWAYS provide 2-6 options with concise labels (<=30 chars). "
+        "Add description per option when the label alone is ambiguous.\n\n"
+        "Returns the user's answer as a plain string. "
+        "Blocks until answered or 5 min timeout."
     )
 
     def __init__(self, event_bus: Any | None = None):
@@ -110,6 +118,31 @@ class AskUserToolFactory(ToolFactory):
             input_type: Literal["text", "number", "url", "textarea"] = "text",
             input_placeholder: str | None = None,
         ) -> str:
+            """Ask the user a question and wait for their answer.
+
+            Modes:
+              - Multiple-choice: pass options list. single-select (default) or multi_select=True.
+              - Open-ended: omit options. user types free text. Use input_type for keyboard hints.
+              - Choice + other: options + allow_custom_input=True (default).
+
+            Args:
+                question: The question to ask. Be specific.
+                options: Choice list. Each item: {label (button text), description? (tooltip), value? (return value, defaults to label)}.
+                         2-6 items recommended. Omit for open-ended questions.
+                header: Short label shown above the question (e.g. 'Model', 'Priority'). Max 12 chars.
+                multi_select: True = user can pick multiple options (checkboxes). False = single pick (radio). Default False.
+                allow_custom_input: True = show an 'Other' text box alongside options. Default True.
+                                    Set False to force a choice from the list only.
+                input_type: Keyboard hint for the free-text input: 'text', 'number', 'url', or 'textarea'. Default 'text'.
+                input_placeholder: Placeholder text in the free-text input box (e.g. 'Or type a model name...').
+
+            Returns:
+                The user's answer as a plain string.
+                Single choice: "Sonnet 4.6"
+                Multi choice: "Sonnet 4.6, Opus 4.7"
+                Free text only: whatever the user typed
+                Choice + other: "Sonnet 4.6 | other: also consider Gemini"
+            """
             question_id = str(uuid.uuid4())
             future = await _human_io.register(question_id)
 

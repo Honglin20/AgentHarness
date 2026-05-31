@@ -90,6 +90,7 @@ class TestSubAgentToolFactory:
         with patch("harness.tools.sub_agent.LLMClient") as MockLLMClient:
             mock_client = MagicMock()
             mock_client.agent.return_value = mock_child
+            mock_client.aclose = AsyncMock()
             MockLLMClient.return_value = mock_client
             ctx = _make_ctx(workdir="/tmp/test")
             result = await sub_agent_fn(ctx, task="analyze the code")
@@ -114,6 +115,7 @@ class TestSubAgentToolFactory:
         with patch("harness.tools.sub_agent.LLMClient") as MockLLMClient:
             mock_client = MagicMock()
             mock_client.agent.return_value = mock_child
+            mock_client.aclose = AsyncMock()
             MockLLMClient.return_value = mock_client
             ctx = _make_ctx(workdir="/project/root", depth=0)
             await sub_agent_fn(ctx, task="do work")
@@ -142,6 +144,7 @@ class TestSubAgentToolFactory:
         with patch("harness.tools.sub_agent.LLMClient") as MockLLMClient:
             mock_client = MagicMock()
             mock_client.agent.return_value = mock_child
+            mock_client.aclose = AsyncMock()
             MockLLMClient.return_value = mock_client
             ctx = _make_ctx()
             await sub_agent_fn(ctx, task="do work")

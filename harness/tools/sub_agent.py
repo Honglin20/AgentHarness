@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from pydantic_ai import RunContext, Tool as PydanticAITool
@@ -11,6 +12,11 @@ from harness.tools.registry import ToolFactory
 
 if TYPE_CHECKING:
     from harness.tools.registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
+
+# Tools that require event_bus / user interaction — not usable by sub-agents.
+_EXCLUDE_FROM_CHILD = {"sub_agent", "ask_user"}
 
 
 class SubAgentToolFactory(ToolFactory):
@@ -44,8 +50,8 @@ class SubAgentToolFactory(ToolFactory):
             if depth >= max_depth:
                 return "Error: maximum sub-agent depth reached"
 
-            # Create temporary agent WITHOUT sub_agent tool (physical nesting prevention)
-            exclude = ["sub_agent"]
+            # Resolve safe tools: exclude sub_agent + context-dependent tools
+            exclude = list(_EXCLUDE_FROM_CHILD)
             resolved_tools = registry.resolve(None, exclude=exclude)
 
             child_deps = AgentDeps(
@@ -55,14 +61,20 @@ class SubAgentToolFactory(ToolFactory):
             )
 
             client = LLMClient(model=model) if model else LLMClient()
-            child = client.agent(
-                system_prompt="You are a sub-agent. Complete the assigned task concisely.",
-                output_type=str,
-                tools=resolved_tools,
-                deps_type=AgentDeps,
-            )
+            try:
+                child = client.agent(
+                    system_prompt="You are a sub-agent. Complete the assigned task concisely.",
+                    output_type=str,
+                    tools=resolved_tools,
+                    deps_type=AgentDeps,
+                )
 
-            result = await child.run(task, deps=child_deps)
-            return result.output
+                result = await child.run(task, deps=child_deps)
+                return result.output
+            except Exception as e:
+                logger.warning("sub_agent failed: %s: %s", type(e).__name__, e)
+                return f"Error: sub-agent failed — {type(e).__name__}: {e}"
+            finally:
+                await client.aclose()
 
         return PydanticAITool(sub_agent, takes_ctx=True)
