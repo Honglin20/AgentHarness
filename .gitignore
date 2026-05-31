@@ -27,9 +27,16 @@ workflows/eval_code_quality/
 workflows/test/
 workflows/sub_agent_test/
 
+# LLM-generated artifacts dropped into shared workflow agents/ dirs
+workflows/_shared/workflows/code_review/agents/*.ts
+workflows/_shared/workflows/coder_review_loop/agents/*.ts
+
 # codegraph local cache
 .codegraph/
 
 # Accidental local scratch files
 iTerm2
 palindrome.py
+
+# Claude local-only settings (mcp.json is shared)
+.claude/settings.local.json
