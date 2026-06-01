@@ -197,6 +197,9 @@ class MacroGraphBuilder:
         self._pending_stop_regen: dict[str, dict[str, str | float]] = {}
         self._stop_regen_lock = asyncio.Lock()
 
+        # Interrupt intent: persists across node re-execution after LangGraph interrupt()
+        self._interrupted_agents: dict[str, dict[str, Any]] = {}
+
         # Register event-bus-dependent tools when event_bus is available
         if event_bus and "ask_user" not in self.tool_registry.list_tools():
             from harness.tools.ask_user import AskUserToolFactory
@@ -221,6 +224,14 @@ class MacroGraphBuilder:
                 "user_guidance": user_guidance,
                 "_ts": time.time(),
             }
+
+    def store_interrupt_intent(self, agent_name: str, data: dict[str, Any]) -> None:
+        """Store interrupt intent for a node so it can resume correctly after re-execution."""
+        self._interrupted_agents[agent_name] = data
+
+    def consume_interrupt_intent(self, agent_name: str) -> dict[str, Any] | None:
+        """Consume and return interrupt intent, or None if not present."""
+        return self._interrupted_agents.pop(agent_name, None)
 
     def _has_pending_stop_regen(self, workflow_id: str, agent_name: str) -> bool:
         pending = self._pending_stop_regen.get(workflow_id)
@@ -433,6 +444,133 @@ class MacroGraphBuilder:
         async def node_func(state: HarnessState) -> dict:
             start_time = time.time()
 
+            # === CASE A: Resume from LangGraph interrupt ===
+            # On resume, the node re-executes from scratch. Check if we stored
+            # interrupt intent for this agent and retrieve it.
+            intent = builder_self.consume_interrupt_intent(agent_def.name)
+
+            if intent is not None:
+                from langgraph.types import interrupt as lg_interrupt
+                # interrupt() returns the resume value (user guidance) on re-execution
+                guidance = lg_interrupt({
+                    "agent_name": agent_def.name,
+                    "partial_output": intent.get("partial_output", ""),
+                    "reason": "stop_and_regenerate",
+                })
+
+                # Rebuild upstream outputs and deps from state
+                upstream_outputs = {}
+                outputs = state.get(STATE_OUTPUTS, {})
+                for dep_name in upstream_names:
+                    if dep_name in outputs:
+                        upstream_outputs[dep_name] = outputs[dep_name]
+
+                wid = builder_self.workflow_id or ""
+                deps = AgentDeps(agent_name=agent_def.name, workflow_id=wid, node_id=agent_def.name)
+
+                # Rebuild context for resume
+                resume_context = micro_factory.build_node_prompt(
+                    inputs=state.get(STATE_INPUTS, {}),
+                    upstream_outputs=upstream_outputs,
+                    workflow_dir=workflow_dir,
+                    critique=None,
+                )
+
+                if guidance:
+                    # Augment context with partial output + user guidance
+                    partial = intent.get("partial_output", "")
+                    if bus:
+                        bus.emit("agent.text_delta", {
+                            "workflow_id": wid,
+                            "node_id": agent_def.name,
+                            "agent_name": agent_def.name,
+                            "text": "\n\n--- [用户指导]: " + guidance + " ---\n\n",
+                        })
+                    parts = [resume_context]
+                    if partial.strip():
+                        parts.append(f"[此前你的部分回复]:\n{partial}")
+                    parts.append(f"[用户指导]: {guidance}")
+                    parts.append("请基于上述部分回复与用户指导，重新生成完整回答。")
+                    resume_context = "\n\n".join(parts)
+
+                # Emit node.started for the resume run
+                if bus:
+                    bus.emit("node.started", {
+                        "workflow_id": builder_self.workflow_id,
+                        "node_id": agent_def.name,
+                        "agent_name": agent_def.name,
+                        "attempt": 1,
+                        "tools": tool_info,
+                        "model": model,
+                    })
+
+                # Re-create executor for resume
+                pydantic_agent_resume = micro_factory.create(
+                    name=agent_def.name,
+                    prompt=intent.get("system_prompt", augmented_prompt),
+                    tools=final_tool_names,
+                    model=model,
+                    retries=retries,
+                    result_type=result_type,
+                    deps=deps,
+                )
+
+                executor = LLMExecutor(
+                    pydantic_agent_resume,
+                    deps,
+                    event_bus=bus,
+                    workflow_id=wid,
+                    node_id=agent_def.name,
+                    agent_name=agent_def.name,
+                    ext_ctx=None,
+                    check_interrupt=None,
+                    cancel_fn=None,
+                )
+
+                if guidance:
+                    exec_result = await executor.run(resume_context)
+                    agent_run = exec_result.agent_run
+                    output = agent_run.result.output
+
+                    if bus:
+                        bus.emit("workflow.resumed", {
+                            "workflow_id": wid,
+                            "node_id": agent_def.name,
+                            "directive": guidance,
+                        })
+                else:
+                    # No guidance: use partial output, node completes
+                    output = intent.get("partial_output", "") or "(stopped)"
+
+                duration_ms = int((time.time() - start_time) * 1000)
+                node_meta = {"duration_ms": duration_ms}
+
+                # Emit node.completed
+                io_data = {
+                    "input_prompt": resume_context,
+                    "system_prompt": intent.get("system_prompt", augmented_prompt),
+                    "output_result": output.model_dump() if isinstance(output, BaseModel) else str(output),
+                }
+                builder_self.agent_io[agent_def.name] = io_data
+                _save_incremental(builder_self, bus)
+                if bus:
+                    bus.emit("node.completed", {
+                        "workflow_id": builder_self.workflow_id,
+                        "node_id": agent_def.name,
+                        "agent_name": agent_def.name,
+                        "duration_ms": duration_ms,
+                        "status": "success",
+                        **io_data,
+                    })
+
+                return {
+                    STATE_OUTPUTS: {agent_def.name: output},
+                    STATE_ERRORS: {},
+                    STATE_METADATA: {agent_def.name: node_meta},
+                }
+
+            # === Normal first execution (existing code) ===
+
             # Check iteration count for conditional edges
             if agent_def.has_conditional_edges:
                 iter_key = f"{agent_def.name}_loop"
@@ -633,56 +771,49 @@ class MacroGraphBuilder:
                 if stop_regen:
                     partial = stop_regen.get("partial_output", "") or ""
                     guidance = stop_regen.get("user_guidance", "") or ""
-                    # No guidance = pure stop — use partial text as output and continue
-                    if not guidance.strip():
-                        output = partial if partial.strip() else "(stopped)"
+
+                    if guidance.strip():
+                        # WS came with guidance → inline retry (existing behavior)
+                        bus.emit("agent.text_delta", {
+                            "workflow_id": wid,
+                            "node_id": agent_def.name,
+                            "agent_name": agent_def.name,
+                            "text": "\n\n--- [用户指导]: " + guidance + " ---\n\n",
+                        })
+
+                        parts = [context]
+                        if partial.strip():
+                            parts.append(f"[此前你的部分回复]:\n{partial}")
+                        parts.append(f"[用户指导]: {guidance}")
+                        parts.append("请基于上述部分回复与用户指导，重新生成完整回答。")
+                        new_context = "\n\n".join(parts)
+
+                        retry_result = await executor.run(new_context)
+                        agent_run = retry_result.agent_run
                         stop_regen = None
-                        duration_ms = int((time.time() - start_time) * 1000)
-                        node_meta = {"duration_ms": duration_ms}
-                        if bus:
-                            event_payload = {
-                                "workflow_id": builder_self.workflow_id,
-                                "node_id": agent_def.name,
-                                "agent_name": agent_def.name,
-                                "duration_ms": duration_ms,
-                                "status": "success",
-                                "input_prompt": context,
-                                "system_prompt": augmented_prompt,
-                                "output_result": {"summary": output, "details": None},
-                            }
-                            bus.emit("node.completed", event_payload)
-                        result_dict = {
-                            STATE_OUTPUTS: {agent_def.name: output},
-                            STATE_ERRORS: {},
-                            STATE_METADATA: {agent_def.name: node_meta},
-                        }
-                        return result_dict
 
-                    bus.emit("agent.text_delta", {
-                        "workflow_id": wid,
-                        "node_id": agent_def.name,
-                        "agent_name": agent_def.name,
-                        "text": "\n\n--- [用户指导]: " + guidance + " ---\n\n",
-                    })
-
-                    parts = [context]
-                    if partial.strip():
-                        parts.append(f"[此前你的部分回复]:\n{partial}")
-                    parts.append(f"[用户指导]: {guidance}")
-                    parts.append("请基于上述部分回复与用户指导，重新生成完整回答。")
-                    new_context = "\n\n".join(parts)
-
-                    retry_result = await executor.run(new_context)
-                    agent_run = retry_result.agent_run
-                    # stop_regen from retry is ignored — it's a fresh run
-                    stop_regen = None
-
-                    bus.emit("workflow.resumed", {
-                        "workflow_id": wid,
-                        "node_id": agent_def.name,
-                        "directive": guidance,
-                    })
-                    stop_regen = None
+                        bus.emit("workflow.resumed", {
+                            "workflow_id": wid,
+                            "node_id": agent_def.name,
+                            "directive": guidance,
+                        })
+                        stop_regen = None
+                    else:
+                        # Pure stop → store intent and interrupt the graph.
+                        # The graph will pause, and on resume the CASE A block
+                        # at the top of this function will handle re-execution.
+                        builder_self.store_interrupt_intent(agent_def.name, {
+                            "original_context": context,
+                            "partial_output": partial,
+                            "system_prompt": augmented_prompt,
+                        })
+                        from langgraph.types import interrupt as lg_interrupt
+                        lg_interrupt({
+                            "agent_name": agent_def.name,
+                            "partial_output": partial,
+                            "reason": "stop_and_regenerate",
+                        })
+                        # UNREACHABLE — interrupt() raises GraphInterrupt
 
                 output = agent_run.result.output
                 usage_obj = agent_run.usage

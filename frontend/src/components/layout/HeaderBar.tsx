@@ -193,7 +193,7 @@ export function HeaderBar() {
             {stopping ? "Pausing..." : "Pause"}
           </Button>
         )}
-        {isActive && !isRunning && status !== "paused" && (
+        {isActive && !isRunning && status !== "paused" && status !== "interrupted" && (
           <Button
             variant="ghost"
             size="sm"
@@ -204,7 +204,7 @@ export function HeaderBar() {
             New Workflow
           </Button>
         )}
-        {status === "paused" && (
+        {(status === "paused" || status === "interrupted") && (
           <Button
             variant="ghost"
             size="sm"

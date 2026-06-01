@@ -185,6 +185,17 @@ function _routeToUIStores(event: WSEvent): void {
       break;
     }
 
+    case "workflow.interrupted": {
+      const p = payload<{ workflow_id: string }>(event);
+      useWorkflowStore.getState().handleWorkflowCompleted({
+        workflow_id: p.workflow_id,
+        status: "interrupted",
+      });
+      _saveConversation(p.workflow_id);
+      _saveCharts(p.workflow_id);
+      break;
+    }
+
     case "workflow.resumed": {
       const p = payload<{ workflow_id: string; node_id: string; directive?: string }>(event);
       useConversationStore.getState().resumeAgentMessage(p.node_id, "");

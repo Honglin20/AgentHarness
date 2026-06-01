@@ -1604,10 +1604,12 @@ async def resume_run(
         })
 
     # Submit resume to runner
+    guidance = body.guidance
     await runner.submit(
         run_id, workflow, data.get("inputs", {}), event_bus,
         config=config, resume=True, user_id=run_user_id,
         work_dir=data.get("work_dir"),
+        guidance=guidance,
     )
 
     return {

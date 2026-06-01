@@ -16,6 +16,7 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
   failed: <XCircle className="h-3 w-3 text-red-500" />,
   cancelled: <XCircle className="h-3 w-3 text-muted-foreground" />,
   paused: <Pause className="h-3 w-3 text-amber-500" />,
+  interrupted: <Pause className="h-3 w-3 text-amber-500" />,
 };
 
 function LiveDot() {
@@ -180,7 +181,7 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
           </div>
           {wfRuns.map((run) => {
             const isRunning = run.status === "running";
-            const isPaused = run.status === "paused";
+            const isPaused = run.status === "paused" || run.status === "interrupted";
             const isDone = run.status === "completed" || run.status === "failed" || run.status === "cancelled";
             const isSelected =
               (activeView.type === "live" && isRunning && run.run_id === liveWorkflowId) ||

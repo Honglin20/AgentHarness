@@ -173,6 +173,19 @@ export function routeEvent(
       break;
     }
 
+    case "workflow.interrupted": {
+      const p = payload<{ workflow_id: string }>(event);
+      stores.workflow.getState().handleWorkflowCompleted({
+        workflow_id: p.workflow_id,
+        status: "interrupted",
+      });
+      if (ctx.persistence) {
+        ctx.persistence.saveConversation(p.workflow_id);
+        ctx.persistence.saveCharts(p.workflow_id);
+      }
+      break;
+    }
+
     case "workflow.resumed": {
       const p = payload<{ workflow_id: string; node_id: string; directive?: string }>(event);
       stores.conversation.getState().resumeAgentMessage(p.node_id, "");

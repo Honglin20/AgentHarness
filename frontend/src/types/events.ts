@@ -31,7 +31,8 @@ export type EventType =
   | "span.start"
   | "span.end"
   | "step.summary"
-  | "circular.warning";
+  | "circular.warning"
+  | "workflow.interrupted";
 
 // Workflow events
 export interface WorkflowAgentDef {
@@ -272,6 +273,7 @@ export interface EventPayloadMap {
   "workflow.completed": WorkflowCompletedPayload;
   "workflow.error": { workflow_id: string; error: string };
   "workflow.cancelled": { workflow_id: string };
+  "workflow.interrupted": { workflow_id: string; interrupt_value?: unknown };
   "workflow.resumed": { workflow_id: string; node_id: string; directive?: string };
   "node.started": NodeStartedPayload;
   "node.completed": NodeCompletedPayload;

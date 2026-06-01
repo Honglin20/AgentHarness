@@ -101,6 +101,7 @@ class CheckpointInfo(BaseModel):
 class ResumeRequest(BaseModel):
     """Request to resume a workflow from a checkpoint."""
     checkpoint_id: str | None = None  # None = latest non-final checkpoint
+    guidance: str | None = None  # User guidance for interrupt resume
 
 
 # --- Batch execution ---

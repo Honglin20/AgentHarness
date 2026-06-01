@@ -144,6 +144,8 @@ class WorkflowResult(BaseModel):
     outputs: dict[str, Any]
     errors: dict[str, str]
     trace: list[NodeTrace]
+    interrupted: bool = False
+    interrupt_value: Any | None = None
 
 
 class Workflow:
@@ -317,7 +319,7 @@ class Workflow:
         (self.workflow_dir / "scripts").mkdir(exist_ok=True)
         path = self.workflow_dir / "workflow.json"
         path.write_text(json.dumps(self.to_dict(), indent=2, ensure_ascii=False))
-        print(f"[Workflow] saved → {path}")
+        print(f"[Workflow] saved → {path.resolve()}")
         return path
 
     @classmethod
@@ -559,15 +561,19 @@ class Workflow:
         # Open browser
         webbrowser.open(f"http://localhost:{port}?workflow={wid}")
 
-    async def arun(self, inputs: dict, config: dict | None = None) -> WorkflowResult:
+    async def arun(self, inputs: dict | None = None, config: dict | None = None,
+                   resume_value: Any | None = None) -> WorkflowResult:
         """Run the workflow asynchronously. For callers already in an async context.
 
         Caller is responsible for MCP lifecycle (call setup/cleanup if needed).
 
         Args:
-            inputs: Task input dict.
+            inputs: Task input dict. None when resuming.
             config: LangGraph run config. If checkpointer is set and no config
                 provided, uses ``{'configurable': {'thread_id': self.name}}``.
+            resume_value: Value to pass to LangGraph interrupt() on resume.
+                When provided, uses Command(resume=resume_value) instead of
+                initial_state to resume from an interrupted checkpoint.
         """
         if self.mcp_servers and not self._mcp_setup_done:
             raise RuntimeError(
@@ -578,18 +584,32 @@ class Workflow:
         if self._compiled is None:
             self.compile()
 
-        initial_state = {
-            STATE_INPUTS: inputs,
-            STATE_OUTPUTS: {},
-            STATE_ERRORS: {},
-            STATE_METADATA: {},
-        }
-
         if config is None and self.checkpointer is not None:
             config = {"configurable": {"thread_id": self.name}}
 
-        final_state = await self._compiled.ainvoke(initial_state, config=config)
-        return self._build_result(final_state)
+        if resume_value is not None:
+            from langgraph.types import Command
+            final_state = await self._compiled.ainvoke(
+                Command(resume=resume_value), config=config,
+            )
+        else:
+            initial_state = {
+                STATE_INPUTS: inputs or {},
+                STATE_OUTPUTS: {},
+                STATE_ERRORS: {},
+                STATE_METADATA: {},
+            }
+            final_state = await self._compiled.ainvoke(initial_state, config=config)
+
+        result = self._build_result(final_state)
+
+        # Detect LangGraph interrupt: ainvoke returns {__interrupt__: [Interrupt(...)]}
+        if isinstance(final_state, dict) and "__interrupt__" in final_state:
+            interrupts = final_state["__interrupt__"]
+            result.interrupted = True
+            result.interrupt_value = interrupts[0].value if interrupts else None
+
+        return result
 
     async def setup(self, work_dir: str | None = None):
         """Connect MCP servers and register their tools, then compile.
@@ -784,7 +804,9 @@ class Benchmark:
             description=self.description,
             prep=self._prep,
         )
-        return _BENCHMARKS_DIR / self.name / "benchmark.json"
+        saved_path = (_BENCHMARKS_DIR / self.name / "benchmark.json").resolve()
+        print(f"[Benchmark] saved → {saved_path}")
+        return saved_path
 
     @classmethod
     def load(cls, name: str) -> "Benchmark":

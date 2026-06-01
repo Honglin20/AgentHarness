@@ -30,7 +30,7 @@ export interface NodeState {
 
 interface WorkflowSnapshot {
   nodes: Record<string, NodeState>;
-  status: "idle" | "running" | "completed" | "failed" | "cancelled" | "paused";
+  status: "idle" | "running" | "completed" | "failed" | "cancelled" | "paused" | "interrupted";
   workflowId: string | null;
   workflowName: string | null;
   dag: { nodes: string[]; edges: [string, string][]; conditional_edges?: { from: string; to: string; label: string }[] } | null;
@@ -41,7 +41,7 @@ export interface WorkflowState {
   // Current workflow
   workflowId: string | null;
   workflowName: string | null;
-  status: "idle" | "running" | "completed" | "failed" | "cancelled" | "paused";
+  status: "idle" | "running" | "completed" | "failed" | "cancelled" | "paused" | "interrupted";
 
   // Node states keyed by node_id
   nodes: Record<string, NodeState>;
@@ -146,7 +146,9 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
         ? ("failed" as const)
         : payload.status === "paused"
           ? ("paused" as const)
-          : ("completed" as const),
+          : payload.status === "interrupted"
+            ? ("interrupted" as const)
+            : ("completed" as const),
     }),
 
   handleNodeStarted: (payload) =>
