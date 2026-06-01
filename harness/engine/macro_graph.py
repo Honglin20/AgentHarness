@@ -228,6 +228,9 @@ class MacroGraphBuilder:
     def store_interrupt_intent(self, agent_name: str, data: dict[str, Any]) -> None:
         """Store interrupt intent for a node so it can resume correctly after re-execution."""
         self._interrupted_agents[agent_name] = data
+        # Clear stale stop signals so repeated clicks don't leave dirty state
+        wid = self.workflow_id or ""
+        self._pending_stop_regen.pop(wid, None)
 
     def consume_interrupt_intent(self, agent_name: str) -> dict[str, Any] | None:
         """Consume and return interrupt intent, or None if not present."""

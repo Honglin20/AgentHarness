@@ -122,9 +122,14 @@ export default function ChatInput({
       interruptMsg(agentName);
     }
     sendStopAndRegenerate(agentName, partialContent, "");
-    setStopping(false);
+    // Keep stopping=true until workflow status or streaming agent changes
     setValue("");
   }, [streamingAgent, sendStopAndRegenerate, stopping, interruptMsg]);
+
+  // Reset stopping when workflow stops running or a new agent starts streaming
+  useEffect(() => {
+    setStopping(false);
+  }, [isRunning, streamingAgent?.agentName]);
 
   const handlePausedSubmit = useCallback(async () => {
     const guidance = value.trim();
