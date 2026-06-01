@@ -978,6 +978,12 @@ class MacroGraphBuilder:
 
                 return result_dict
             except Exception as e:
+                # Let LangGraph interrupt signals propagate — they must reach
+                # the graph runtime to pause execution, not be swallowed here.
+                from langgraph.errors import GraphInterrupt
+                if isinstance(e, GraphInterrupt):
+                    raise
+
                 duration_ms = int((time.time() - start_time) * 1000)
                 error_type = type(e).__name__
 
