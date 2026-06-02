@@ -767,21 +767,37 @@ async def _create_and_start_workflow(
     # Each workflow gets its own Bus — fully isolated events + extensions
     event_bus = _new_bus()
 
-    agents = [
-        Agent(
-            name=a.name,
-            after=a.after,
-            on_pass=a.on_pass,
-            on_fail=a.on_fail,
-            eval=a.eval,
-            result_type=safe_reconstruct_result_type(
-                a.result_type_name, a.result_type_schema
-            ),
-        )
-        for a in agents_defs
-    ]
-
+    # Resolve workflow dir and load full agent definitions from workflow.json.
+    # The frontend sends minimal agent data ({name, after}); we enrich it with
+    # the complete definition from disk (tools, result_type, etc.).
     wf_dir = _validate_workflow_dir(workflow_name, user_id)
+    wf_json_path = wf_dir / "workflow.json"
+    disk_agents: dict[str, dict] = {}
+    if wf_json_path.exists():
+        try:
+            disk_agents = {
+                a["name"]: a
+                for a in json.loads(wf_json_path.read_text(encoding="utf-8")).get("agents", [])
+            }
+        except Exception:
+            pass
+
+    agents = []
+    for a in agents_defs:
+        # Merge: disk definition provides the full baseline, request overrides specifics
+        base = disk_agents.get(a.name, {})
+        base.update({
+            "name": a.name,
+            "after": a.after,
+            "on_pass": a.on_pass,
+            "on_fail": a.on_fail,
+            "eval": a.eval,
+        })
+        if a.result_type_name:
+            base["result_type_name"] = a.result_type_name
+        if a.result_type_schema:
+            base["result_type_schema"] = a.result_type_schema
+        agents.append(Agent.from_dict(base))
 
     from harness.checkpoint import get_checkpoint_manager
     checkpoint_mgr = get_checkpoint_manager()
