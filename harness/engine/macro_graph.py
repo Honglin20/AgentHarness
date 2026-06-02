@@ -711,8 +711,12 @@ class MacroGraphBuilder:
                         parts.append("请基于上述部分回复与用户指导，重新生成完整回答。")
                         new_context = "\n\n".join(parts)
 
-                        retry_result = await executor.run(new_context)
-                        agent_run = retry_result.agent_run
+                        try:
+                            retry_result = await executor.run(new_context)
+                            agent_run = retry_result.agent_run
+                        except Exception as retry_err:
+                            logger.warning("[DIAG-RETRY] Retry failed: %s — using partial output", retry_err)
+                            agent_run = None
 
                         bus.emit("workflow.resumed", {
                             "workflow_id": wid,
@@ -749,8 +753,12 @@ class MacroGraphBuilder:
                             parts.append("请基于上述部分回复与用户指导，重新生成完整回答。")
                             new_context = "\n\n".join(parts)
 
-                            retry_result = await executor.run(new_context)
-                            agent_run = retry_result.agent_run
+                            try:
+                                retry_result = await executor.run(new_context)
+                                agent_run = retry_result.agent_run
+                            except Exception as retry_err:
+                                logger.warning("[DIAG-RETRY] Retry failed: %s — using partial output", retry_err)
+                                agent_run = None
 
                             if bus:
                                 bus.emit("workflow.resumed", {
@@ -784,12 +792,13 @@ class MacroGraphBuilder:
                                 STATE_METADATA: {agent_def.name: {"duration_ms": duration_ms}},
                             }
 
-                result_obj = agent_run.result
-                if result_obj is not None:
-                    output = result_obj.output
+                if agent_run is not None and agent_run.result is not None:
+                    output = agent_run.result.output
+                    usage_obj = getattr(agent_run, 'usage', None)
                 else:
+                    # Retry failed or produced no result — use partial output
                     output = partial if stop_regen else "(agent produced no output)"
-                usage_obj = getattr(agent_run, 'usage', None)
+                    usage_obj = None
 
                 # === Output completeness validation gate ===
                 validation_error = _validate_output(output, result_type)
