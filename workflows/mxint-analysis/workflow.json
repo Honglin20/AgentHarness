@@ -1,0 +1,26 @@
+{
+  "name": "mxint-analysis",
+  "agents": [
+    {
+      "name": "analyzer",
+      "after": [],
+      "tools": ["bash", "grep", "glob"],
+      "model": null,
+      "retries": 2
+    },
+    {
+      "name": "configurator",
+      "after": ["analyzer"],
+      "tools": ["ask_user", "bash"],
+      "model": null,
+      "retries": 2
+    },
+    {
+      "name": "runner",
+      "after": ["configurator"],
+      "tools": ["bash"],
+      "model": null,
+      "retries": 1
+    }
+  ]
+}
