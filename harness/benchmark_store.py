@@ -43,6 +43,7 @@ class BenchmarkStore:
         description: str = "",
         user_id: str | None = None,
         prep: dict | None = None,
+        scoring: dict | None = None,
     ) -> Path:
         if not _SAFE_NAME_RE.match(name):
             raise ValueError(f"Invalid benchmark name: {name}")
@@ -62,6 +63,8 @@ class BenchmarkStore:
         }
         if prep:
             record["prep"] = prep
+        if scoring:
+            record["scoring"] = scoring
         if user_id:
             record["user_id"] = user_id
         path = self._benchmark_path(name)

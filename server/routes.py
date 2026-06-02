@@ -760,6 +760,8 @@ async def _create_and_start_workflow(
         work_dir: Working directory to execute in
         user_id: User ID who initiated this run
     """
+    from harness.schema_utils import schema_to_model
+
     workflow_id = str(uuid.uuid4())
 
     # Each workflow gets its own Bus — fully isolated events + extensions
@@ -772,6 +774,11 @@ async def _create_and_start_workflow(
             on_pass=a.on_pass,
             on_fail=a.on_fail,
             eval=a.eval,
+            result_type=(
+                schema_to_model(a.result_type_name, a.result_type_schema)
+                if a.result_type_schema and a.result_type_name
+                else None
+            ),
         )
         for a in agents_defs
     ]
@@ -1029,7 +1036,8 @@ async def create_benchmark(body: BenchmarkDef) -> dict:
     store = _get_benchmark_store()
     tasks = [t.model_dump() for t in body.tasks]
     prep = body.prep.model_dump(exclude_none=True) if body.prep else None
-    path = store.save_benchmark(body.name, tasks, description=body.description, prep=prep)
+    scoring = body.scoring.model_dump(exclude_none=True) if body.scoring else None
+    path = store.save_benchmark(body.name, tasks, description=body.description, prep=prep, scoring=scoring)
     return {"name": body.name, "path": str(path)}
 
 
@@ -1052,7 +1060,8 @@ async def update_benchmark(name: str, body: BenchmarkDef) -> dict:
         raise HTTPException(status_code=404, detail="Benchmark not found")
     tasks = [t.model_dump() for t in body.tasks]
     prep = body.prep.model_dump(exclude_none=True) if body.prep else None
-    store.save_benchmark(name, tasks, description=body.description, prep=prep)
+    scoring = body.scoring.model_dump(exclude_none=True) if body.scoring else None
+    store.save_benchmark(name, tasks, description=body.description, prep=prep, scoring=scoring)
     return {"name": name, "tasks": len(tasks)}
 
 
@@ -1191,9 +1200,11 @@ async def list_benchmark_results(name: str, request: Request) -> list[dict]:
 
     scoring_config = (bm.get("scoring") or {}) if bm else {}
     historical = store.list_results(name)
+    from harness.scoring.efficiency import EfficiencyScorer
+    baseline = EfficiencyScorer.compute_baseline(historical)
     repo = get_repository()
     for result in results:
-        _enrich_benchmark_result(result, repo, store, name, scoring_config, historical)
+        _enrich_benchmark_result(result, repo, store, name, scoring_config, baseline)
 
     return results
 
@@ -1204,7 +1215,7 @@ def _enrich_benchmark_result(
     store=None,
     benchmark_name: str = "",
     scoring_config: dict | None = None,
-    historical_results: list[dict] | None = None,
+    historical_baseline: dict | None = None,
 ) -> None:
     """Enrich a benchmark result with live scores, charts, and status from the repository.
 
@@ -1223,7 +1234,7 @@ def _enrich_benchmark_result(
         weights=scoring_cfg.get("weights"),
         thresholds=scoring_cfg.get("thresholds"),
     )
-    baseline = EfficiencyScorer.compute_baseline(historical_results or [])
+    baseline = historical_baseline or {}
 
     for tr in task_results:
         wid = tr.get("workflow_id", "")
@@ -1321,13 +1332,12 @@ async def get_benchmark_result(name: str, run_id: str, request: Request) -> dict
 
     scoring_config = (bm.get("scoring") or {}) if bm else {}
     historical = store.list_results(name)
+    from harness.scoring.efficiency import EfficiencyScorer
+    baseline = EfficiencyScorer.compute_baseline(historical)
     repo = get_repository()
-    _enrich_benchmark_result(result, repo, store, name, scoring_config, historical)
+    _enrich_benchmark_result(result, repo, store, name, scoring_config, baseline)
 
-    return result
-
-
-def _compute_run_averages(result: dict) -> dict:
+    return result(result: dict) -> dict:
     """Compute per-run average metrics from task_results. Always returns all fields."""
     scores = []
     durations = []
@@ -1392,9 +1402,11 @@ async def benchmark_regression(
     # Enrich both results with live scores
     scoring_config = (bm.get("scoring") or {}) if bm else {}
     all_results = store.list_results(name)
+    from harness.scoring.efficiency import EfficiencyScorer
+    baseline = EfficiencyScorer.compute_baseline(all_results)
     repo = get_repository()
-    _enrich_benchmark_result(current_result, repo, store, name, scoring_config, all_results)
-    _enrich_benchmark_result(baseline_result, repo, store, name, scoring_config, all_results)
+    _enrich_benchmark_result(current_result, repo, store, name, scoring_config, baseline)
+    _enrich_benchmark_result(baseline_result, repo, store, name, scoring_config, baseline)
 
     baseline_avg = _compute_run_averages(baseline_result)
     current_avg = _compute_run_averages(current_result)
@@ -1563,6 +1575,8 @@ def _reconstruct_run_to_repo(repo, run_id: str, record: dict, request: Request) 
             "on_pass": a.get("on_pass"),
             "on_fail": a.get("on_fail"),
             "eval": a.get("eval", False),
+            "result_type_name": a.get("result_type_name"),
+            "result_type_schema": a.get("result_type_schema"),
         })
         for a in agents_snapshot
         if not a["name"].startswith("_judge_") and "_passthrough" not in a["name"]
@@ -1756,6 +1770,8 @@ async def rerun(
             "on_pass": a.get("on_pass"),
             "on_fail": a.get("on_fail"),
             "eval": a.get("eval", False),
+            "result_type_name": a.get("result_type_name"),
+            "result_type_schema": a.get("result_type_schema"),
         })
         for a in agents_snapshot
     ]

@@ -195,7 +195,7 @@ function ScoresTab({ result }: { result: BenchmarkResult }) {
             <Info className="h-3.5 w-3.5 text-muted-foreground/60" />
             <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1 -translate-x-1/2 rounded bg-app-bg-primary border border-app-border px-2 py-1.5 text-xs text-app-text-primary shadow-lg opacity-0 transition-opacity group-hover:opacity-100 w-64">
               <strong>Efficiency Score</strong><br />
-              Score = 40% &times; Success + 30% &times; Duration + 30% &times; Tokens<br />
+              Score = 40% × Success + 30% × Duration + 30% × Tokens<br />
               Duration/Token scores normalized against historical best or configured thresholds.
               Failed tasks capped at max 0.6.
             </span>

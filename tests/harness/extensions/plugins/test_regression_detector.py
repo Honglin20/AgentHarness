@@ -80,3 +80,11 @@ def test_missing_metrics_no_crash():
     regressions = detect_regressions(baseline, current)
     assert len(regressions) == 1
     assert regressions[0]["metric"] == "avg_score"
+
+
+def test_zero_default_no_false_regression():
+    """When _compute_run_averages returns 0 defaults, no false regressions."""
+    baseline = {"avg_score": 0, "avg_cost": 0, "avg_duration_ms": 0, "avg_tokens": 0}
+    current = {"avg_score": 0.75, "avg_cost": 0.05, "avg_duration_ms": 3000, "avg_tokens": 5000}
+    regressions = detect_regressions(baseline, current)
+    assert regressions == []
