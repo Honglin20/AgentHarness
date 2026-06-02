@@ -71,6 +71,8 @@ class AgentSnapshot(BaseModel):
     on_pass: str | None = None
     on_fail: str | None = None
     eval: bool = False
+    result_type_name: str | None = None
+    result_type_schema: dict[str, Any] | None = None
 
 
 class RunDetail(BaseModel):

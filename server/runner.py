@@ -56,7 +56,7 @@ def _build_agents_snapshot(workflow) -> list[dict]:
             except AgentNotFoundError:
                 pass
 
-        snapshot.append({
+        snap: dict = {
             "name": agent_def.name,
             "after": agent_def.after,
             "md_content": md_content,
@@ -66,7 +66,15 @@ def _build_agents_snapshot(workflow) -> list[dict]:
             "on_pass": agent_def.on_pass,
             "on_fail": agent_def.on_fail,
             "eval": agent_def.eval if eval_target is None else True,
-        })
+        }
+        if agent_def.result_type is not None:
+            from harness.schema_utils import result_type_to_schema
+
+            schema = result_type_to_schema(agent_def.result_type)
+            if schema is not None:
+                snap["result_type_name"] = agent_def.result_type.__name__
+                snap["result_type_schema"] = schema
+        snapshot.append(snap)
     return snapshot
 
 

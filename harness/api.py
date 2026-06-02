@@ -109,16 +109,25 @@ class Agent:
             d["eval"] = True
         if self.eval_target is not None:
             d["eval_target"] = self.eval_target
+        if self.result_type is not None and self.result_type is not AgentResult:
+            d["result_type_name"] = self.result_type.__name__
+            d["result_type_schema"] = self.result_type.model_json_schema()
         return d
 
     @classmethod
     def from_dict(cls, d: dict) -> Agent:
+        from harness.schema_utils import safe_reconstruct_result_type
+
+        result_type = safe_reconstruct_result_type(
+            d.get("result_type_name"), d.get("result_type_schema")
+        )
         return cls(
             name=d["name"],
             after=d.get("after"),
             tools=d.get("tools"),
             model=d.get("model"),
             retries=d.get("retries", 3),
+            result_type=result_type,
             on_pass=d.get("on_pass"),
             on_fail=d.get("on_fail"),
             eval=bool(d.get("eval", False)),
