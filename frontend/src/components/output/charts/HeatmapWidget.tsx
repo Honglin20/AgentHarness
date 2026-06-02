@@ -70,16 +70,13 @@ export default function HeatmapWidget({ chart }: { chart: ChartPayload }) {
   const maxYLableLen = yLabels.reduce((max, l) => Math.max(max, l.length), 0);
   const labelWidth = Math.max(50, Math.min(120, maxYLableLen * fontSize * 0.65 + 8));
 
-  // Rotate x labels when many or long
-  const shouldRotate = xLabels.length > 6 || xLabels.some((l) => l.length > 6);
-  const labelHeight = shouldRotate ? 60 : 30;
+  // X labels always rotated 90° for consistent spacing
+  const maxXLableLen = xLabels.reduce((max, l) => Math.max(max, l.length), 0);
+  const labelHeight = maxXLableLen * fontSize * 0.6 + 8;
 
   const rightPad = 16;
   const availableWidth = containerWidth - labelWidth - rightPad;
   const cellSize = Math.max(20, Math.floor(availableWidth / xLabels.length));
-
-  // Max chars that fit in a cell before truncating
-  const maxCharsPerCell = Math.max(4, Math.floor(cellSize / (fontSize * 0.6)));
 
   // Truncate helper — preserves tooltip via <title>
   const truncate = (s: string, max: number) =>
@@ -97,36 +94,21 @@ export default function HeatmapWidget({ chart }: { chart: ChartPayload }) {
           width="100%"
           className="block"
         >
-          {/* X-axis labels */}
+          {/* X-axis labels — always rotated 90° */}
           {xLabels.map((xl, i) => {
             const cx = labelWidth + i * cellSize + cellSize / 2;
-            if (shouldRotate) {
-              return (
-                <text
-                  key={xl}
-                  x={cx}
-                  y={labelHeight - 4}
-                  textAnchor="end"
-                  transform={`rotate(-45, ${cx}, ${labelHeight - 4})`}
-                  fontSize={fontSize}
-                  fill={axisTick.fill}
-                >
-                  <title>{xl}</title>
-                  {truncate(xl, maxCharsPerCell + 4)}
-                </text>
-              );
-            }
             return (
               <text
                 key={xl}
                 x={cx}
-                y={labelHeight - 6}
-                textAnchor="middle"
+                y={labelHeight - 4}
+                textAnchor="end"
+                transform={`rotate(-90, ${cx}, ${labelHeight - 4})`}
                 fontSize={fontSize}
                 fill={axisTick.fill}
               >
                 <title>{xl}</title>
-                {truncate(xl, maxCharsPerCell)}
+                {xl}
               </text>
             );
           })}
@@ -144,7 +126,7 @@ export default function HeatmapWidget({ chart }: { chart: ChartPayload }) {
                 fill={axisTick.fill}
               >
                 <title>{yl}</title>
-                {truncate(yl, maxLen)}
+                {truncate(yl, Math.max(6, maxLen))}
               </text>
             );
           })}
