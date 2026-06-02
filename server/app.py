@@ -49,15 +49,15 @@ async def lifespan(app: FastAPI):
 
     # Best-effort initial URL from env (CLI sets HARNESS_PORT before uvicorn).
     # The PortDetectionMiddleware will correct this on the first real request.
-    host = os.environ.get("HARNESS_HOST", "localhost")
     port = os.environ.get("HARNESS_PORT", "8000")
-    os.environ["HARNESS_SERVER_URL"] = f"http://{host}:{port}"
+    os.environ["HARNESS_SERVER_URL"] = f"http://127.0.0.1:{port}"
 
     # Print accessible URL
     import socket
-    display_host = "localhost" if host in ("0.0.0.0", "") else host
+    bind_host = os.environ.get("HARNESS_HOST", "0.0.0.0")
+    display_host = "localhost" if bind_host in ("0.0.0.0", "") else bind_host
     print(f"  AgentHarness UI: http://{display_host}:{port}")
-    if host in ("0.0.0.0", ""):
+    if bind_host in ("0.0.0.0", ""):
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
@@ -112,8 +112,7 @@ def create_app() -> FastAPI:
         server = request.scope.get("server")
         if server:
             actual_port = server[1]
-            host = os.environ.get("HARNESS_HOST", "localhost")
-            os.environ["HARNESS_SERVER_URL"] = f"http://{host}:{actual_port}"
+            os.environ["HARNESS_SERVER_URL"] = f"http://127.0.0.1:{actual_port}"
         return await call_next(request)
 
     # CORS
