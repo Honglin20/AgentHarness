@@ -186,13 +186,12 @@ function _routeToUIStores(event: WSEvent): void {
     }
 
     case "workflow.interrupted": {
-      const p = payload<{ workflow_id: string }>(event);
-      useWorkflowStore.getState().handleWorkflowCompleted({
-        workflow_id: p.workflow_id,
-        status: "interrupted",
-      });
-      _saveConversation(p.workflow_id);
-      _saveCharts(p.workflow_id);
+      // No longer used — kept for backward compat with in-flight events
+      break;
+    }
+
+    case "workflow.waiting_for_guidance": {
+      // UI is already in awaitingGuidance state from handleStop
       break;
     }
 
@@ -453,6 +452,7 @@ export function useWorkflowEvents(
   sendAnswer: (questionId: string, answer: string) => void;
   sendStructuredAnswer: (questionId: string, answer: { selected: string[]; customInput: string }) => void;
   sendStopAndRegenerate: (agentName: string, partialOutput: string, userGuidance: string) => void;
+  sendGuidance: (guidance: string) => void;
 } {
   const onEvent = useCallback((event: WSEvent) => {
     const activeWid = useWorkflowStore.getState().activeWorkflowId;
@@ -506,6 +506,20 @@ export function useWorkflowEvents(
     [ws.send, workflowId],
   );
 
-  return { ...ws, sendAnswer, sendStructuredAnswer, sendStopAndRegenerate };
+  const sendGuidance = useCallback(
+    (guidance: string) => {
+      if (!workflowId) return;
+      ws.send({
+        type: "agent.provide_guidance",
+        payload: {
+          workflow_id: workflowId,
+          guidance,
+        },
+      });
+    },
+    [ws.send, workflowId],
+  );
+
+  return { ...ws, sendAnswer, sendStructuredAnswer, sendStopAndRegenerate, sendGuidance };
 }
 

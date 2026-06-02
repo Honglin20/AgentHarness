@@ -3,14 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConversationStore, type ConversationMessage } from "@/stores/conversationStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
-import { fetchWithAuth } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Play, Square } from "lucide-react";
+import { Play, Square, Send } from "lucide-react";
 
 interface ChatInputProps {
   sendAnswer: (questionId: string, answer: string) => void;
   sendStopAndRegenerate?: (agentName: string, partialOutput: string, userGuidance: string) => void;
+  sendGuidance?: (guidance: string) => void;
   startWorkflow?: (template: unknown, task: string) => void;
   alwaysVisible?: boolean;
   // Optional scoped store overrides (Context architecture)
@@ -28,6 +28,7 @@ interface ChatInputProps {
 export default function ChatInput({
   sendAnswer,
   sendStopAndRegenerate,
+  sendGuidance,
   startWorkflow,
   alwaysVisible = false,
   pendingQuestionId: propPendingId,
@@ -72,13 +73,11 @@ export default function ChatInput({
   const hasPendingQuestion = pendingQuestionId !== null;
   const [value, setValue] = useState("");
   const [stopping, setStopping] = useState(false);
+  const [awaitingGuidance, setAwaitingGuidance] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const isIdle = status === "idle";
   const isRunning = status === "running";
-  const isPaused = status === "paused";
-  const isInterrupted = status === "interrupted";
-  const canStartWorkflow = isIdle && !!selectedTemplate && !!startWorkflow;
 
   const streamingAgent = (() => {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -90,14 +89,16 @@ export default function ChatInput({
     return null;
   })();
 
-  const showStop = isRunning && !!sendStopAndRegenerate && !hasPendingQuestion;
-  const showPausedInput = (isPaused || isInterrupted) && !!sendStopAndRegenerate;
+  const showStop = isRunning && !!sendStopAndRegenerate && !hasPendingQuestion && !awaitingGuidance;
+  const showGuidanceInput = awaitingGuidance && !!sendGuidance;
 
   useEffect(() => {
     if (pendingQuestionId || canStartWorkflow) {
       inputRef.current?.focus();
     }
-  }, [pendingQuestionId, canStartWorkflow]);
+  }, [pendingQuestionId]);
+
+  const canStartWorkflow = isIdle && !!selectedTemplate && !!startWorkflow;
 
   const handleSend = useCallback(() => {
     const trimmed = value.trim();
@@ -121,31 +122,39 @@ export default function ChatInput({
     if (streamingAgent) {
       interruptMsg(agentName);
     }
+    // Send stop signal with empty guidance → backend will await user guidance
     sendStopAndRegenerate(agentName, partialContent, "");
-    // Keep stopping=true until workflow status or streaming agent changes
+    // Switch to guidance input mode
+    setAwaitingGuidance(true);
     setValue("");
   }, [streamingAgent, sendStopAndRegenerate, stopping, interruptMsg]);
 
+  const handleGuidanceSubmit = useCallback(() => {
+    const guidance = value.trim();
+    if (!sendGuidance) return;
+    // Send guidance to backend (wakes up the awaiting nodeFunc)
+    sendGuidance(guidance || "继续");
+    if (guidance) addUserMsg(guidance);
+    setAwaitingGuidance(false);
+    setStopping(false);
+    setValue("");
+  }, [value, sendGuidance, addUserMsg]);
+
   // Reset stopping when workflow stops running or a new agent starts streaming
   useEffect(() => {
-    setStopping(false);
-  }, [isRunning, streamingAgent?.agentName]);
-
-  const handlePausedSubmit = useCallback(async () => {
-    const guidance = value.trim();
-    if (!workflowId) return;
-    if (guidance) addUserMsg(guidance);
-    try {
-      await fetchWithAuth(`/api/runs/${workflowId}/resume`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ guidance: guidance || null }),
-      });
-    } catch {
-      // best effort
+    if (!isRunning) {
+      setStopping(false);
+      setAwaitingGuidance(false);
     }
-    setValue("");
-  }, [value, workflowId, addUserMsg]);
+  }, [isRunning]);
+
+  // Reset awaitingGuidance when the streaming agent changes (retry started)
+  useEffect(() => {
+    if (isRunning && streamingAgent?.status === "streaming") {
+      setAwaitingGuidance(false);
+      setStopping(false);
+    }
+  }, [isRunning, streamingAgent?.agentName, streamingAgent?.status]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -153,25 +162,23 @@ export default function ChatInput({
         e.preventDefault();
         if (showStop) {
           handleStop();
-        } else if (showPausedInput) {
-          handlePausedSubmit();
+        } else if (showGuidanceInput) {
+          handleGuidanceSubmit();
         } else {
           handleSend();
         }
       }
     },
-    [showStop, showPausedInput, handleStop, handlePausedSubmit, handleSend]
+    [showStop, showGuidanceInput, handleStop, handleGuidanceSubmit, handleSend]
   );
 
-  if (!alwaysVisible && !hasPendingQuestion && !canStartWorkflow && !isRunning && !isPaused && !isInterrupted) return null;
+  if (!alwaysVisible && !hasPendingQuestion && !canStartWorkflow && !isRunning && !awaitingGuidance) return null;
 
   const getPlaceholder = () => {
     if (hasPendingQuestion && pendingQuestionAgent) return `回答 ${pendingQuestionAgent} 的问题...`;
     if (canStartWorkflow) return `输入任务启动 ${(selectedTemplate as Record<string, unknown>).name as string}...`;
-    if (showPausedInput) return isInterrupted
-      ? (streamingAgent ? `输入指导给 ${streamingAgent.agentName} 继续生成...` : "输入指导继续生成...")
-      : (streamingAgent ? `输入指导给 ${streamingAgent.agentName}，或直接回车继续...` : "输入指导或直接回车继续...");
-    if (showStop) return streamingAgent ? `指导 ${streamingAgent.agentName} 重新生成（可留空直接停止）...` : "点击 Stop 停止运行...";
+    if (showGuidanceInput) return streamingAgent ? `输入指导给 ${streamingAgent.agentName} 继续...` : "输入指导继续生成...";
+    if (showStop) return streamingAgent ? `点击 Stop 打断 ${streamingAgent.agentName}...` : "点击 Stop 停止运行...";
     return "Message...";
   };
 
@@ -196,19 +203,19 @@ export default function ChatInput({
         >
           <Square className="h-3 w-3 fill-current" />
         </Button>
-      ) : showPausedInput ? (
+      ) : showGuidanceInput ? (
         <Button
           size="sm"
-          onClick={handlePausedSubmit}
+          onClick={handleGuidanceSubmit}
           className="h-8 shrink-0 gap-1 px-3 bg-emerald-600 hover:bg-emerald-700 text-white"
         >
-          <Play className="h-3.5 w-3.5" />Resume
+          <Send className="h-3.5 w-3.5" />Send
         </Button>
       ) : (
         <Button
           size="sm"
           onClick={handleSend}
-          disabled={!value.trim()}
+          disabled={!value.trim() && !canStartWorkflow}
           className="h-8 shrink-0 gap-1 px-3"
         >
           {canStartWorkflow ? <><Play className="h-3.5 w-3.5" />Start</> : "Send"}

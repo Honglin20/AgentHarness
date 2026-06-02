@@ -106,7 +106,7 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
     return descMap;
   }, [selectedTemplate]);
 
-  const { sendAnswer, sendStopAndRegenerate } = useWSMethods();
+  const { sendAnswer, sendStopAndRegenerate, sendGuidance } = useWSMethods();
 
   // ChatInput scoped store props (override legacy global store reads)
   const chatInputScopedProps = {
@@ -302,6 +302,7 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
             <ChatInput
               sendAnswer={sendAnswer}
               sendStopAndRegenerate={sendStopAndRegenerate}
+              sendGuidance={sendGuidance}
               alwaysVisible
               {...chatInputScopedProps}
             />
@@ -373,6 +374,7 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
           <ChatInput
             sendAnswer={sendAnswer}
             sendStopAndRegenerate={sendStopAndRegenerate}
+            sendGuidance={sendGuidance}
             startWorkflow={startWorkflow}
             alwaysVisible
             {...chatInputScopedProps}
@@ -458,6 +460,7 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
           <ChatInput
             sendAnswer={sendAnswer}
             sendStopAndRegenerate={sendStopAndRegenerate}
+            sendGuidance={sendGuidance}
             startWorkflow={isIdle ? startWorkflow : undefined}
             alwaysVisible
             {...chatInputScopedProps}

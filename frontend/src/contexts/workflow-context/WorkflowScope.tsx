@@ -28,6 +28,7 @@ interface WSMethods {
   sendAnswer: (questionId: string, answer: string) => void;
   sendStructuredAnswer: (questionId: string, answer: { selected: string[]; customInput: string }) => void;
   sendStopAndRegenerate: (agentName: string, partialOutput: string, userGuidance: string) => void;
+  sendGuidance: (guidance: string) => void;
 }
 
 const WSMethodContext = createContext<WSMethods | null>(null);
@@ -36,11 +37,12 @@ export function WSMethodProvider({
   sendAnswer,
   sendStructuredAnswer,
   sendStopAndRegenerate,
+  sendGuidance,
   children,
 }: WSMethods & { children: ReactNode }) {
   const value = useMemo(
-    () => ({ sendAnswer, sendStructuredAnswer, sendStopAndRegenerate }),
-    [sendAnswer, sendStructuredAnswer, sendStopAndRegenerate],
+    () => ({ sendAnswer, sendStructuredAnswer, sendStopAndRegenerate, sendGuidance }),
+    [sendAnswer, sendStructuredAnswer, sendStopAndRegenerate, sendGuidance],
   );
   return (
     <WSMethodContext.Provider value={value}>

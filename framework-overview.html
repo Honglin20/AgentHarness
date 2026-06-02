@@ -3,356 +3,290 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AgentHarness — Agent 全生命周期框架</title>
+<title>AgentHarness — Agent 全生命周期</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#fafafa;display:flex;justify-content:center;align-items:flex-start;min-height:100vh;padding:1.5rem;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif}
+body{background:linear-gradient(180deg,#f8fafc,#f1f5f9);display:flex;justify-content:center;align-items:flex-start;min-height:100vh;padding:2rem;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif}
 .wrap{width:100%;max-width:1500px}
 svg{width:100%;height:auto;display:block}
 </style>
 </head>
 <body>
 <div class="wrap">
-<svg viewBox="0 0 1500 920" xmlns="http://www.w3.org/2000/svg">
+<svg viewBox="0 0 1500 940" xmlns="http://www.w3.org/2000/svg">
 <defs>
-  <!-- Arrow markers — softer colors -->
-  <marker id="a" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="#cbd5e1"/></marker>
-  <marker id="ap" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="#818cf8"/></marker>
-  <marker id="ao" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="#f59e0b"/></marker>
-  <marker id="ah" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="#fbbf24"/></marker>
-  <marker id="ar" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="#fb7185"/></marker>
-  <marker id="ab" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="#60a5fa"/></marker>
-  <marker id="ag" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><polygon points="0 0,7 2.5,0 5" fill="#34d399"/></marker>
-  <!-- Glass shadow -->
-  <filter id="gl"><feDropShadow dx="0" dy="2" stdDeviation="6" flood-color="#6366f1" flood-opacity="0.08"/></filter>
-  <filter id="gs"><feDropShadow dx="0" dy="1" stdDeviation="3" flood-color="#000" flood-opacity="0.04"/></filter>
+  <marker id="a" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#94a3b8"/></marker>
+  <marker id="ai" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#6366f1"/></marker>
+  <marker id="aa" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#d97706"/></marker>
+  <marker id="at" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#0d9488"/></marker>
+  <marker id="ag" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#22c55e"/></marker>
+  <filter id="s1"><feDropShadow dx="0" dy="2" stdDeviation="5" flood-color="#6366f1" flood-opacity="0.06"/></filter>
+  <filter id="s2"><feDropShadow dx="0" dy="3" stdDeviation="8" flood-color="#6366f1" flood-opacity="0.1"/></filter>
+  <linearGradient id="gi" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#eef2ff"/><stop offset="100%" stop-color="#e0e7ff"/></linearGradient>
+  <linearGradient id="ga" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fffbeb"/><stop offset="100%" stop-color="#fef3c7"/></linearGradient>
+  <linearGradient id="gt" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f0fdfa"/><stop offset="100%" stop-color="#ccfbf1"/></linearGradient>
 </defs>
 
 
-<!-- ═══════════════════════════════════════════════════ -->
-<!-- TITLE                                             -->
-<!-- ═══════════════════════════════════════════════════ -->
-<text x="750" y="32" text-anchor="middle" font-size="22" font-weight="700" fill="#1e1b4b" letter-spacing="-0.5">AgentHarness — Agent 全生命周期框架</text>
-<text x="750" y="52" text-anchor="middle" font-size="11" fill="#a1a1aa">三层扩展机制，让 Agent 从黑盒变成可控工程</text>
-
-
-<!-- ═══════════════════════════════════════════════════ -->
-<!-- BASELINE — 原始流程                                -->
-<!-- ═══════════════════════════════════════════════════ -->
-<rect x="40" y="68" width="1420" height="82" rx="12" fill="#fff" fill-opacity="0.5" stroke="#e4e4e7" stroke-width="1"/>
-<text x="70" y="86" font-size="9" font-weight="600" fill="#a1a1aa" letter-spacing="1">BASELINE</text>
-
-<!-- Prompt -->
-<rect x="80" y="98" width="100" height="38" rx="10" fill="#fff" fill-opacity="0.6" stroke="#d4d4d8" stroke-width="1.2"/>
-<text x="130" y="122" text-anchor="middle" font-size="13" font-weight="600" fill="#a1a1aa">Prompt</text>
-
-<!-- Dashed arrow -->
-<line x1="180" y1="117" x2="640" y2="117" stroke="#d4d4d8" stroke-width="1" stroke-dasharray="5 4"/>
-<text x="410" y="110" text-anchor="middle" font-size="7" fill="#d4d4d8">不可控</text>
-
-<!-- Agent 黑盒 -->
-<rect x="645" y="96" width="180" height="44" rx="12" fill="#e4e4e7" fill-opacity="0.5" stroke="#d4d4d8" stroke-width="1.2"/>
-<text x="735" y="123" text-anchor="middle" font-size="14" font-weight="600" fill="#a1a1aa">Agent 黑盒</text>
-
-<!-- Dashed arrow -->
-<line x1="825" y1="117" x2="1305" y2="117" stroke="#d4d4d8" stroke-width="1" stroke-dasharray="5 4"/>
-<text x="1065" y="110" text-anchor="middle" font-size="7" fill="#d4d4d8">不可观测</text>
-
-<!-- Result -->
-<rect x="1310" y="98" width="100" height="38" rx="10" fill="#fff" fill-opacity="0.6" stroke="#d4d4d8" stroke-width="1.2"/>
-<text x="1360" y="122" text-anchor="middle" font-size="13" font-weight="600" fill="#a1a1aa">Result</text>
-
-<text x="735" y="145" text-anchor="middle" font-size="8" fill="#d4d4d8">不可控 · 不可观测 · 不可信赖</text>
-
-
-<!-- ═══════════════════════════════════════════════════ -->
-<!-- THREE EXTENSIONS — 3 columns                       -->
-<!-- ═══════════════════════════════════════════════════ -->
-
-<!-- Card 1: Middleware -->
-<rect x="40" y="168" width="450" height="190" rx="14" fill="#fff" fill-opacity="0.7" stroke="#fbbf24" stroke-width="1"/>
-<rect x="40" y="168" width="450" height="26" rx="14" fill="#fbbf24" fill-opacity="0.12"/>
-<rect x="40" y="182" width="450" height="12" fill="#fbbf24" fill-opacity="0.12"/>
-<text x="265" y="186" text-anchor="middle" font-size="11" font-weight="700" fill="#b45309">Middleware — 改数据流，不改结构</text>
-
-<!-- Input mini-flow -->
-<text x="62" y="218" font-size="8" font-weight="600" fill="#a16207">输入侧</text>
-<rect x="62" y="225" width="62" height="22" rx="6" fill="#eef2ff" fill-opacity="0.8" stroke="#c7d2fe" stroke-width="0.8"/>
-<text x="93" y="240" text-anchor="middle" font-size="8" fill="#6366f1">Prompt</text>
-<line x1="124" y1="236" x2="145" y2="236" stroke="#fbbf24" stroke-width="1" marker-end="url(#ao)"/>
-<rect x="150" y="225" width="72" height="22" rx="6" fill="#fbbf24" fill-opacity="0.15" stroke="#f59e0b" stroke-width="1.2"/>
-<text x="186" y="240" text-anchor="middle" font-size="8" font-weight="700" fill="#b45309">Memory</text>
-<line x1="222" y1="236" x2="243" y2="236" stroke="#fbbf24" stroke-width="1" marker-end="url(#ao)"/>
-<rect x="248" y="225" width="78" height="22" rx="6" fill="#fef9c3" fill-opacity="0.6" stroke="#fbbf24" stroke-width="0.8"/>
-<text x="287" y="240" text-anchor="middle" font-size="8" font-weight="600" fill="#92400e">丰富指令</text>
-
-<!-- Output mini-flow -->
-<text x="62" y="268" font-size="8" font-weight="600" fill="#a16207">输出侧</text>
-<rect x="62" y="275" width="62" height="22" rx="6" fill="#eef2ff" fill-opacity="0.8" stroke="#c7d2fe" stroke-width="0.8"/>
-<text x="93" y="290" text-anchor="middle" font-size="8" fill="#6366f1">Output</text>
-<line x1="124" y1="286" x2="145" y2="286" stroke="#fbbf24" stroke-width="1" marker-end="url(#ao)"/>
-<rect x="150" y="275" width="72" height="22" rx="6" fill="#fbbf24" fill-opacity="0.15" stroke="#f59e0b" stroke-width="1.2"/>
-<text x="186" y="290" text-anchor="middle" font-size="8" font-weight="700" fill="#b45309">Validate</text>
-<line x1="222" y1="286" x2="243" y2="286" stroke="#fbbf24" stroke-width="1" marker-end="url(#ao)"/>
-<rect x="248" y="275" width="78" height="22" rx="6" fill="#fef9c3" fill-opacity="0.6" stroke="#fbbf24" stroke-width="0.8"/>
-<text x="287" y="290" text-anchor="middle" font-size="8" font-weight="600" fill="#92400e">结构化输出</text>
-
-<text x="62" y="318" font-size="7" fill="#a1a1aa">Compact · Guardrail · Budget — 运行时顺序执行</text>
-<text x="62" y="345" font-size="8" font-weight="600" fill="#92400e">运行时 · 拦截数据流 · 可 reject / retry</text>
-
-
-<!-- Card 2: Hook -->
-<rect x="515" y="168" width="450" height="190" rx="14" fill="#fff" fill-opacity="0.7" stroke="#60a5fa" stroke-width="1"/>
-<rect x="515" y="168" width="450" height="26" rx="14" fill="#60a5fa" fill-opacity="0.1"/>
-<rect x="515" y="182" width="450" height="12" fill="#60a5fa" fill-opacity="0.1"/>
-<text x="740" y="186" text-anchor="middle" font-size="11" font-weight="700" fill="#1d4ed8">Hook — 只观察，不改任何数据</text>
-
-<!-- Main flow unchanged -->
-<rect x="540" y="224" width="62" height="22" rx="6" fill="#eef2ff" fill-opacity="0.8" stroke="#c7d2fe" stroke-width="0.8"/>
-<text x="571" y="239" text-anchor="middle" font-size="8" fill="#6366f1">Prompt</text>
-<line x1="602" y1="235" x2="630" y2="235" stroke="#cbd5e1" stroke-width="0.8" marker-end="url(#a)"/>
-<rect x="635" y="224" width="62" height="22" rx="6" fill="#eef2ff" fill-opacity="0.8" stroke="#818cf8" stroke-width="1.2"/>
-<text x="666" y="239" text-anchor="middle" font-size="8" font-weight="700" fill="#6366f1">Agent</text>
-<line x1="697" y1="235" x2="725" y2="235" stroke="#cbd5e1" stroke-width="0.8" marker-end="url(#a)"/>
-<rect x="730" y="224" width="62" height="22" rx="6" fill="#eef2ff" fill-opacity="0.8" stroke="#c7d2fe" stroke-width="0.8"/>
-<text x="761" y="239" text-anchor="middle" font-size="8" fill="#6366f1">Result</text>
-
-<!-- Observation drops -->
-<line x1="571" y1="246" x2="571" y2="270" stroke="#60a5fa" stroke-width="0.8" stroke-dasharray="2 2"/>
-<text x="571" y="282" text-anchor="middle" font-size="7" fill="#3b82f6">Trace</text>
-<line x1="666" y1="246" x2="666" y2="270" stroke="#60a5fa" stroke-width="0.8" stroke-dasharray="2 2"/>
-<text x="666" y="282" text-anchor="middle" font-size="7" fill="#3b82f6">Console</text>
-<line x1="761" y1="246" x2="761" y2="270" stroke="#60a5fa" stroke-width="0.8" stroke-dasharray="2 2"/>
-<text x="761" y="282" text-anchor="middle" font-size="7" fill="#3b82f6">Chart</text>
-
-<text x="540" y="308" font-size="7" fill="#a1a1aa">Persist · Diagnostics · Budget — 并发执行，永不阻塞</text>
-<text x="540" y="345" font-size="8" font-weight="600" fill="#1d4ed8">并发 · 只读观测 · 永不阻塞主线</text>
-
-
-<!-- Card 3: GraphMutator -->
-<rect x="990" y="168" width="470" height="190" rx="14" fill="#fff" fill-opacity="0.7" stroke="#fb7185" stroke-width="1"/>
-<rect x="990" y="168" width="470" height="26" rx="14" fill="#fb7185" fill-opacity="0.1"/>
-<rect x="990" y="182" width="470" height="12" fill="#fb7185" fill-opacity="0.1"/>
-<text x="1225" y="186" text-anchor="middle" font-size="11" font-weight="700" fill="#be123c">GraphMutator — 改写 DAG 结构，插入节点</text>
-
-<!-- Before -->
-<text x="1015" y="218" font-size="8" font-weight="600" fill="#e11d48">Before:</text>
-<rect x="1065" y="206" width="64" height="22" rx="6" fill="#eef2ff" fill-opacity="0.6" stroke="#c7d2fe" stroke-width="0.8"/>
-<text x="1097" y="221" text-anchor="middle" font-size="8" fill="#6366f1">Agent A</text>
-<line x1="1129" y1="217" x2="1165" y2="217" stroke="#d4d4d8" stroke-width="0.8" stroke-dasharray="3 3"/>
-<rect x="1170" y="206" width="64" height="22" rx="6" fill="#eef2ff" fill-opacity="0.6" stroke="#c7d2fe" stroke-width="0.8"/>
-<text x="1202" y="221" text-anchor="middle" font-size="8" fill="#6366f1">Agent B</text>
-
-<!-- Mutate arrow -->
-<path d="M1202 228 L1202 244" stroke="#fb7185" stroke-width="1" marker-end="url(#ar)"/>
-<text x="1222" y="240" font-size="7" fill="#e11d48">mutate</text>
-
-<!-- After -->
-<text x="1015" y="268" font-size="8" font-weight="600" fill="#e11d48">After:</text>
-<rect x="1065" y="256" width="64" height="22" rx="6" fill="#eef2ff" fill-opacity="0.6" stroke="#c7d2fe" stroke-width="0.8"/>
-<text x="1097" y="271" text-anchor="middle" font-size="8" fill="#6366f1">Agent A</text>
-<line x1="1129" y1="267" x2="1155" y2="267" stroke="#fb7185" stroke-width="1.2" marker-end="url(#ar)"/>
-
-<!-- EvalJudge -->
-<rect x="1160" y="253" width="80" height="28" rx="8" fill="#fb7185" fill-opacity="0.15" stroke="#e11d48" stroke-width="1.5"/>
-<text x="1200" y="272" text-anchor="middle" font-size="8" font-weight="700" fill="#be123c">EvalJudge</text>
-<line x1="1240" y1="267" x2="1270" y2="267" stroke="#34d399" stroke-width="1" marker-end="url(#ag)"/>
-<text x="1255" y="261" font-size="6" fill="#10b981">pass</text>
-<rect x="1275" y="256" width="64" height="22" rx="6" fill="#dcfce7" fill-opacity="0.6" stroke="#86efac" stroke-width="0.8"/>
-<text x="1307" y="271" text-anchor="middle" font-size="8" fill="#166534">Agent B</text>
-
-<!-- Retry loop -->
-<path d="M1200 281 L1200 300 L1097 300 L1097 278" stroke="#fb7185" stroke-width="1" stroke-dasharray="3 2" marker-end="url(#ar)" fill="none"/>
-<text x="1148" y="313" text-anchor="middle" font-size="7" fill="#e11d48">fail → retry</text>
-
-<text x="1015" y="345" font-size="8" font-weight="600" fill="#be123c">编译时 · 改写图结构 · 插入新节点</text>
-
-
-<!-- ═══════════════════════════════════════════════════ -->
-<!-- FULL OVERVIEW — 全部改造叠加                       -->
-<!-- ═══════════════════════════════════════════════════ -->
-
-<!-- Section background -->
-<rect x="40" y="380" width="1420" height="420" rx="14" fill="#fff" fill-opacity="0.35" stroke="#e4e4e7" stroke-width="0.8"/>
-
-<!-- Section header -->
-<text x="72" y="408" font-size="13" font-weight="700" fill="#1e1b4b">全部改造叠加 — 完整 Agent 生命周期</text>
-<text x="72" y="422" font-size="8" fill="#a1a1aa">主线 (紫色) + Middleware (橙色) + Hook (黄色) + GraphMutator (红色) + Observability (蓝色虚线)</text>
-
-<!-- Color legend -->
-<rect x="1130" y="394" width="310" height="36" rx="8" fill="#fff" fill-opacity="0.6" stroke="#e4e4e7" stroke-width="0.8"/>
-<circle cx="1150" cy="407" r="3.5" fill="#818cf8"/><text x="1160" y="411" font-size="7" fill="#71717a">主线</text>
-<circle cx="1198" cy="407" r="3.5" fill="#f59e0b"/><text x="1208" y="411" font-size="7" fill="#71717a">Middleware</text>
-<circle cx="1280" cy="407" r="3.5" fill="#fbbf24"/><text x="1290" y="411" font-size="7" fill="#71717a">Hook</text>
-<circle cx="1332" cy="407" r="3.5" fill="#fb7185"/><text x="1342" y="411" font-size="7" fill="#71717a">GraphMutator</text>
-<circle cx="1150" cy="424" r="3.5" fill="#60a5fa"/><text x="1160" y="428" font-size="7" fill="#71717a">Observability (虚线)</text>
-
-
-<!-- ── Ghost baseline (very subtle) ── -->
-<line x1="170" y1="490" x2="540" y2="490" stroke="#f4f4f5" stroke-width="1.5" stroke-dasharray="6 5"/>
-<line x1="770" y1="490" x2="1210" y2="490" stroke="#f4f4f5" stroke-width="1.5" stroke-dasharray="6 5"/>
-
-
-<!-- ══ PROMPT ══ -->
-<rect x="55" y="472" width="110" height="36" rx="10" fill="#eef2ff" fill-opacity="0.8" stroke="#818cf8" stroke-width="1.5" filter="url(#gs)"/>
-<text x="110" y="495" text-anchor="middle" font-size="13" font-weight="700" fill="#4f46e5">Prompt</text>
-
-<!-- Arrow → Memory -->
-<line x1="165" y1="490" x2="218" y2="490" stroke="#818cf8" stroke-width="1.5" marker-end="url(#ap)"/>
-
-
-<!-- ══ MIDDLEWARE — Input side ══ -->
-
-<!-- Memory -->
-<rect x="224" y="476" width="100" height="28" rx="8" fill="#fefce8" fill-opacity="0.9" stroke="#f59e0b" stroke-width="1.5"/>
-<text x="274" y="495" text-anchor="middle" font-size="10" font-weight="700" fill="#92400e">Memory</text>
-
-<!-- Arrow → Compact -->
-<line x1="324" y1="490" x2="358" y2="490" stroke="#fbbf24" stroke-width="1.2" marker-end="url(#ao)"/>
-
-<!-- Compact -->
-<rect x="364" y="476" width="100" height="28" rx="8" fill="#fefce8" fill-opacity="0.9" stroke="#f59e0b" stroke-width="1.5"/>
-<text x="414" y="495" text-anchor="middle" font-size="10" font-weight="700" fill="#92400e">Compact</text>
-
-<!-- Arrow → Agent -->
-<line x1="464" y1="490" x2="540" y2="490" stroke="#818cf8" stroke-width="1.5" marker-end="url(#ap)"/>
-
-<!-- Labels -->
-<text x="274" y="518" text-anchor="middle" font-size="7" fill="#b45309">输入增强</text>
-<text x="414" y="518" text-anchor="middle" font-size="7" fill="#b45309">上下文压缩</text>
-
-<!-- Status -->
-<rect x="248" y="524" width="50" height="12" rx="3" fill="#fef9c3" fill-opacity="0.8"/>
-<text x="273" y="533" text-anchor="middle" font-size="6" font-weight="600" fill="#b45309">规划中</text>
-<rect x="390" y="524" width="50" height="12" rx="3" fill="#dcfce7" fill-opacity="0.8"/>
-<text x="415" y="533" text-anchor="middle" font-size="6" font-weight="600" fill="#16a34a">已实现</text>
-
-<!-- Enriched annotation -->
-<text x="505" y="470" font-size="7" font-weight="600" fill="#b45309">丰富指令 →</text>
-
-
-<!-- ══ AGENT (glass style) ══ -->
-<rect x="545" y="445" width="225" height="90" rx="14" fill="#eef2ff" fill-opacity="0.5" stroke="#818cf8" stroke-width="2" filter="url(#gl)"/>
-<text x="657" y="472" text-anchor="middle" font-size="16" font-weight="800" fill="#4f46e5">Agent</text>
-
-<!-- Hook sub-flow -->
-<rect x="562" y="482" width="50" height="20" rx="5" fill="#fefce8" fill-opacity="0.8" stroke="#fbbf24" stroke-width="1"/>
-<text x="587" y="496" text-anchor="middle" font-size="7" font-weight="600" fill="#92400e">Pre</text>
-<line x1="612" y1="492" x2="628" y2="492" stroke="#fbbf24" stroke-width="0.8" marker-end="url(#ah)"/>
-<rect x="633" y="482" width="50" height="20" rx="5" fill="#dbeafe" fill-opacity="0.8" stroke="#93c5fd" stroke-width="1"/>
-<text x="658" y="496" text-anchor="middle" font-size="7" font-weight="600" fill="#1d4ed8">Tool</text>
-<line x1="683" y1="492" x2="699" y2="492" stroke="#fbbf24" stroke-width="0.8" marker-end="url(#ah)"/>
-<rect x="704" y="482" width="50" height="20" rx="5" fill="#fefce8" fill-opacity="0.8" stroke="#fbbf24" stroke-width="1"/>
-<text x="729" y="496" text-anchor="middle" font-size="7" font-weight="600" fill="#92400e">Post</text>
-
-<!-- Hook bracket -->
-<path d="M562 479 L562 476 L754 476 L754 479" stroke="#fbbf24" stroke-width="0.8" fill="none"/>
-<text x="658" y="474" text-anchor="middle" font-size="6" font-weight="600" fill="#b45309">Hooks — 过程管控</text>
-
-<!-- Status -->
-<rect x="565" y="520" width="40" height="11" rx="3" fill="#dcfce7" fill-opacity="0.8"/>
-<text x="585" y="529" text-anchor="middle" font-size="6" font-weight="600" fill="#16a34a">已实现</text>
-
-
-<!-- ══ MIDDLEWARE — Output side ══ -->
-
-<!-- Arrow → Validate -->
-<line x1="770" y1="490" x2="828" y2="490" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#ao)"/>
-
-<!-- Validate -->
-<rect x="834" y="476" width="100" height="28" rx="8" fill="#fefce8" fill-opacity="0.9" stroke="#f59e0b" stroke-width="1.5"/>
-<text x="884" y="495" text-anchor="middle" font-size="10" font-weight="700" fill="#92400e">Validate</text>
-
-<!-- Arrow → EvalJudge -->
-<line x1="934" y1="490" x2="988" y2="490" stroke="#818cf8" stroke-width="1.5" marker-end="url(#ap)"/>
-
-<!-- Label -->
-<text x="884" y="518" text-anchor="middle" font-size="7" fill="#b45309">Pydantic 类型校验</text>
-<rect x="860" y="524" width="50" height="12" rx="3" fill="#dcfce7" fill-opacity="0.8"/>
-<text x="885" y="533" text-anchor="middle" font-size="6" font-weight="600" fill="#16a34a">已实现</text>
-
-<!-- Structured output annotation -->
-<text x="948" y="470" font-size="7" font-weight="600" fill="#b45309">结构化输出 →</text>
-
-
-<!-- ══ GRAPH MUTATOR — EvalJudge ══ -->
-<rect x="994" y="468" width="120" height="44" rx="12" fill="#fff1f2" fill-opacity="0.7" stroke="#fb7185" stroke-width="2" filter="url(#gl)"/>
-<text x="1054" y="489" text-anchor="middle" font-size="11" font-weight="700" fill="#be123c">EvalJudge</text>
-<text x="1054" y="504" text-anchor="middle" font-size="7" fill="#e11d48">自动评审</text>
-
-<!-- Pass arrow → Result -->
-<line x1="1114" y1="490" x2="1205" y2="490" stroke="#818cf8" stroke-width="1.5" marker-end="url(#ap)"/>
-<text x="1158" y="484" text-anchor="middle" font-size="7" font-weight="600" fill="#34d399">pass ✓</text>
-
-<!-- Retry loop — clean arc below everything -->
-<path d="M1054 512 L1054 560 L657 560 L657 535" stroke="#fb7185" stroke-width="1.8" stroke-dasharray="5 3" marker-end="url(#ar)" fill="none"/>
-<circle cx="1054" cy="560" r="2.5" fill="#fb7185"/>
-<circle cx="657" cy="560" r="2.5" fill="#fb7185"/>
-<text x="855" y="575" text-anchor="middle" font-size="8" font-weight="700" fill="#e11d48">fail → retry (max_iterations)</text>
-
-<!-- Status -->
-<rect x="1018" y="545" width="40" height="11" rx="3" fill="#dcfce7" fill-opacity="0.8"/>
-<text x="1038" y="554" text-anchor="middle" font-size="6" font-weight="600" fill="#16a34a">已实现</text>
-<text x="1054" y="590" text-anchor="middle" font-size="7" font-weight="600" fill="#be123c">编译时插入节点</text>
-
-
-<!-- ══ RESULT ══ -->
-<rect x="1210" y="472" width="110" height="36" rx="10" fill="#eef2ff" fill-opacity="0.8" stroke="#818cf8" stroke-width="1.5" filter="url(#gs)"/>
-<text x="1265" y="495" text-anchor="middle" font-size="13" font-weight="700" fill="#4f46e5">Result</text>
-
-
-<!-- ══ OBSERVABILITY LAYER ══ -->
-<line x1="110" y1="620" x2="1265" y2="620" stroke="#93c5fd" stroke-width="1" stroke-dasharray="5 4"/>
-
-<!-- Connectors — only from main flow nodes, stopping above retry loop -->
-<line x1="110" y1="508" x2="110" y2="616" stroke="#bfdbfe" stroke-width="0.6" stroke-dasharray="2 3"/>
-<line x1="274" y1="540" x2="274" y2="616" stroke="#bfdbfe" stroke-width="0.6" stroke-dasharray="2 3"/>
-<line x1="657" y1="535" x2="657" y2="616" stroke="#bfdbfe" stroke-width="0.6" stroke-dasharray="2 3"/>
-<line x1="884" y1="540" x2="884" y2="616" stroke="#bfdbfe" stroke-width="0.6" stroke-dasharray="2 3"/>
-<line x1="1054" y1="593" x2="1054" y2="616" stroke="#bfdbfe" stroke-width="0.6" stroke-dasharray="2 3"/>
-<line x1="1265" y1="508" x2="1265" y2="616" stroke="#bfdbfe" stroke-width="0.6" stroke-dasharray="2 3"/>
-
-<!-- Labels -->
-<rect x="80" y="626" width="58" height="16" rx="4" fill="#eff6ff" fill-opacity="0.7" stroke="#bfdbfe" stroke-width="0.6"/>
-<text x="109" y="638" text-anchor="middle" font-size="7" font-weight="600" fill="#2563eb">Trace</text>
-<rect x="241" y="626" width="66" height="16" rx="4" fill="#eff6ff" fill-opacity="0.7" stroke="#bfdbfe" stroke-width="0.6"/>
-<text x="274" y="638" text-anchor="middle" font-size="7" font-weight="600" fill="#2563eb">Logging</text>
-<rect x="622" y="626" width="70" height="16" rx="4" fill="#eff6ff" fill-opacity="0.7" stroke="#bfdbfe" stroke-width="0.6"/>
-<text x="657" y="638" text-anchor="middle" font-size="7" font-weight="600" fill="#2563eb">Console</text>
-<rect x="853" y="626" width="62" height="16" rx="4" fill="#eff6ff" fill-opacity="0.7" stroke="#bfdbfe" stroke-width="0.6"/>
-<text x="884" y="638" text-anchor="middle" font-size="7" font-weight="600" fill="#2563eb">Chart</text>
-<rect x="1019" y="626" width="70" height="16" rx="4" fill="#eff6ff" fill-opacity="0.7" stroke="#bfdbfe" stroke-width="0.6"/>
-<text x="1054" y="638" text-anchor="middle" font-size="7" font-weight="600" fill="#2563eb">Persist</text>
-<rect x="1220" y="626" width="88" height="16" rx="4" fill="#fef9c3" fill-opacity="0.7" stroke="#fde68a" stroke-width="0.6"/>
-<text x="1264" y="638" text-anchor="middle" font-size="7" font-weight="600" fill="#b45309">Budget</text>
-
-<text x="687" y="614" text-anchor="middle" font-size="8" font-weight="600" fill="#93c5fd">Observability — 只读观测</text>
-
-
-<!-- ══ SUMMARY ══ -->
-<text x="690" y="672" text-anchor="middle" font-size="9" font-weight="600" fill="#71717a">Prompt → [Memory] → [Compact] → Agent (Pre·Tool·Post) → [Validate] → [EvalJudge] → Result</text>
-<text x="690" y="686" text-anchor="middle" font-size="7" fill="#a1a1aa">Middleware 改数据流 · Hook 过程管控 · GraphMutator 改图结构 · Observability 全链路观测</text>
-
-<!-- Extension type pills -->
-<rect x="380" y="698" width="120" height="20" rx="6" fill="#fefce8" fill-opacity="0.7" stroke="#fbbf24" stroke-width="0.8"/>
-<text x="440" y="712" text-anchor="middle" font-size="8" font-weight="600" fill="#92400e">Middleware</text>
-<rect x="530" y="698" width="100" height="20" rx="6" fill="#fefce8" fill-opacity="0.7" stroke="#fbbf24" stroke-width="0.8"/>
-<text x="580" y="712" text-anchor="middle" font-size="8" font-weight="600" fill="#92400e">Hook</text>
-<rect x="660" y="698" width="130" height="20" rx="6" fill="#fff1f2" fill-opacity="0.7" stroke="#fb7185" stroke-width="0.8"/>
-<text x="725" y="712" text-anchor="middle" font-size="8" font-weight="600" fill="#be123c">GraphMutator</text>
-<rect x="820" y="698" width="130" height="20" rx="6" fill="#eff6ff" fill-opacity="0.7" stroke="#93c5fd" stroke-width="0.8"/>
-<text x="885" y="712" text-anchor="middle" font-size="8" font-weight="600" fill="#1d4ed8">Observability</text>
-
-
-<!-- ═══════════════════════════════════════════════════ -->
-<!-- BOTTOM BAR                                        -->
-<!-- ═══════════════════════════════════════════════════ -->
-<rect x="40" y="740" width="1420" height="42" rx="10" fill="#eef2ff" fill-opacity="0.5" stroke="#c7d2fe" stroke-width="0.8" stroke-dasharray="5 3"/>
-<text x="750" y="759" text-anchor="middle" font-size="9" font-weight="600" fill="#6366f1">Multi-Agent DAG — 每个 DAG 节点 = 一个完整的 Agent 生命周期</text>
-<text x="750" y="774" text-anchor="middle" font-size="8" fill="#a1a1aa">Serial · Parallel (fan-in/out) · Conditional Routing · Checkpoint · Streaming · Cost Tracking · Benchmark</text>
-
-<!-- Footer -->
-<text x="750" y="810" text-anchor="middle" font-size="8" fill="#d4d4d8">AgentHarness — agent-lifecycle framework with three-layer extension system</text>
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- TITLE                                                     -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<text x="750" y="36" text-anchor="middle" font-size="24" font-weight="800" fill="#1e1b4b" letter-spacing="-0.5">Agent 全生命周期</text>
+<text x="750" y="58" text-anchor="middle" font-size="12" fill="#64748b">从 DAG 定义到节点执行 — 三层扩展让每个 Agent 可控 · 可观测 · 可信赖</text>
+
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- SECTION 1: COMPILE TIME                                   -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<rect x="40" y="78" width="1420" height="105" rx="12" fill="#f0fdfa" fill-opacity="0.4" stroke="#99f6e4" stroke-width="0.8"/>
+<text x="70" y="98" font-size="9" font-weight="700" fill="#0d9488" letter-spacing="1.5">编译时</text>
+<text x="116" y="98" font-size="8" fill="#5eead4">COMPILE TIME</text>
+
+<!-- Workflow 定义 -->
+<rect x="80" y="110" width="175" height="56" rx="10" fill="url(#gi)" stroke="#c7d2fe" stroke-width="1"/>
+<text x="167" y="133" text-anchor="middle" font-size="12" font-weight="700" fill="#4f46e5">Workflow 定义</text>
+<text x="167" y="149" text-anchor="middle" font-size="8" fill="#818cf8">workflow.json + agents/*.md</text>
+<text x="167" y="159" text-anchor="middle" font-size="7" fill="#a5b4fc">DAG 拓扑 · Agent 人设</text>
+
+<line x1="255" y1="138" x2="312" y2="138" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#a)"/>
+
+<!-- DAG 编译 -->
+<rect x="320" y="110" width="175" height="56" rx="10" fill="url(#gi)" stroke="#c7d2fe" stroke-width="1"/>
+<text x="407" y="133" text-anchor="middle" font-size="12" font-weight="700" fill="#4f46e5">DAG 编译</text>
+<text x="407" y="149" text-anchor="middle" font-size="8" fill="#818cf8">拓扑排序 · 依赖解析</text>
+<text x="407" y="159" text-anchor="middle" font-size="7" fill="#a5b4fc">循环检测 → StateGraph</text>
+
+<line x1="495" y1="138" x2="552" y2="138" stroke="#0d9488" stroke-width="1.5" marker-end="url(#at)"/>
+
+<!-- GraphMutator (highlighted) -->
+<rect x="560" y="106" width="210" height="64" rx="11" fill="url(#gt)" stroke="#2dd4bf" stroke-width="1.5" filter="url(#s1)"/>
+<text x="665" y="128" text-anchor="middle" font-size="12" font-weight="700" fill="#0d9488">GraphMutator</text>
+<text x="665" y="144" text-anchor="middle" font-size="8" fill="#14b8a6">插入 EvalJudge 评审节点</text>
+<text x="665" y="156" text-anchor="middle" font-size="8" fill="#14b8a6">重写节点依赖关系</text>
+<text x="665" y="167" text-anchor="middle" font-size="7" fill="#5eead4">改结构 · 不改数据</text>
+
+<line x1="770" y1="138" x2="827" y2="138" stroke="#0d9488" stroke-width="1.5" marker-end="url(#at)"/>
+
+<!-- 可执行 DAG -->
+<rect x="835" y="110" width="195" height="56" rx="10" fill="url(#gt)" stroke="#99f6e4" stroke-width="1"/>
+<text x="932" y="133" text-anchor="middle" font-size="12" font-weight="700" fill="#0d9488">可执行 DAG</text>
+<text x="932" y="149" text-anchor="middle" font-size="8" fill="#14b8a6">StateGraph (LangGraph)</text>
+<text x="932" y="159" text-anchor="middle" font-size="7" fill="#5eead4">节点就绪 · 边就绪 · 可执行</text>
+
+<!-- compile → runtime transition -->
+<path d="M 932 166 L 932 188 Q 932 198 922 198 L 760 198 Q 750 198 750 208 L 750 228" fill="none" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="850" y="193" font-size="8" fill="#94a3b8">节点逐一执行 ↓</text>
+
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- SECTION 2: RUNTIME — AGENT LIFECYCLE                      -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<rect x="40" y="218" width="1420" height="272" rx="14" fill="white" fill-opacity="0.5" stroke="#e2e8f0" stroke-width="0.8"/>
+<text x="70" y="242" font-size="9" font-weight="700" fill="#4f46e5" letter-spacing="1.5">运行时</text>
+<text x="110" y="242" font-size="8" fill="#818cf8">RUNTIME — 单个 Agent 节点的完整生命周期</text>
+
+<!-- ── Phase 1: 上下文注入 ── -->
+<rect x="70" y="260" width="180" height="130" rx="12" fill="url(#gi)" stroke="#818cf8" stroke-width="1.5" filter="url(#s1)"/>
+<text x="160" y="286" text-anchor="middle" font-size="13" font-weight="700" fill="#4f46e5">上下文注入</text>
+<text x="160" y="306" text-anchor="middle" font-size="9" fill="#6366f1">inputs (用户输入)</text>
+<text x="160" y="320" text-anchor="middle" font-size="9" fill="#6366f1">prompt (Agent 人设)</text>
+<text x="160" y="334" text-anchor="middle" font-size="9" fill="#6366f1">upstream_outputs</text>
+<text x="160" y="356" text-anchor="middle" font-size="8" fill="#a5b4fc">自动注入 ## Task</text>
+<text x="160" y="368" text-anchor="middle" font-size="8" fill="#a5b4fc">+ ## Output from X</text>
+<rect x="133" y="374" width="54" height="12" rx="4" fill="#eef2ff" stroke="#c7d2fe" stroke-width="0.5"/>
+<text x="160" y="383" text-anchor="middle" font-size="7" font-weight="600" fill="#6366f1">Core</text>
+
+<!-- Arrow 1→2 -->
+<line x1="250" y1="325" x2="300" y2="325" stroke="#6366f1" stroke-width="2" marker-end="url(#ai)"/>
+
+<!-- ── Phase 2: 输入增强 (Middleware) ── -->
+<rect x="308" y="260" width="180" height="130" rx="12" fill="url(#ga)" stroke="#f59e0b" stroke-width="1.5" filter="url(#s1)"/>
+<text x="398" y="286" text-anchor="middle" font-size="13" font-weight="700" fill="#92400e">输入增强</text>
+<text x="398" y="306" text-anchor="middle" font-size="9" fill="#b45309">Memory 注入</text>
+<text x="398" y="320" text-anchor="middle" font-size="9" fill="#b45309">Compact 压缩</text>
+<text x="398" y="334" text-anchor="middle" font-size="9" fill="#b45309">Guardrail 检查</text>
+<text x="398" y="356" text-anchor="middle" font-size="8" fill="#d97706">可 reject · 可 retry</text>
+<text x="398" y="368" text-anchor="middle" font-size="8" fill="#d97706">可修改 prompt</text>
+<rect x="364" y="374" width="68" height="12" rx="4" fill="#fef3c7" stroke="#fbbf24" stroke-width="0.5"/>
+<text x="398" y="383" text-anchor="middle" font-size="7" font-weight="600" fill="#92400e">Middleware</text>
+
+<!-- Arrow 2→3 -->
+<line x1="488" y1="325" x2="538" y2="325" stroke="#d97706" stroke-width="2" marker-end="url(#aa)"/>
+
+<!-- ── Phase 3: Agent 执行 (center, hero) ── -->
+<rect x="546" y="248" width="230" height="152" rx="14" fill="url(#gi)" stroke="#6366f1" stroke-width="2" filter="url(#s2)"/>
+<text x="661" y="278" text-anchor="middle" font-size="16" font-weight="800" fill="#4f46e5">Agent 执行</text>
+<text x="661" y="300" text-anchor="middle" font-size="9" fill="#6366f1">LLM 推理</text>
+<text x="661" y="314" text-anchor="middle" font-size="9" fill="#6366f1">Tool 调用循环</text>
+<text x="661" y="328" text-anchor="middle" font-size="9" fill="#6366f1">流式输出 (streaming)</text>
+<text x="661" y="350" text-anchor="middle" font-size="8" fill="#818cf8">Pydantic AI 驱动</text>
+<text x="661" y="364" text-anchor="middle" font-size="8" fill="#818cf8">自动重试 · 结构化输出</text>
+<rect x="634" y="376" width="54" height="12" rx="4" fill="#e0e7ff" stroke="#818cf8" stroke-width="0.5"/>
+<text x="661" y="385" text-anchor="middle" font-size="7" font-weight="600" fill="#4f46e5">Core</text>
+
+<!-- Arrow 3→4 -->
+<line x1="776" y1="325" x2="826" y2="325" stroke="#6366f1" stroke-width="2" marker-end="url(#ai)"/>
+
+<!-- ── Phase 4: 输出校验 (Middleware) ── -->
+<rect x="834" y="260" width="180" height="130" rx="12" fill="url(#ga)" stroke="#f59e0b" stroke-width="1.5" filter="url(#s1)"/>
+<text x="924" y="286" text-anchor="middle" font-size="13" font-weight="700" fill="#92400e">输出校验</text>
+<text x="924" y="306" text-anchor="middle" font-size="9" fill="#b45309">Validate 类型校验</text>
+<text x="924" y="320" text-anchor="middle" font-size="9" fill="#b45309">Structured Output</text>
+<text x="924" y="334" text-anchor="middle" font-size="9" fill="#b45309">Budget 检查</text>
+<text x="924" y="356" text-anchor="middle" font-size="8" fill="#d97706">可 reject · 可 retry</text>
+<text x="924" y="368" text-anchor="middle" font-size="8" fill="#d97706">可改写输出</text>
+<rect x="890" y="374" width="68" height="12" rx="4" fill="#fef3c7" stroke="#fbbf24" stroke-width="0.5"/>
+<text x="924" y="383" text-anchor="middle" font-size="7" font-weight="600" fill="#92400e">Middleware</text>
+
+<!-- Arrow 4→5 -->
+<line x1="1014" y1="325" x2="1064" y2="325" stroke="#d97706" stroke-width="2" marker-end="url(#aa)"/>
+
+<!-- ── Phase 5: 评审决策 (EvalJudge) ── -->
+<rect x="1072" y="260" width="220" height="130" rx="12" fill="url(#gt)" stroke="#14b8a6" stroke-width="1.5" filter="url(#s1)"/>
+<text x="1182" y="286" text-anchor="middle" font-size="13" font-weight="700" fill="#0d9488">评审决策</text>
+<text x="1182" y="306" text-anchor="middle" font-size="9" fill="#14b8a6">EvalJudge 自动评审</text>
+<text x="1182" y="320" text-anchor="middle" font-size="9" fill="#14b8a6">评分 + 通过/失败判定</text>
+<text x="1182" y="342" text-anchor="middle" font-size="9" fill="#22c55e" font-weight="600">pass → 下一节点</text>
+<text x="1182" y="356" text-anchor="middle" font-size="9" fill="#ef4444" font-weight="600">fail → retry (×N)</text>
+<text x="1182" y="374" text-anchor="middle" font-size="8" fill="#5eead4">编译时由 GraphMutator 插入</text>
+<rect x="1148" y="378" width="68" height="12" rx="4" fill="#ccfbf1" stroke="#2dd4bf" stroke-width="0.5"/>
+<text x="1182" y="387" text-anchor="middle" font-size="7" font-weight="600" fill="#0d9488">GraphMutator</text>
+
+<!-- Retry loop: curved arrow from Phase 5 back to Phase 3 -->
+<path d="M 1182 390 L 1182 410 Q 1182 420 1172 420 L 671 420 Q 661 420 661 410 L 661 403"
+      fill="none" stroke="#0d9488" stroke-width="1.5" stroke-dasharray="6 3" marker-end="url(#at)"/>
+<text x="922" y="434" text-anchor="middle" font-size="8" font-weight="600" fill="#0d9488">fail → retry (max_iterations)</text>
+
+<!-- Result output -->
+<line x1="1292" y1="325" x2="1352" y2="325" stroke="#22c55e" stroke-width="2" marker-end="url(#ag)"/>
+<rect x="1358" y="313" width="85" height="24" rx="8" fill="#dcfce7" stroke="#86efac" stroke-width="1"/>
+<text x="1400" y="330" text-anchor="middle" font-size="11" font-weight="700" fill="#166534">Result ✓</text>
+<text x="1400" y="350" text-anchor="middle" font-size="7" fill="#86efac">→ DAG 下游节点</text>
+
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- HOOK OBSERVATION BAR                                      -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<rect x="70" y="452" width="1290" height="30" rx="8" fill="#eff6ff" fill-opacity="0.6" stroke="#bfdbfe" stroke-width="0.8"/>
+<text x="90" y="472" font-size="9" font-weight="700" fill="#2563eb">Hook</text>
+<text x="122" y="472" font-size="8" fill="#60a5fa">只读观测 · 永不阻塞 · 贯穿全生命周期</text>
+<rect x="420" y="458" width="44" height="16" rx="5" fill="#dbeafe" stroke="#93c5fd" stroke-width="0.6"/>
+<text x="442" y="469" text-anchor="middle" font-size="8" font-weight="600" fill="#2563eb">Trace</text>
+<rect x="472" y="458" width="54" height="16" rx="5" fill="#dbeafe" stroke="#93c5fd" stroke-width="0.6"/>
+<text x="499" y="469" text-anchor="middle" font-size="8" font-weight="600" fill="#2563eb">Console</text>
+<rect x="534" y="458" width="44" height="16" rx="5" fill="#dbeafe" stroke="#93c5fd" stroke-width="0.6"/>
+<text x="556" y="469" text-anchor="middle" font-size="8" font-weight="600" fill="#2563eb">Chart</text>
+<text x="630" y="472" font-size="7" fill="#93c5fd">→ EventBus → WebSocket → Frontend</text>
+
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- SECTION 3: MULTI-AGENT DAG                                -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<rect x="40" y="510" width="1420" height="360" rx="14" fill="white" fill-opacity="0.35" stroke="#e2e8f0" stroke-width="0.8"/>
+<text x="70" y="536" font-size="13" font-weight="700" fill="#1e1b4b">多 Agent DAG 编排</text>
+<text x="260" y="536" font-size="9" fill="#94a3b8">每个 DAG 节点 = 上方完整的 Agent 生命周期</text>
+
+<!-- Legend -->
+<rect x="1100" y="520" width="340" height="28" rx="6" fill="white" fill-opacity="0.6" stroke="#e2e8f0" stroke-width="0.6"/>
+<circle cx="1120" cy="534" r="3.5" fill="#6366f1"/><text x="1130" y="538" font-size="7" fill="#64748b">Agent 节点</text>
+<circle cx="1195" cy="534" r="3.5" fill="#14b8a6"/><text x="1205" y="538" font-size="7" fill="#64748b">EvalJudge</text>
+<circle cx="1275" cy="534" r="3.5" fill="#22c55e"/><text x="1285" y="538" font-size="7" fill="#64748b">pass</text>
+<circle cx="1325" cy="534" r="3.5" fill="#f59e0b"/><text x="1335" y="538" font-size="7" fill="#64748b">Middleware</text>
+
+<!-- ── DAG Layout ── -->
+<!-- Row: y=650 center, agents are 150x50 boxes -->
+
+<!-- Start node -->
+<circle cx="120" cy="660" r="20" fill="#eef2ff" stroke="#818cf8" stroke-width="1.5"/>
+<text x="120" y="664" text-anchor="middle" font-size="10" font-weight="700" fill="#4f46e5">Start</text>
+
+<!-- Research (top path) -->
+<rect x="210" y="610" width="150" height="48" rx="10" fill="url(#gi)" stroke="#818cf8" stroke-width="1.5" filter="url(#s1)"/>
+<text x="285" y="632" text-anchor="middle" font-size="11" font-weight="700" fill="#4f46e5">Research</text>
+<text x="285" y="646" text-anchor="middle" font-size="8" fill="#818cf8">数据收集</text>
+
+<!-- Analyze (bottom path, parallel) -->
+<rect x="210" y="690" width="150" height="48" rx="10" fill="url(#gi)" stroke="#818cf8" stroke-width="1.5" filter="url(#s1)"/>
+<text x="285" y="712" text-anchor="middle" font-size="11" font-weight="700" fill="#4f46e5">Analyze</text>
+<text x="285" y="726" text-anchor="middle" font-size="8" fill="#818cf8">数据分析</text>
+
+<!-- "并行" label -->
+<text x="195" y="665" font-size="8" font-weight="600" fill="#94a3b8">并行</text>
+
+<!-- Arrows: Start → Research, Start → Analyze -->
+<path d="M 140 652 L 210 638" fill="none" stroke="#818cf8" stroke-width="1.5" marker-end="url(#ai)"/>
+<path d="M 140 668 L 210 708" fill="none" stroke="#818cf8" stroke-width="1.5" marker-end="url(#ai)"/>
+
+<!-- EvalJudge after Research -->
+<rect x="405" y="618" width="80" height="36" rx="8" fill="url(#gt)" stroke="#14b8a6" stroke-width="1"/>
+<text x="445" y="637" text-anchor="middle" font-size="8" font-weight="700" fill="#0d9488">EvalJudge</text>
+<text x="445" y="648" text-anchor="middle" font-size="7" fill="#14b8a6">评审</text>
+<line x1="360" y1="636" x2="405" y2="636" stroke="#0d9488" stroke-width="1" marker-end="url(#at)"/>
+
+<!-- Middleware label on EvalJudge -->
+<rect x="396" y="656" width="66" height="12" rx="3" fill="#fef3c7" fill-opacity="0.6" stroke="#fbbf24" stroke-width="0.4"/>
+<text x="429" y="665" text-anchor="middle" font-size="6" fill="#92400e">Validate → Eval</text>
+
+<!-- Arrows: EvalJudge → Compose, Analyze → Compose (fan-in) -->
+<path d="M 485 636 L 555 655" fill="none" stroke="#818cf8" stroke-width="1.5" marker-end="url(#ai)"/>
+<path d="M 360 714 L 555 672" fill="none" stroke="#818cf8" stroke-width="1.5" marker-end="url(#ai)"/>
+
+<!-- "fan-in" label -->
+<text x="525" y="700" font-size="8" font-weight="600" fill="#94a3b8">fan-in</text>
+
+<!-- Compose -->
+<rect x="555" y="640" width="150" height="48" rx="10" fill="url(#gi)" stroke="#818cf8" stroke-width="1.5" filter="url(#s1)"/>
+<text x="630" y="662" text-anchor="middle" font-size="11" font-weight="700" fill="#4f46e5">Compose</text>
+<text x="630" y="676" text-anchor="middle" font-size="8" fill="#818cf8">内容撰写</text>
+
+<!-- Arrow: Compose → Review -->
+<line x1="705" y1="664" x2="780" y2="664" stroke="#818cf8" stroke-width="1.5" marker-end="url(#ai)"/>
+
+<!-- Review -->
+<rect x="780" y="640" width="150" height="48" rx="10" fill="url(#gi)" stroke="#818cf8" stroke-width="1.5" filter="url(#s1)"/>
+<text x="855" y="662" text-anchor="middle" font-size="11" font-weight="700" fill="#4f46e5">Review</text>
+<text x="855" y="676" text-anchor="middle" font-size="8" fill="#818cf8">质量审核</text>
+
+<!-- EvalJudge after Review -->
+<rect x="980" y="648" width="80" height="36" rx="8" fill="url(#gt)" stroke="#14b8a6" stroke-width="1"/>
+<text x="1020" y="667" text-anchor="middle" font-size="8" font-weight="700" fill="#0d9488">EvalJudge</text>
+<text x="1020" y="678" text-anchor="middle" font-size="7" fill="#14b8a6">评审</text>
+<line x1="930" y1="664" x2="980" y2="664" stroke="#0d9488" stroke-width="1" marker-end="url(#at)"/>
+
+<!-- Retry from EvalJudge back to Compose -->
+<path d="M 1020 684 L 1020 740 Q 1020 750 1010 750 L 640 750 Q 630 750 630 740 L 630 688"
+      fill="none" stroke="#0d9488" stroke-width="1" stroke-dasharray="4 2" marker-end="url(#at)"/>
+<text x="825" y="762" text-anchor="middle" font-size="7" fill="#0d9488">fail → retry (max_iterations)</text>
+
+<!-- pass arrow: EvalJudge → End -->
+<line x1="1060" y1="666" x2="1155" y2="666" stroke="#22c55e" stroke-width="1.5" marker-end="url(#ag)"/>
+<text x="1108" y="657" text-anchor="middle" font-size="7" fill="#22c55e">pass ✓</text>
+
+<!-- End node -->
+<circle cx="1185" cy="666" r="20" fill="#dcfce7" stroke="#22c55e" stroke-width="1.5"/>
+<text x="1185" y="670" text-anchor="middle" font-size="10" font-weight="700" fill="#166534">End</text>
+
+<!-- DAG annotations -->
+<text x="285" y="775" text-anchor="middle" font-size="8" fill="#94a3b8">每个节点都经历完整的 5 阶段生命周期</text>
+<text x="285" y="788" text-anchor="middle" font-size="7" fill="#cbd5e1">上下文注入 → 输入增强 → Agent执行 → 输出校验 → 评审决策</text>
+
+<!-- Pattern labels on the right -->
+<rect x="1070" y="710" width="160" height="50" rx="8" fill="white" fill-opacity="0.5" stroke="#e2e8f0" stroke-width="0.6"/>
+<text x="1150" y="727" text-anchor="middle" font-size="8" font-weight="600" fill="#64748b">DAG 支持模式</text>
+<text x="1150" y="740" text-anchor="middle" font-size="7" fill="#94a3b8">串行 · 并行 (fan-in/out)</text>
+<text x="1150" y="752" text-anchor="middle" font-size="7" fill="#94a3b8">条件路由 · Checkpoint</text>
+
+<!-- Middleware mini-bar under Compose and Review -->
+<rect x="555" y="692" width="375" height="12" rx="4" fill="#fef3c7" fill-opacity="0.4" stroke="#fbbf24" stroke-width="0.4"/>
+<text x="742" y="701" text-anchor="middle" font-size="6" fill="#92400e">Middleware 拦截：Memory · Compact · Validate · Guardrail</text>
+
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- BOTTOM BAR                                                -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<rect x="40" y="890" width="1420" height="40" rx="10" fill="#eef2ff" fill-opacity="0.4" stroke="#c7d2fe" stroke-width="0.6" stroke-dasharray="4 3"/>
+<text x="750" y="908" text-anchor="middle" font-size="9" font-weight="600" fill="#6366f1">三层扩展：Middleware (改数据流) · Hook (只读观测) · GraphMutator (改图结构)</text>
+<text x="750" y="922" text-anchor="middle" font-size="8" fill="#a1a1aa">Streaming · Cost Tracking · Benchmark · EventBus · WebSocket · Zustand</text>
 
 </svg>
 </div>

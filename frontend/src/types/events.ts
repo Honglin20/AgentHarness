@@ -32,7 +32,9 @@ export type EventType =
   | "span.end"
   | "step.summary"
   | "circular.warning"
-  | "workflow.interrupted";
+  | "workflow.interrupted"
+  | "workflow.waiting_for_guidance"
+  | "agent.provide_guidance";
 
 // Workflow events
 export interface WorkflowAgentDef {
@@ -274,6 +276,7 @@ export interface EventPayloadMap {
   "workflow.error": { workflow_id: string; error: string };
   "workflow.cancelled": { workflow_id: string };
   "workflow.interrupted": { workflow_id: string; interrupt_value?: unknown };
+  "workflow.waiting_for_guidance": { workflow_id: string; node_id: string; agent_name: string; partial_output: string };
   "workflow.resumed": { workflow_id: string; node_id: string; directive?: string };
   "node.started": NodeStartedPayload;
   "node.completed": NodeCompletedPayload;

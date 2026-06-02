@@ -12,6 +12,7 @@ export interface ScopedWorkflowEventsReturn {
   sendAnswer: (questionId: string, answer: string) => void;
   sendStructuredAnswer: (questionId: string, answer: { selected: string[]; customInput: string }) => void;
   sendStopAndRegenerate: (agentName: string, partialOutput: string, userGuidance: string) => void;
+  sendGuidance: (guidance: string) => void;
 }
 
 export function useScopedWorkflowEvents(): ScopedWorkflowEventsReturn {
@@ -46,7 +47,14 @@ export function useScopedWorkflowEvents(): ScopedWorkflowEventsReturn {
     [ws, conversationActions],
   );
 
-  return { sendAnswer, sendStructuredAnswer, sendStopAndRegenerate };
+  const sendGuidance = useCallback(
+    (guidance: string) => {
+      ws.sendGuidance(guidance);
+    },
+    [ws],
+  );
+
+  return { sendAnswer, sendStructuredAnswer, sendStopAndRegenerate, sendGuidance };
 }
 
 export function setActiveWorkflowId(id: string | null): void {

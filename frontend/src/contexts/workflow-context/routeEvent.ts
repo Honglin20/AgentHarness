@@ -174,15 +174,12 @@ export function routeEvent(
     }
 
     case "workflow.interrupted": {
-      const p = payload<{ workflow_id: string }>(event);
-      stores.workflow.getState().handleWorkflowCompleted({
-        workflow_id: p.workflow_id,
-        status: "interrupted",
-      });
-      if (ctx.persistence) {
-        ctx.persistence.saveConversation(p.workflow_id);
-        ctx.persistence.saveCharts(p.workflow_id);
-      }
+      // No longer used — kept for backward compat
+      break;
+    }
+
+    case "workflow.waiting_for_guidance": {
+      // UI is already in awaitingGuidance state from handleStop
       break;
     }
 

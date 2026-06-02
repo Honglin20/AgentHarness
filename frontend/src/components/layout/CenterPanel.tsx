@@ -83,7 +83,7 @@ export function CenterPanel({ activeBenchmark }: Props) {
   const activeBatchId = useBatchStore((s) => s.activeBatchId);
   const batchRunning = activeBatchId !== null;
 
-  const { sendAnswer, sendStructuredAnswer, sendStopAndRegenerate } = useWorkflowEvents(
+  const { sendAnswer, sendStructuredAnswer, sendStopAndRegenerate, sendGuidance } = useWorkflowEvents(
     batchRunning ? null : workflowId,
   );
 
@@ -295,6 +295,7 @@ export function CenterPanel({ activeBenchmark }: Props) {
             <ChatInput
               sendAnswer={sendAnswer}
               sendStopAndRegenerate={sendStopAndRegenerate}
+              sendGuidance={sendGuidance}
               alwaysVisible
             />
           </div>
@@ -364,6 +365,7 @@ export function CenterPanel({ activeBenchmark }: Props) {
           <ChatInput
             sendAnswer={sendAnswer}
             sendStopAndRegenerate={sendStopAndRegenerate}
+            sendGuidance={sendGuidance}
             startWorkflow={startWorkflow}
             alwaysVisible
           />
@@ -464,6 +466,7 @@ export function CenterPanel({ activeBenchmark }: Props) {
           <ChatInput
             sendAnswer={sendAnswer}
             sendStopAndRegenerate={sendStopAndRegenerate}
+            sendGuidance={sendGuidance}
             startWorkflow={isIdle ? startWorkflow : undefined}
             alwaysVisible
           />

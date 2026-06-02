@@ -359,6 +359,16 @@ async def websocket_endpoint(
                     await request_stop_and_regenerate(
                         workflow_id, agent_name, partial_output, user_guidance,
                     )
+
+            # Handle guidance provided after stop
+            elif message.get("type") == "agent.provide_guidance":
+                payload = message.get("payload", {}) or {}
+                guidance = payload.get("guidance", "") or ""
+                if guidance:
+                    from harness.engine.macro_graph import _active_builders
+                    builder = _active_builders.get(workflow_id)
+                    if builder is not None:
+                        await builder.provide_guidance(guidance)
     except WebSocketDisconnect:
         pass
     finally:

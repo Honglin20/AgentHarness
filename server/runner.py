@@ -4,12 +4,15 @@ Manages concurrent workflow runs with resource limits and cancellation.
 """
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
 
 from server.event_bus import EventBus
+
+logger = logging.getLogger(__name__)
 
 
 def _serialize_outputs(outputs: dict) -> dict:
@@ -163,12 +166,6 @@ class WorkflowRunner:
             repo = get_repository()
             data = repo.get(workflow_id)
 
-            # Clear interrupt intent so resume doesn't re-enter the interrupt path
-            try:
-                if data and data.get("workflow") and data["workflow"]._builder:
-                    data["workflow"]._builder._interrupted_agents.clear()
-            except Exception:
-                pass
             if data is not None:
                 workflow = data["workflow"]
                 data["status"] = "paused"
@@ -274,52 +271,6 @@ class WorkflowRunner:
                         )
                     else:
                         result = await workflow.arun(inputs, config=config)
-
-                # Handle LangGraph interrupt: graph paused via interrupt()
-                if result.interrupted:
-                    event_bus.emit("workflow.interrupted", {
-                        "workflow_id": workflow_id,
-                        "user_id": user_id,
-                        "interrupt_value": result.interrupt_value,
-                    })
-                    # Persist as "interrupted" status (resumable)
-                    from server.repository import get_repository
-                    repo = get_repository()
-                    _agent_io = workflow._builder.agent_io if workflow._builder else {}
-                    data = repo.get(workflow_id)
-
-                    from harness.run_store import RunStore
-                    from harness.extensions.collectors import ConversationCollector, ChartCollector
-                    if event_bus:
-                        conv_collector = ConversationCollector(event_bus)
-                        conv_collector.collect_from_buffer()
-                        conversation = conv_collector.get_messages()
-                        chart_collector = ChartCollector(event_bus)
-                        chart_groups = chart_collector.get_chart_groups()
-                        if not chart_groups.get("groupOrder"):
-                            chart_groups = None
-                    else:
-                        conversation = None
-                        chart_groups = None
-
-                    RunStore().save(
-                        run_id=workflow_id,
-                        workflow_name=workflow.name,
-                        agents_snapshot=data.get("agents_snapshot")
-                            or _build_agents_snapshot(workflow) if data else _build_agents_snapshot(workflow),
-                        status="interrupted",
-                        inputs=inputs,
-                        result=data.get("result") if data else None,
-                        dag=repo.get_dag(workflow_id),
-                        agent_io=_agent_io,
-                        batch_id=data.get("batch_id") if data else None,
-                        user_id=user_id,
-                        conversation=conversation,
-                        chart_groups=chart_groups,
-                        created_at=data.get("created_at") if data else None,
-                        work_dir=work_dir,
-                    )
-                    return
 
                 # Store result for REST endpoints
                 from server.repository import get_repository
