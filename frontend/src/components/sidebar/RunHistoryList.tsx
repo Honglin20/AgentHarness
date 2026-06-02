@@ -238,18 +238,6 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
           </button>
         </div>
       )}
-      {/* Select mode toggle button */}
-      {!isSelectMode && runs.length > 0 && (
-        <div className="flex items-center justify-end px-3 py-1">
-          <button
-            onClick={toggleSelectMode}
-            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-            title="Select multiple runs"
-          >
-            <CheckSquare className="h-3 w-3" />
-          </button>
-        </div>
-      )}
       {grouped.map(([wfName, wfRuns]) => (
         <div key={wfName} className="mb-1">
           <div className="sticky top-0 bg-background px-3 py-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">

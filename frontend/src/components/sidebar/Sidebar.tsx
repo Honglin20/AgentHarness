@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Clock, FileText, Plus, GitCompare, FlaskConical } from "lucide-react";
+import { Clock, FileText, Plus, GitCompare, FlaskConical, CheckSquare } from "lucide-react";
 import { RunHistoryList } from "./RunHistoryList";
 import { AgentBrowser } from "./AgentBrowser";
 import { Separator } from "@/components/ui/separator";
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { useResetWorkflow } from "@/hooks/useResetWorkflow";
 import { WorkflowCompareDialog } from "@/components/compare/WorkflowCompareDialog";
 import { fetchWithAuth } from "@/lib/api";
+import { useRunHistoryStore } from "@/stores/runHistoryStore";
 
 interface BenchmarkItem {
   name: string;
@@ -26,6 +27,9 @@ export function Sidebar({ onSelectBenchmark, selectedBenchmark, onLeaveBenchmark
   const resetWorkflow = useResetWorkflow();
   const [compareOpen, setCompareOpen] = useState(false);
   const [benchmarks, setBenchmarks] = useState<BenchmarkItem[]>([]);
+  const runs = useRunHistoryStore((s) => s.runs);
+  const isSelectMode = useRunHistoryStore((s) => s.isSelectMode);
+  const toggleSelectMode = useRunHistoryStore((s) => s.toggleSelectMode);
 
   useEffect(() => {
     fetchWithAuth("/api/benchmarks")
@@ -79,6 +83,15 @@ export function Sidebar({ onSelectBenchmark, selectedBenchmark, onLeaveBenchmark
       <div className="flex items-center gap-2 px-3 py-2">
         <Clock className="h-3.5 w-3.5 text-muted-foreground" />
         <span className="text-xs font-semibold text-app-text-primary">History</span>
+        {!isSelectMode && runs.length > 0 && (
+          <button
+            onClick={toggleSelectMode}
+            className="ml-auto rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            title="Select multiple runs"
+          >
+            <CheckSquare className="h-3 w-3" />
+          </button>
+        )}
       </div>
       <div className="flex-1 overflow-hidden">
         <RunHistoryList onLeaveBenchmark={onLeaveBenchmark} />
