@@ -16,9 +16,14 @@ class MockEventBus:
 
     def __init__(self):
         self.events: list[dict] = []
+        self._subscriber_count = 1  # simulate active server instance
 
     def emit(self, event_type: str, payload: dict) -> None:
         self.events.append({"type": event_type, "payload": payload})
+
+    @property
+    def subscriber_count(self) -> int:
+        return self._subscriber_count
 
 
 @pytest.fixture

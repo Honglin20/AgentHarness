@@ -116,9 +116,11 @@ def render_chart(
         "chart": chart_payload,
     }
 
-    # Channel 1: EventBus (same-process, zero latency, no deadlock risk)
+    # Channel 1: EventBus (same-process — only if active server instance)
+    # A subprocess can import the module and get a *new* empty EventBus;
+    # check subscriber_count to ensure it's the real server instance.
     bus = _try_get_event_bus()
-    if bus:
+    if bus and bus.subscriber_count > 0:
         bus.emit("chart.render", event_payload)
         return f"Chart rendered: {chart_type} | label='{label}' | title='{title or chart_type}'"
 
