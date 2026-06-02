@@ -419,39 +419,38 @@ class Workflow:
                         "scope": "private",
                     })
 
-        # 3. Legacy workflows (backward compatibility when no user_id or for default user)
-        if not user_id or user_id == "default":
-            for f in sorted(_WORKFLOWS_DIR.glob("*/workflow.json")):
-                if f.parent.name == "_shared":
-                    continue
-                data = json.loads(f.read_text())
-                agents = [Agent.from_dict(a) for a in data.get("agents", [])]
-                node_order = build_dag(agents)
-                edges = []
-                conditional_edges = []
-                for a in agents:
-                    for dep in a.after or []:
-                        edges.append([dep, a.name])
-                    if a.on_pass is not None:
-                        conditional_edges.append({"from": a.name, "to": a.on_pass, "label": "pass"})
-                    if a.on_fail is not None:
-                        conditional_edges.append({"from": a.name, "to": a.on_fail, "label": "fail"})
-                agent_dicts = [a.to_dict() for a in agents]
-                for ad in agent_dicts:
-                    ad["description"] = _extract_description(ad["name"], f.parent)
-                result.append({
-                    "name": data["name"],
-                    "agents": agent_dicts,
-                    "dag": {"nodes": node_order, "edges": edges, "conditional_edges": conditional_edges},
-                    "workflow_dir": str(f.parent),
-                    "scope": "legacy",
-                })
+        # 3. Legacy workflows (workflows/ root — always included)
+        for f in sorted(_WORKFLOWS_DIR.glob("*/workflow.json")):
+            if f.parent.name == "_shared":
+                continue
+            data = json.loads(f.read_text())
+            agents = [Agent.from_dict(a) for a in data.get("agents", [])]
+            node_order = build_dag(agents)
+            edges = []
+            conditional_edges = []
+            for a in agents:
+                for dep in a.after or []:
+                    edges.append([dep, a.name])
+                if a.on_pass is not None:
+                    conditional_edges.append({"from": a.name, "to": a.on_pass, "label": "pass"})
+                if a.on_fail is not None:
+                    conditional_edges.append({"from": a.name, "to": a.on_fail, "label": "fail"})
+            agent_dicts = [a.to_dict() for a in agents]
+            for ad in agent_dicts:
+                ad["description"] = _extract_description(ad["name"], f.parent)
+            result.append({
+                "name": data["name"],
+                "agents": agent_dicts,
+                "dag": {"nodes": node_order, "edges": edges, "conditional_edges": conditional_edges},
+                "workflow_dir": str(f.parent),
+                "scope": "legacy",
+            })
 
-        # 4. Merge registry resources (builtin only — project-level already covered above)
+        # 4. Merge registry resources (project + builtin; deduped against sections 1-3)
         from harness.registry import get_registry
         registry = get_registry()
         existing_names = {r["name"] for r in result}
-        for meta in registry.list_workflows(scope="builtin"):
+        for meta in registry.list_workflows():
             if meta.name in existing_names:
                 continue
             wf_dir = meta.resource_dir
