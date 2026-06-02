@@ -82,6 +82,7 @@
         "analyzer"
       ],
       "tools": [
+        "ask_user",
         "bash"
       ],
       "model": null,

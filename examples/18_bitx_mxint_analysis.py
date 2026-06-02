@@ -65,7 +65,7 @@ class AnalysisResult(BaseModel):
 
 wf = Workflow("mxint-analysis", agents=[
     Agent("analyzer", after=[], tools=["bash", "grep", "glob"], result_type=ProjectAnalysis),
-    Agent("configurator", after=["analyzer"], tools=["bash"], result_type=AdapterConfig),
+    Agent("configurator", after=["analyzer"], tools=["ask_user", "bash"], result_type=AdapterConfig),
     Agent("runner", after=["configurator"], tools=["bash"], result_type=AnalysisResult),
 ])
 wf.save()
