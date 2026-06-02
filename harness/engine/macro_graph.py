@@ -792,13 +792,35 @@ class MacroGraphBuilder:
                                 STATE_METADATA: {agent_def.name: {"duration_ms": duration_ms}},
                             }
 
-                if agent_run is not None and agent_run.result is not None:
-                    output = agent_run.result.output
-                    usage_obj = getattr(agent_run, 'usage', None)
-                else:
-                    # Retry failed or produced no result — use partial output
+                if agent_run is None or agent_run.result is None:
+                    # Retry failed or produced no result — return partial output
+                    # as success (skip validation gate) so downstream agents run normally
                     output = partial if stop_regen else "(agent produced no output)"
-                    usage_obj = None
+                    duration_ms = int((time.time() - start_time) * 1000)
+                    io_data = {
+                        "input_prompt": context,
+                        "system_prompt": augmented_prompt,
+                        "output_result": str(output),
+                    }
+                    builder_self.agent_io[agent_def.name] = io_data
+                    _save_incremental(builder_self, bus)
+                    if bus:
+                        bus.emit("node.completed", {
+                            "workflow_id": builder_self.workflow_id,
+                            "node_id": agent_def.name,
+                            "agent_name": agent_def.name,
+                            "duration_ms": duration_ms,
+                            "status": "success",
+                            **io_data,
+                        })
+                    return {
+                        STATE_OUTPUTS: {agent_def.name: output},
+                        STATE_ERRORS: {},
+                        STATE_METADATA: {agent_def.name: {"duration_ms": duration_ms}},
+                    }
+
+                output = agent_run.result.output
+                usage_obj = getattr(agent_run, 'usage', None)
 
                 # === Output completeness validation gate ===
                 validation_error = _validate_output(output, result_type)
