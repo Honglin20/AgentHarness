@@ -760,7 +760,7 @@ async def _create_and_start_workflow(
         work_dir: Working directory to execute in
         user_id: User ID who initiated this run
     """
-    from harness.schema_utils import schema_to_model
+    from harness.schema_utils import safe_reconstruct_result_type
 
     workflow_id = str(uuid.uuid4())
 
@@ -774,10 +774,8 @@ async def _create_and_start_workflow(
             on_pass=a.on_pass,
             on_fail=a.on_fail,
             eval=a.eval,
-            result_type=(
-                schema_to_model(a.result_type_name, a.result_type_schema)
-                if a.result_type_schema and a.result_type_name
-                else None
+            result_type=safe_reconstruct_result_type(
+                a.result_type_name, a.result_type_schema
             ),
         )
         for a in agents_defs
@@ -1292,8 +1290,8 @@ def _enrich_benchmark_result(
             tr["token_usage"] = {"input": total_input, "output": total_output, "total": total_input + total_output}
             changed = True
 
-        # If no eval score, compute efficiency score
-        if score is None and tr.get("status") in ("completed", "failed"):
+        # If no eval score and no LLM judge score, compute efficiency score
+        if score is None and tr.get("score_source") != "llm_judge" and tr.get("status") in ("completed", "failed"):
             task_baseline = baseline.get(tr.get("task_id", ""))
             eff = scorer.score_task(tr, task_baseline)
             tr["score"] = eff["score"]
@@ -1301,6 +1299,9 @@ def _enrich_benchmark_result(
             tr["score_source"] = eff["score_source"]
             scores.append(eff["score"])
             changed = True
+        elif score is None and tr.get("score_source") == "llm_judge" and tr.get("score") is not None:
+            # Preserve existing LLM judge score in the average
+            scores.append(tr["score"])
 
     # Compute summary
     if scores:
@@ -1337,7 +1338,10 @@ async def get_benchmark_result(name: str, run_id: str, request: Request) -> dict
     repo = get_repository()
     _enrich_benchmark_result(result, repo, store, name, scoring_config, baseline)
 
-    return result(result: dict) -> dict:
+    return result
+
+
+def _compute_run_averages(result: dict) -> dict:
     """Compute per-run average metrics from task_results. Always returns all fields."""
     scores = []
     durations = []
@@ -1450,6 +1454,9 @@ async def judge_benchmark_run(
     model = scoring_config.get("model")
     rubric = scoring_config.get("rubric")
 
+    if result.get("status") == "running":
+        raise HTTPException(status_code=409, detail="Benchmark is still running. Wait for it to complete.")
+
     repo = get_repository()
     judged_tasks = []
 
@@ -1503,10 +1510,11 @@ async def judge_benchmark_run(
 
         tr["quality_score"] = judge_result.score
         tr["quality_reasoning"] = judge_result.reasoning
-        tr["score_source"] = "llm_judge"
 
-        # Override composite score if no eval score
-        if tr.get("score_source") != "eval":
+        # Override composite score only if no eval score existed
+        prev_source = tr.get("score_source")
+        tr["score_source"] = "llm_judge"
+        if prev_source != "eval":
             tr["score"] = judge_result.score
 
         judged_tasks.append({
