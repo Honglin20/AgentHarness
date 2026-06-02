@@ -97,13 +97,14 @@ export default function HeatmapWidget({ chart }: { chart: ChartPayload }) {
           {/* X-axis labels — always rotated 90° */}
           {xLabels.map((xl, i) => {
             const cx = labelWidth + i * cellSize + cellSize / 2;
+            const anchorY = labelHeight;
             return (
               <text
                 key={xl}
                 x={cx}
-                y={labelHeight - 4}
-                textAnchor="end"
-                transform={`rotate(-90, ${cx}, ${labelHeight - 4})`}
+                y={anchorY}
+                textAnchor="start"
+                transform={`rotate(-90, ${cx}, ${anchorY})`}
                 fontSize={fontSize}
                 fill={axisTick.fill}
               >
