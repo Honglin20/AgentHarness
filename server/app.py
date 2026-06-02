@@ -47,12 +47,13 @@ async def lifespan(app: FastAPI):
     app.state.event_bus = bus
     app.state.runner = runner
 
-    # Expose server URL for subprocess render_chart() HTTP fallback
+    # Best-effort initial URL from env (CLI sets HARNESS_PORT before uvicorn).
+    # The PortDetectionMiddleware will correct this on the first real request.
     host = os.environ.get("HARNESS_HOST", "localhost")
     port = os.environ.get("HARNESS_PORT", "8000")
     os.environ["HARNESS_SERVER_URL"] = f"http://{host}:{port}"
 
-    # Print accessible URL — works whether bound to 0.0.0.0 or localhost
+    # Print accessible URL
     import socket
     display_host = "localhost" if host in ("0.0.0.0", "") else host
     print(f"  AgentHarness UI: http://{display_host}:{port}")
@@ -100,6 +101,20 @@ def create_app() -> FastAPI:
         version="0.4.0",
         lifespan=lifespan,
     )
+
+    # Port detection middleware — captures the real bound port from the ASGI
+    # scope on every request and keeps HARNESS_SERVER_URL up to date.
+    # This makes render_chart() HTTP fallback work regardless of how uvicorn
+    # was started (CLI, python -m uvicorn, programmatic).
+    @app.middleware("http")
+    async def detect_port(request: Request, call_next):
+        import os
+        server = request.scope.get("server")
+        if server:
+            actual_port = server[1]
+            host = os.environ.get("HARNESS_HOST", "localhost")
+            os.environ["HARNESS_SERVER_URL"] = f"http://{host}:{actual_port}"
+        return await call_next(request)
 
     # CORS
     app.add_middleware(
