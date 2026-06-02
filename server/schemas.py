@@ -159,11 +159,19 @@ class BenchmarkTask(BaseModel):
     inputs: dict = Field(default_factory=dict)
 
 
+class LLMJudgeConfig(BaseModel):
+    """LLM-as-Judge configuration."""
+    enabled: bool = False
+    model: str | None = None   # Override model, falls back to HARNESS_MODEL
+    rubric: str | None = None  # Custom rubric, uses default if None
+
+
 class ScoringConfig(BaseModel):
     """Scoring configuration for benchmark evaluation."""
     mode: str = "efficiency"  # "efficiency" | "llm_judge" | "hybrid"
     weights: dict[str, float] = {"success": 0.4, "duration": 0.3, "tokens": 0.3}
     thresholds: dict[str, dict[str, int]] = {}  # task_id -> {max_duration_ms, max_tokens}
+    llm_judge: LLMJudgeConfig | None = None
 
 
 class BenchmarkDef(BaseModel):

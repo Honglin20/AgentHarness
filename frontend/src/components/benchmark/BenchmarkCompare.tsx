@@ -28,6 +28,8 @@ interface TaskResult {
   error?: string;
   score_breakdown?: ScoreBreakdown;
   score_source?: "eval" | "efficiency" | "llm_judge" | null;
+  quality_score?: number;
+  quality_reasoning?: string;
 }
 
 interface BenchmarkResult {
@@ -148,7 +150,7 @@ export default function BenchmarkCompare({ benchmarkName }: Props) {
       </div>
 
       <div className="flex-1 overflow-auto p-4">
-        {tab === "scores" && <ScoresTab result={latestResult} />}
+        {tab === "scores" && <ScoresTab result={latestResult} benchmarkName={benchmarkName} onRefresh={fetchResults} />}
         {tab === "charts" && <ChartsTab result={latestResult} />}
         {tab === "workflows" && (
           <WorkflowsTab
@@ -166,9 +168,25 @@ export default function BenchmarkCompare({ benchmarkName }: Props) {
 
 // ---- Tab: Scores ----
 
-function ScoresTab({ result }: { result: BenchmarkResult }) {
+function ScoresTab({ result, benchmarkName, onRefresh }: { result: BenchmarkResult; benchmarkName: string; onRefresh: () => void }) {
+  const [judging, setJudging] = useState(false);
+  const [judgeError, setJudgeError] = useState<string | null>(null);
   const tasks = result.task_results.filter((t) => t.score != null);
   const hasEfficiency = result.task_results.some((t) => t.score_source === "efficiency");
+  const hasQuality = result.task_results.some((t) => t.quality_score != null);
+
+  const handleJudge = useCallback(() => {
+    setJudging(true);
+    setJudgeError(null);
+    fetchWithAuth(`/api/benchmarks/${encodeURIComponent(benchmarkName)}/judge/${result.run_id}`, { method: "POST" })
+      .then((r) => {
+        if (!r.ok) return r.json().then((b) => { throw new Error(b.detail || "Judge failed"); });
+        return r.json();
+      })
+      .then(() => onRefresh())
+      .catch((e) => setJudgeError(e.message))
+      .finally(() => setJudging(false));
+  }, [benchmarkName, result.run_id, onRefresh]);
 
   const chart: ChartPayload = {
     chart_type: "bar",
@@ -186,7 +204,7 @@ function ScoresTab({ result }: { result: BenchmarkResult }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex items-center gap-3 text-xs text-muted-foreground">
         <span>
           Avg score: <span className="font-medium text-app-text-primary">{result.avg_score?.toFixed(2) ?? "-"}</span>
         </span>
@@ -201,7 +219,15 @@ function ScoresTab({ result }: { result: BenchmarkResult }) {
             </span>
           </span>
         )}
+        <button
+          onClick={handleJudge}
+          disabled={judging}
+          className="ml-auto rounded px-2 py-0.5 text-xs font-medium transition-colors bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 disabled:opacity-50"
+        >
+          {judging ? "Judging..." : hasQuality ? "Re-judge with LLM" : "Judge with LLM"}
+        </button>
       </div>
+      {judgeError && <p className="text-xs text-red-500">{judgeError}</p>}
       {tasks.length > 0 && (
         <div className="h-64">
           <BarChartWidget chart={chart} />
@@ -219,6 +245,7 @@ function ScoresTab({ result }: { result: BenchmarkResult }) {
                 <th className="pb-1 pr-4">Tokens</th>
               </>
             )}
+            {hasQuality && <th className="pb-1 pr-4">Quality</th>}
             <th className="pb-1 pr-4">Duration</th>
             <th className="pb-1 pr-4">Token Usage</th>
             <th className="pb-1">Status</th>
@@ -240,6 +267,20 @@ function ScoresTab({ result }: { result: BenchmarkResult }) {
                   <td className="py-1.5 pr-4">{t.score_breakdown ? t.score_breakdown.duration.toFixed(2) : "-"}</td>
                   <td className="py-1.5 pr-4">{t.score_breakdown ? t.score_breakdown.tokens.toFixed(2) : "-"}</td>
                 </>
+              )}
+              {hasQuality && (
+                <td className="py-1.5 pr-4">
+                  {t.quality_score != null ? (
+                    <span className="group relative">
+                      {t.quality_score.toFixed(2)}
+                      {t.quality_reasoning && (
+                        <span className="pointer-events-none absolute bottom-full left-0 z-50 mb-1 rounded bg-app-bg-primary border border-app-border px-2 py-1.5 text-xs text-app-text-primary shadow-lg opacity-0 transition-opacity group-hover:opacity-100 w-72 max-h-40 overflow-auto whitespace-pre-wrap">
+                          {t.quality_reasoning}
+                        </span>
+                      )}
+                    </span>
+                  ) : "-"}
+                </td>
               )}
               <td className="py-1.5 pr-4">{t.duration_ms ? `${(t.duration_ms / 1000).toFixed(1)}s` : "-"}</td>
               <td className="py-1.5 pr-4">{t.token_usage ? t.token_usage.total.toLocaleString() : "-"}</td>

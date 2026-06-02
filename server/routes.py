@@ -1423,6 +1423,115 @@ async def benchmark_regression(
     }
 
 
+@router.post("/benchmarks/{name}/judge/{run_id}")
+async def judge_benchmark_run(
+    name: str,
+    run_id: str,
+    request: Request,
+) -> dict:
+    """Run LLM-as-Judge on a specific benchmark run.
+
+    Scores each completed task using an LLM, writes quality_score and
+    quality_reasoning back to the result. Optionally overrides the composite
+    score if no eval score exists.
+    """
+    from harness.scoring.llm_judge import judge_task_async
+
+    store = _get_benchmark_store()
+    bm = store.load_benchmark(name)
+    if not bm:
+        raise HTTPException(status_code=404, detail="Benchmark not found")
+
+    result = store.get_result(run_id, benchmark_name=name)
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    scoring_config = (bm.get("scoring") or {}).get("llm_judge") or {}
+    model = scoring_config.get("model")
+    rubric = scoring_config.get("rubric")
+
+    repo = get_repository()
+    judged_tasks = []
+
+    for tr in result.get("task_results", []):
+        if tr.get("status") != "completed":
+            continue
+
+        wid = tr.get("workflow_id", "")
+        if not wid:
+            continue
+        data = repo.get(wid)
+        if not data:
+            continue
+
+        inputs = data.get("inputs", {})
+        wf_result = data.get("result")
+        if not wf_result:
+            continue
+
+        # Collect agent outputs as text
+        outputs = wf_result.get("outputs", {})
+        output_parts = []
+        for key, val in outputs.items():
+            if isinstance(val, str):
+                output_parts.append(val)
+            elif isinstance(val, dict):
+                # Try common fields: summary, result, output, details
+                for field in ("summary", "result", "output", "details"):
+                    if field in val and isinstance(val[field], str):
+                        output_parts.append(val[field])
+        agent_output = "\n\n".join(output_parts)
+        if not agent_output.strip():
+            continue
+
+        task_input = inputs.get("task", inputs)
+        try:
+            judge_result = await judge_task_async(
+                task_label=tr.get("label", ""),
+                task_input=task_input,
+                agent_output=agent_output,
+                rubric=rubric,
+                model=model,
+            )
+        except Exception as e:
+            judged_tasks.append({
+                "task_id": tr.get("task_id"),
+                "status": "error",
+                "error": str(e),
+            })
+            continue
+
+        tr["quality_score"] = judge_result.score
+        tr["quality_reasoning"] = judge_result.reasoning
+        tr["score_source"] = "llm_judge"
+
+        # Override composite score if no eval score
+        if tr.get("score_source") != "eval":
+            tr["score"] = judge_result.score
+
+        judged_tasks.append({
+            "task_id": tr.get("task_id"),
+            "label": tr.get("label"),
+            "quality_score": judge_result.score,
+            "reasoning": judge_result.reasoning[:200],
+            "status": "ok",
+        })
+
+    # Recompute avg_score
+    scores = [tr.get("score") for tr in result.get("task_results", []) if tr.get("score") is not None]
+    if scores:
+        result["avg_score"] = sum(scores) / len(scores)
+
+    store.save_result(name, result)
+
+    return {
+        "benchmark_name": name,
+        "run_id": run_id,
+        "judged_tasks": judged_tasks,
+        "avg_score": result.get("avg_score"),
+    }
+
+
 @router.get("/workflows/{workflow_id}", response_model=WorkflowStatusResponse)
 async def get_workflow(workflow_id: str, request: Request) -> WorkflowStatusResponse:
     """Get workflow status and result."""
