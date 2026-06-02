@@ -40,6 +40,16 @@ Example:
 
 If no user responds, proceed with the best configuration automatically.
 
+## Device selection
+
+Before setting `device`, run:
+
+```bash
+python -c "import torch; print('cuda' if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else 'cpu'))"
+```
+
+Use the output as the `device` value in AdapterConfig. Do NOT hardcode `cpu`.
+
 IMPORTANT:
 - The adapter must be COMPLETE and RUNNABLE with all imports
 - Use absolute paths
