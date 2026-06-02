@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import type { ChartPayload } from "@/types/events";
 import { PALETTE, NEUTRAL, LEGEND_STYLE, CHART_MARGIN, getGridProps, getAxisTick, getTooltipStyle } from "./chartTheme";
+import { computeNiceTicks, formatTick } from "./axisUtils";
 
 function findParetoFront(
   points: { x: number; y: number }[],
@@ -58,6 +59,9 @@ export default function ParetoChartWidget({ chart }: { chart: ChartPayload }) {
     y: Number(d[yKey]),
   }));
 
+  const xConfig = computeNiceTicks(points.map((p) => p.x));
+  const yConfig = computeNiceTicks(points.map((p) => p.y));
+
   const frontIndices = findParetoFront(points, xDir, yDir);
   const dominatedData = points
     .filter((_, i) => !frontIndices.has(i))
@@ -75,8 +79,24 @@ export default function ParetoChartWidget({ chart }: { chart: ChartPayload }) {
         <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={300}>
           <ComposedChart margin={CHART_MARGIN}>
             <CartesianGrid {...gridProps} />
-            <XAxis dataKey="x" tick={axisTick} name={xKey} type="number" />
-            <YAxis dataKey="y" tick={axisTick} name={yKey} type="number" />
+            <XAxis
+              dataKey="x"
+              tick={axisTick}
+              name={xKey}
+              type="number"
+              domain={xConfig.domain}
+              ticks={xConfig.ticks}
+              tickFormatter={formatTick}
+            />
+            <YAxis
+              dataKey="y"
+              tick={axisTick}
+              name={yKey}
+              type="number"
+              domain={yConfig.domain}
+              ticks={yConfig.ticks}
+              tickFormatter={formatTick}
+            />
             <ZAxis range={[40, 200]} />
             <Tooltip contentStyle={tooltipStyle} cursor={{ strokeDasharray: "3 3" }} />
             <Legend wrapperStyle={LEGEND_STYLE} />

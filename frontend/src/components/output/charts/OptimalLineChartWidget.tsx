@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import type { ChartPayload } from "@/types/events";
 import { PALETTE, POSITIVE, NEUTRAL, LEGEND_STYLE, CHART_MARGIN, getGridProps, getAxisTick, getTooltipStyle } from "./chartTheme";
+import { computeNiceTicks, formatTick } from "./axisUtils";
 
 function computeOptimalLine(
   points: { x: number; y: number }[],
@@ -50,6 +51,9 @@ export default function OptimalLineChartWidget({ chart }: { chart: ChartPayload 
     y: Number(d[yKey]),
   }));
 
+  const xConfig = computeNiceTicks(points.map((p) => p.x));
+  const yConfig = computeNiceTicks(points.map((p) => p.y));
+
   const optimalLine = computeOptimalLine(points, direction);
   const lineColor = direction === "max" ? PALETTE[0] : PALETTE[2];
 
@@ -67,8 +71,21 @@ export default function OptimalLineChartWidget({ chart }: { chart: ChartPayload 
         <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={300}>
           <ComposedChart data={merged} margin={CHART_MARGIN}>
             <CartesianGrid {...gridProps} />
-            <XAxis dataKey="x" tick={axisTick} name={xKey} />
-            <YAxis tick={axisTick} />
+            <XAxis
+              dataKey="x"
+              tick={axisTick}
+              name={xKey}
+              type="number"
+              domain={xConfig.domain}
+              ticks={xConfig.ticks}
+              tickFormatter={formatTick}
+            />
+            <YAxis
+              tick={axisTick}
+              domain={yConfig.domain}
+              ticks={yConfig.ticks}
+              tickFormatter={formatTick}
+            />
             <Tooltip contentStyle={tooltipStyle} />
             <Legend wrapperStyle={LEGEND_STYLE} />
             <Scatter name="Data Points" dataKey="scatter" fill={NEUTRAL} fillOpacity={0.5} />

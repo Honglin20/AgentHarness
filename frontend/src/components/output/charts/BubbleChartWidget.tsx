@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import type { ChartPayload } from "@/types/events";
 import { PALETTE, LEGEND_STYLE, CHART_MARGIN, BOX_FILL_OPACITY, BOX_STROKE_WIDTH, getGridProps, getAxisTick, getTooltipStyle } from "./chartTheme";
+import { computeNiceTicks, formatTick, extractNumericValues } from "./axisUtils";
 
 export default function BubbleChartWidget({ chart }: { chart: ChartPayload }) {
   const { data, x, y, size, hue, title } = chart as ChartPayload & { size?: string };
@@ -22,6 +23,11 @@ export default function BubbleChartWidget({ chart }: { chart: ChartPayload }) {
   const gridProps = getGridProps();
   const axisTick = getAxisTick();
   const tooltipStyle = getTooltipStyle();
+
+  const allXValues = extractNumericValues(data, xKey);
+  const allYValues = extractNumericValues(data, yKey);
+  const xConfig = computeNiceTicks(allXValues);
+  const yConfig = computeNiceTicks(allYValues);
 
   if (hue) {
     const hueValues = Array.from(new Set(data.map((d) => String(d[hue]))));
@@ -42,8 +48,24 @@ export default function BubbleChartWidget({ chart }: { chart: ChartPayload }) {
           <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={300}>
             <ScatterChart margin={CHART_MARGIN}>
               <CartesianGrid {...gridProps} />
-              <XAxis dataKey={xKey} tick={axisTick} name={xKey} type="number" />
-              <YAxis dataKey={yKey} tick={axisTick} name={yKey} type="number" />
+              <XAxis
+                dataKey={xKey}
+                tick={axisTick}
+                name={xKey}
+                type="number"
+                domain={xConfig.domain}
+                ticks={xConfig.ticks}
+                tickFormatter={formatTick}
+              />
+              <YAxis
+                dataKey={yKey}
+                tick={axisTick}
+                name={yKey}
+                type="number"
+                domain={yConfig.domain}
+                ticks={yConfig.ticks}
+                tickFormatter={formatTick}
+              />
               <ZAxis dataKey="z" range={[50, 400]} />
               <Tooltip contentStyle={tooltipStyle} cursor={{ strokeDasharray: "3 3" }} />
               <Legend wrapperStyle={LEGEND_STYLE} />
@@ -78,8 +100,24 @@ export default function BubbleChartWidget({ chart }: { chart: ChartPayload }) {
         <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={300}>
           <ScatterChart margin={CHART_MARGIN}>
             <CartesianGrid {...gridProps} />
-            <XAxis dataKey={xKey} tick={axisTick} name={xKey} type="number" />
-            <YAxis dataKey={yKey} tick={axisTick} name={yKey} type="number" />
+            <XAxis
+              dataKey={xKey}
+              tick={axisTick}
+              name={xKey}
+              type="number"
+              domain={xConfig.domain}
+              ticks={xConfig.ticks}
+              tickFormatter={formatTick}
+            />
+            <YAxis
+              dataKey={yKey}
+              tick={axisTick}
+              name={yKey}
+              type="number"
+              domain={yConfig.domain}
+              ticks={yConfig.ticks}
+              tickFormatter={formatTick}
+            />
             <ZAxis dataKey="z" range={[50, 400]} />
             <Tooltip contentStyle={tooltipStyle} cursor={{ strokeDasharray: "3 3" }} />
             <Scatter

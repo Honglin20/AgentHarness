@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import type { ChartPayload } from "@/types/events";
 import { PALETTE, LEGEND_STYLE, CHART_MARGIN, BOX_FILL_OPACITY, BOX_STROKE_WIDTH, getGridProps, getAxisTick, getTooltipStyle } from "./chartTheme";
+import { computeNiceTicks, formatTick, extractNumericValues } from "./axisUtils";
 
 export default function AreaChartWidget({ chart }: { chart: ChartPayload }) {
   const { data, x, y, hue, title } = chart;
@@ -32,6 +33,11 @@ export default function AreaChartWidget({ chart }: { chart: ChartPayload }) {
     });
     const pivotedData = Array.from(xMap.values());
 
+    const pivotedYValues = hueValues.flatMap((hv) =>
+      extractNumericValues(pivotedData, hv)
+    );
+    const yConfig = computeNiceTicks(pivotedYValues);
+
     return (
       <div className="flex flex-col">
         <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
@@ -40,7 +46,12 @@ export default function AreaChartWidget({ chart }: { chart: ChartPayload }) {
             <AreaChart data={pivotedData} margin={CHART_MARGIN}>
               <CartesianGrid {...gridProps} />
               <XAxis dataKey={xKey} tick={axisTick} />
-              <YAxis tick={axisTick} />
+              <YAxis
+                tick={axisTick}
+                domain={yConfig.domain}
+                ticks={yConfig.ticks}
+                tickFormatter={formatTick}
+              />
               <Tooltip contentStyle={tooltipStyle} />
               <Legend wrapperStyle={LEGEND_STYLE} />
               {hueValues.map((val, i) => (
@@ -61,6 +72,9 @@ export default function AreaChartWidget({ chart }: { chart: ChartPayload }) {
     );
   }
 
+  const allYValues = extractNumericValues(data, yKey);
+  const yConfig = computeNiceTicks(allYValues);
+
   return (
     <div className="flex flex-col">
       <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
@@ -69,7 +83,12 @@ export default function AreaChartWidget({ chart }: { chart: ChartPayload }) {
           <AreaChart data={data} margin={CHART_MARGIN}>
             <CartesianGrid {...gridProps} />
             <XAxis dataKey={xKey} tick={axisTick} />
-            <YAxis tick={axisTick} />
+            <YAxis
+              tick={axisTick}
+              domain={yConfig.domain}
+              ticks={yConfig.ticks}
+              tickFormatter={formatTick}
+            />
             <Tooltip contentStyle={tooltipStyle} />
             <Area
               dataKey={yKey}

@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import type { ChartPayload } from "@/types/events";
 import { PALETTE, LEGEND_STYLE, BOX_FILL_OPACITY, BOX_STROKE_WIDTH, getGridStroke, getAxisTick, getTooltipStyle } from "./chartTheme";
+import { computeNiceTicks, extractNumericValues } from "./axisUtils";
 
 export default function RadarChartWidget({ chart }: { chart: ChartPayload }) {
   const { data, x, y, hue, title } = chart;
@@ -37,6 +38,9 @@ export default function RadarChartWidget({ chart }: { chart: ChartPayload }) {
       return row;
     });
 
+    const allValues = hueValues.flatMap((hv) => extractNumericValues(pivoted, hv));
+    const yConfig = computeNiceTicks(allValues);
+
     return (
       <div className="flex flex-col">
         <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
@@ -45,7 +49,11 @@ export default function RadarChartWidget({ chart }: { chart: ChartPayload }) {
             <RadarChart data={pivoted} cx="50%" cy="50%" outerRadius="75%">
               <PolarGrid stroke={gridStroke} />
               <PolarAngleAxis dataKey={xKey} tick={{ fontSize: 10, fill: axisTick.fill }} />
-              <PolarRadiusAxis tick={{ fontSize: 9, fill: axisTick.fill }} />
+              <PolarRadiusAxis
+                tick={{ fontSize: 9, fill: axisTick.fill }}
+                domain={yConfig.domain}
+                ticks={yConfig.ticks}
+              />
               <Tooltip contentStyle={tooltipStyle} />
               <Legend wrapperStyle={LEGEND_STYLE} />
               {hueValues.map((val, i) => (
@@ -66,6 +74,9 @@ export default function RadarChartWidget({ chart }: { chart: ChartPayload }) {
     );
   }
 
+  const allYValues = extractNumericValues(data, yKey);
+  const yConfig = computeNiceTicks(allYValues);
+
   return (
     <div className="flex flex-col">
       <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
@@ -74,7 +85,11 @@ export default function RadarChartWidget({ chart }: { chart: ChartPayload }) {
           <RadarChart data={data} cx="50%" cy="50%" outerRadius="75%">
             <PolarGrid stroke={gridStroke} />
             <PolarAngleAxis dataKey={xKey} tick={{ fontSize: 10, fill: axisTick.fill }} />
-            <PolarRadiusAxis tick={{ fontSize: 9, fill: axisTick.fill }} />
+            <PolarRadiusAxis
+              tick={{ fontSize: 9, fill: axisTick.fill }}
+              domain={yConfig.domain}
+              ticks={yConfig.ticks}
+            />
             <Tooltip contentStyle={tooltipStyle} />
             <Radar
               dataKey={yKey}

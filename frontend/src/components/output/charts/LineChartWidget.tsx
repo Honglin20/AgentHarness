@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import type { ChartPayload } from "@/types/events";
 import { PALETTE, LEGEND_STYLE, CHART_MARGIN, getGridProps, getAxisTick, getTooltipStyle } from "./chartTheme";
+import { computeNiceTicks, formatTick, extractNumericValues } from "./axisUtils";
 
 function EndLabel(props: any) {
   const { x, y, index, dataLength, value, color } = props;
@@ -31,6 +32,9 @@ export default function LineChartWidget({ chart }: { chart: ChartPayload }) {
   const axisTick = getAxisTick();
   const tooltipStyle = getTooltipStyle();
 
+  const allYValues = extractNumericValues(data, yKey);
+  const yConfig = computeNiceTicks(allYValues);
+
   if (hue) {
     const hueValues = Array.from(new Set(data.map((d) => String(d[hue]))));
     const xMap = new Map<string, Record<string, unknown>>();
@@ -42,6 +46,11 @@ export default function LineChartWidget({ chart }: { chart: ChartPayload }) {
     });
     const pivotedData = Array.from(xMap.values());
 
+    const pivotedYValues = hueValues.flatMap((hv) =>
+      extractNumericValues(pivotedData, hv)
+    );
+    const pivotedYConfig = computeNiceTicks(pivotedYValues);
+
     return (
       <div className="flex flex-col">
         <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
@@ -50,7 +59,12 @@ export default function LineChartWidget({ chart }: { chart: ChartPayload }) {
             <LineChart data={pivotedData} margin={{ ...CHART_MARGIN, right: 60 }}>
               <CartesianGrid {...gridProps} />
               <XAxis dataKey={xKey} tick={axisTick} />
-              <YAxis tick={axisTick} />
+              <YAxis
+                tick={axisTick}
+                domain={pivotedYConfig.domain}
+                ticks={pivotedYConfig.ticks}
+                tickFormatter={formatTick}
+              />
               <Tooltip contentStyle={tooltipStyle} />
               <Legend wrapperStyle={LEGEND_STYLE} />
               {hueValues.map((val, i) => {
@@ -82,7 +96,12 @@ export default function LineChartWidget({ chart }: { chart: ChartPayload }) {
           <LineChart data={data} margin={CHART_MARGIN}>
             <CartesianGrid {...gridProps} />
             <XAxis dataKey={xKey} tick={axisTick} />
-            <YAxis tick={axisTick} />
+            <YAxis
+              tick={axisTick}
+              domain={yConfig.domain}
+              ticks={yConfig.ticks}
+              tickFormatter={formatTick}
+            />
             <Tooltip contentStyle={tooltipStyle} />
             <Line
               dataKey={yKey}

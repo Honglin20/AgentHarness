@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, useMemo } from "react";
 import type { ChartPayload } from "@/types/events";
 import { HEATMAP_LIGHT, HEATMAP_DARK, getAxisTick } from "./chartTheme";
 
@@ -11,11 +11,17 @@ function hexToRgb(hex: string): [number, number, number] {
   return [r, g, b];
 }
 
+/** Estimate pixel width of a text string at given font size */
+function textWidth(text: string, fontSize: number): number {
+  return text.length * fontSize * 0.6;
+}
+
 export default function HeatmapWidget({ chart }: { chart: ChartPayload }) {
   const { data, x, y, title } = chart;
   const xKey = x ?? "x";
   const yKey = y ?? "y";
   const axisTick = getAxisTick();
+  const fontSize = axisTick.fontSize ?? 10;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(300);
@@ -32,19 +38,22 @@ export default function HeatmapWidget({ chart }: { chart: ChartPayload }) {
     return () => observer.disconnect();
   }, []);
 
-  const xLabels = Array.from(new Set(data.map((d) => String(d[xKey]))));
-  const yLabels = Array.from(new Set(data.map((d) => String(d[yKey]))));
+  const xLabels = useMemo(() => Array.from(new Set(data.map((d) => String(d[xKey])))), [data, xKey]);
+  const yLabels = useMemo(() => Array.from(new Set(data.map((d) => String(d[yKey])))), [data, yKey]);
 
   const values = data.map((d) => Number(d.value ?? d.v ?? 0));
   const minVal = Math.min(...values);
   const maxVal = Math.max(...values);
   const range = maxVal - minVal || 1;
 
-  const valueMap = new Map<string, number>();
-  data.forEach((d) => {
-    const key = `${String(d[xKey])},${String(d[yKey])}`;
-    valueMap.set(key, Number(d.value ?? d.v ?? 0));
-  });
+  const valueMap = useMemo(() => {
+    const m = new Map<string, number>();
+    data.forEach((d) => {
+      const key = `${String(d[xKey])},${String(d[yKey])}`;
+      m.set(key, Number(d.value ?? d.v ?? 0));
+    });
+    return m;
+  }, [data, xKey, yKey]);
 
   const [lightR, lightG, lightB] = hexToRgb(HEATMAP_LIGHT);
   const [darkR, darkG, darkB] = hexToRgb(HEATMAP_DARK);
@@ -57,44 +66,90 @@ export default function HeatmapWidget({ chart }: { chart: ChartPayload }) {
     return `rgb(${r},${g},${b})`;
   }
 
-  const labelWidth = 60;
-  const labelHeight = 40;
-  const availableWidth = containerWidth - labelWidth - 20;
-  const cellSize = Math.max(16, Math.floor(availableWidth / xLabels.length));
+  // Dynamic label dimensions based on actual label lengths
+  const maxYLableLen = yLabels.reduce((max, l) => Math.max(max, l.length), 0);
+  const labelWidth = Math.max(50, Math.min(120, maxYLableLen * fontSize * 0.65 + 8));
+
+  // Rotate x labels when many or long
+  const shouldRotate = xLabels.length > 6 || xLabels.some((l) => l.length > 6);
+  const labelHeight = shouldRotate ? 60 : 30;
+
+  const rightPad = 16;
+  const availableWidth = containerWidth - labelWidth - rightPad;
+  const cellSize = Math.max(20, Math.floor(availableWidth / xLabels.length));
+
+  // Max chars that fit in a cell before truncating
+  const maxCharsPerCell = Math.max(4, Math.floor(cellSize / (fontSize * 0.6)));
+
+  // Truncate helper — preserves tooltip via <title>
+  const truncate = (s: string, max: number) =>
+    s.length > max ? s.slice(0, max - 1) + "…" : s;
+
+  const svgWidth = labelWidth + xLabels.length * cellSize + rightPad;
+  const svgHeight = labelHeight + yLabels.length * cellSize + 10;
 
   return (
     <div className="flex flex-col">
       <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
       <div ref={containerRef} className="w-full">
         <svg
-          viewBox={`0 0 ${labelWidth + xLabels.length * cellSize + 20} ${labelHeight + yLabels.length * cellSize + 20}`}
+          viewBox={`0 0 ${svgWidth} ${svgHeight}`}
           width="100%"
           className="block"
         >
-          {xLabels.map((xl, i) => (
-            <text
-              key={xl}
-              x={labelWidth + i * cellSize + cellSize / 2}
-              y={labelHeight - 6}
-              textAnchor="middle"
-              fontSize={axisTick.fontSize}
-              fill={axisTick.fill}
-            >
-              {xl.length > 6 ? xl.slice(0, 6) + "..." : xl}
-            </text>
-          ))}
-          {yLabels.map((yl, i) => (
-            <text
-              key={yl}
-              x={labelWidth - 4}
-              y={labelHeight + i * cellSize + cellSize / 2 + 3}
-              textAnchor="end"
-              fontSize={axisTick.fontSize}
-              fill={axisTick.fill}
-            >
-              {yl.length > 8 ? yl.slice(0, 8) + "..." : yl}
-            </text>
-          ))}
+          {/* X-axis labels */}
+          {xLabels.map((xl, i) => {
+            const cx = labelWidth + i * cellSize + cellSize / 2;
+            if (shouldRotate) {
+              return (
+                <text
+                  key={xl}
+                  x={cx}
+                  y={labelHeight - 4}
+                  textAnchor="end"
+                  transform={`rotate(-45, ${cx}, ${labelHeight - 4})`}
+                  fontSize={fontSize}
+                  fill={axisTick.fill}
+                >
+                  <title>{xl}</title>
+                  {truncate(xl, maxCharsPerCell + 4)}
+                </text>
+              );
+            }
+            return (
+              <text
+                key={xl}
+                x={cx}
+                y={labelHeight - 6}
+                textAnchor="middle"
+                fontSize={fontSize}
+                fill={axisTick.fill}
+              >
+                <title>{xl}</title>
+                {truncate(xl, maxCharsPerCell)}
+              </text>
+            );
+          })}
+
+          {/* Y-axis labels */}
+          {yLabels.map((yl, i) => {
+            const maxLen = Math.floor((labelWidth - 8) / (fontSize * 0.6));
+            return (
+              <text
+                key={yl}
+                x={labelWidth - 4}
+                y={labelHeight + i * cellSize + cellSize / 2 + 3}
+                textAnchor="end"
+                fontSize={fontSize}
+                fill={axisTick.fill}
+              >
+                <title>{yl}</title>
+                {truncate(yl, maxLen)}
+              </text>
+            );
+          })}
+
+          {/* Cells */}
           {yLabels.map((yl, yi) =>
             xLabels.map((xl, xi) => {
               const val = valueMap.get(`${xl},${yl}`);

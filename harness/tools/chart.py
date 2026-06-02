@@ -15,6 +15,162 @@ logger = logging.getLogger(__name__)
 
 _CHART_ENDPOINT = "/api/charts"
 _CHART_STDOUT_PREFIX = "__HARNESS_CHART__:"
+_VALID_CHART_TYPES = {
+    "line", "bar", "scatter", "pareto", "optimal_line",
+    "heatmap", "box", "bubble", "area", "radar", "table", "waterfall",
+}
+
+
+def _validate_chart(
+    data: list[dict[str, Any]],
+    chart_type: str,
+    x: str | None,
+    y: str | None,
+    hue: str | None,
+    size: str | None,
+) -> None:
+    """Validate chart parameters. Raises ValueError with a clear message."""
+    if chart_type not in _VALID_CHART_TYPES:
+        raise ValueError(
+            f"Invalid chart_type '{chart_type}'. Must be one of: {sorted(_VALID_CHART_TYPES)}"
+        )
+
+    if not data:
+        raise ValueError("data cannot be empty")
+
+    columns = list(data[0].keys())
+
+    def _col_exists(col: str, label: str) -> None:
+        if col not in columns:
+            raise ValueError(
+                f"{label} column '{col}' not found in data. Available columns: {columns}"
+            )
+
+    def _all_numeric(col: str, label: str) -> None:
+        for i, row in enumerate(data):
+            try:
+                float(row[col])
+            except (ValueError, TypeError):
+                raise ValueError(
+                    f"{label} column '{col}' has non-numeric value at row {i}: {row[col]!r}"
+                )
+
+    xKey = x or "x"
+    yKey = y or "y"
+
+    if chart_type == "table":
+        return
+
+    # scatter / pareto / optimal_line: x and y must be numeric
+    if chart_type in ("scatter", "pareto", "optimal_line"):
+        _col_exists(xKey, "x")
+        _col_exists(yKey, "y")
+        _all_numeric(xKey, "x")
+        _all_numeric(yKey, "y")
+
+    if chart_type == "optimal_line" and len(data) < 2:
+        raise ValueError("optimal_line requires at least 2 data points")
+
+    # heatmap: needs value/v column, x/y unique limits
+    if chart_type == "heatmap":
+        val_col = next((c for c in ("value", "v") if c in columns), None)
+        if val_col is None:
+            raise ValueError(
+                f"heatmap requires a 'value' or 'v' column. Available columns: {columns}"
+            )
+        _col_exists(xKey, "x")
+        _col_exists(yKey, "y")
+        x_unique = len({str(r[xKey]) for r in data})
+        y_unique = len({str(r[yKey]) for r in data})
+        if x_unique > 50:
+            raise ValueError(
+                f"heatmap x-axis has {x_unique} unique values (max 50). Consider grouping."
+            )
+        if y_unique > 50:
+            raise ValueError(
+                f"heatmap y-axis has {y_unique} unique values (max 50). Consider grouping."
+            )
+
+    # bubble: needs size
+    if chart_type == "bubble":
+        _col_exists(xKey, "x")
+        _col_exists(yKey, "y")
+        size_key = size or "size"
+        _col_exists(size_key, "size")
+        _all_numeric(xKey, "x")
+        _all_numeric(yKey, "y")
+        for i, row in enumerate(data):
+            v = row.get(size_key, 0)
+            try:
+                if float(v) <= 0:
+                    raise ValueError
+            except (ValueError, TypeError):
+                raise ValueError(
+                    f"size column '{size_key}' must be positive at row {i}: {v!r}"
+                )
+
+    # area with hue: validate multi-category
+    if chart_type == "area" and hue:
+        _col_exists(xKey, "x")
+        _col_exists(yKey, "y")
+        _col_exists(hue, "hue")
+        hue_vals = {str(r[hue]) for r in data}
+        if len(hue_vals) < 2:
+            raise ValueError(
+                f"area with hue requires >= 2 distinct hue values, got {len(hue_vals)}: {hue_vals}"
+            )
+        x_per_hue: dict[str, set[str]] = {}
+        for r in data:
+            hv = str(r[hue])
+            x_per_hue.setdefault(hv, set()).add(str(r[xKey]))
+        for hv, xs in x_per_hue.items():
+            if len(xs) < 2:
+                raise ValueError(
+                    f"area with hue: hue value '{hv}' has only {len(xs)} x point(s). "
+                    f"Each hue category needs >= 2 x values to form an area."
+                )
+
+    # box: need enough numeric values
+    if chart_type == "box":
+        numeric_cols = [
+            c for c in columns
+            if c != xKey and all(
+                isinstance(r.get(c), (int, float)) or _is_number(r.get(c))
+                for r in data
+            )
+        ]
+        total_values = sum(
+            len([r for r in data if _is_number(r.get(c))]) for c in numeric_cols
+        )
+        if total_values < 3:
+            raise ValueError(
+                f"box plot needs >= 3 numeric values across columns, got {total_values}. "
+                f"Numeric columns found: {numeric_cols}"
+            )
+
+    # radar: need >= 3 dimensions
+    if chart_type == "radar":
+        _col_exists(xKey, "x")
+        _col_exists(yKey, "y")
+        dims = {str(r[xKey]) for r in data}
+        if len(dims) < 3:
+            raise ValueError(
+                f"radar chart needs >= 3 distinct dimension (x) values, got {len(dims)}: {dims}"
+            )
+
+    # line/bar with hue
+    if chart_type in ("line", "bar") and hue:
+        _col_exists(xKey, "x")
+        _col_exists(yKey, "y")
+        _col_exists(hue, "hue")
+
+
+def _is_number(v: Any) -> bool:
+    try:
+        float(v)
+        return True
+    except (ValueError, TypeError):
+        return False
 
 
 def _try_get_event_bus():
@@ -89,6 +245,8 @@ def render_chart(
     Returns:
         Confirmation string describing what was rendered.
     """
+    _validate_chart(data, chart_type, x, y, hue, size)
+
     columns: list[str] = list(data[0].keys()) if data else []
 
     chart_payload: dict[str, Any] = {

@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import type { ChartPayload } from "@/types/events";
 import { PALETTE, LEGEND_STYLE, CHART_MARGIN, BOX_FILL_OPACITY, BOX_STROKE_WIDTH, BOX_RADIUS, getGridProps, getAxisTick, getTooltipStyle } from "./chartTheme";
+import { computeNiceTicks, formatTick, extractNumericValues } from "./axisUtils";
 
 export default function BarChartWidget({ chart }: { chart: ChartPayload }) {
   const { data, x, y, hue, title } = chart;
@@ -32,6 +33,11 @@ export default function BarChartWidget({ chart }: { chart: ChartPayload }) {
     });
     const pivotedData = Array.from(xMap.values());
 
+    const pivotedYValues = hueValues.flatMap((hv) =>
+      extractNumericValues(pivotedData, hv)
+    );
+    const yConfig = computeNiceTicks(pivotedYValues);
+
     return (
       <div className="flex flex-col">
         <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
@@ -40,7 +46,12 @@ export default function BarChartWidget({ chart }: { chart: ChartPayload }) {
             <BarChart data={pivotedData} margin={CHART_MARGIN}>
               <CartesianGrid {...gridProps} />
               <XAxis dataKey={xKey} tick={axisTick} />
-              <YAxis tick={axisTick} />
+              <YAxis
+                tick={axisTick}
+                domain={yConfig.domain}
+                ticks={yConfig.ticks}
+                tickFormatter={formatTick}
+              />
               <Tooltip contentStyle={tooltipStyle} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
               <Legend wrapperStyle={LEGEND_STYLE} />
               {hueValues.map((val, i) => (
@@ -66,6 +77,9 @@ export default function BarChartWidget({ chart }: { chart: ChartPayload }) {
 
   if (extraColumns.length > 0) {
     const allYKeys = [yKey, ...extraColumns];
+    const allYValues = allYKeys.flatMap((key) => extractNumericValues(data, key));
+    const yConfig = computeNiceTicks(allYValues);
+
     return (
       <div className="flex flex-col">
         <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
@@ -74,7 +88,12 @@ export default function BarChartWidget({ chart }: { chart: ChartPayload }) {
             <BarChart data={data} margin={CHART_MARGIN}>
               <CartesianGrid {...gridProps} />
               <XAxis dataKey={xKey} tick={axisTick} />
-              <YAxis tick={axisTick} />
+              <YAxis
+                tick={axisTick}
+                domain={yConfig.domain}
+                ticks={yConfig.ticks}
+                tickFormatter={formatTick}
+              />
               <Tooltip contentStyle={tooltipStyle} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
               <Legend wrapperStyle={LEGEND_STYLE} />
               {allYKeys.map((key, i) => (
@@ -95,6 +114,9 @@ export default function BarChartWidget({ chart }: { chart: ChartPayload }) {
     );
   }
 
+  const allYValues = extractNumericValues(data, yKey);
+  const yConfig = computeNiceTicks(allYValues);
+
   return (
     <div className="flex flex-col">
       <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
@@ -103,7 +125,12 @@ export default function BarChartWidget({ chart }: { chart: ChartPayload }) {
           <BarChart data={data} margin={CHART_MARGIN}>
             <CartesianGrid {...gridProps} />
             <XAxis dataKey={xKey} tick={axisTick} />
-            <YAxis tick={axisTick} />
+            <YAxis
+              tick={axisTick}
+              domain={yConfig.domain}
+              ticks={yConfig.ticks}
+              tickFormatter={formatTick}
+            />
             <Tooltip contentStyle={tooltipStyle} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
             <Bar
               dataKey={yKey}

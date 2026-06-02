@@ -3,6 +3,7 @@
 import React from "react";
 import type { ChartPayload } from "@/types/events";
 import { PALETTE, BOX_FILL_OPACITY, BOX_STROKE_WIDTH, BOX_RADIUS, getGridStroke, getAxisTick } from "./chartTheme";
+import { computeNiceTicks, formatTick } from "./axisUtils";
 
 interface BoxStats {
   min: number;
@@ -53,11 +54,11 @@ export default function BoxPlotWidget({ chart }: { chart: ChartPayload }) {
   }
 
   const stats = groups.map((g) => computeBoxStats(g.values));
-  const globalMin = Math.min(...stats.map((s) => s.min));
-  const globalMax = Math.max(...stats.map((s) => s.max));
-  const padding = (globalMax - globalMin) * 0.1 || 1;
-  const yMin = globalMin - padding;
-  const yMax = globalMax + padding;
+
+  // Smart Y-axis: use all raw values for nice tick computation
+  const allValues = stats.flatMap((s) => [s.min, s.q1, s.median, s.q3, s.max]);
+  const { ticks: yTicks, domain: yDomain } = computeNiceTicks(allValues, 5);
+  const [yMin, yMax] = yDomain;
 
   const svgWidth = Math.max(groups.length * 80 + 60, 200);
   const svgHeight = 250;
@@ -80,11 +81,11 @@ export default function BoxPlotWidget({ chart }: { chart: ChartPayload }) {
       <div className="aspect-[4/3] w-full overflow-auto">
         <svg width={svgWidth} height={svgHeight} className="block">
           <line x1={plotLeft} y1={plotTop} x2={plotLeft} y2={plotBottom} stroke={gridStroke} />
-          {[yMin, (yMin + yMax) / 2, yMax].map((val, i) => (
-            <React.Fragment key={i}>
+          {yTicks.map((val) => (
+            <React.Fragment key={val}>
               <line x1={plotLeft - 4} y1={scaleY(val)} x2={plotLeft} y2={scaleY(val)} stroke={axisTick.fill} />
               <text x={plotLeft - 8} y={scaleY(val) + 3} textAnchor="end" fontSize={axisTick.fontSize} fill={axisTick.fill}>
-                {val.toFixed(1)}
+                {formatTick(val)}
               </text>
               <line x1={plotLeft} y1={scaleY(val)} x2={plotRight} y2={scaleY(val)} stroke={gridStroke} strokeDasharray="3 3" />
             </React.Fragment>
