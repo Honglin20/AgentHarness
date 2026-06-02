@@ -784,8 +784,12 @@ class MacroGraphBuilder:
                                 STATE_METADATA: {agent_def.name: {"duration_ms": duration_ms}},
                             }
 
-                output = agent_run.result.output
-                usage_obj = agent_run.usage
+                result_obj = agent_run.result
+                if result_obj is not None:
+                    output = result_obj.output
+                else:
+                    output = partial if stop_regen else "(agent produced no output)"
+                usage_obj = getattr(agent_run, 'usage', None)
 
                 # === Output completeness validation gate ===
                 validation_error = _validate_output(output, result_type)

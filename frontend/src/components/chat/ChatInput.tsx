@@ -140,21 +140,13 @@ export default function ChatInput({
     setValue("");
   }, [value, sendGuidance, addUserMsg]);
 
-  // Reset stopping when workflow stops running or a new agent starts streaming
+  // Reset when workflow stops running (completed/failed/paused)
   useEffect(() => {
     if (!isRunning) {
       setStopping(false);
       setAwaitingGuidance(false);
     }
   }, [isRunning]);
-
-  // Reset awaitingGuidance when the streaming agent changes (retry started)
-  useEffect(() => {
-    if (isRunning && streamingAgent?.status === "streaming") {
-      setAwaitingGuidance(false);
-      setStopping(false);
-    }
-  }, [isRunning, streamingAgent?.agentName, streamingAgent?.status]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
