@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
-import { CheckCircle, XCircle, X, Trash2, Play, RotateCcw, Pause } from "lucide-react";
+import { CheckCircle, XCircle, X, Trash2, Play, RotateCcw, Pause, CheckSquare, Square } from "lucide-react";
 import { useRunHistoryStore, type RunRecord } from "@/stores/runHistoryStore";
 import { useViewStore } from "@/stores/viewStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useBatchStore } from "@/stores/batchStore";
 import { setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
 import { fetchWithAuth } from "@/lib/api";
-import { confirmAction } from "@/lib/confirm";
+import { confirmAction, showSuccess, showError } from "@/lib/confirm";
 import { RunHistorySkeleton } from "./RunHistorySkeleton";
 
 const STATUS_ICON: Record<string, React.ReactNode> = {
@@ -53,6 +53,11 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
   const fetchRuns = useRunHistoryStore((s) => s.fetchRuns);
   const fetchRun = useRunHistoryStore((s) => s.fetchRun);
   const selectRun = useRunHistoryStore((s) => s.selectRun);
+  const isSelectMode = useRunHistoryStore((s) => s.isSelectMode);
+  const selectedRunIds = useRunHistoryStore((s) => s.selectedRunIds);
+  const toggleSelectMode = useRunHistoryStore((s) => s.toggleSelectMode);
+  const toggleRunSelection = useRunHistoryStore((s) => s.toggleRunSelection);
+  const clearSelection = useRunHistoryStore((s) => s.clearSelection);
   const showLive = useViewStore((s) => s.showLive);
   const showReplay = useViewStore((s) => s.showReplay);
   const activeView = useViewStore((s) => s.activeView);
@@ -94,6 +99,10 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
   }, [runs]);
 
   const handleClickRun = async (run: RunRecord) => {
+    if (isSelectMode) {
+      toggleRunSelection(run.run_id);
+      return;
+    }
     // Leave benchmark view if we're in one
     onLeaveBenchmark?.();
     selectRun(run.run_id);
@@ -164,6 +173,37 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
     await fetchRuns();
   };
 
+  const handleBatchDelete = async () => {
+    const ids = Array.from(selectedRunIds);
+    if (ids.length === 0) return;
+    const ok = await confirmAction(`Delete ${ids.length} run record${ids.length > 1 ? "s" : ""}?`);
+    if (!ok) return;
+    try {
+      const r = await fetchWithAuth("/api/runs/batch-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ run_ids: ids }),
+      });
+      if (r.ok) {
+        const result = await r.json();
+        if (result.errors?.length > 0) {
+          showError(
+            `Deleted ${result.deleted.length}, ${result.errors.length} could not be deleted`
+          );
+        } else {
+          showSuccess(`Deleted ${result.deleted.length} run${result.deleted.length > 1 ? "s" : ""}`);
+        }
+      } else {
+        showError("Batch delete failed");
+      }
+    } catch {
+      showError("Batch delete failed");
+    }
+    clearSelection();
+    toggleSelectMode();
+    await fetchRuns();
+  };
+
   if (loading && runs.length === 0) {
     return <RunHistorySkeleton />;
   }
@@ -174,6 +214,42 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
 
   return (
     <div className="h-full overflow-auto">
+      {/* Select mode toolbar */}
+      {isSelectMode && (
+        <div className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background px-3 py-1.5">
+          <span className="text-xs text-muted-foreground">
+            {selectedRunIds.size} selected
+          </span>
+          <button
+            onClick={handleBatchDelete}
+            disabled={selectedRunIds.size === 0}
+            className="ml-auto inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-red-600 hover:bg-red-100 disabled:pointer-events-none disabled:opacity-40"
+            title="Delete selected runs"
+          >
+            <Trash2 className="h-3 w-3" />
+            Delete
+          </button>
+          <button
+            onClick={toggleSelectMode}
+            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+            title="Cancel selection"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      )}
+      {/* Select mode toggle button */}
+      {!isSelectMode && runs.length > 0 && (
+        <div className="flex items-center justify-end px-3 py-1">
+          <button
+            onClick={toggleSelectMode}
+            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            title="Select multiple runs"
+          >
+            <CheckSquare className="h-3 w-3" />
+          </button>
+        </div>
+      )}
       {grouped.map(([wfName, wfRuns]) => (
         <div key={wfName} className="mb-1">
           <div className="sticky top-0 bg-background px-3 py-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -196,6 +272,16 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
                   isSelected ? "bg-blue-50 dark:bg-blue-900/40" : ""
                 }`}
               >
+                {isSelectMode && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); toggleRunSelection(run.run_id); }}
+                    className="shrink-0 text-muted-foreground hover:text-foreground"
+                  >
+                    {selectedRunIds.has(run.run_id)
+                      ? <CheckSquare className="h-3 w-3 text-blue-500" />
+                      : <Square className="h-3 w-3" />}
+                  </button>
+                )}
                 <span className="flex h-3 w-3 shrink-0 items-center justify-center">
                   {isRunning ? <LiveDot /> : (STATUS_ICON[run.status] ?? STATUS_ICON.completed)}
                 </span>
@@ -206,7 +292,7 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
                   {run.inputs?.task ? String(run.inputs.task) : run.run_id.slice(0, 8)}
                 </span>
                 <span className="shrink-0 text-[10px] text-muted-foreground whitespace-nowrap">{formatTime(run.created_at)}</span>
-                {isRunning && (
+                {!isSelectMode && isRunning && (
                   <button
                     onClick={(e) => handlePause(e, run.run_id)}
                     className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-amber-100 hover:text-amber-600 transition"
@@ -216,7 +302,7 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
                     <X className="h-3 w-3" />
                   </button>
                 )}
-                {(isPaused || isDone) && (
+                {!isSelectMode && (isPaused || isDone) && (
                   <>
                     {isPaused && (
                       <button

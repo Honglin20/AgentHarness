@@ -506,6 +506,59 @@ async def delete_run(run_id: str, request: Request) -> dict:
     return {"status": "ok", "deleted": run_id}
 
 
+@router.post("/runs/batch-delete")
+async def batch_delete_runs(request: Request) -> dict:
+    """Delete multiple persisted run records.
+
+    Only the run owner or admin can delete. Running runs are skipped.
+    """
+    from harness.run_store import RunStore
+    from harness.user_manager import get_user_manager
+
+    body = await request.json()
+    run_ids = body.get("run_ids", [])
+    if not isinstance(run_ids, list):
+        raise HTTPException(status_code=422, detail="run_ids must be an array")
+    if not run_ids:
+        return {"status": "ok", "deleted": [], "errors": []}
+    if len(run_ids) > 100:
+        raise HTTPException(status_code=422, detail="Maximum 100 runs per batch delete")
+
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+    is_admin = user_mgr.is_admin(user)
+
+    store = RunStore()
+    repo = get_repository()
+    deleted: list[str] = []
+    errors: list[str] = []
+
+    for rid in run_ids:
+        if not isinstance(rid, str):
+            errors.append(rid)
+            continue
+        data = repo.get(rid)
+        if data and data.get("status") == "running":
+            errors.append(rid)
+            continue
+        if data and not is_admin and data.get("user_id", "default") != user.user_id:
+            errors.append(rid)
+            continue
+        run = store.get_run(rid)
+        if run and not is_admin and run.get("user_id", "default") != user.user_id:
+            errors.append(rid)
+            continue
+        path = store._safe_path(rid)
+        if path is None or not path.exists():
+            errors.append(rid)
+            continue
+        path.unlink()
+        repo.remove(rid)
+        deleted.append(rid)
+
+    return {"status": "ok", "deleted": deleted, "errors": errors}
+
+
 @router.get("/runs", response_model=list[RunDetail])
 async def list_runs(request: Request, workflow_name: str | None = None) -> list[RunDetail]:
     """List persisted runs, merged with currently-running in-memory workflows.
@@ -1136,21 +1189,41 @@ async def list_benchmark_results(name: str, request: Request) -> list[dict]:
 
     results = store.list_results(name, user_id=uid)
 
+    scoring_config = (bm.get("scoring") or {}) if bm else {}
+    historical = store.list_results(name)
     repo = get_repository()
     for result in results:
-        _enrich_benchmark_result(result, repo, store, name)
+        _enrich_benchmark_result(result, repo, store, name, scoring_config, historical)
 
     return results
 
 
-def _enrich_benchmark_result(result: dict, repo, store=None, benchmark_name: str = "") -> None:
+def _enrich_benchmark_result(
+    result: dict,
+    repo,
+    store=None,
+    benchmark_name: str = "",
+    scoring_config: dict | None = None,
+    historical_results: list[dict] | None = None,
+) -> None:
     """Enrich a benchmark result with live scores, charts, and status from the repository.
 
     Persists enriched data back to disk so it survives server restarts.
+    When no eval score is found, computes an efficiency score from duration/tokens.
     """
+    from harness.scoring.efficiency import EfficiencyScorer
+
     task_results = result.get("task_results", [])
     changed = False
     scores = []
+
+    # Build efficiency scorer if scoring config exists
+    scoring_cfg = scoring_config or {}
+    scorer = EfficiencyScorer(
+        weights=scoring_cfg.get("weights"),
+        thresholds=scoring_cfg.get("thresholds"),
+    )
+    baseline = EfficiencyScorer.compute_baseline(historical_results or [])
 
     for tr in task_results:
         wid = tr.get("workflow_id", "")
@@ -1184,18 +1257,39 @@ def _enrich_benchmark_result(result: dict, repo, store=None, benchmark_name: str
 
         if score is not None:
             tr["score"] = score
+            tr["score_source"] = "eval"
             scores.append(score)
             changed = True
 
-        # Extract duration from trace
+        # Extract duration + token_usage from trace (sum across all agents)
         trace = wf_result.get("trace", [])
+        total_duration = 0
+        total_input = 0
+        total_output = 0
         for entry in trace:
-            if entry.get("agent_name") == tr.get("label") or (trace and not tr.get("duration_ms")):
-                dur = entry.get("duration_ms")
-                if dur:
-                    tr["duration_ms"] = dur
-                    changed = True
-                break
+            dur = entry.get("duration_ms")
+            if dur:
+                total_duration += dur
+            tu = entry.get("token_usage")
+            if tu and isinstance(tu, dict):
+                total_input += tu.get("input", 0)
+                total_output += tu.get("output", 0)
+        if total_duration and not tr.get("duration_ms"):
+            tr["duration_ms"] = total_duration
+            changed = True
+        if total_input or total_output:
+            tr["token_usage"] = {"input": total_input, "output": total_output, "total": total_input + total_output}
+            changed = True
+
+        # If no eval score, compute efficiency score
+        if score is None and tr.get("status") in ("completed", "failed"):
+            task_baseline = baseline.get(tr.get("task_id", ""))
+            eff = scorer.score_task(tr, task_baseline)
+            tr["score"] = eff["score"]
+            tr["score_breakdown"] = eff["breakdown"]
+            tr["score_source"] = eff["score_source"]
+            scores.append(eff["score"])
+            changed = True
 
     # Compute summary
     if scores:
@@ -1225,14 +1319,16 @@ async def get_benchmark_result(name: str, run_id: str, request: Request) -> dict
     if not result:
         raise HTTPException(status_code=404, detail="Result not found")
 
+    scoring_config = (bm.get("scoring") or {}) if bm else {}
+    historical = store.list_results(name)
     repo = get_repository()
-    _enrich_benchmark_result(result, repo, store, name)
+    _enrich_benchmark_result(result, repo, store, name, scoring_config, historical)
 
     return result
 
 
 def _compute_run_averages(result: dict) -> dict:
-    """Compute per-run average metrics from task_results."""
+    """Compute per-run average metrics from task_results. Always returns all fields."""
     scores = []
     durations = []
     costs = []
@@ -1252,16 +1348,12 @@ def _compute_run_averages(result: dict) -> dict:
         if tu and isinstance(tu, dict):
             tokens.append(tu.get("total", 0))
 
-    averages: dict = {}
-    if scores:
-        averages["avg_score"] = sum(scores) / len(scores)
-    if costs:
-        averages["avg_cost"] = sum(costs) / len(costs)
-    if durations:
-        averages["avg_duration_ms"] = sum(durations) / len(durations)
-    if tokens:
-        averages["avg_tokens"] = sum(tokens) / len(tokens)
-    return averages
+    return {
+        "avg_score": sum(scores) / len(scores) if scores else 0,
+        "avg_cost": sum(costs) / len(costs) if costs else 0,
+        "avg_duration_ms": sum(durations) / len(durations) if durations else 0,
+        "avg_tokens": sum(tokens) / len(tokens) if tokens else 0,
+    }
 
 
 @router.get("/benchmarks/{name}/regression")
@@ -1298,9 +1390,11 @@ async def benchmark_regression(
         baseline_result = results[1]
 
     # Enrich both results with live scores
+    scoring_config = (bm.get("scoring") or {}) if bm else {}
+    all_results = store.list_results(name)
     repo = get_repository()
-    _enrich_benchmark_result(current_result, repo, store, name)
-    _enrich_benchmark_result(baseline_result, repo, store, name)
+    _enrich_benchmark_result(current_result, repo, store, name, scoring_config, all_results)
+    _enrich_benchmark_result(baseline_result, repo, store, name, scoring_config, all_results)
 
     baseline_avg = _compute_run_averages(baseline_result)
     current_avg = _compute_run_averages(current_result)

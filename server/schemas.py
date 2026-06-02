@@ -157,12 +157,20 @@ class BenchmarkTask(BaseModel):
     inputs: dict = Field(default_factory=dict)
 
 
+class ScoringConfig(BaseModel):
+    """Scoring configuration for benchmark evaluation."""
+    mode: str = "efficiency"  # "efficiency" | "llm_judge" | "hybrid"
+    weights: dict[str, float] = {"success": 0.4, "duration": 0.3, "tokens": 0.3}
+    thresholds: dict[str, dict[str, int]] = {}  # task_id -> {max_duration_ms, max_tokens}
+
+
 class BenchmarkDef(BaseModel):
     """Benchmark definition."""
     name: str
     description: str = ""
     prep: BenchmarkPrep | None = None
     tasks: list[BenchmarkTask] = []
+    scoring: ScoringConfig | None = None
 
 
 class RunBenchmarkRequest(BaseModel):

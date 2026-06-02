@@ -71,10 +71,15 @@ interface RunHistoryState {
   runs: RunRecord[];
   loading: boolean;
   selectedRunId: string | null;
+  selectedRunIds: Set<string>;
+  isSelectMode: boolean;
 
   fetchRuns: (workflowName?: string) => Promise<void>;
   fetchRun: (runId: string) => Promise<RunRecord | null>;
   selectRun: (runId: string | null) => void;
+  toggleSelectMode: () => void;
+  toggleRunSelection: (runId: string) => void;
+  clearSelection: () => void;
   reset: () => void;
 }
 
@@ -82,6 +87,8 @@ export const useRunHistoryStore = create<RunHistoryState>()((set) => ({
   runs: [],
   loading: false,
   selectedRunId: null,
+  selectedRunIds: new Set<string>(),
+  isSelectMode: false,
 
   fetchRuns: async (workflowName?: string) => {
     set({ loading: true });
@@ -111,5 +118,21 @@ export const useRunHistoryStore = create<RunHistoryState>()((set) => ({
 
   selectRun: (runId) => set({ selectedRunId: runId }),
 
-  reset: () => set({ runs: [], loading: false, selectedRunId: null }),
+  toggleSelectMode: () =>
+    set((s) => ({
+      isSelectMode: !s.isSelectMode,
+      selectedRunIds: s.isSelectMode ? new Set<string>() : s.selectedRunIds,
+    })),
+
+  toggleRunSelection: (runId) =>
+    set((s) => {
+      const next = new Set(s.selectedRunIds);
+      if (next.has(runId)) next.delete(runId);
+      else next.add(runId);
+      return { selectedRunIds: next };
+    }),
+
+  clearSelection: () => set({ selectedRunIds: new Set<string>() }),
+
+  reset: () => set({ runs: [], loading: false, selectedRunId: null, selectedRunIds: new Set<string>(), isSelectMode: false }),
 }));

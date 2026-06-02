@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { CheckCircle, XCircle } from "lucide-react";
+import { CheckCircle, XCircle, Info } from "lucide-react";
 import BarChartWidget from "@/components/output/charts/BarChartWidget";
 import AreaChartWidget from "@/components/output/charts/AreaChartWidget";
 import type { ChartPayload } from "@/types/events";
@@ -10,6 +10,12 @@ import { useBatchStore } from "@/stores/batchStore";
 import { useRunHistoryStore } from "@/stores/runHistoryStore";
 
 type CompareTab = "scores" | "charts" | "workflows" | "history" | "regression";
+
+interface ScoreBreakdown {
+  success: number;
+  duration: number;
+  tokens: number;
+}
 
 interface TaskResult {
   task_id: string;
@@ -20,6 +26,8 @@ interface TaskResult {
   token_usage?: { input: number; output: number; total: number };
   charts?: ChartPayload[];
   error?: string;
+  score_breakdown?: ScoreBreakdown;
+  score_source?: "eval" | "efficiency" | "llm_judge" | null;
 }
 
 interface BenchmarkResult {
@@ -160,9 +168,7 @@ export default function BenchmarkCompare({ benchmarkName }: Props) {
 
 function ScoresTab({ result }: { result: BenchmarkResult }) {
   const tasks = result.task_results.filter((t) => t.score != null);
-  if (tasks.length === 0) {
-    return <p className="text-sm text-muted-foreground">No scores available. Run with an eval-enabled workflow.</p>;
-  }
+  const hasEfficiency = result.task_results.some((t) => t.score_source === "efficiency");
 
   const chart: ChartPayload = {
     chart_type: "bar",
@@ -180,18 +186,41 @@ function ScoresTab({ result }: { result: BenchmarkResult }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="text-xs text-muted-foreground">
-        Avg score: <span className="font-medium text-app-text-primary">{result.avg_score?.toFixed(2) ?? "-"}</span>
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span>
+          Avg score: <span className="font-medium text-app-text-primary">{result.avg_score?.toFixed(2) ?? "-"}</span>
+        </span>
+        {hasEfficiency && (
+          <span className="group relative inline-flex items-center">
+            <Info className="h-3.5 w-3.5 text-muted-foreground/60" />
+            <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1 -translate-x-1/2 rounded bg-app-bg-primary border border-app-border px-2 py-1.5 text-xs text-app-text-primary shadow-lg opacity-0 transition-opacity group-hover:opacity-100 w-64">
+              <strong>Efficiency Score</strong><br />
+              Score = 40% &times; Success + 30% &times; Duration + 30% &times; Tokens<br />
+              Duration/Token scores normalized against historical best or configured thresholds.
+              Failed tasks capped at max 0.6.
+            </span>
+          </span>
+        )}
       </div>
-      <div className="h-64">
-        <BarChartWidget chart={chart} />
-      </div>
+      {tasks.length > 0 && (
+        <div className="h-64">
+          <BarChartWidget chart={chart} />
+        </div>
+      )}
       <table className="text-xs">
         <thead>
           <tr className="border-b border-app-border text-left text-muted-foreground">
             <th className="pb-1 pr-4">Task</th>
             <th className="pb-1 pr-4">Score</th>
+            {hasEfficiency && (
+              <>
+                <th className="pb-1 pr-4">Success</th>
+                <th className="pb-1 pr-4">Speed</th>
+                <th className="pb-1 pr-4">Tokens</th>
+              </>
+            )}
             <th className="pb-1 pr-4">Duration</th>
+            <th className="pb-1 pr-4">Token Usage</th>
             <th className="pb-1">Status</th>
           </tr>
         </thead>
@@ -199,8 +228,21 @@ function ScoresTab({ result }: { result: BenchmarkResult }) {
           {result.task_results.map((t) => (
             <tr key={t.task_id} className="border-b border-app-border/50">
               <td className="py-1.5 pr-4 font-medium">{t.label}</td>
-              <td className="py-1.5 pr-4">{t.score != null ? t.score.toFixed(2) : "-"}</td>
+              <td className="py-1.5 pr-4">
+                {t.score != null ? t.score.toFixed(2) : "-"}
+                {t.score_source && (
+                  <span className="ml-1 text-muted-foreground/50">({t.score_source})</span>
+                )}
+              </td>
+              {hasEfficiency && (
+                <>
+                  <td className="py-1.5 pr-4">{t.score_breakdown ? `${(t.score_breakdown.success * 100).toFixed(0)}%` : "-"}</td>
+                  <td className="py-1.5 pr-4">{t.score_breakdown ? t.score_breakdown.duration.toFixed(2) : "-"}</td>
+                  <td className="py-1.5 pr-4">{t.score_breakdown ? t.score_breakdown.tokens.toFixed(2) : "-"}</td>
+                </>
+              )}
               <td className="py-1.5 pr-4">{t.duration_ms ? `${(t.duration_ms / 1000).toFixed(1)}s` : "-"}</td>
+              <td className="py-1.5 pr-4">{t.token_usage ? t.token_usage.total.toLocaleString() : "-"}</td>
               <td className="py-1.5">
                 {t.status === "completed" ? (
                   <CheckCircle className="inline h-3 w-3 text-green-500" />
@@ -488,10 +530,10 @@ interface RegressionMetric {
 }
 
 interface RegressionSummary {
-  avg_score: number;
-  avg_cost: number;
-  avg_duration_ms: number;
-  avg_tokens: number;
+  avg_score?: number;
+  avg_cost?: number;
+  avg_duration_ms?: number;
+  avg_tokens?: number;
 }
 
 interface RegressionData {
@@ -563,13 +605,13 @@ function RegressionTab({ benchmarkName }: { benchmarkName: string }) {
         <div className="rounded border border-app-border p-3">
           <div className="text-xs text-muted-foreground mb-1">Baseline</div>
           <div className="text-sm font-medium">
-            Score: {data.baseline.avg_score.toFixed(2)} | Cost: ${data.baseline.avg_cost.toFixed(4)} | Tokens: {data.baseline.avg_tokens}
+            Score: {data.baseline.avg_score?.toFixed(2) ?? "-"} | Cost: ${data.baseline.avg_cost?.toFixed(4) ?? "-"} | Tokens: {data.baseline.avg_tokens ?? "-"}
           </div>
         </div>
         <div className="rounded border border-app-border p-3">
           <div className="text-xs text-muted-foreground mb-1">Current</div>
           <div className="text-sm font-medium">
-            Score: {data.current.avg_score.toFixed(2)} | Cost: ${data.current.avg_cost.toFixed(4)} | Tokens: {data.current.avg_tokens}
+            Score: {data.current.avg_score?.toFixed(2) ?? "-"} | Cost: ${data.current.avg_cost?.toFixed(4) ?? "-"} | Tokens: {data.current.avg_tokens ?? "-"}
           </div>
         </div>
       </div>
