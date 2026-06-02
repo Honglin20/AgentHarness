@@ -4,23 +4,231 @@
     {
       "name": "analyzer",
       "after": [],
-      "tools": ["bash", "grep", "glob"],
+      "tools": [
+        "bash",
+        "grep",
+        "glob"
+      ],
       "model": null,
-      "retries": 2
+      "retries": 3,
+      "result_type_name": "ProjectAnalysis",
+      "result_type_schema": {
+        "description": "Structured output from the analyzer agent.",
+        "properties": {
+          "model_class": {
+            "description": "nn.Module class name (e.g. 'ResNet18')",
+            "title": "Model Class",
+            "type": "string"
+          },
+          "model_module": {
+            "description": "Dotted import path relative to project root (e.g. 'models.resnet')",
+            "title": "Model Module",
+            "type": "string"
+          },
+          "model_init_args": {
+            "additionalProperties": true,
+            "description": "Init kwargs for the model",
+            "title": "Model Init Args",
+            "type": "object"
+          },
+          "dataset": {
+            "description": "Dataset name (e.g. 'CIFAR-10')",
+            "title": "Dataset",
+            "type": "string"
+          },
+          "weights_path": {
+            "description": "Absolute path to weights file, or 'NOT_FOUND'",
+            "title": "Weights Path",
+            "type": "string"
+          },
+          "weights_exist": {
+            "description": "Whether the weights file exists on disk",
+            "title": "Weights Exist",
+            "type": "boolean"
+          },
+          "adapter_exists": {
+            "default": false,
+            "description": "Whether _adapter.py already exists",
+            "title": "Adapter Exists",
+            "type": "boolean"
+          },
+          "adapter_path": {
+            "default": "",
+            "description": "Path to existing adapter, or empty",
+            "title": "Adapter Path",
+            "type": "string"
+          },
+          "summary": {
+            "description": "One-sentence project description",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_class",
+          "model_module",
+          "dataset",
+          "weights_path",
+          "weights_exist",
+          "summary"
+        ],
+        "title": "ProjectAnalysis",
+        "type": "object"
+      }
     },
     {
       "name": "configurator",
-      "after": ["analyzer"],
-      "tools": ["ask_user", "bash"],
+      "after": [
+        "analyzer"
+      ],
+      "tools": [
+        "bash"
+      ],
       "model": null,
-      "retries": 2
+      "retries": 3,
+      "result_type_name": "AdapterConfig",
+      "result_type_schema": {
+        "description": "Structured output from the configurator agent.",
+        "properties": {
+          "adapter_path": {
+            "description": "Absolute path where adapter will be written",
+            "title": "Adapter Path",
+            "type": "string"
+          },
+          "cli_command": {
+            "description": "Full CLI command to run the analysis",
+            "title": "Cli Command",
+            "type": "string"
+          },
+          "w_bits": {
+            "default": 8,
+            "description": "Weight bit width",
+            "title": "W Bits",
+            "type": "integer"
+          },
+          "a_bits": {
+            "default": 8,
+            "description": "Activation bit width",
+            "title": "A Bits",
+            "type": "integer"
+          },
+          "block_size": {
+            "default": 16,
+            "description": "Per-block granularity block size",
+            "title": "Block Size",
+            "type": "integer"
+          },
+          "device": {
+            "default": "cpu",
+            "description": "Device string",
+            "title": "Device",
+            "type": "string"
+          },
+          "summary": {
+            "description": "One-sentence config summary",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "adapter_path",
+          "cli_command",
+          "summary"
+        ],
+        "title": "AdapterConfig",
+        "type": "object"
+      }
     },
     {
       "name": "runner",
-      "after": ["configurator"],
-      "tools": ["bash"],
+      "after": [
+        "configurator"
+      ],
+      "tools": [
+        "bash"
+      ],
       "model": null,
-      "retries": 1
+      "retries": 3,
+      "result_type_name": "AnalysisResult",
+      "result_type_schema": {
+        "description": "Structured output from the runner agent.",
+        "properties": {
+          "status": {
+            "description": "'success' or 'error'",
+            "title": "Status",
+            "type": "string"
+          },
+          "fp32_accuracy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "FP32 model accuracy",
+            "title": "Fp32 Accuracy"
+          },
+          "quant_accuracy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Quantized model accuracy",
+            "title": "Quant Accuracy"
+          },
+          "accuracy_delta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Quant - FP32 accuracy delta",
+            "title": "Accuracy Delta"
+          },
+          "worst_layer": {
+            "default": "",
+            "description": "Name of the worst-QSNR layer",
+            "title": "Worst Layer",
+            "type": "string"
+          },
+          "worst_qsnr_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "QSNR of the worst layer",
+            "title": "Worst Qsnr Db"
+          },
+          "summary": {
+            "description": "One-sentence result summary",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "summary"
+        ],
+        "title": "AnalysisResult",
+        "type": "object"
+      }
     }
   ]
 }

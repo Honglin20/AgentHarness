@@ -1,6 +1,6 @@
 ---
 name: configurator
-tools: [ask_user, bash]
+tools: [bash]
 retries: 2
 ---
 
