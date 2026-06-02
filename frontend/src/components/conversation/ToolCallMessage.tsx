@@ -10,6 +10,8 @@ import {
 } from "@/components/ui/collapsible";
 import { DiffView } from "./DiffView";
 import { FileContentView } from "./FileContentView";
+import ChartWidget from "@/components/output/ChartWidget";
+import type { ChartPayload } from "@/types/events";
 
 interface ToolCallMessageProps {
   message: ConversationMessage;
@@ -35,6 +37,12 @@ function previewArgs(toolName: string | undefined, args: unknown): string {
     }
     if (toolName === "sub_agent" && entries[0]?.[0] === "agent_name") {
       return truncate(String(entries[0][1]), 60);
+    }
+    if (toolName === "render_chart") {
+      const a = args as Record<string, unknown>;
+      const ct = typeof a.chart_type === "string" ? a.chart_type : "chart";
+      const t = typeof a.title === "string" ? a.title : "";
+      return t ? `${ct} | ${truncate(t, 40)}` : ct;
     }
     const parts = entries.map(([k, v]) => {
       const valStr = typeof v === "string" ? v : JSON.stringify(v);
@@ -128,6 +136,36 @@ function renderToolResult(toolName: string | undefined, toolArgs: unknown, toolR
   );
 }
 
+function ChartInlineResult({ toolArgs }: { toolArgs: unknown }) {
+  const norm = normalizeArgs(toolArgs);
+  if (!norm) {
+    return <pre className="overflow-x-auto whitespace-pre-wrap text-xs">Rendering chart...</pre>;
+  }
+
+  const data = norm.data as Record<string, unknown>[] | undefined;
+  if (!data || data.length === 0) {
+    return <pre className="overflow-x-auto whitespace-pre-wrap text-xs">No chart data</pre>;
+  }
+
+  const chart = {
+    chart_type: (norm.chart_type as ChartPayload["chart_type"]) ?? "bar",
+    data,
+    columns: Object.keys(data[0]),
+    x: norm.x as string | undefined,
+    y: norm.y as string | undefined,
+    label: (norm.label as string) ?? "default",
+    title: (norm.title as string) ?? "",
+    hue: norm.hue as string | undefined,
+    size: norm.size as string | undefined,
+  };
+
+  return (
+    <div className="my-1 w-full max-w-sm rounded border border-app-border bg-background p-2">
+      <ChartWidget chart={chart} />
+    </div>
+  );
+}
+
 export const ToolCallMessage = memo(function ToolCallMessage({ message }: ToolCallMessageProps) {
   const { toolName, toolArgs, toolResult, toolStatus, toolDurationMs, toolStreamingOutput } = message;
   const isRunning = toolStatus === "running";
@@ -136,6 +174,7 @@ export const ToolCallMessage = memo(function ToolCallMessage({ message }: ToolCa
   const [open, setOpen] = useState(false);
 
   const isFileTool = FILE_TOOLS.has(toolName ?? "");
+  const hideArgs = isFileTool || toolName === "render_chart";
 
   return (
     <div className="ml-6 border-l-2 border-muted pl-3">
@@ -165,7 +204,7 @@ export const ToolCallMessage = memo(function ToolCallMessage({ message }: ToolCa
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className="mt-1 rounded-md border border-app-border bg-muted/30 p-2 text-xs max-h-80 overflow-y-auto">
-            {toolArgs != null && !isFileTool && (
+            {toolArgs != null && !hideArgs && (
               <div className="mb-1.5">
                 <div className="mb-0.5 text-xs font-medium text-muted-foreground">Args</div>
                 <pre className="overflow-x-auto whitespace-pre-wrap text-xs max-h-32 overflow-y-auto">
@@ -181,7 +220,7 @@ export const ToolCallMessage = memo(function ToolCallMessage({ message }: ToolCa
                 </pre>
               </div>
             )}
-            {toolResult !== undefined && (
+            {toolResult !== undefined && toolName !== "render_chart" && (
               <div>
                 <div className="mb-0.5 text-xs font-medium text-muted-foreground">Result</div>
                 {renderToolResult(toolName, toolArgs, toolResult)}
@@ -190,6 +229,11 @@ export const ToolCallMessage = memo(function ToolCallMessage({ message }: ToolCa
           </div>
         </CollapsibleContent>
       </Collapsible>
+      {toolName === "render_chart" && isDone && (
+        <div className="mt-2 min-w-0">
+          <ChartInlineResult toolArgs={toolArgs} />
+        </div>
+      )}
     </div>
   );
 });
