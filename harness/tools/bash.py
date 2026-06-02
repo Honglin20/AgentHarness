@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import threading
 
@@ -43,6 +44,24 @@ def _emit_line(workflow_id: str, node_id: str, agent_name: str, line: str, strea
                 "line": line,
                 "stream": stream,
             })
+    except Exception:
+        pass
+
+
+def _try_emit_chart(workflow_id: str, line: str) -> None:
+    """Detect __HARNESS_CHART__: prefix in subprocess stdout and emit via EventBus."""
+    prefix = "__HARNESS_CHART__:"
+    if not line.startswith(prefix):
+        return
+    if not workflow_id:
+        return
+    try:
+        payload = json.loads(line[len(prefix):])
+        from server.repository import get_repository
+        data = get_repository().get(workflow_id)
+        bus = data.get("event_bus") if data else None
+        if bus:
+            bus.emit("chart.render", payload)
     except Exception:
         pass
 
@@ -107,6 +126,7 @@ class BashToolFactory(ToolFactory):
                         stripped = line.rstrip("\n")
                         if stripped:
                             _emit_line(wid, node_id, agent_name, stripped, stream_name)
+                            _try_emit_chart(wid, stripped)
 
                 t_out = threading.Thread(
                     target=_reader, args=(proc.stdout, stdout_lines, "stdout"), daemon=True,

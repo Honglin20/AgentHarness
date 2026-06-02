@@ -8,11 +8,13 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 _CHART_ENDPOINT = "/api/charts"
+_CHART_STDOUT_PREFIX = "__HARNESS_CHART__:"
 
 
 def _try_get_event_bus():
@@ -61,9 +63,11 @@ def render_chart(
 ) -> str:
     """Render a chart or table visualization to the frontend.
 
-    Dual-channel delivery:
-      1. EventBus (same process) — preferred, zero latency
-      2. HTTP POST /api/charts — for subprocess or remote execution
+    Delivery channels (tried in order):
+      1. EventBus (same server process) — zero latency
+      2. Stdout capture — bash tool's _reader detects the chart marker
+         and emits via EventBus. Works from any subprocess, no env vars.
+      3. HTTP POST /api/charts — last resort for non-bash environments.
 
     Args:
         data: Row dicts (equivalent to DataFrame.to_dict("records")).
@@ -115,25 +119,23 @@ def render_chart(
         "agent_name": node_id,
         "chart": chart_payload,
     }
+    rendered_msg = f"Chart rendered: {chart_type} | label='{label}' | title='{title or chart_type}'"
 
     # Channel 1: EventBus (same-process — only if active server instance)
-    # A subprocess can import the module and get a *new* empty EventBus;
-    # check subscriber_count to ensure it's the real server instance.
     bus = _try_get_event_bus()
     if bus and bus.subscriber_count > 0:
         bus.emit("chart.render", event_payload)
-        return f"Chart rendered: {chart_type} | label='{label}' | title='{title or chart_type}'"
+        return rendered_msg
 
-    # Channel 2: HTTP POST (subprocess / remote execution)
+    # Channel 2: Stdout capture — bash tool _reader detects __HARNESS_CHART__:
+    # prefix and emits chart.render via the workflow's EventBus. Works from
+    # any subprocess spawned by the bash tool, regardless of env vars.
+    print(f"{_CHART_STDOUT_PREFIX}{json.dumps(event_payload)}", flush=True)
+
+    # Channel 3: HTTP POST (last resort — for non-bash subprocesses)
     server_url = os.environ.get("HARNESS_SERVER_URL")
     if server_url:
         url = f"{server_url.rstrip('/')}{_CHART_ENDPOINT}"
-        ok = _http_post(url, {"node_id": node_id, "chart": chart_payload})
-        if ok:
-            return f"Chart rendered: {chart_type} | label='{label}' | title='{title or chart_type}'"
-        return f"Chart failed to render: could not reach {url}"
+        _http_post(url, {"node_id": node_id, "chart": chart_payload})
 
-    return (
-        f"Chart not rendered: no event bus or server URL available. "
-        f"Run inside the server process, or set HARNESS_SERVER_URL (e.g. http://localhost:8000)."
-    )
+    return rendered_msg

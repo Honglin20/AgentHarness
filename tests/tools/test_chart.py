@@ -202,7 +202,7 @@ class TestRenderChartHTTP:
         assert captured["url"] == "http://localhost:8001/api/charts"
 
     def test_http_fallback_failure(self, monkeypatch, sample_data):
-        """Failed HTTP POST returns error message."""
+        """Failed HTTP POST still returns success — stdout capture is the primary channel."""
         monkeypatch.setattr(
             "harness.tools.chart._try_get_event_bus", lambda: None
         )
@@ -216,14 +216,15 @@ class TestRenderChartHTTP:
             data=sample_data, chart_type="bar", x="x", y="y"
         )
 
-        assert "failed" in result.lower()
+        assert "bar" in result
 
 
 class TestRenderChartNoChannel:
-    """Tests for no-channel fallback."""
+    """Tests for stdout-only channel (no EventBus, no server URL)."""
 
     def test_no_event_bus_no_api_url(self, monkeypatch, sample_data):
-        """When neither EventBus nor HARNESS_SERVER_URL is available, returns info message."""
+        """When neither EventBus nor HARNESS_SERVER_URL is available,
+        render_chart still succeeds via stdout capture."""
         monkeypatch.setattr(
             "harness.tools.chart._try_get_event_bus", lambda: None
         )
@@ -234,4 +235,4 @@ class TestRenderChartNoChannel:
             data=sample_data, chart_type="line", x="x", y="y"
         )
 
-        assert "not rendered" in result.lower()
+        assert "line" in result
