@@ -15,6 +15,8 @@ def cmd_ui(args) -> None:
 
     port = args.port or int(os.environ.get("HARNESS_PORT", "8000"))
     host = args.host or os.environ.get("HARNESS_HOST", "0.0.0.0")
+    os.environ["HARNESS_PORT"] = str(port)
+    os.environ["HARNESS_HOST"] = host
 
     display_host = "localhost" if host == "0.0.0.0" else host
     print(f"\n  AgentHarness UI: http://{display_host}:{port}")
