@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { CheckCircle2, Clock, HelpCircle } from "lucide-react";
 
+import { MarkdownText } from "@/components/conversation/MarkdownText";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ConversationMessage, QuestionOption } from "@/stores/conversationStore";
@@ -107,7 +108,7 @@ export function AgentQuestionCard({ message, onSubmit }: AgentQuestionCardProps)
             {isAnswered && <span className="text-emerald-600">已回答</span>}
             {isTimeout && <span>已超时</span>}
           </div>
-          <div className="text-sm font-medium leading-snug">{question}</div>
+          <MarkdownText className="font-medium leading-snug">{question}</MarkdownText>
         </div>
       </div>
 
