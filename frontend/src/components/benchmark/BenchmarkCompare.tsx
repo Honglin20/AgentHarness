@@ -95,6 +95,8 @@ export default function BenchmarkCompare({ benchmarkName }: Props) {
       fetchResults();
       // Also refresh run history sidebar once after batch completes
       useRunHistoryStore.getState().fetchRuns();
+      // Clear activeBatchId so the sidebar's own fetchRuns effects unblock
+      useBatchStore.getState().setActiveBatch(null);
     }
     prevAllDoneRef.current = allDone;
   }, [activeBatchId, batches, fetchResults]);
@@ -229,7 +231,7 @@ function ScoresTab({ result, benchmarkName, onRefresh }: { result: BenchmarkResu
       </div>
       {judgeError && <p className="text-xs text-red-500">{judgeError}</p>}
       {tasks.length > 0 && (
-        <div className="h-64">
+        <div className="h-64 overflow-hidden">
           <BarChartWidget chart={chart} />
         </div>
       )}
@@ -325,7 +327,7 @@ function ChartsTab({ result }: { result: BenchmarkResult }) {
             {items.map((item, i) => (
               <div key={i} className="flex flex-col gap-1">
                 <span className="text-xs text-muted-foreground truncate">{item.label}</span>
-                <div className="h-48">
+                <div className="h-48 overflow-hidden">
                   {item.chart.chart_type === "bar" ? (
                     <BarChartWidget chart={item.chart} />
                   ) : (
@@ -429,7 +431,7 @@ function WorkflowsTab({
       </div>
 
       {selected.length > 0 && hasScores && (
-        <div className="h-64">
+        <div className="h-64 overflow-hidden">
           <BarChartWidget chart={chart} />
         </div>
       )}
@@ -524,7 +526,7 @@ function HistoryTab({ results }: { results: BenchmarkResult[] }) {
         return (
           <div key={wfName}>
             <h4 className="mb-2 text-xs font-semibold text-muted-foreground">{wfName}</h4>
-            <div className="h-48">
+            <div className="h-48 overflow-hidden">
               <AreaChartWidget chart={chart} />
             </div>
           </div>

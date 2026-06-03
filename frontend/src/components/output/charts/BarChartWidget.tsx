@@ -41,8 +41,8 @@ export default function BarChartWidget({ chart }: { chart: ChartPayload }) {
     return (
       <div className="flex flex-col">
         <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
-        <div className="aspect-[4/3] w-full">
-          <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={300}>
+        <div className="aspect-[4/3] w-full max-h-full">
+          <ResponsiveContainer width="100%" height="100%">
             <BarChart data={pivotedData} margin={CHART_MARGIN}>
               <CartesianGrid {...gridProps} />
               <XAxis dataKey={xKey} tick={axisTick} />
@@ -83,8 +83,8 @@ export default function BarChartWidget({ chart }: { chart: ChartPayload }) {
     return (
       <div className="flex flex-col">
         <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
-        <div className="aspect-[4/3] w-full">
-          <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={300}>
+        <div className="aspect-[4/3] w-full max-h-full">
+          <ResponsiveContainer width="100%" height="100%">
             <BarChart data={data} margin={CHART_MARGIN}>
               <CartesianGrid {...gridProps} />
               <XAxis dataKey={xKey} tick={axisTick} />
@@ -120,8 +120,8 @@ export default function BarChartWidget({ chart }: { chart: ChartPayload }) {
   return (
     <div className="flex flex-col">
       <h4 className="mb-2 text-xs font-medium text-app-text-primary">{title}</h4>
-      <div className="aspect-[4/3] w-full">
-        <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={300}>
+      <div className="aspect-[4/3] w-full max-h-full">
+        <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={CHART_MARGIN}>
             <CartesianGrid {...gridProps} />
             <XAxis dataKey={xKey} tick={axisTick} />

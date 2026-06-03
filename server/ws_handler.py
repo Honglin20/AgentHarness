@@ -421,7 +421,9 @@ async def batch_websocket_endpoint(
             broadcast_rule = BROADCAST_RULES.get(event_type, "self")
 
             if broadcast_rule == "self":
-                if not event_user_id or event_user_id != ws_user_id:
+                # Batch WS is already scoped to a specific batch, so
+                # allow events with no user_id (default user runs).
+                if event_user_id and event_user_id != ws_user_id:
                     continue
             elif broadcast_rule == "admin":
                 user_mgr = get_user_manager()
