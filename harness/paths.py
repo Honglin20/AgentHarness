@@ -4,6 +4,9 @@ Priority chain:
   1. HARNESS_PROJECT_ROOT env var  (explicit override — used by CLI, CI, etc.)
   2. CWD heuristic                (workflows/ or harness/ exists in cwd)
   3. Package parent fallback      (Path(__file__).parent.parent — works in dev & pip-install)
+
+User-facing data (runs, checkpoints) always prefers CWD so it stays in the
+user's project directory, regardless of where the harness package lives.
 """
 from __future__ import annotations
 
@@ -65,7 +68,16 @@ def get_benchmarks_dir() -> Path:
 
 
 def get_runs_dir() -> Path:
-    return get_project_root() / "runs"
+    """Runs directory — prefers CWD so user data stays in their project.
+
+    Priority:
+      1. HARNESS_RUNS_DIR env var  (explicit override)
+      2. CWD/runs/                 (user's current working directory)
+    """
+    env_dir = os.environ.get("HARNESS_RUNS_DIR", "").strip()
+    if env_dir:
+        return Path(env_dir).resolve()
+    return Path.cwd().resolve() / "runs"
 
 
 def get_shared_agents_dir() -> Path:
@@ -81,7 +93,7 @@ def get_env_file() -> Path:
 
 
 def get_checkpoint_db_path() -> Path:
-    return get_project_root() / "runs" / "checkpoints.db"
+    return get_runs_dir() / "checkpoints.db"
 
 
 def get_profiles_file() -> Path:

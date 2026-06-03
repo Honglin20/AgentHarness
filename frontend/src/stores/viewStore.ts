@@ -3,7 +3,7 @@ import type { RunRecord } from "./runHistoryStore";
 import type { WSEvent } from "@/types/events";
 import { useAgentIOStore } from "./agentIOStore";
 import { getWorkflowManager } from "@/contexts/workflow-context/WorkflowManager";
-import { replayEventsToStores, loadLegacyRunData } from "@/contexts/workflow-context/replayEvents";
+import { replayEventsToStores, loadLegacyRunData, loadRunFromPersistedData } from "@/contexts/workflow-context/replayEvents";
 
 export type ActiveView =
   | { type: "live" }
@@ -19,7 +19,7 @@ export const useViewStore = create<ViewState>()((set) => ({
   activeView: { type: "live" },
   showLive: () => set({ activeView: { type: "live" } }),
   showReplay: (run) => {
-    // Populate agentIOStore from persisted run data (backward compat)
+    // Populate global agentIOStore from persisted run data (backward compat)
     if (run.agent_io) {
       const store = useAgentIOStore.getState();
       for (const [nodeId, io] of Object.entries(run.agent_io)) {
@@ -31,10 +31,17 @@ export const useViewStore = create<ViewState>()((set) => ({
     const manager = getWorkflowManager();
     manager.getOrCreate(run.run_id);
 
-    // Replay events into scoped stores (both paths call resetAllStores internally)
-    if (run.events && run.events.length > 0) {
+    // PRIMARY: direct data restoration (not affected by buffer overflow)
+    const hasPersistedData = run.agent_io && run.conversation && run.dag && run.result?.trace;
+    if (hasPersistedData) {
+      loadRunFromPersistedData(run.run_id, run, run.events as WSEvent[] | undefined);
+    }
+    // FALLBACK 1: event replay (runs with events but incomplete data)
+    else if (run.events && run.events.length > 0) {
       replayEventsToStores(run.run_id, run.events as WSEvent[]);
-    } else {
+    }
+    // FALLBACK 2: legacy runs without events
+    else {
       loadLegacyRunData(
         run.run_id,
         run.conversation ?? [],

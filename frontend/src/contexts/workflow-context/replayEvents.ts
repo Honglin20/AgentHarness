@@ -1,18 +1,51 @@
 /**
- * Replay Events — replays persisted events through scoped stores.
+ * Replay Events — restore run state into scoped stores.
  *
- * Delegates all event routing to the shared routeEvent() in routeEvent.ts.
- * Replay mode = persistence is null (no API calls).
- *
- * - replayEventsToStores: replay from persisted events array
- * - loadLegacyRunData: fallback for old runs without persisted events
+ * Three paths (in priority order):
+ *   1. loadRunFromPersistedData  — direct setState from agent_io/conversation/dag/trace
+ *   2. replayEventsToStores      — event-by-event replay (fallback when data incomplete)
+ *   3. loadLegacyRunData         — old runs without events
  */
 
 import type { WSEvent } from "@/types/events";
+import type { ConversationMessage } from "@/stores/conversationStore";
+import type { AgentIOData } from "@/stores/agentIOStore";
+import type { ToolCallRecord } from "@/stores/toolCallStore";
+import type { ChatMessage } from "@/stores/chatStore";
+import type { NodeState } from "@/stores/workflowStore";
+import type { ChartState } from "@/stores/chartStore";
 import { computeRunSummary } from "@/lib/summary/runSummary";
 import { getWorkflowManager } from "./WorkflowManager";
 import { getToolCallCounter } from "./workflowStores";
 import { routeEvent, resetAllStores } from "./routeEvent";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function loadChartsFromGroups(
+  chartStore: { getState: () => ChartState },
+  chartGroups: { groups: Record<string, any>; groupOrder: string[] } | null,
+): void {
+  if (!chartGroups?.groupOrder?.length) return;
+  for (const label of chartGroups.groupOrder) {
+    const group = chartGroups.groups[label];
+    if (group) {
+      for (const [title, chart] of Object.entries(group.charts || {})) {
+        chartStore.getState().addChart(chart as any);
+      }
+      if (group.table) {
+        chartStore.getState().addChart({
+          label,
+          title: `${label} Table`,
+          chart_type: "table",
+          columns: group.table.columns,
+          data: group.table.rows,
+        });
+      }
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // replayEventsToStores — main entry point
@@ -155,30 +188,230 @@ export function loadLegacyRunData(
     stores.conversation.setState({ messages });
   }
 
-  if (chartGroups?.groupOrder?.length) {
-    for (const label of chartGroups.groupOrder) {
-      const group = chartGroups.groups[label];
-      if (group) {
-        for (const [title, chart] of Object.entries(group.charts || {})) {
-          stores.chart.getState().addChart(chart as any);
-        }
-        if (group.table) {
-          stores.chart.getState().addChart({
-            label,
-            title: `${label} Table`,
-            chart_type: "table",
-            columns: group.table.columns,
-            data: group.table.rows,
-          });
-        }
-      }
-    }
-  }
+  loadChartsFromGroups(stores.chart, chartGroups);
 
   const summaryNodes = Object.values(stores.workflow.getState().nodes);
   if (summaryNodes.length > 0) {
     const addChart = stores.chart.getState().addChart;
     computeRunSummary(summaryNodes, addChart, stores.span);
+  }
+
+  manager.setWorkflowStatus(workflowId, "completed");
+}
+
+// ---------------------------------------------------------------------------
+// loadRunFromPersistedData — primary replay path
+// ---------------------------------------------------------------------------
+
+interface PersistedRunData {
+  agent_io?: Record<string, { input_prompt: string; output_result: unknown; system_prompt?: string }>;
+  conversation: Array<Record<string, any>>;
+  dag: { nodes: string[]; edges: [string, string][]; conditional_edges?: { from: string; to: string; label: string }[] } | null;
+  result: {
+    outputs: Record<string, unknown>;
+    errors: Record<string, string>;
+    trace: Array<{
+      agent_name: string;
+      status: string;
+      duration_ms: number;
+      error: string | null;
+      token_usage?: { input: number; output: number; total: number } | null;
+      cost_usd?: number | null;
+      ttft_ms?: number | null;
+    }>;
+  } | null;
+  chart_groups: { groups: Record<string, any>; groupOrder: string[] } | null;
+  agents_snapshot?: Array<{ name: string; model: string | null; tools: string[] | null }>;
+  workflow_name?: string;
+}
+
+/**
+ * Populate all 8 scoped stores directly from persisted run data.
+ * This is the primary replay path — bypasses event replay entirely,
+ * so it is not affected by Bus buffer overflow.
+ */
+export function loadRunFromPersistedData(
+  workflowId: string,
+  run: PersistedRunData,
+  events?: WSEvent[],
+): void {
+  const manager = getWorkflowManager();
+  const stores = manager.getOrCreate(workflowId).stores;
+
+  resetAllStores(stores);
+
+  // -- 1. workflowStore ----------------------------------------------------
+
+  const agentLookup = new Map<string, { model: string | null; tools: string[] | null }>();
+  if (run.agents_snapshot) {
+    for (const a of run.agents_snapshot) {
+      agentLookup.set(a.name, { model: a.model ?? null, tools: a.tools ?? null });
+    }
+  }
+
+  const nodes: Record<string, NodeState> = {};
+  if (run.result?.trace) {
+    for (const t of run.result.trace) {
+      const info = agentLookup.get(t.agent_name);
+      nodes[t.agent_name] = {
+        id: t.agent_name,
+        name: t.agent_name,
+        status: (["success", "failed", "retrying"].includes(t.status) ? t.status : "failed") as NodeState["status"],
+        durationMs: t.duration_ms,
+        error: t.error ?? undefined,
+        tokenUsage: t.token_usage ?? undefined,
+        model: info?.model ?? undefined,
+        tools: info?.tools?.map((n) => ({ name: n, description: "" })) ?? undefined,
+        costUsd: t.cost_usd ?? undefined,
+        ttftMs: t.ttft_ms ?? undefined,
+      };
+    }
+  }
+
+  stores.workflow.setState({
+    activeWorkflowId: workflowId,
+    workflowId,
+    workflowName: run.workflow_name ?? null,
+    status: "completed" as const,
+    nodes,
+    dag: run.dag ?? null,
+    envelope: null,
+  });
+
+  // -- 2. spanStore (sparse, from events only) ----------------------------
+
+  if (events && events.length > 0) {
+    for (const event of events) {
+      if (event.type === "span.start") {
+        stores.span.getState().startSpan(event.payload as any);
+      } else if (event.type === "span.end") {
+        const p = event.payload as any;
+        stores.span.getState().endSpan(p.span_id, p.ts);
+      } else if (event.type === "workflow.started" && (event.payload as any).started_ts_ms) {
+        stores.span.getState().setWorkflowStartTs((event.payload as any).started_ts_ms);
+      }
+    }
+  }
+
+  // -- 3. conversationStore -----------------------------------------------
+
+  if (run.conversation && run.conversation.length > 0) {
+    const messages: ConversationMessage[] = run.conversation.map((m: any, i: number) => ({
+      id: m.id ?? `replay-${i}`,
+      type: m.type ?? "agent",
+      nodeId: m.nodeId,
+      content: m.content ?? "",
+      agentName: m.agentName,
+      thinking: m.thinking,
+      toolName: m.toolName,
+      toolArgs: m.toolArgs,
+      toolResult: m.toolResult,
+      toolStatus: m.toolStatus,
+      toolDurationMs: m.toolDurationMs,
+      toolStreamingOutput: m.toolStreamingOutput,
+      status: m.status ?? "done",
+      durationMs: m.durationMs,
+      timestamp: m.timestamp ?? 0,
+      questionId: m.questionId,
+      questionHeader: m.questionHeader,
+      questionOptions: m.questionOptions,
+      questionMultiSelect: m.questionMultiSelect,
+      questionAllowCustomInput: m.questionAllowCustomInput,
+      questionInputType: m.questionInputType,
+      questionInputPlaceholder: m.questionInputPlaceholder,
+      questionAnswer: m.questionAnswer,
+    }));
+    stores.conversation.setState({ messages });
+  }
+
+  // -- 4. outputStore -----------------------------------------------------
+
+  const texts: Record<string, string> = {};
+  if (run.conversation) {
+    for (const m of run.conversation) {
+      if (m.type === "agent" && m.nodeId && m.content) {
+        texts[m.nodeId] = (texts[m.nodeId] ?? "") + m.content;
+      }
+    }
+  }
+  stores.output.setState({ texts, activeNodeId: null, workflowError: null });
+
+  // -- 5. agentIOStore ----------------------------------------------------
+
+  if (run.agent_io) {
+    const data: Record<string, AgentIOData> = {};
+    for (const [nodeId, io] of Object.entries(run.agent_io)) {
+      data[nodeId] = {
+        inputPrompt: io.input_prompt ?? "",
+        outputResult: io.output_result,
+        systemPrompt: io.system_prompt,
+      };
+    }
+    stores.agentIO.setState({ data });
+  }
+
+  // -- 6. toolCallStore ---------------------------------------------------
+
+  const records: Record<string, ToolCallRecord> = {};
+  const order: string[] = [];
+  if (run.conversation) {
+    let tcIdx = 0;
+    for (const m of run.conversation as any[]) {
+      if (m.type === "tool_call") {
+        const id = m.id ?? `tc-replay-${++tcIdx}`;
+        records[id] = {
+          id,
+          nodeId: m.nodeId ?? "",
+          agentName: m.agentName ?? "",
+          toolName: m.toolName ?? "",
+          args: m.toolArgs ?? {},
+          result: m.toolResult,
+          timestamp: m.timestamp ?? 0,
+        };
+        order.push(id);
+      }
+    }
+  }
+  stores.toolCall.setState({ records, order });
+
+  // -- 7. chatStore -------------------------------------------------------
+
+  const chatMessages: ChatMessage[] = [];
+  if (run.conversation) {
+    for (const m of run.conversation as any[]) {
+      if (m.type === "question" && m.questionId) {
+        chatMessages.push({
+          id: `agent-${m.questionId}`,
+          role: "agent",
+          content: m.content ?? "",
+          questionId: m.questionId,
+          timestamp: m.timestamp ?? 0,
+        });
+        if (m.questionAnswer) {
+          const ans = m.questionAnswer;
+          const answerText = ans.customInput || (ans.selected ? ans.selected.join(", ") : "");
+          chatMessages.push({
+            id: `user-${m.questionId}`,
+            role: "user",
+            content: answerText,
+            questionId: m.questionId,
+            timestamp: (m.timestamp ?? 0) + 1,
+          });
+        }
+      }
+    }
+  }
+  stores.chat.setState({ messages: chatMessages, pendingQuestionId: null });
+
+  // -- 8. chartStore ------------------------------------------------------
+
+  loadChartsFromGroups(stores.chart, run.chart_groups);
+
+  // -- 9. run summary charts ----------------------------------------------
+
+  const summaryNodes = Object.values(stores.workflow.getState().nodes);
+  if (summaryNodes.length > 0) {
+    computeRunSummary(summaryNodes, stores.chart.getState().addChart, stores.span);
   }
 
   manager.setWorkflowStatus(workflowId, "completed");

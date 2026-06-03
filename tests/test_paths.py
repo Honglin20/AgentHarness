@@ -112,7 +112,8 @@ class TestDerivedPaths:
 
     def test_runs_dir(self, monkeypatch, tmp_path):
         self._setup_root(monkeypatch, tmp_path)
-        assert get_runs_dir() == tmp_path / "runs"
+        monkeypatch.chdir(tmp_path)
+        assert get_runs_dir() == tmp_path.resolve() / "runs"
 
     def test_shared_agents_dir(self, monkeypatch, tmp_path):
         self._setup_root(monkeypatch, tmp_path)
@@ -128,10 +129,12 @@ class TestDerivedPaths:
 
     def test_checkpoint_db_path(self, monkeypatch, tmp_path):
         self._setup_root(monkeypatch, tmp_path)
-        assert get_checkpoint_db_path() == tmp_path / "runs" / "checkpoints.db"
+        monkeypatch.chdir(tmp_path)
+        assert get_checkpoint_db_path() == tmp_path.resolve() / "runs" / "checkpoints.db"
 
     def test_all_return_path_objects(self, monkeypatch, tmp_path):
         self._setup_root(monkeypatch, tmp_path)
+        monkeypatch.chdir(tmp_path)
         for fn in (
             get_workflows_dir,
             get_benchmarks_dir,
@@ -142,6 +145,22 @@ class TestDerivedPaths:
             get_checkpoint_db_path,
         ):
             assert isinstance(fn(), Path)
+
+    def test_runs_dir_uses_cwd_not_project_root(self, monkeypatch, tmp_path):
+        """get_runs_dir() uses CWD, not get_project_root()."""
+        self._setup_root(monkeypatch, tmp_path)
+        other_dir = tmp_path / "my_project"
+        other_dir.mkdir()
+        monkeypatch.chdir(other_dir)
+        assert get_runs_dir() == other_dir.resolve() / "runs"
+
+    def test_runs_dir_env_override(self, monkeypatch, tmp_path):
+        """HARNESS_RUNS_DIR env var takes highest priority."""
+        custom = tmp_path / "custom_runs"
+        custom.mkdir()
+        monkeypatch.setenv("HARNESS_RUNS_DIR", str(custom))
+        monkeypatch.chdir(tmp_path)
+        assert get_runs_dir() == custom.resolve()
 
 
 class TestDerivedPathsAgainstRealRoot:
