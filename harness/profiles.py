@@ -60,6 +60,8 @@ class ProfileManager:
             out = {**p}
             out["api_key_masked"] = mask_key(p.get("api_key", ""))
             del out["api_key"]
+            out["proxy_masked"] = mask_key(p.get("proxy", ""))
+            del out["proxy"]
             out["is_active"] = p["name"] == active
             results.append(out)
         return results
@@ -106,11 +108,18 @@ class ProfileManager:
             saved = {**profile}
             profiles.append(saved)
 
+        # Preserve proxy if incoming is masked
+        incoming_proxy = profile.get("proxy", "")
+        if existing and (_MASK_RE.match(incoming_proxy) or not incoming_proxy):
+            profile["proxy"] = existing.get("proxy", "")
+
         self._save(data)
 
         out = {**saved}
         out["api_key_masked"] = mask_key(saved.get("api_key", ""))
         del out["api_key"]
+        out["proxy_masked"] = mask_key(saved.get("proxy", ""))
+        del out["proxy"]
         out["is_active"] = saved["name"] == data.get("active", "")
         return out
 
