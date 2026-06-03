@@ -281,6 +281,22 @@ async def activate_profile(name: str) -> dict:
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.put("/profiles/{name}/rename")
+async def rename_profile(name: str, request: Request) -> dict:
+    """Rename an LLM profile."""
+    from harness.profiles import ProfileManager
+
+    body = await request.json()
+    new_name = body.get("new_name", "").strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="New name is required")
+    mgr = ProfileManager()
+    try:
+        return mgr.rename_profile(name, new_name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/agents")
 async def list_agents(
     workflow: str,

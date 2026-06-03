@@ -160,6 +160,41 @@ class ProfileManager:
         from harness.config import get_config
         return get_config()
 
+    def rename_profile(self, old_name: str, new_name: str) -> dict:
+        """Rename a profile. Updates the active reference if needed."""
+        new_name = new_name.strip()
+        if not new_name:
+            raise ValueError("New name is required")
+
+        data = self._load()
+        profiles = data["profiles"]
+
+        target = next((p for p in profiles if p["name"] == old_name), None)
+        if not target:
+            raise ValueError(f"Profile '{old_name}' not found")
+
+        conflict = next(
+            (p for p in profiles if p["name"].lower() == new_name.lower() and p is not target),
+            None,
+        )
+        if conflict:
+            raise ValueError(f"Name conflicts with existing '{conflict['name']}'")
+
+        target["name"] = new_name
+
+        if data.get("active") == old_name:
+            data["active"] = new_name
+
+        self._save(data)
+
+        out = {**target}
+        out["api_key_masked"] = mask_key(target.get("api_key", ""))
+        del out["api_key"]
+        out["proxy_masked"] = mask_key(target.get("proxy", ""))
+        del out["proxy"]
+        out["is_active"] = target["name"] == data.get("active", "")
+        return out
+
     def get_active_name(self) -> str | None:
         data = self._load()
         return data.get("active") or None

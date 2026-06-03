@@ -71,6 +71,7 @@ export default function LlmProfileSettings({
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [isNew, setIsNew] = useState(false);
   const [form, setForm] = useState<ProfileFormData>(emptyForm);
+  const [originalName, setOriginalName] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [activating, setActivating] = useState(false);
   const [message, setMessage] = useState<{
@@ -123,6 +124,7 @@ export default function LlmProfileSettings({
     if (!p) return;
     setSelectedIdx(idx);
     setIsNew(false);
+    setOriginalName(p.name);
     setForm({
       name: p.name,
       model: p.model,
@@ -140,6 +142,7 @@ export default function LlmProfileSettings({
     if (!p) return;
     setSelectedIdx(idx);
     setIsNew(false);
+    setOriginalName(p.name);
     setForm({
       name: p.name,
       model: p.model,
@@ -154,6 +157,7 @@ export default function LlmProfileSettings({
   function handleNew() {
     setIsNew(true);
     setSelectedIdx(null);
+    setOriginalName(null);
     setForm({ ...emptyForm });
   }
 
@@ -168,6 +172,21 @@ export default function LlmProfileSettings({
     setSaving(true);
     setMessage(null);
     try {
+      if (!isNew && originalName && form.name !== originalName) {
+        const rr = await fetch(
+          `/api/profiles/${encodeURIComponent(originalName)}/rename`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ new_name: form.name }),
+          },
+        );
+        if (!rr.ok) {
+          const err = await rr.json();
+          setMessage({ type: "err", text: err.detail || "Rename failed" });
+          return;
+        }
+      }
       const r = await fetch("/api/profiles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -197,6 +216,7 @@ export default function LlmProfileSettings({
         setIsNew(false);
         setSelectedIdx(idx);
         const p = updated.profiles[idx];
+        setOriginalName(p.name);
         setForm({
           name: p.name,
           model: p.model,
@@ -220,6 +240,21 @@ export default function LlmProfileSettings({
     setActivating(true);
     setMessage(null);
     try {
+      if (!isNew && originalName && form.name !== originalName) {
+        const rr = await fetch(
+          `/api/profiles/${encodeURIComponent(originalName)}/rename`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ new_name: form.name }),
+          },
+        );
+        if (!rr.ok) {
+          const err = await rr.json();
+          setMessage({ type: "err", text: err.detail || "Rename failed" });
+          return;
+        }
+      }
       const saveR = await fetch("/api/profiles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -429,8 +464,17 @@ function ProviderTab({
     <div className="flex min-h-[400px] border-t">
       {/* Left panel — profile list */}
       <div className="w-[170px] shrink-0 border-r bg-muted/30 flex flex-col">
-        <div className="px-3 pt-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Profiles
+        <div className="px-3 pt-3 pb-2 flex items-center justify-between">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Profiles
+          </span>
+          <button
+            onClick={onNew}
+            className="h-5 w-5 inline-flex items-center justify-center rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            title="New profile"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
         </div>
         <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5">
           {profiles.map((p, idx) => (
@@ -461,33 +505,28 @@ function ProviderTab({
             </div>
           ))}
         </div>
-        <div className="p-2 border-t">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full h-7 text-xs gap-1"
-            onClick={onNew}
-          >
-            <Plus className="h-3 w-3" /> New
-          </Button>
-        </div>
       </div>
 
       {/* Right panel — form */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3.5">
-        {isNew && (
-          <div>
-            <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <div>
+          <div className="mb-1 flex items-center gap-2">
+            <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
               Profile Name
             </label>
-            <Input
-              value={form.name}
-              onChange={(e) => onUpdateForm("name", e.target.value)}
-              placeholder="e.g. DeepSeek"
-              className="h-8 text-xs"
-            />
+            {!isNew && selectedIdx !== null && profiles[selectedIdx]?.is_active && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-green-100 dark:bg-green-900/30 px-1.5 py-0.5 text-[10px] font-medium text-green-700 dark:text-green-400">
+                <Check className="h-2.5 w-2.5" /> Active
+              </span>
+            )}
           </div>
-        )}
+          <Input
+            value={form.name}
+            onChange={(e) => onUpdateForm("name", e.target.value)}
+            placeholder="e.g. DeepSeek"
+            className="h-8 text-xs"
+          />
+        </div>
 
         {/* Connection */}
         <fieldset className="rounded-lg border p-3 space-y-2.5">
