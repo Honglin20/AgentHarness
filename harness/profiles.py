@@ -142,15 +142,18 @@ class ProfileManager:
 
         proxy_val = target.get("proxy", "") if target.get("proxy_enabled", False) else ""
 
-        # Clear env vars that configure() skips on empty/falsy values
-        for key in ("HARNESS_API_KEY", "HARNESS_MODEL", "HARNESS_API_URL"):
+        # Clear all harness env vars so stale values don't persist
+        for key in (
+            "HARNESS_API_KEY", "HARNESS_MODEL", "HARNESS_API_URL",
+            "HARNESS_PROXY", "HARNESS_SSL_VERIFY",
+        ):
             os.environ.pop(key, None)
 
         configure(
             api_key=target.get("api_key", "") or None,
             model=target.get("model", "") or None,
             api_url=target.get("api_url", "") or None,
-            proxy=proxy_val or None,
+            proxy=proxy_val,  # "" clears proxy from env + .env
             ssl_verify="true" if target.get("ssl_verify", True) else "false",
         )
 
