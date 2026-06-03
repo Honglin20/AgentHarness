@@ -98,6 +98,10 @@ class AskUserToolFactory(ToolFactory):
         "ALWAYS set header (short label like 'Model' or 'Priority') when using options. "
         "ALWAYS provide 2-6 options with concise labels (<=30 chars). "
         "Add description per option when the label alone is ambiguous.\n\n"
+        "FORMATTING: The question text is rendered as Markdown. "
+        "Use markdown tables for comparisons, bullet lists for multiple items, "
+        "and headers to separate sections. NEVER dump a long unformatted paragraph — "
+        "structure the question so it's easy to scan at a glance.\n\n"
         "Returns the user's answer as a plain string. "
         "Blocks until answered or 5 min timeout."
     )

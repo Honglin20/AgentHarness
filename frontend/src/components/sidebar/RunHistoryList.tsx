@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CheckCircle, XCircle, X, Trash2, Play, RotateCcw, Pause, CheckSquare, Square } from "lucide-react";
 import { useRunHistoryStore, type RunSummary, type RunRecord } from "@/stores/runHistoryStore";
 import { useViewStore } from "@/stores/viewStore";
@@ -8,7 +8,7 @@ import { useWorkflowStore } from "@/stores/workflowStore";
 import { useBatchStore } from "@/stores/batchStore";
 import { setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
 import { fetchWithAuth } from "@/lib/api";
-import { confirmAction, showSuccess, showError } from "@/lib/confirm";
+import { showSuccess, showError } from "@/lib/confirm";
 import { RunHistorySkeleton } from "./RunHistorySkeleton";
 
 const STATUS_ICON: Record<string, React.ReactNode> = {
@@ -65,6 +65,8 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
   const liveWorkflowId = useWorkflowStore((s) => s.workflowId);
   const setWorkflow = useWorkflowStore((s) => s.setWorkflow);
   const activeBatchId = useBatchStore((s) => s.activeBatchId);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
 
   // Initial load - only when not in batch mode
   useEffect(() => {
@@ -165,19 +167,15 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
     await fetchRuns();
   };
 
-  const handleDeleteRun = async (e: React.MouseEvent, runId: string) => {
-    e.stopPropagation();
-    const ok = await confirmAction("Delete this run record?");
-    if (!ok) return;
+  const handleDeleteRun = async (runId: string) => {
     await fetchWithAuth(`/api/runs/${runId}`, { method: "DELETE" });
+    setConfirmDeleteId(null);
     await fetchRuns();
   };
 
   const handleBatchDelete = async () => {
     const ids = Array.from(selectedRunIds);
     if (ids.length === 0) return;
-    const ok = await confirmAction(`Delete ${ids.length} run record${ids.length > 1 ? "s" : ""}?`);
-    if (!ok) return;
     try {
       const r = await fetchWithAuth("/api/runs/batch-delete", {
         method: "POST",
@@ -199,6 +197,7 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
     } catch {
       showError("Batch delete failed");
     }
+    setConfirmBatchDelete(false);
     clearSelection();
     toggleSelectMode();
     await fetchRuns();
@@ -217,25 +216,47 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
       {/* Select mode toolbar */}
       {isSelectMode && (
         <div className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background px-3 py-1.5">
-          <span className="text-xs text-muted-foreground">
-            {selectedRunIds.size} selected
-          </span>
-          <button
-            onClick={handleBatchDelete}
-            disabled={selectedRunIds.size === 0}
-            className="ml-auto inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-red-600 hover:bg-red-100 disabled:pointer-events-none disabled:opacity-40"
-            title="Delete selected runs"
-          >
-            <Trash2 className="h-3 w-3" />
-            Delete
-          </button>
-          <button
-            onClick={toggleSelectMode}
-            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
-            title="Cancel selection"
-          >
-            <X className="h-3 w-3" />
-          </button>
+          {confirmBatchDelete ? (
+            <>
+              <span className="text-xs text-red-600 font-medium">
+                Delete {selectedRunIds.size} run{selectedRunIds.size > 1 ? "s" : ""}?
+              </span>
+              <button
+                onClick={handleBatchDelete}
+                className="ml-auto rounded bg-red-600 px-2 py-0.5 text-xs text-white hover:bg-red-700"
+              >
+                Yes
+              </button>
+              <button
+                onClick={() => setConfirmBatchDelete(false)}
+                className="rounded px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted"
+              >
+                No
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="text-xs text-muted-foreground">
+                {selectedRunIds.size} selected
+              </span>
+              <button
+                onClick={() => setConfirmBatchDelete(true)}
+                disabled={selectedRunIds.size === 0}
+                className="ml-auto inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-red-600 hover:bg-red-100 disabled:pointer-events-none disabled:opacity-40"
+                title="Delete selected runs"
+              >
+                <Trash2 className="h-3 w-3" />
+                Delete
+              </button>
+              <button
+                onClick={toggleSelectMode}
+                className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+                title="Cancel selection"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </>
+          )}
         </div>
       )}
       {grouped.map(([wfName, wfRuns]) => (
@@ -292,29 +313,48 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
                 )}
                 {!isSelectMode && (isPaused || isDone) && (
                   <>
-                    {isPaused && (
-                      <button
-                        onClick={(e) => handleResume(e, run.run_id)}
-                        className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-emerald-100 hover:text-emerald-600 transition"
-                        title="Resume"
-                      >
-                        <Play className="h-3 w-3" />
-                      </button>
+                    {confirmDeleteId === run.run_id ? (
+                      <>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteRun(run.run_id); }}
+                          className="shrink-0 rounded bg-red-600 px-1.5 py-0.5 text-[10px] text-white hover:bg-red-700"
+                        >
+                          Yes
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
+                          className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted"
+                        >
+                          No
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        {isPaused && (
+                          <button
+                            onClick={(e) => handleResume(e, run.run_id)}
+                            className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-emerald-100 hover:text-emerald-600 transition"
+                            title="Resume"
+                          >
+                            <Play className="h-3 w-3" />
+                          </button>
+                        )}
+                        <button
+                          onClick={(e) => handleRerun(e, run.run_id)}
+                          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-blue-100 hover:text-blue-600 transition"
+                          title="Re-run"
+                        >
+                          <RotateCcw className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(run.run_id); }}
+                          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-red-100 hover:text-red-500 transition"
+                          title="Delete run"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </>
                     )}
-                    <button
-                      onClick={(e) => handleRerun(e, run.run_id)}
-                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-blue-100 hover:text-blue-600 transition"
-                      title="Re-run"
-                    >
-                      <RotateCcw className="h-3 w-3" />
-                    </button>
-                    <button
-                      onClick={(e) => handleDeleteRun(e, run.run_id)}
-                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-red-100 hover:text-red-500 transition"
-                      title="Delete run"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
                   </>
                 )}
               </div>

@@ -49,22 +49,30 @@ class McpToolFactory(ToolFactory):
         self.input_schema = input_schema
 
     def create(self) -> PydanticAITool:
+        from pydantic_ai.tools import ToolDefinition
+
         session = self.session
         mcp_name = self.mcp_tool_name
+        input_schema = self.input_schema
 
         async def mcp_tool_call(ctx: RunContext, **kwargs) -> str:
             result = await session.call_tool(mcp_name, arguments=kwargs)
-            # MCP returns list of content blocks; concatenate text
             return "\n".join(
                 block.text for block in result.content
                 if isinstance(block.text, str)
             )
+
+        async def prepare(ctx: RunContext, tool_def: ToolDefinition) -> ToolDefinition:
+            if input_schema:
+                tool_def.parameters_json_schema = input_schema
+            return tool_def
 
         return PydanticAITool(
             mcp_tool_call,
             name=self.name,
             description=self.description,
             takes_ctx=True,
+            prepare=prepare,
         )
 
 
