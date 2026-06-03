@@ -380,10 +380,15 @@ class MacroGraphBuilder:
         conditional_targets = set()
         # Track agents with after=None (only trigger via conditional edges)
         conditional_only_nodes = set()
+        # Track source nodes that have conditional edges — their outgoing
+        # routing is fully controlled by conditional edges, so static edges
+        # from them must be skipped to avoid conflicting paths.
+        conditional_source_nodes = set()
         for agent in agents:
             if agent.after is None:
                 conditional_only_nodes.add(agent.name)
             if agent.has_conditional_edges:
+                conditional_source_nodes.add(agent.name)
                 if agent.on_pass is not None:
                     conditional_targets.add(agent.on_pass)
                 if agent.on_fail is not None:
@@ -400,9 +405,13 @@ class MacroGraphBuilder:
                 graph.add_edge(START, agent_name)
 
         # Add edges between dependent nodes
+        # Skip static edges FROM nodes that have conditional edges — their
+        # routing is handled entirely by add_conditional_edges below.
         for agent_name in execution_order:
             deps = dep_map[agent_name] or []
             for dep in deps:
+                if dep in conditional_source_nodes:
+                    continue
                 graph.add_edge(dep, agent_name)
 
         # Track which nodes have conditional edges
@@ -458,7 +467,7 @@ class MacroGraphBuilder:
             final_tool_names = None  # → resolve() loads all
         else:
             final_tool_names = md_tools + [t for t in api_tools if t not in md_tools]
-            final_tool_names = self.tool_registry.expand_globs(final_tool_names)
+            final_tool_names = self.tool_registry.expand_globs(final_tool_names, strict=False)
 
         model = agent_def.model or parsed.model
         retries = parsed.retries

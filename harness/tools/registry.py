@@ -27,16 +27,22 @@ class ToolRegistry:
     def register(self, name: str, factory: ToolFactory) -> None:
         self._factories[name] = factory
 
-    def expand_globs(self, patterns: list[str]) -> list[str]:
+    def expand_globs(self, patterns: list[str], strict: bool = True) -> list[str]:
         """Expand glob patterns and ``!`` exclusions against the registry.
 
         Rules:
-          - Literal names match themselves; must already be registered or raise.
+          - Literal names match themselves; must already be registered or raise
+            (unless ``strict=False``).
           - ``*`` / ``?`` / ``[...]`` patterns match any subset of registered
             tool names; empty matches are allowed (no error).
           - Leading ``!`` flips the entry into an exclusion. Exclusions are
             applied last, regardless of position.
           - Output preserves input order and deduplicates.
+
+        Args:
+            strict: When True (default), unregistered literal names raise
+                ToolNotFoundError. When False, they are passed through — used
+                during compile() when MCP servers may not be connected yet.
 
         Examples:
           ["bash"]                              → ["bash"]
@@ -62,7 +68,10 @@ class ToolRegistry:
                         includes.append(name)
             else:
                 if raw not in self._factories:
-                    raise ToolNotFoundError(f"Tool '{raw}' not registered")
+                    if strict:
+                        raise ToolNotFoundError(f"Tool '{raw}' not registered")
+                    # Non-strict: pass through unregistered names (e.g. MCP tools
+                    # not yet connected). Exclusions still apply below.
                 if raw not in includes:
                     includes.append(raw)
         return [n for n in includes if n not in excludes]
