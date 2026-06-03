@@ -17,6 +17,7 @@ from harness.paths import get_profiles_file
 
 
 _MASK_RE = re.compile(r"^\*+$")
+_MASKED_KEY_RE = re.compile(r"^.{0,4}\*{3,}.{0,4}$")
 
 
 class ProfileManager:
@@ -90,9 +91,12 @@ class ProfileManager:
 
         existing = next((p for p in profiles if p["name"] == name), None)
         if existing:
-            # Update — preserve key if incoming is masked
-            if _MASK_RE.match(incoming_key) or not incoming_key:
+            # Preserve sensitive fields if incoming values are masked or empty
+            if _MASKED_KEY_RE.match(incoming_key) or _MASK_RE.match(incoming_key) or not incoming_key:
                 profile["api_key"] = existing.get("api_key", "")
+            incoming_proxy = profile.get("proxy", "")
+            if _MASKED_KEY_RE.match(incoming_proxy) or _MASK_RE.match(incoming_proxy) or not incoming_proxy:
+                profile["proxy"] = existing.get("proxy", "")
             existing.update(profile)
             saved = existing
         else:
@@ -107,11 +111,6 @@ class ProfileManager:
                 )
             saved = {**profile}
             profiles.append(saved)
-
-        # Preserve proxy if incoming is masked
-        incoming_proxy = profile.get("proxy", "")
-        if existing and (_MASK_RE.match(incoming_proxy) or not incoming_proxy):
-            profile["proxy"] = existing.get("proxy", "")
 
         self._save(data)
 
