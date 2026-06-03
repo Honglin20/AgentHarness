@@ -31,6 +31,16 @@ export interface AgentIORecord {
   output_result: unknown;
 }
 
+export interface RunSummary {
+  run_id: string;
+  workflow_name: string;
+  status: string;
+  inputs: Record<string, unknown>;
+  created_at: string;
+  batch_id?: string | null;
+  user_id?: string | null;
+}
+
 export interface RunRecord {
   run_id: string;
   workflow_name: string;
@@ -68,7 +78,7 @@ export interface RunRecord {
 }
 
 interface RunHistoryState {
-  runs: RunRecord[];
+  runs: RunSummary[];
   loading: boolean;
   selectedRunId: string | null;
   selectedRunIds: Set<string>;
@@ -96,7 +106,7 @@ export const useRunHistoryStore = create<RunHistoryState>()((set) => ({
       const params = workflowName ? `?workflow_name=${encodeURIComponent(workflowName)}` : "";
       const r = await fetchWithAuth(`/api/runs${params}`);
       if (r.ok) {
-        const runs: RunRecord[] = await r.json();
+        const runs: RunSummary[] = await r.json();
         set({ runs, loading: false });
       } else {
         console.error(`fetchRuns: ${r.status} ${r.statusText}`);

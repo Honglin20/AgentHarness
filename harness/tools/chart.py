@@ -1,6 +1,6 @@
 """render_chart function — code-callable chart rendering with dual-channel delivery.
 
-This is NOT a Pydantic AI tool. Agent code calls it directly.
+Also provides RenderChartToolFactory so agents can call render_chart as a Pydantic AI tool.
 """
 
 from __future__ import annotations
@@ -10,6 +10,8 @@ import logging
 import os
 import sys
 from typing import Any
+
+from pydantic_ai import RunContext
 
 logger = logging.getLogger(__name__)
 
@@ -297,3 +299,63 @@ def render_chart(
         _http_post(url, {"node_id": node_id, "chart": chart_payload})
 
     return rendered_msg
+
+
+# ---------------------------------------------------------------------------
+# Pydantic AI Tool wrapper
+# ---------------------------------------------------------------------------
+
+class RenderChartToolFactory:
+    """ToolFactory that exposes render_chart as a Pydantic AI agent tool."""
+
+    name = "render_chart"
+    description = (
+        "Render a chart visualization (bar, line, scatter, heatmap, etc.) to the frontend. "
+        "Use this to visualize data analysis results. The chart will appear inline in the "
+        "conversation AND in the Results tab.\n\n"
+        "Args:\n"
+        "  data: List of row dicts (e.g. [{'month':'Jan','sales':100}, ...]).\n"
+        "  chart_type: 'line' | 'bar' | 'scatter' | 'pareto' | 'optimal_line' | 'heatmap' "
+        "| 'box' | 'bubble' | 'area' | 'radar' | 'table' | 'waterfall'.\n"
+        "  x: X-axis column name.\n"
+        "  y: Y-axis column name.\n"
+        "  label: Group label for collapsible sections (default 'default').\n"
+        "  title: Chart title.\n"
+        "  hue: Color-grouping column.\n"
+        "  size: Bubble size column (chart_type='bubble' only).\n"
+    )
+
+    def __init__(self, event_bus=None):
+        self.event_bus = event_bus
+
+    def create(self):
+        def render_chart_tool(
+            ctx: RunContext,
+            data: list[dict[str, Any]],
+            chart_type: str,
+            x: str | None = None,
+            y: str | None = None,
+            label: str = "default",
+            title: str = "",
+            hue: str | None = None,
+            size: str | None = None,
+            pareto_direction: str | None = None,
+            optimal_line: str | None = None,
+        ) -> str:
+            node_id = getattr(ctx.deps, "node_id", "") if ctx.deps else ""
+            return render_chart(
+                data=data,
+                chart_type=chart_type,
+                x=x,
+                y=y,
+                label=label,
+                title=title,
+                hue=hue,
+                size=size,
+                pareto_direction=pareto_direction,
+                optimal_line=optimal_line,
+                node_id=node_id,
+            )
+
+        from pydantic_ai import Tool as PydanticAITool
+        return PydanticAITool(render_chart_tool, name="render_chart", takes_ctx=True, description=self.description)

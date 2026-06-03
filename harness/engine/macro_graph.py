@@ -218,9 +218,13 @@ class MacroGraphBuilder:
         self._pending_guidance: str = ""
 
         # Register event-bus-dependent tools when event_bus is available
-        if event_bus and "ask_user" not in self.tool_registry.list_tools():
-            from harness.tools.ask_user import AskUserToolFactory
-            self.tool_registry.register("ask_user", AskUserToolFactory(event_bus=event_bus))
+        if event_bus:
+            if "ask_user" not in self.tool_registry.list_tools():
+                from harness.tools.ask_user import AskUserToolFactory
+                self.tool_registry.register("ask_user", AskUserToolFactory(event_bus=event_bus))
+            if "render_chart" not in self.tool_registry.list_tools():
+                from harness.tools.chart import RenderChartToolFactory
+                self.tool_registry.register("render_chart", RenderChartToolFactory(event_bus=event_bus))
 
         self.micro_factory = MicroAgentFactory(tool_registry=self.tool_registry)
 

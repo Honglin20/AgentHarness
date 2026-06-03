@@ -4,7 +4,8 @@ import { useState, useEffect, useMemo } from "react";
 import { FileText, Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import type { RunRecord, AgentSnapshot } from "@/stores/runHistoryStore";
+import type { RunRecord, RunSummary, AgentSnapshot } from "@/stores/runHistoryStore";
+import { fetchWithAuth } from "@/lib/api";
 
 interface WorkflowCompareDialogProps {
   open: boolean;
@@ -70,33 +71,56 @@ function RunSide({ run, side }: { run: RunRecord | null; side: "left" | "right" 
 }
 
 export function WorkflowCompareDialog({ open, onOpenChange }: WorkflowCompareDialogProps) {
-  const [runs, setRuns] = useState<RunRecord[]>([]);
+  const [summaries, setSummaries] = useState<RunSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [leftId, setLeftId] = useState<string>("");
   const [rightId, setRightId] = useState<string>("");
+  const [leftRun, setLeftRun] = useState<RunRecord | null>(null);
+  const [rightRun, setRightRun] = useState<RunRecord | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setLoading(true);
-    fetch("/api/runs")
+    fetchWithAuth("/api/runs")
       .then((r) => r.json())
-      .then((data: RunRecord[]) => { setRuns(data); setLoading(false); })
-      .catch(() => { setRuns([]); setLoading(false); });
+      .then((data: RunSummary[]) => { setSummaries(data); setLoading(false); })
+      .catch(() => { setSummaries([]); setLoading(false); });
   }, [open]);
+
+  // Fetch full run data when selection changes
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    if (leftId) {
+      fetchWithAuth(`/api/runs/${leftId}`).then((r) => r.ok ? r.json() : null).then((data: RunRecord | null) => {
+        if (!cancelled) setLeftRun(data);
+      });
+    } else {
+      setLeftRun(null);
+    }
+    if (rightId) {
+      fetchWithAuth(`/api/runs/${rightId}`).then((r) => r.ok ? r.json() : null).then((data: RunRecord | null) => {
+        if (!cancelled) setRightRun(data);
+      });
+    } else {
+      setRightRun(null);
+    }
+    return () => { cancelled = true; };
+  }, [open, leftId, rightId]);
 
   // Group runs by workflow_name for the <optgroup> rendering, preserving created_at desc within each group
   const grouped = useMemo(() => {
-    const map = new Map<string, RunRecord[]>();
-    for (const r of runs) {
+    const map = new Map<string, RunSummary[]>();
+    for (const r of summaries) {
       const key = r.workflow_name || "(unnamed)";
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(r);
     }
     return Array.from(map.entries());
-  }, [runs]);
+  }, [summaries]);
 
-  const left = runs.find((r) => r.run_id === leftId) ?? null;
-  const right = runs.find((r) => r.run_id === rightId) ?? null;
+  const left = leftRun;
+  const right = rightRun;
 
   const renderSelect = (value: string, onChange: (v: string) => void, otherId: string) => (
     <select
@@ -137,7 +161,7 @@ export function WorkflowCompareDialog({ open, onOpenChange }: WorkflowCompareDia
               <div className="col-span-2 flex items-center gap-2 text-xs text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" /> loading runs…
               </div>
-            ) : runs.length === 0 ? (
+            ) : summaries.length === 0 ? (
               <p className="col-span-2 text-xs text-muted-foreground">No runs yet. Start a workflow to populate history.</p>
             ) : (
               <>

@@ -94,6 +94,17 @@ class RunDetail(BaseModel):
     user_id: str | None = None
 
 
+class RunSummary(BaseModel):
+    """Lightweight run record for list views — excludes heavy fields."""
+    run_id: str
+    workflow_name: str
+    status: str
+    inputs: dict = {}
+    created_at: str
+    batch_id: str | None = None
+    user_id: str | None = None
+
+
 class CheckpointInfo(BaseModel):
     """A single checkpoint within a workflow run."""
     checkpoint_id: str

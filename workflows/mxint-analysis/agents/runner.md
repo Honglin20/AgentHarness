@@ -22,16 +22,10 @@ BITX_ADAPTER_EOF
 
 ## Step 2: Run analysis
 
-Execute the CLI command from the configurator's summary. Prefer:
+Execute the CLI command from the configurator's summary:
 
 ```bash
-/opt/anaconda3/envs/bitx-test/bin/python -m bitx.api.mxint_error_analysis \
-  --adapter /path/to/_adapter.py --device <device from configurator>
-```
-
-If bitx is not installed, try:
-```bash
-PYTHONPATH=/path/to/microxcaling python -m src.api.mxint_error_analysis \
+python -m bitx.api.mxint_error_analysis \
   --adapter /path/to/_adapter.py --device <device from configurator>
 ```
 

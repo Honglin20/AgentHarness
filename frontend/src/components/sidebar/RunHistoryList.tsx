@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo } from "react";
 import { CheckCircle, XCircle, X, Trash2, Play, RotateCcw, Pause, CheckSquare, Square } from "lucide-react";
-import { useRunHistoryStore, type RunRecord } from "@/stores/runHistoryStore";
+import { useRunHistoryStore, type RunSummary, type RunRecord } from "@/stores/runHistoryStore";
 import { useViewStore } from "@/stores/viewStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useBatchStore } from "@/stores/batchStore";
@@ -89,7 +89,7 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
   }, [workflowStatus, activeBatchId, fetchRuns]);
 
   const grouped = useMemo(() => {
-    const map = new Map<string, RunRecord[]>();
+    const map = new Map<string, RunSummary[]>();
     for (const run of runs) {
       const key = run.workflow_name;
       if (!map.has(key)) map.set(key, []);
@@ -98,7 +98,7 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
     return Array.from(map.entries());
   }, [runs]);
 
-  const handleClickRun = async (run: RunRecord) => {
+  const handleClickRun = async (run: RunSummary) => {
     if (isSelectMode) {
       toggleRunSelection(run.run_id);
       return;

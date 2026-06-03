@@ -8,7 +8,7 @@ from harness.tools.grep_glob import GrepToolFactory, GlobToolFactory
 from harness.tools.mcp_bridge import McpBridge, McpServerConfig
 from harness.tools.registry import ToolRegistry
 from harness.tools.sub_agent import SubAgentToolFactory
-from harness.tools.chart import render_chart
+from harness.tools.chart import render_chart, RenderChartToolFactory
 
 
 def _find_filesystem_server(
@@ -55,6 +55,7 @@ def default_tool_registry(event_bus=None) -> ToolRegistry:
     registry.register("bash", BashToolFactory())
     registry.register("grep", GrepToolFactory())
     registry.register("glob", GlobToolFactory())
+    registry.register("render_chart", RenderChartToolFactory(event_bus=event_bus))
     if event_bus:
         from harness.tools.ask_user import AskUserToolFactory
         registry.register("ask_user", AskUserToolFactory(event_bus=event_bus))

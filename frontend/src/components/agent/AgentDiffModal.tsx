@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { useRunHistoryStore, type RunRecord } from "@/stores/runHistoryStore";
+import { useRunHistoryStore, type RunSummary } from "@/stores/runHistoryStore";
 
 interface AgentDiffModalProps {
   open: boolean;
@@ -13,9 +13,12 @@ interface AgentDiffModalProps {
 }
 
 export function AgentDiffModal({ open, onOpenChange, agentName, workflowName }: AgentDiffModalProps) {
+  const fetchRun = useRunHistoryStore((s) => s.fetchRun);
   const runs = useRunHistoryStore((s) => s.runs);
   const [leftRunId, setLeftRunId] = useState<string>("");
   const [rightRunId, setRightRunId] = useState<string>("");
+  const [leftMd, setLeftMd] = useState("");
+  const [rightMd, setRightMd] = useState("");
 
   const workflowRuns = useMemo(() => runs.filter((r) => r.workflow_name === workflowName), [runs, workflowName]);
 
@@ -24,17 +27,32 @@ export function AgentDiffModal({ open, onOpenChange, agentName, workflowName }: 
     else if (workflowRuns.length === 1) { setRightRunId(workflowRuns[0].run_id); setLeftRunId(""); }
   }, [workflowRuns]);
 
-  const leftMd = useMemo(() => {
-    if (!leftRunId) return "";
-    const run = workflowRuns.find((r) => r.run_id === leftRunId);
-    return run?.agents_snapshot.find((a) => a.name === agentName)?.md_content ?? "(not found)";
-  }, [leftRunId, workflowRuns, agentName]);
-
-  const rightMd = useMemo(() => {
-    if (!rightRunId) return "";
-    const run = workflowRuns.find((r) => r.run_id === rightRunId);
-    return run?.agents_snapshot.find((a) => a.name === agentName)?.md_content ?? "(not found)";
-  }, [rightRunId, workflowRuns, agentName]);
+  // Fetch full run data on demand to get agents_snapshot
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    if (leftRunId) {
+      fetchRun(leftRunId).then((run) => {
+        if (!cancelled && run) {
+          const md = run.agents_snapshot?.find((a) => a.name === agentName)?.md_content ?? "(not found)";
+          setLeftMd(md);
+        }
+      });
+    } else {
+      setLeftMd("");
+    }
+    if (rightRunId) {
+      fetchRun(rightRunId).then((run) => {
+        if (!cancelled && run) {
+          const md = run.agents_snapshot?.find((a) => a.name === agentName)?.md_content ?? "(not found)";
+          setRightMd(md);
+        }
+      });
+    } else {
+      setRightMd("");
+    }
+    return () => { cancelled = true; };
+  }, [open, leftRunId, rightRunId, agentName, fetchRun]);
 
   const formatLabel = (runId: string) => {
     const run = workflowRuns.find((r) => r.run_id === runId);

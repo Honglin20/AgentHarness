@@ -69,7 +69,7 @@ class RunStore:
         print(f"[run_store] saved run → {path}")
         return path
 
-    def list_runs(self, workflow_name: str | None = None, include_batch: bool = False, user_id: str | None = None) -> list[dict]:
+    def list_runs(self, workflow_name: str | None = None, include_batch: bool = False, user_id: str | None = None, summary_only: bool = False) -> list[dict]:
         runs = []
         for f in self._dir.glob("*.json"):
             try:
@@ -81,7 +81,18 @@ class RunStore:
                     continue
                 if user_id is not None and data.get("user_id", "default") != user_id:
                     continue
-                runs.append(data)
+                if summary_only:
+                    runs.append({
+                        "run_id": data.get("run_id", ""),
+                        "workflow_name": data.get("workflow_name", ""),
+                        "status": data.get("status", ""),
+                        "inputs": data.get("inputs", {}),
+                        "created_at": data.get("created_at", ""),
+                        "batch_id": data.get("batch_id"),
+                        "user_id": data.get("user_id"),
+                    })
+                else:
+                    runs.append(data)
             except (json.JSONDecodeError, KeyError):
                 continue
         runs.sort(key=lambda r: r.get("created_at", ""), reverse=True)
