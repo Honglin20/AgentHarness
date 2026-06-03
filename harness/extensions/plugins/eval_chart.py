@@ -19,14 +19,14 @@ class EvalChartPlugin(BaseHook):
         if score is None:
             return
 
-        # Accumulate score history in plugin's own metadata namespace
-        plugin_meta = ctx.metadata.setdefault(self.name, {})
-        # Also pick up any prior history from the judge node's metadata
-        judge_meta = ctx.metadata.get(ctx.agent_name, {})
-        prior_history = list(judge_meta.get("score_history", []))
-        prior_history.extend(plugin_meta.get("extra_scores", []))
+        # Accumulate score history in the agent's metadata namespace.
+        # _make_node_func seeds prior score_history from LangGraph state
+        # (so it persists across retry iterations) and merges it back after
+        # hooks, completing the persistence cycle.
+        node_meta = ctx.metadata.setdefault(ctx.agent_name, {})
+        prior_history = list(node_meta.get("score_history", []))
         prior_history.append(score)
-        plugin_meta["score_history"] = prior_history
+        node_meta["score_history"] = prior_history
 
         target_name = ctx.agent_name.replace("_judge_", "")
         ctx.emit("chart.render", {

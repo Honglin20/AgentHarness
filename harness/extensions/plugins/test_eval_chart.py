@@ -86,5 +86,5 @@ async def test_score_history_accumulates():
     bus.register(plugin)
     ctx = _make_judge_ctx()
     await bus.run_hooks("on_node_end", ctx, FakeReviewOutput(score=0.5))
-    history = ctx.metadata.get("eval-chart", {}).get("score_history", [])
+    history = ctx.metadata.get("_judge_coder", {}).get("score_history", [])
     assert 0.5 in history
