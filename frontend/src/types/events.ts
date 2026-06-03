@@ -169,7 +169,8 @@ export interface ChartPayload {
     | "area"
     | "radar"
     | "table"
-    | "waterfall";
+    | "waterfall"
+    | "dist_overlay";
   data: Record<string, unknown>[];
   columns: string[];
   x?: string;
@@ -178,11 +179,24 @@ export interface ChartPayload {
   title: string;
   hue?: string;
   size?: string;
+  series?: SeriesConfig[];
   pareto_direction?: "max" | "min";
   pareto_x_direction?: "max" | "min";
   pareto_y_direction?: "max" | "min";
   optimal_line?: "max" | "min";
   category?: string;
+}
+
+export interface SeriesConfig {
+  key: string;
+  type?: "area" | "line";
+  axis?: "left" | "right";
+  color?: string;
+  fillOpacity?: number;
+  dash?: string;
+  step?: boolean;
+  label?: string;
+  strokeWidth?: number;
 }
 
 // Chat events (human-in-the-loop)

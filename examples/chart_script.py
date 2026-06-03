@@ -1,7 +1,8 @@
 """Demo script: generate data → render_chart() → pushes to frontend.
 
-展示全部 11 种图表类型：
-  line, bar, scatter, bubble, area, pareto, optimal_line, heatmap, box, radar, table
+展示全部 13 种图表类型：
+  line, bar, scatter, bubble, area, pareto, optimal_line, heatmap, box, radar,
+  table, waterfall, dist_overlay
 
 Called by an agent via the bash tool. render_chart() inside a server
 subprocess uses HTTP fallback (HARNESS_SERVER_URL set by server lifespan)
@@ -11,7 +12,11 @@ Usage (via agent bash tool):
     python examples/chart_script.py
 """
 
+import math
+import numpy as np
 from harness.tools.chart import render_chart
+
+np.random.seed(42)
 
 # ── 通用数据集 ──────────────────────────────────────────────
 
@@ -138,5 +143,60 @@ results.append(render_chart(time_series,
     chart_type="table",
     label="Data", title="Raw Data"))
 
+# ── dist_overlay: 双轴分布叠加图 ───────────────────────────────────
+
+# 12. dist_overlay — 量化分布对比 (area + line + right-axis area)
+fp32 = np.random.normal(0, 1, 5000)
+quant = fp32 + np.random.normal(0, 0.05, 5000)
+error = fp32 - quant
+n_bins = 64
+bins = np.linspace(-4, 4, n_bins + 1)
+centers = (bins[:-1] + bins[1:]) / 2
+fp32_hist, _ = np.histogram(fp32, bins=bins)
+quant_hist, _ = np.histogram(quant, bins=bins)
+err_hist, _ = np.histogram(error, bins=bins)
+dist_data = [
+    {"bin": round(float(c), 3),
+     "fp32": int(fp32_hist[i]), "quant": int(quant_hist[i]), "error": int(err_hist[i])}
+    for i, c in enumerate(centers)
+]
+results.append(render_chart(
+    dist_data, "dist_overlay", x="bin",
+    series=[
+        {"key": "fp32", "type": "area", "fillOpacity": 0.25, "step": True,
+         "label": "FP32", "color": "#5B8DB8"},
+        {"key": "quant", "type": "line", "dash": "6 3",
+         "label": "Quantized", "color": "#D4605A"},
+        {"key": "error", "type": "area", "axis": "right", "fillOpacity": 0.3,
+         "step": True, "label": "Error", "color": "#9CA3AF"},
+    ],
+    label="dist_overlay", title="FP32 vs INT8 vs Error (dual Y-axis)",
+))
+
+# 13. dist_overlay — 预测 vs 真实 + 残差 (custom columns, all lines)
+x_pts = np.linspace(0, 4 * np.pi, 80)
+pred = np.sin(x_pts) + np.random.normal(0, 0.1, 80)
+actual = np.sin(x_pts) + np.random.normal(0, 0.02, 80)
+residual = actual - pred
+pred_data = [
+    {"x": round(float(x_pts[i]), 2),
+     "pred": round(float(pred[i]), 3),
+     "actual": round(float(actual[i]), 3),
+     "residual": round(float(residual[i]), 3)}
+    for i in range(len(x_pts))
+]
+results.append(render_chart(
+    pred_data, "dist_overlay", x="x",
+    series=[
+        {"key": "pred", "type": "line", "label": "Prediction",
+         "color": "#E29D3E", "strokeWidth": 2},
+        {"key": "actual", "type": "area", "fillOpacity": 0.15,
+         "label": "Ground Truth", "color": "#6B9E5C"},
+        {"key": "residual", "type": "line", "axis": "right", "dash": "2 2",
+         "label": "Residual", "color": "#D4605A"},
+    ],
+    label="dist_overlay", title="Prediction vs Ground Truth + Residual",
+))
+
 print("\n".join(results))
-print(f"\nDone — {len(results)} charts rendered (12 types).")
+print(f"\nDone — {len(results)} charts rendered (13 types).")

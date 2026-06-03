@@ -20,6 +20,7 @@ _CHART_STDOUT_PREFIX = "__HARNESS_CHART__:"
 _VALID_CHART_TYPES = {
     "line", "bar", "scatter", "pareto", "optimal_line",
     "heatmap", "box", "bubble", "area", "radar", "table", "waterfall",
+    "dist_overlay",
 }
 
 
@@ -30,6 +31,7 @@ def _validate_chart(
     y: str | None,
     hue: str | None,
     size: str | None,
+    series: list[dict[str, Any]] | None = None,
 ) -> None:
     """Validate chart parameters. Raises ValueError with a clear message."""
     if chart_type not in _VALID_CHART_TYPES:
@@ -166,6 +168,32 @@ def _validate_chart(
         _col_exists(yKey, "y")
         _col_exists(hue, "hue")
 
+    # dist_overlay: requires series config with valid keys
+    if chart_type == "dist_overlay":
+        _col_exists(xKey, "x")
+        if not data:
+            raise ValueError("dist_overlay requires data")
+        columns_set = set(data[0].keys())
+        for i, s in enumerate(series or []):
+            if not isinstance(s, dict) or "key" not in s:
+                raise ValueError(
+                    f"dist_overlay series[{i}] must be a dict with 'key' field"
+                )
+            skey = s["key"]
+            if skey not in columns_set:
+                raise ValueError(
+                    f"dist_overlay series[{i}].key '{skey}' not in data columns: {sorted(columns_set)}"
+                )
+            stype = s.get("type", "area")
+            if stype not in ("area", "line"):
+                raise ValueError(
+                    f"dist_overlay series[{i}].type must be 'area' or 'line', got '{stype}'"
+                )
+            if stype == "area" or stype == "line":
+                _all_numeric(skey, f"series[{i}].key")
+        if not series:
+            raise ValueError("dist_overlay requires 'series' parameter")
+
 
 def _is_number(v: Any) -> bool:
     try:
@@ -213,6 +241,7 @@ def render_chart(
     title: str = "",
     hue: str | None = None,
     size: str | None = None,
+    series: list[dict[str, Any]] | None = None,
     pareto_direction: str | None = None,
     pareto_x_direction: str | None = None,
     pareto_y_direction: str | None = None,
@@ -231,13 +260,23 @@ def render_chart(
         data: Row dicts (equivalent to DataFrame.to_dict("records")).
         chart_type: "line" | "bar" | "scatter" | "pareto" | "optimal_line"
                     | "heatmap" | "box" | "bubble" | "area" | "radar"
-                    | "table"
+                    | "table" | "waterfall" | "dist_overlay"
         x: X-axis column name.
         y: Y-axis column name.
         label: Group label for frontend collapsible sections.
         title: Chart title. Same label+title replaces existing chart (live update).
         hue: Color-grouping column name.
         size: Bubble size column name (only for chart_type="bubble").
+        series: Series definitions for dist_overlay. Each entry is a dict:
+            - key (required): column name in data
+            - type: "area" or "line" (default "area")
+            - axis: "left" or "right" (default "left")
+            - color: hex color override (default from PALETTE)
+            - fillOpacity: 0-1 for area fill (default 0.2)
+            - dash: stroke-dasharray for line (e.g. "6 3")
+            - step: use step interpolation (default False)
+            - label: legend display name (defaults to key)
+            - strokeWidth: line width (default 1.5)
         pareto_direction: "max" or "min" (only for chart_type="pareto").
         pareto_x_direction: "max" or "min" — override x-axis direction for pareto.
         pareto_y_direction: "max" or "min" — override y-axis direction for pareto.
@@ -247,7 +286,7 @@ def render_chart(
     Returns:
         Confirmation string describing what was rendered.
     """
-    _validate_chart(data, chart_type, x, y, hue, size)
+    _validate_chart(data, chart_type, x, y, hue, size, series=series)
 
     columns: list[str] = list(data[0].keys()) if data else []
 
@@ -273,6 +312,8 @@ def render_chart(
         chart_payload["optimal_line"] = optimal_line
     if chart_type == "bubble" and size:
         chart_payload["size"] = size
+    if chart_type == "dist_overlay" and series:
+        chart_payload["series"] = series
 
     event_payload = {
         "node_id": node_id,
@@ -316,13 +357,17 @@ class RenderChartToolFactory:
         "Args:\n"
         "  data: List of row dicts (e.g. [{'month':'Jan','sales':100}, ...]).\n"
         "  chart_type: 'line' | 'bar' | 'scatter' | 'pareto' | 'optimal_line' | 'heatmap' "
-        "| 'box' | 'bubble' | 'area' | 'radar' | 'table' | 'waterfall'.\n"
+        "| 'box' | 'bubble' | 'area' | 'radar' | 'table' | 'waterfall' | 'dist_overlay'.\n"
         "  x: X-axis column name.\n"
         "  y: Y-axis column name.\n"
         "  label: Group label for collapsible sections (default 'default').\n"
         "  title: Chart title.\n"
         "  hue: Color-grouping column.\n"
         "  size: Bubble size column (chart_type='bubble' only).\n"
+        "  series: Series definitions for dist_overlay. Each entry: "
+        "{'key': col_name, 'type': 'area'|'line', 'axis': 'left'|'right', "
+        "'color': '#hex', 'fillOpacity': 0.2, 'dash': '6 3', 'step': false, "
+        "'label': 'display name', 'strokeWidth': 1.5}.\n"
     )
 
     def __init__(self, event_bus=None):
@@ -339,6 +384,7 @@ class RenderChartToolFactory:
             title: str = "",
             hue: str | None = None,
             size: str | None = None,
+            series: list[dict[str, Any]] | None = None,
             pareto_direction: str | None = None,
             optimal_line: str | None = None,
         ) -> str:
@@ -352,6 +398,7 @@ class RenderChartToolFactory:
                 title=title,
                 hue=hue,
                 size=size,
+                series=series,
                 pareto_direction=pareto_direction,
                 optimal_line=optimal_line,
                 node_id=node_id,

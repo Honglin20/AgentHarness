@@ -6,8 +6,9 @@
   3. render_chart() 通过 HTTP 发送到后端 /api/charts
   4. 后端通过 EventBus → WebSocket → 前端实时渲染
 
-支持 8 种图表类型:
-  line, bar, scatter, pareto, optimal_line, heatmap, box, table
+支持 13 种图表类型:
+  line, bar, scatter, pareto, optimal_line, heatmap, box, bubble, area,
+  radar, waterfall, table, dist_overlay
 
 用法（需要 UI）:
     python examples/09_charts.py                # 保存工作流
@@ -34,4 +35,5 @@ print("  3. 选择 'chart_demo'")
 print("  4. 任务: Run chart_script.py")
 print("  5. 运行 → 图表实时出现在面板中")
 print()
-print("图表类型: line, bar, scatter, pareto, optimal_line, heatmap, box, table")
+print("图表类型: line, bar, scatter, pareto, optimal_line, heatmap, box,")
+print("          bubble, area, radar, waterfall, table, dist_overlay")

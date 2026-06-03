@@ -684,11 +684,49 @@ render_chart(data, chart_type="table")
 | 箱线图 | `box` | 分布统计 | — |
 | 热力图 | `heatmap` | 矩阵强度可视化 | — |
 | 瀑布图 | `waterfall` | 执行时序甘特图（每 Agent 一行） | — |
+| 分布叠加图 | `dist_overlay` | 双轴多系列分布对比（Area + Line + 双 Y 轴） | `series` |
 | 数据表格 | `table` | 可排序数据表 | — |
+
+### 分布叠加图 (`dist_overlay`)
+
+通用元绘图函数，支持多数据系列在双 Y 轴上以 Area 或 Line 样式渲染。
+适用于量化分布对比、多信号叠加等场景。
+
+```python
+render_chart(
+    data=[
+        {"bin": -0.5, "fp32": 120, "quant": 118, "error": 2},
+        {"bin": -0.4, "fp32": 350, "quant": 340, "error": 10},
+    ],
+    chart_type="dist_overlay",
+    x="bin",
+    series=[
+        {"key": "fp32",  "type": "area", "fillOpacity": 0.25, "step": True},
+        {"key": "quant", "type": "line", "dash": "6 3"},
+        {"key": "error", "type": "area", "axis": "right", "fillOpacity": 0.3, "step": True},
+    ],
+    title="Distribution: fp32 vs quant vs error",
+)
+```
+
+`series` 每项配置：
+
+| 字段 | 说明 | 默认值 |
+|------|------|--------|
+| `key` | data 列名（必填） | — |
+| `type` | `"area"` 或 `"line"` | `"area"` |
+| `axis` | `"left"` 或 `"right"` | `"left"` |
+| `color` | hex 颜色 | PALETTE 轮换 |
+| `fillOpacity` | Area 填充透明度 | 0.2 |
+| `dash` | 虚线样式 (`"6 3"`) | 实线 |
+| `step` | 阶梯插值 | `false` |
+| `label` | 图例名称 | `key` 值 |
+| `strokeWidth` | 线宽 | 1.5 |
 
 图表通过 EventBus → WebSocket → 前端实时渲染。
 
 > 完整示例: [examples/09_charts.py](examples/09_charts.py)
+> 图表脚本: [workflows/_shared/scripts/chart_script.py](workflows/_shared/scripts/chart_script.py)（含全部 13 种图表类型）
 
 ---
 
@@ -1085,7 +1123,7 @@ WebSocket 连接时自动从 Header 解析用户 ID，实现事件级隔离。
 | 5 | `05_loop_retry.py` | DAG 级回环 | 是 |
 | 6 | `06_sub_agent_loop.py` | sub_agent 迭代 | 是 |
 | 8 | `08_eval_judge.py` | EvalJudge 自动评审 + 评分 + 重试 | 是 |
-| 9 | `09_charts.py` | Chart 可视化（需 UI） | 是 |
+| 9 | `09_charts.py` | Chart 可视化 13 种图表（含 dist_overlay 双轴） | 是 |
 | 10 | `10_save_load_ui.py` | 持久化 + UI | 是 |
 | 11 | `11_all_extensions.py` | 组合扩展 | 是 |
 | 12 | `12_benchmark.py` | Benchmark 批量评测 | 是 |

@@ -12,6 +12,7 @@ import BubbleChartWidget from "./charts/BubbleChartWidget";
 import AreaChartWidget from "./charts/AreaChartWidget";
 import RadarChartWidget from "./charts/RadarChartWidget";
 import WaterfallChartWidget from "./charts/WaterfallChartWidget";
+import DistOverlayChartWidget from "./charts/DistOverlayChartWidget";
 
 export default function ChartWidget({ chart }: { chart: ChartPayload }) {
   switch (chart.chart_type) {
@@ -37,6 +38,8 @@ export default function ChartWidget({ chart }: { chart: ChartPayload }) {
       return <RadarChartWidget chart={chart} />;
     case "waterfall":
       return <WaterfallChartWidget chart={chart} />;
+    case "dist_overlay":
+      return <DistOverlayChartWidget chart={chart} />;
     case "table":
       return null; // tables handled by ChartGroup
     default:
