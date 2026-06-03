@@ -1,6 +1,6 @@
 ---
 name: adapter
-tools: [bash, grep, glob, ask_user]
+tools: [bash, grep, glob, read_file, ask_user]
 retries: 2
 ---
 

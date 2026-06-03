@@ -265,7 +265,7 @@ class MXIntDiagnosticReport(BaseModel):
 # ── Workflow definition ──────────────────────────────────────────────────
 
 wf = Workflow("mxint-diagnostic", agents=[
-    Agent("adapter", after=[], tools=["bash", "grep", "glob"],
+    Agent("adapter", after=[], tools=["bash", "grep", "glob", "read_file"],
           result_type=ProjectAnalysis),
     Agent("study_runner", after=["adapter"], tools=["bash"],
           result_type=StudyRunResult),

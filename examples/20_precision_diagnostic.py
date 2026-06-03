@@ -265,7 +265,7 @@ class DiagnosticReport(BaseModel):
 # ── Workflow definition ───────────────────────────────────────────────────
 
 wf = Workflow("precision-diagnostic", agents=[
-    Agent("adapter", after=[], tools=["bash", "grep", "glob", "ask_user"],
+    Agent("adapter", after=[], tools=["bash", "grep", "glob", "read_file", "ask_user"],
           result_type=ProjectAnalysis),
     Agent("quant_study", after=["adapter"], tools=["bash", "ask_user"],
           result_type=StudyRunResult),
