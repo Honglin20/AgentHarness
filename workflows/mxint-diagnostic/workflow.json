@@ -1,0 +1,1322 @@
+{
+  "name": "mxint-diagnostic",
+  "agents": [
+    {
+      "name": "adapter",
+      "after": [],
+      "tools": [
+        "bash",
+        "grep",
+        "glob"
+      ],
+      "model": null,
+      "retries": 3,
+      "result_type_name": "ProjectAnalysis",
+      "result_type_schema": {
+        "description": "Structured output from the adapter agent.",
+        "properties": {
+          "model_class": {
+            "description": "nn.Module class name (e.g. 'TransformerClassifier')",
+            "title": "Model Class",
+            "type": "string"
+          },
+          "model_module": {
+            "description": "Dotted import path relative to project root",
+            "title": "Model Module",
+            "type": "string"
+          },
+          "model_init_args": {
+            "additionalProperties": true,
+            "description": "Init kwargs for the model",
+            "title": "Model Init Args",
+            "type": "object"
+          },
+          "dataset": {
+            "description": "Dataset name (e.g. 'AG_NEWS')",
+            "title": "Dataset",
+            "type": "string"
+          },
+          "weights_path": {
+            "description": "Absolute path to weights file, or 'NOT_FOUND'",
+            "title": "Weights Path",
+            "type": "string"
+          },
+          "weights_exist": {
+            "description": "Whether the weights file exists on disk",
+            "title": "Weights Exist",
+            "type": "boolean"
+          },
+          "adapter_exists": {
+            "default": false,
+            "description": "Whether _adapter.py already exists",
+            "title": "Adapter Exists",
+            "type": "boolean"
+          },
+          "adapter_path": {
+            "default": "",
+            "description": "Path to existing adapter, or empty",
+            "title": "Adapter Path",
+            "type": "string"
+          },
+          "summary": {
+            "description": "One-sentence project description",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_class",
+          "model_module",
+          "dataset",
+          "weights_path",
+          "weights_exist",
+          "summary"
+        ],
+        "title": "ProjectAnalysis",
+        "type": "object"
+      }
+    },
+    {
+      "name": "study_runner",
+      "after": [
+        "adapter"
+      ],
+      "tools": [
+        "bash"
+      ],
+      "model": null,
+      "retries": 3,
+      "result_type_name": "StudyRunResult",
+      "result_type_schema": {
+        "$defs": {
+          "ConfigSummary": {
+            "properties": {
+              "name": {
+                "description": "Config name (e.g. 'W4A4')",
+                "title": "Name",
+                "type": "string"
+              },
+              "accuracy": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Eval accuracy",
+                "title": "Accuracy"
+              },
+              "delta": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Accuracy delta from FP32",
+                "title": "Delta"
+              },
+              "avg_qsnr_db": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Mean QSNR across layers",
+                "title": "Avg Qsnr Db"
+              },
+              "avg_mse": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Mean MSE across layers",
+                "title": "Avg Mse"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "title": "ConfigSummary",
+            "type": "object"
+          }
+        },
+        "description": "Structured output from the study_runner agent.",
+        "properties": {
+          "status": {
+            "description": "'success' or 'error'",
+            "title": "Status",
+            "type": "string"
+          },
+          "output_dir": {
+            "description": "Directory where StudyReport.save() wrote results",
+            "title": "Output Dir",
+            "type": "string"
+          },
+          "config_names": {
+            "description": "All successfully run config names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Config Names",
+            "type": "array"
+          },
+          "fp32_accuracy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "FP32 baseline accuracy",
+            "title": "Fp32 Accuracy"
+          },
+          "configs_summary": {
+            "items": {
+              "$ref": "#/$defs/ConfigSummary"
+            },
+            "title": "Configs Summary",
+            "type": "array"
+          },
+          "error": {
+            "default": "",
+            "description": "Error message if status='error'",
+            "title": "Error",
+            "type": "string"
+          },
+          "summary": {
+            "description": "One-sentence result summary",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "output_dir",
+          "summary"
+        ],
+        "title": "StudyRunResult",
+        "type": "object"
+      }
+    },
+    {
+      "name": "gap_analyzer",
+      "after": [
+        "study_runner"
+      ],
+      "tools": [
+        "bash"
+      ],
+      "model": null,
+      "retries": 3,
+      "result_type_name": "GapAnalysis",
+      "result_type_schema": {
+        "$defs": {
+          "ConfigGap": {
+            "properties": {
+              "name": {
+                "description": "Config name",
+                "title": "Name",
+                "type": "string"
+              },
+              "accuracy": {
+                "description": "Eval accuracy for this config",
+                "title": "Accuracy",
+                "type": "number"
+              },
+              "delta_from_fp32": {
+                "description": "Accuracy difference from FP32 baseline",
+                "title": "Delta From Fp32",
+                "type": "number"
+              }
+            },
+            "required": [
+              "name",
+              "accuracy",
+              "delta_from_fp32"
+            ],
+            "title": "ConfigGap",
+            "type": "object"
+          },
+          "TransformRecovery": {
+            "properties": {
+              "config": {
+                "description": "Base config (e.g. 'W4A4')",
+                "title": "Config",
+                "type": "string"
+              },
+              "transform": {
+                "description": "Transform name: 'smoothquant' or 'hadamard'",
+                "title": "Transform",
+                "type": "string"
+              },
+              "accuracy_gain": {
+                "description": "Accuracy improvement from transform",
+                "title": "Accuracy Gain",
+                "type": "number"
+              },
+              "recovery_pct": {
+                "description": "Percentage of gap recovered by transform",
+                "title": "Recovery Pct",
+                "type": "number"
+              }
+            },
+            "required": [
+              "config",
+              "transform",
+              "accuracy_gain",
+              "recovery_pct"
+            ],
+            "title": "TransformRecovery",
+            "type": "object"
+          }
+        },
+        "description": "Structured output from the gap_analyzer agent.",
+        "properties": {
+          "fp32_accuracy": {
+            "description": "FP32 baseline accuracy",
+            "title": "Fp32 Accuracy",
+            "type": "number"
+          },
+          "config_results": {
+            "items": {
+              "$ref": "#/$defs/ConfigGap"
+            },
+            "title": "Config Results",
+            "type": "array"
+          },
+          "weight_degradation": {
+            "description": "W8A8→W4A8 accuracy loss",
+            "title": "Weight Degradation",
+            "type": "number"
+          },
+          "activation_degradation": {
+            "description": "W4A8→W4A4 accuracy loss",
+            "title": "Activation Degradation",
+            "type": "number"
+          },
+          "primary_bottleneck": {
+            "description": "'weight', 'activation', or 'both'",
+            "title": "Primary Bottleneck",
+            "type": "string"
+          },
+          "transform_recovery": {
+            "items": {
+              "$ref": "#/$defs/TransformRecovery"
+            },
+            "title": "Transform Recovery",
+            "type": "array"
+          },
+          "summary": {
+            "description": "One-sentence gap analysis summary",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fp32_accuracy",
+          "weight_degradation",
+          "activation_degradation",
+          "primary_bottleneck",
+          "summary"
+        ],
+        "title": "GapAnalysis",
+        "type": "object"
+      }
+    },
+    {
+      "name": "layer_attribution",
+      "after": [
+        "study_runner"
+      ],
+      "tools": [
+        "bash"
+      ],
+      "model": null,
+      "retries": 3,
+      "result_type_name": "LayerAttribution",
+      "result_type_schema": {
+        "$defs": {
+          "ConfigSpecificLayer": {
+            "properties": {
+              "layer": {
+                "description": "Module name",
+                "title": "Layer",
+                "type": "string"
+              },
+              "config": {
+                "description": "Config where this layer is uniquely bad",
+                "title": "Config",
+                "type": "string"
+              },
+              "qsnr_db": {
+                "description": "QSNR in that config",
+                "title": "Qsnr Db",
+                "type": "number"
+              },
+              "dominant_role": {
+                "description": "'input', 'weight', or 'output'",
+                "title": "Dominant Role",
+                "type": "string"
+              }
+            },
+            "required": [
+              "layer",
+              "config",
+              "qsnr_db",
+              "dominant_role"
+            ],
+            "title": "ConfigSpecificLayer",
+            "type": "object"
+          },
+          "LayerDelta": {
+            "properties": {
+              "layer": {
+                "description": "Module name",
+                "title": "Layer",
+                "type": "string"
+              },
+              "w8a8_qsnr": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "W8A8 Qsnr"
+              },
+              "w4a8_qsnr": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "W4A8 Qsnr"
+              },
+              "w4a4_qsnr": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "W4A4 Qsnr"
+              },
+              "w4a8_delta": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "W4A8 - W8A8 QSNR delta",
+                "title": "W4A8 Delta"
+              },
+              "w4a4_delta": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "W4A4 - W4A8 QSNR delta",
+                "title": "W4A4 Delta"
+              }
+            },
+            "required": [
+              "layer"
+            ],
+            "title": "LayerDelta",
+            "type": "object"
+          },
+          "LayerInfo": {
+            "properties": {
+              "layer": {
+                "description": "Module name (e.g. 'transformer.layers.3.linear2')",
+                "title": "Layer",
+                "type": "string"
+              },
+              "avg_qsnr_db": {
+                "description": "Average QSNR across all configs",
+                "title": "Avg Qsnr Db",
+                "type": "number"
+              },
+              "worst_config": {
+                "description": "Config where this layer is worst",
+                "title": "Worst Config",
+                "type": "string"
+              },
+              "worst_qsnr_db": {
+                "description": "QSNR in worst config",
+                "title": "Worst Qsnr Db",
+                "type": "number"
+              },
+              "dominant_role": {
+                "description": "'input', 'weight', or 'output'",
+                "title": "Dominant Role",
+                "type": "string"
+              },
+              "role_qsnr": {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "description": "Per-role QSNR: {'input': ..., 'weight': ...}",
+                "title": "Role Qsnr",
+                "type": "object"
+              }
+            },
+            "required": [
+              "layer",
+              "avg_qsnr_db",
+              "worst_config",
+              "worst_qsnr_db",
+              "dominant_role"
+            ],
+            "title": "LayerInfo",
+            "type": "object"
+          }
+        },
+        "description": "Structured output from the layer_attribution agent.",
+        "properties": {
+          "consistent_worst": {
+            "items": {
+              "$ref": "#/$defs/LayerInfo"
+            },
+            "title": "Consistent Worst",
+            "type": "array"
+          },
+          "config_specific_worst": {
+            "items": {
+              "$ref": "#/$defs/ConfigSpecificLayer"
+            },
+            "title": "Config Specific Worst",
+            "type": "array"
+          },
+          "cross_config_delta": {
+            "items": {
+              "$ref": "#/$defs/LayerDelta"
+            },
+            "title": "Cross Config Delta",
+            "type": "array"
+          },
+          "summary": {
+            "description": "One-sentence layer attribution summary",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary"
+        ],
+        "title": "LayerAttribution",
+        "type": "object"
+      }
+    },
+    {
+      "name": "distribution_profiler",
+      "after": [
+        "layer_attribution"
+      ],
+      "tools": [
+        "bash"
+      ],
+      "model": null,
+      "retries": 3,
+      "result_type_name": "DistributionProfile",
+      "result_type_schema": {
+        "$defs": {
+          "FormatWeakness": {
+            "properties": {
+              "format": {
+                "description": "'int4' or 'int8'",
+                "title": "Format",
+                "type": "string"
+              },
+              "issue": {
+                "description": "Description of the format limitation",
+                "title": "Issue",
+                "type": "string"
+              },
+              "affected_layers": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Affected Layers",
+                "type": "array"
+              },
+              "evidence": {
+                "description": "Supporting evidence",
+                "title": "Evidence",
+                "type": "string"
+              }
+            },
+            "required": [
+              "format",
+              "issue",
+              "evidence"
+            ],
+            "title": "FormatWeakness",
+            "type": "object"
+          },
+          "LayerDistributionProfile": {
+            "properties": {
+              "layer": {
+                "description": "Module name",
+                "title": "Layer",
+                "type": "string"
+              },
+              "role": {
+                "description": "Analyzed role: 'input' or 'weight'",
+                "title": "Role",
+                "type": "string"
+              },
+              "config": {
+                "description": "Source config",
+                "title": "Config",
+                "type": "string"
+              },
+              "qsnr_db": {
+                "description": "QSNR for this layer+role+config",
+                "title": "Qsnr Db",
+                "type": "number"
+              },
+              "distribution_type": {
+                "description": "'zero-centered-gaussian', 'bimodal', 'outlier-heavy', etc.",
+                "title": "Distribution Type",
+                "type": "string"
+              },
+              "key_features": {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "description": "Distribution metrics",
+                "title": "Key Features",
+                "type": "object"
+              },
+              "diagnosis": {
+                "description": "Human-readable diagnosis",
+                "title": "Diagnosis",
+                "type": "string"
+              },
+              "suggestion": {
+                "description": "Suggested action",
+                "title": "Suggestion",
+                "type": "string"
+              }
+            },
+            "required": [
+              "layer",
+              "role",
+              "config",
+              "qsnr_db",
+              "distribution_type",
+              "diagnosis",
+              "suggestion"
+            ],
+            "title": "LayerDistributionProfile",
+            "type": "object"
+          }
+        },
+        "description": "Structured output from the distribution_profiler agent.",
+        "properties": {
+          "layer_profiles": {
+            "items": {
+              "$ref": "#/$defs/LayerDistributionProfile"
+            },
+            "title": "Layer Profiles",
+            "type": "array"
+          },
+          "causal_summary": {
+            "default": "",
+            "description": "Causal analysis text summary",
+            "title": "Causal Summary",
+            "type": "string"
+          },
+          "format_weaknesses": {
+            "items": {
+              "$ref": "#/$defs/FormatWeakness"
+            },
+            "title": "Format Weaknesses",
+            "type": "array"
+          },
+          "summary": {
+            "description": "One-sentence distribution profiling summary",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary"
+        ],
+        "title": "DistributionProfile",
+        "type": "object"
+      }
+    },
+    {
+      "name": "block_analyst",
+      "after": [
+        "layer_attribution"
+      ],
+      "tools": [
+        "bash"
+      ],
+      "model": null,
+      "retries": 3,
+      "result_type_name": "BlockAnalysis",
+      "result_type_schema": {
+        "$defs": {
+          "BlockDetail": {
+            "properties": {
+              "block_idx": {
+                "description": "Block index within the tensor",
+                "title": "Block Idx",
+                "type": "integer"
+              },
+              "qsnr_db": {
+                "description": "QSNR for this block",
+                "title": "Qsnr Db",
+                "type": "number"
+              },
+              "stats": {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "description": "Block statistics",
+                "title": "Stats",
+                "type": "object"
+              }
+            },
+            "required": [
+              "block_idx",
+              "qsnr_db"
+            ],
+            "title": "BlockDetail",
+            "type": "object"
+          },
+          "ChannelDetail": {
+            "properties": {
+              "channel_idx": {
+                "description": "Channel index",
+                "title": "Channel Idx",
+                "type": "integer"
+              },
+              "qsnr_db": {
+                "description": "QSNR for this channel",
+                "title": "Qsnr Db",
+                "type": "number"
+              },
+              "stats": {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "description": "Channel statistics",
+                "title": "Stats",
+                "type": "object"
+              }
+            },
+            "required": [
+              "channel_idx",
+              "qsnr_db"
+            ],
+            "title": "ChannelDetail",
+            "type": "object"
+          },
+          "LayerBlockAnalysis": {
+            "properties": {
+              "layer": {
+                "description": "Module name",
+                "title": "Layer",
+                "type": "string"
+              },
+              "config": {
+                "description": "Source config",
+                "title": "Config",
+                "type": "string"
+              },
+              "weight_block_qsnr": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "type": "number"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Per-block QSNR: {'0': 25.1, ...}",
+                "title": "Weight Block Qsnr"
+              },
+              "worst_weight_blocks": {
+                "items": {
+                  "$ref": "#/$defs/BlockDetail"
+                },
+                "title": "Worst Weight Blocks",
+                "type": "array"
+              },
+              "weight_error_pattern": {
+                "default": "",
+                "description": "'concentrated', 'uniform', or 'channel-boundary'",
+                "title": "Weight Error Pattern",
+                "type": "string"
+              },
+              "activation_channel_qsnr": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "type": "number"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Per-channel QSNR",
+                "title": "Activation Channel Qsnr"
+              },
+              "worst_activation_channels": {
+                "items": {
+                  "$ref": "#/$defs/ChannelDetail"
+                },
+                "title": "Worst Activation Channels",
+                "type": "array"
+              },
+              "activation_error_pattern": {
+                "default": "",
+                "description": "'outlier_channel', 'uniform', or 'feature-correlated'",
+                "title": "Activation Error Pattern",
+                "type": "string"
+              },
+              "heatmap_rendered": {
+                "default": false,
+                "title": "Heatmap Rendered",
+                "type": "boolean"
+              },
+              "bar_chart_rendered": {
+                "default": false,
+                "title": "Bar Chart Rendered",
+                "type": "boolean"
+              },
+              "comparison_rendered": {
+                "default": false,
+                "title": "Comparison Rendered",
+                "type": "boolean"
+              },
+              "finding": {
+                "description": "One-sentence key finding for this layer",
+                "title": "Finding",
+                "type": "string"
+              }
+            },
+            "required": [
+              "layer",
+              "config",
+              "finding"
+            ],
+            "title": "LayerBlockAnalysis",
+            "type": "object"
+          }
+        },
+        "description": "Structured output from the block_analyst agent.",
+        "properties": {
+          "layer_analyses": {
+            "items": {
+              "$ref": "#/$defs/LayerBlockAnalysis"
+            },
+            "title": "Layer Analyses",
+            "type": "array"
+          },
+          "summary": {
+            "description": "One-sentence block analysis summary",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary"
+        ],
+        "title": "BlockAnalysis",
+        "type": "object"
+      }
+    },
+    {
+      "name": "intervention_evaluator",
+      "after": [
+        "layer_attribution"
+      ],
+      "tools": [
+        "bash"
+      ],
+      "model": null,
+      "retries": 3,
+      "result_type_name": "InterventionEvaluation",
+      "result_type_schema": {
+        "$defs": {
+          "CombinedRecovery": {
+            "properties": {
+              "description": {
+                "description": "e.g. 'top-3 layers int8 + smoothquant'",
+                "title": "Description",
+                "type": "string"
+              },
+              "layers_modified": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Layers Modified",
+                "type": "array"
+              },
+              "accuracy": {
+                "description": "Resulting accuracy",
+                "title": "Accuracy",
+                "type": "number"
+              },
+              "gap_recovered_pct": {
+                "description": "Percentage of FP32 gap recovered",
+                "title": "Gap Recovered Pct",
+                "type": "number"
+              }
+            },
+            "required": [
+              "description",
+              "accuracy",
+              "gap_recovered_pct"
+            ],
+            "title": "CombinedRecovery",
+            "type": "object"
+          },
+          "LayerRecovery": {
+            "properties": {
+              "layer": {
+                "description": "Module name",
+                "title": "Layer",
+                "type": "string"
+              },
+              "intervention": {
+                "description": "'fp32_restore', 'int4_to_int8', 'smoothquant', or 'hadamard'",
+                "title": "Intervention",
+                "type": "string"
+              },
+              "accuracy_before": {
+                "description": "Accuracy before intervention",
+                "title": "Accuracy Before",
+                "type": "number"
+              },
+              "accuracy_after": {
+                "description": "Accuracy after intervention",
+                "title": "Accuracy After",
+                "type": "number"
+              },
+              "gap_recovered_pct": {
+                "description": "Percentage of FP32 gap recovered",
+                "title": "Gap Recovered Pct",
+                "type": "number"
+              },
+              "dominant_role": {
+                "description": "'input' or 'weight'",
+                "title": "Dominant Role",
+                "type": "string"
+              }
+            },
+            "required": [
+              "layer",
+              "intervention",
+              "accuracy_before",
+              "accuracy_after",
+              "gap_recovered_pct",
+              "dominant_role"
+            ],
+            "title": "LayerRecovery",
+            "type": "object"
+          }
+        },
+        "description": "Structured output from the intervention_evaluator agent.",
+        "properties": {
+          "single_layer_recovery": {
+            "items": {
+              "$ref": "#/$defs/LayerRecovery"
+            },
+            "title": "Single Layer Recovery",
+            "type": "array"
+          },
+          "bit_boost_recovery": {
+            "items": {
+              "$ref": "#/$defs/LayerRecovery"
+            },
+            "title": "Bit Boost Recovery",
+            "type": "array"
+          },
+          "transform_recovery": {
+            "items": {
+              "$ref": "#/$defs/LayerRecovery"
+            },
+            "title": "Transform Recovery",
+            "type": "array"
+          },
+          "combined_recovery": {
+            "items": {
+              "$ref": "#/$defs/CombinedRecovery"
+            },
+            "title": "Combined Recovery",
+            "type": "array"
+          },
+          "best_strategy": {
+            "description": "Best strategy description",
+            "title": "Best Strategy",
+            "type": "string"
+          },
+          "summary": {
+            "description": "One-sentence intervention evaluation summary",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "best_strategy",
+          "summary"
+        ],
+        "title": "InterventionEvaluation",
+        "type": "object"
+      }
+    },
+    {
+      "name": "synthesis",
+      "after": [
+        "gap_analyzer",
+        "distribution_profiler",
+        "block_analyst",
+        "intervention_evaluator"
+      ],
+      "tools": [
+        "bash"
+      ],
+      "model": null,
+      "retries": 3,
+      "result_type_name": "MXIntDiagnosticReport",
+      "result_type_schema": {
+        "$defs": {
+          "ConfigAccuracy": {
+            "properties": {
+              "name": {
+                "description": "Config name",
+                "title": "Name",
+                "type": "string"
+              },
+              "accuracy": {
+                "description": "Eval accuracy",
+                "title": "Accuracy",
+                "type": "number"
+              },
+              "delta": {
+                "description": "Delta from FP32",
+                "title": "Delta",
+                "type": "number"
+              },
+              "with_smooth": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Accuracy with SmoothQuant",
+                "title": "With Smooth"
+              },
+              "with_hadamard": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Accuracy with Hadamard",
+                "title": "With Hadamard"
+              }
+            },
+            "required": [
+              "name",
+              "accuracy",
+              "delta"
+            ],
+            "title": "ConfigAccuracy",
+            "type": "object"
+          },
+          "FormatWeakness": {
+            "properties": {
+              "format": {
+                "description": "'int4' or 'int8'",
+                "title": "Format",
+                "type": "string"
+              },
+              "issue": {
+                "description": "Description of the format limitation",
+                "title": "Issue",
+                "type": "string"
+              },
+              "affected_layers": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Affected Layers",
+                "type": "array"
+              },
+              "evidence": {
+                "description": "Supporting evidence",
+                "title": "Evidence",
+                "type": "string"
+              }
+            },
+            "required": [
+              "format",
+              "issue",
+              "evidence"
+            ],
+            "title": "FormatWeakness",
+            "type": "object"
+          },
+          "LayerFinding": {
+            "properties": {
+              "layer": {
+                "description": "Module name",
+                "title": "Layer",
+                "type": "string"
+              },
+              "config": {
+                "description": "Config name",
+                "title": "Config",
+                "type": "string"
+              },
+              "output_qsnr": {
+                "description": "Output QSNR (dB)",
+                "title": "Output Qsnr",
+                "type": "number"
+              },
+              "dominant_role": {
+                "description": "'input', 'weight', or 'output'",
+                "title": "Dominant Role",
+                "type": "string"
+              },
+              "diagnosis": {
+                "description": "Human-readable diagnosis",
+                "title": "Diagnosis",
+                "type": "string"
+              },
+              "worst_block_idx": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Worst Block Idx"
+              },
+              "worst_channel_idx": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Worst Channel Idx"
+              },
+              "recovery_pct": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Recovery Pct"
+              }
+            },
+            "required": [
+              "layer",
+              "config",
+              "output_qsnr",
+              "dominant_role",
+              "diagnosis"
+            ],
+            "title": "LayerFinding",
+            "type": "object"
+          },
+          "Recommendation": {
+            "properties": {
+              "type": {
+                "description": "'mixed_precision', 'transform', 'format_change', or 'granularity'",
+                "title": "Type",
+                "type": "string"
+              },
+              "priority": {
+                "description": "'high', 'medium', or 'low'",
+                "title": "Priority",
+                "type": "string"
+              },
+              "target_layers": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Target Layers",
+                "type": "array"
+              },
+              "action": {
+                "description": "Specific action to take",
+                "title": "Action",
+                "type": "string"
+              },
+              "expected_recovery": {
+                "description": "Expected gap recovery %",
+                "title": "Expected Recovery",
+                "type": "number"
+              },
+              "rationale": {
+                "description": "Why this action helps",
+                "title": "Rationale",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "priority",
+              "action",
+              "expected_recovery",
+              "rationale"
+            ],
+            "title": "Recommendation",
+            "type": "object"
+          }
+        },
+        "description": "Structured output from the synthesis agent.",
+        "properties": {
+          "fp32_accuracy": {
+            "description": "FP32 baseline accuracy",
+            "title": "Fp32 Accuracy",
+            "type": "number"
+          },
+          "configs": {
+            "items": {
+              "$ref": "#/$defs/ConfigAccuracy"
+            },
+            "title": "Configs",
+            "type": "array"
+          },
+          "weight_degradation": {
+            "description": "W8A8→W4A8 accuracy loss",
+            "title": "Weight Degradation",
+            "type": "number"
+          },
+          "activation_degradation": {
+            "description": "W4A8→W4A4 accuracy loss",
+            "title": "Activation Degradation",
+            "type": "number"
+          },
+          "primary_bottleneck": {
+            "description": "'weight' or 'activation' or 'both'",
+            "title": "Primary Bottleneck",
+            "type": "string"
+          },
+          "consistent_worst_layers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Consistent Worst Layers",
+            "type": "array"
+          },
+          "layer_findings": {
+            "items": {
+              "$ref": "#/$defs/LayerFinding"
+            },
+            "title": "Layer Findings",
+            "type": "array"
+          },
+          "format_weaknesses": {
+            "items": {
+              "$ref": "#/$defs/FormatWeakness"
+            },
+            "title": "Format Weaknesses",
+            "type": "array"
+          },
+          "recommendations": {
+            "items": {
+              "$ref": "#/$defs/Recommendation"
+            },
+            "title": "Recommendations",
+            "type": "array"
+          },
+          "conclusion": {
+            "description": "One-sentence conclusion",
+            "title": "Conclusion",
+            "type": "string"
+          },
+          "summary": {
+            "description": "Executive summary of the full diagnostic",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fp32_accuracy",
+          "weight_degradation",
+          "activation_degradation",
+          "primary_bottleneck",
+          "conclusion",
+          "summary"
+        ],
+        "title": "MXIntDiagnosticReport",
+        "type": "object"
+      }
+    }
+  ]
+}
