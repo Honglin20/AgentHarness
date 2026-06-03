@@ -8,7 +8,7 @@
         "bash",
         "grep",
         "glob",
-        "read_file"
+        "read_text_file"
       ],
       "model": null,
       "retries": 3,
@@ -84,7 +84,12 @@
       ],
       "tools": [
         "ask_user",
-        "bash"
+        "bash",
+        "read_text_file",
+        "write_file",
+        "edit_file",
+        "grep",
+        "glob"
       ],
       "model": null,
       "retries": 3,
@@ -142,12 +147,60 @@
       }
     },
     {
-      "name": "runner",
+      "name": "_judge_configurator",
       "after": [
         "configurator"
       ],
+      "model": null,
+      "on_pass": "runner",
+      "on_fail": "configurator",
+      "eval_target": "configurator",
+      "result_type_name": "ReviewDecision",
+      "result_type_schema": {
+        "description": "Structured review output from an eval judge agent.",
+        "properties": {
+          "decision": {
+            "description": "'pass' or 'fail'",
+            "title": "Decision",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Explanation for the decision",
+            "title": "Reason",
+            "type": "string"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional quality score 0.0-1.0",
+            "title": "Score"
+          }
+        },
+        "required": [
+          "decision",
+          "reason"
+        ],
+        "title": "ReviewDecision",
+        "type": "object"
+      }
+    },
+    {
+      "name": "runner",
+      "after": [
+        "_judge_configurator"
+      ],
       "tools": [
-        "bash"
+        "bash",
+        "read_text_file",
+        "write_file",
+        "edit_file"
       ],
       "model": null,
       "retries": 3,

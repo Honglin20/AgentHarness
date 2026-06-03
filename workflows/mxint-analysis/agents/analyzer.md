@@ -1,6 +1,6 @@
 ---
 name: analyzer
-tools: [bash, grep, glob, read_file]
+tools: [bash, grep, glob, read_text_file]
 retries: 2
 ---
 

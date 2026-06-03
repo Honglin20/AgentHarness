@@ -1,6 +1,6 @@
 ---
 name: configurator
-tools: [ask_user, bash]
+tools: [ask_user, bash, read_text_file, write_file, edit_file, grep, glob]
 retries: 2
 ---
 
