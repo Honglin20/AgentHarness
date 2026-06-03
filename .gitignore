@@ -5,6 +5,7 @@ dist/
 build/
 .pytest_cache/
 .env
+profiles.json
 node_modules/
 .DS_Store
 runs/

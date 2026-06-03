@@ -19,6 +19,11 @@ function writeToStorage(value: string) {
 interface SettingsState {
   defaultWorkDir: string;
   setDefaultWorkDir: (dir: string) => void;
+
+  thinking: "auto" | "true" | "false";
+  stopRegenTtl: string;
+  setThinking: (val: "auto" | "true" | "false") => void;
+  setStopRegenTtl: (val: string) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()((set) => ({
@@ -27,4 +32,9 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
     writeToStorage(dir);
     set({ defaultWorkDir: dir });
   },
+
+  thinking: "auto",
+  stopRegenTtl: "60",
+  setThinking: (val) => set({ thinking: val }),
+  setStopRegenTtl: (val) => set({ stopRegenTtl: val }),
 }));

@@ -30,6 +30,7 @@ from server.schemas import (
     HealthResponse,
     ResumeRequest,
     RunDetail,
+    RunSummary,
     BatchRunSummary,
     BenchmarkDef,
     BenchmarkRunSummary,
@@ -214,6 +215,70 @@ async def get_config() -> dict:
     """Get current config (key masked)."""
     from harness.config import get_config as gc
     return gc()
+
+
+# ── LLM Profile endpoints ──────────────────────────────────────────
+
+
+@router.get("/profiles")
+async def list_profiles() -> dict:
+    """List all LLM profiles (keys masked) with active indicator."""
+    from harness.profiles import ProfileManager
+
+    mgr = ProfileManager()
+    return {
+        "profiles": mgr.list_profiles(),
+        "active": mgr.get_active_name(),
+    }
+
+
+@router.post("/profiles")
+async def save_profile(request: Request) -> dict:
+    """Create or update an LLM profile."""
+    from harness.profiles import ProfileManager
+
+    body = await request.json()
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Profile name is required")
+    mgr = ProfileManager()
+    try:
+        return mgr.save_profile({
+            "name": name,
+            "model": body.get("model", ""),
+            "api_key": body.get("api_key", ""),
+            "api_url": body.get("api_url", ""),
+            "proxy": body.get("proxy", ""),
+            "proxy_enabled": body.get("proxy_enabled", False),
+            "ssl_verify": body.get("ssl_verify", True),
+        })
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/profiles/{name}")
+async def delete_profile(name: str) -> dict:
+    """Delete an LLM profile. Cannot delete the active profile."""
+    from harness.profiles import ProfileManager
+
+    mgr = ProfileManager()
+    try:
+        mgr.delete_profile(name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "ok", "deleted": name}
+
+
+@router.post("/profiles/{name}/activate")
+async def activate_profile(name: str) -> dict:
+    """Activate an LLM profile — writes to env vars and .env."""
+    from harness.profiles import ProfileManager
+
+    mgr = ProfileManager()
+    try:
+        return mgr.activate_profile(name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/agents")
@@ -559,9 +624,9 @@ async def batch_delete_runs(request: Request) -> dict:
     return {"status": "ok", "deleted": deleted, "errors": errors}
 
 
-@router.get("/runs", response_model=list[RunDetail])
-async def list_runs(request: Request, workflow_name: str | None = None) -> list[RunDetail]:
-    """List persisted runs, merged with currently-running in-memory workflows.
+@router.get("/runs", response_model=list[RunSummary])
+async def list_runs(request: Request, workflow_name: str | None = None) -> list[RunSummary]:
+    """List persisted runs (summary only), merged with currently-running in-memory workflows.
 
     Only returns runs for the current user (admin sees all).
 
@@ -571,6 +636,8 @@ async def list_runs(request: Request, workflow_name: str | None = None) -> list[
     record takes precedence.
 
     Batch runs (runs that are part of a benchmark) are excluded by default.
+    Use ``GET /runs/{run_id}`` for full run details including conversation,
+    agent_io, events, chart_groups, etc.
     """
     from harness.run_store import RunStore
     from harness.user_manager import get_user_manager
@@ -583,6 +650,7 @@ async def list_runs(request: Request, workflow_name: str | None = None) -> list[
         workflow_name=workflow_name,
         include_batch=True,
         user_id=None if is_admin else user.user_id,
+        summary_only=True,
     )
     persisted_ids = {r.get("run_id") for r in persisted}
 
@@ -601,13 +669,9 @@ async def list_runs(request: Request, workflow_name: str | None = None) -> list[
         live_records.append({
             "run_id": wid,
             "workflow_name": workflow.name,
-            "agents_snapshot": data.get("agents_snapshot", []),
             "status": "running",
             "inputs": data.get("inputs", {}),
-            "result": None,
-            "conversation": [],
             "created_at": data.get("created_at", ""),
-            "dag": repo.get_dag(wid),
         })
 
     # Live runs first (most recent), then persisted (sorted by created_at desc by RunStore)

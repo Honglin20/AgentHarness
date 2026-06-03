@@ -1,10 +1,9 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect } from "react";
-import { Settings, Key, Cpu, Globe, X, RotateCcw, Square, Timer, Play, Sun, Moon, User, Check, Shield, Folder, Brain } from "lucide-react";
+import { Settings, RotateCcw, Square, Play, Sun, Moon, User, Check, Shield, Key } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Logo } from "@/components/ui/logo";
 import {
@@ -18,9 +17,9 @@ import { useViewStore } from "@/stores/viewStore";
 import { useResetWorkflow } from "@/hooks/useResetWorkflow";
 import DAGStatusBar from "@/components/dag/DAGStatusBar";
 import ApiKeySettings from "@/components/settings/ApiKeySettings";
-import { getCurrentUser, fetchWithAuth } from "@/lib/api";
+import LlmProfileSettings from "@/components/settings/LlmProfileSettings";
+import { fetchWithAuth } from "@/lib/api";
 import { useUserStore } from "@/stores/userStore";
-import { useSettingsStore } from "@/stores/settingsStore";
 
 const API_BASE = "";
 
@@ -47,17 +46,9 @@ export function HeaderBar() {
   const activeView = useViewStore((s) => s.activeView);
   const isRunning = status === "running";
   const isActive = status !== "idle";
-  const [open, setOpen] = useState(false);
+  const [llmDialogOpen, setLlmDialogOpen] = useState(false);
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
   const [userDialogOpen, setUserDialogOpen] = useState(false);
-  const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState("");
-  const [apiUrl, setApiUrl] = useState("");
-  const [stopRegenTtl, setStopRegenTtl] = useState("60");
-  const [thinking, setThinking] = useState<"auto" | "true" | "false">("auto");
-  const [saved, setSaved] = useState(false);
-  const defaultWorkDir = useSettingsStore((s) => s.defaultWorkDir);
-  const setDefaultWorkDir = useSettingsStore((s) => s.setDefaultWorkDir);
   const [stopping, setStopping] = useState(false);
   const resetWorkflow = useResetWorkflow();
   const currentUser = useUserStore((s) => s);
@@ -95,39 +86,6 @@ export function HeaderBar() {
     if (status !== "idle") return { dag: undefined, nodes: undefined, interactive: true };
     return null;
   }, [activeView, status]);
-
-  const loadConfig = useCallback(async () => {
-    try {
-      const r = await fetch(`${API_BASE}/api/config`);
-      if (r.ok) {
-        const cfg = await r.json();
-        if (cfg.api_key_set) setApiKey(cfg.api_key_masked);
-        if (cfg.model) setModel(cfg.model);
-        if (cfg.api_url) setApiUrl(cfg.api_url);
-        if (cfg.stop_regen_ttl) setStopRegenTtl(cfg.stop_regen_ttl);
-        if (cfg.thinking) setThinking(cfg.thinking);
-      }
-    } catch {}
-  }, []);
-
-  const saveConfig = useCallback(async () => {
-    try {
-      await fetch(`${API_BASE}/api/config`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...(apiKey && !apiKey.includes("*") ? { api_key: apiKey } : {}),
-          ...(model ? { model } : {}),
-          ...(apiUrl ? { api_url: apiUrl } : {}),
-          ...(stopRegenTtl ? { stop_regen_ttl: stopRegenTtl } : {}),
-          thinking,
-          persist: true,
-        }),
-      });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } catch {}
-  }, [apiKey, model, apiUrl, stopRegenTtl]);
 
   const handleStop = useCallback(async () => {
     if (!workflowId) return;
@@ -229,123 +187,14 @@ export function HeaderBar() {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => { setOpen(!open); if (!open) loadConfig(); }}
+          onClick={() => setLlmDialogOpen(true)}
         >
           <Settings className="h-4 w-4" />
         </Button>
       </div>
 
-      {open && (
-        <div className="absolute right-2 top-14 z-50 w-80 rounded-lg border border-app-border bg-background p-4 shadow-lg">
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-app-text-secondary">
-              Settings
-            </span>
-            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setOpen(false)}>
-              <X className="h-3 w-3" />
-            </Button>
-          </div>
-
-          <div className="space-y-3">
-            <div>
-              <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-app-text-secondary">
-                <Key className="h-3 w-3" /> API Key
-              </label>
-              <Input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="sk-..."
-                className="h-8 text-xs"
-              />
-            </div>
-            <div>
-              <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-app-text-secondary">
-                <Cpu className="h-3 w-3" /> Model
-              </label>
-              <Input
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder="deepseek:deepseek-chat"
-                className="h-8 text-xs"
-              />
-            </div>
-            <div>
-              <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-app-text-secondary">
-                <Globe className="h-3 w-3" /> API URL
-              </label>
-              <Input
-                value={apiUrl}
-                onChange={(e) => setApiUrl(e.target.value)}
-                placeholder="https://api.deepseek.com/v1"
-                className="h-8 text-xs"
-              />
-            </div>
-            <div>
-              <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-app-text-secondary">
-                <Timer className="h-3 w-3" /> Stop Signal TTL (seconds)
-              </label>
-              <Input
-                type="number"
-                min={1}
-                value={stopRegenTtl}
-                onChange={(e) => setStopRegenTtl(e.target.value)}
-                placeholder="60"
-                className="h-8 text-xs"
-              />
-              <p className="mt-1 text-xs text-muted-foreground">
-                Orphan stop-and-regenerate signals expire after this many seconds.
-              </p>
-            </div>
-            <div>
-              <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-app-text-secondary">
-                <Folder className="h-3 w-3" /> Default Work Directory
-              </label>
-              <Input
-                value={defaultWorkDir}
-                onChange={(e) => setDefaultWorkDir(e.target.value)}
-                placeholder="/path/to/code (留空 = 当前目录, / = 全盘访问)"
-                className="h-8 text-xs"
-              />
-            </div>
-            <div>
-              <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-app-text-secondary">
-                <Brain className="h-3 w-3" /> Thinking Mode
-              </label>
-              <div className="flex gap-1">
-                {(["auto", "true", "false"] as const).map((val) => (
-                  <button
-                    key={val}
-                    type="button"
-                    onClick={() => setThinking(val)}
-                    className={`flex-1 rounded-md border px-2 py-1 text-xs transition-colors ${
-                      thinking === val
-                        ? "border-blue-500 bg-blue-500/10 text-blue-600"
-                        : "border-app-border text-muted-foreground hover:border-gray-400"
-                    }`}
-                  >
-                    {val === "auto" ? "Auto" : val === "true" ? "On" : "Off"}
-                  </button>
-                ))}
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {thinking === "auto"
-                  ? "Enable thinking for known reasoning models (DeepSeek-R1, etc.)"
-                  : thinking === "true"
-                  ? "Force thinking mode on for all models"
-                  : "Disable thinking mode"}
-              </p>
-            </div>
-            <Button
-              size="sm"
-              className="h-8 w-full text-xs"
-              onClick={saveConfig}
-            >
-              {saved ? "Saved" : "Save & Persist"}
-            </Button>
-          </div>
-        </div>
-      )}
+      {/* LLM Profile Settings Dialog */}
+      <LlmProfileSettings open={llmDialogOpen} onOpenChange={setLlmDialogOpen} />
 
       {/* API Key Settings Dialog */}
       <ApiKeySettings

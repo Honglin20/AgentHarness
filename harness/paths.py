@@ -19,6 +19,7 @@ __all__ = [
     "get_shared_scripts_dir",
     "get_env_file",
     "get_checkpoint_db_path",
+    "get_profiles_file",
 ]
 
 # Module-level constant — stable across calls within the same process.
@@ -81,3 +82,7 @@ def get_env_file() -> Path:
 
 def get_checkpoint_db_path() -> Path:
     return get_project_root() / "runs" / "checkpoints.db"
+
+
+def get_profiles_file() -> Path:
+    return get_project_root() / "profiles.json"

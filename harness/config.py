@@ -153,6 +153,9 @@ def _mask(s: str) -> str:
     return s[:4] + "*" * (len(s) - 8) + s[-4:]
 
 
+mask_key = _mask
+
+
 def _write_env(key: str, value: str) -> None:
     lines: list[str] = []
     found = False
