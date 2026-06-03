@@ -11,7 +11,16 @@ from pathlib import Path
 
 from harness.paths import get_env_file
 
-_ENV_FILE = get_env_file()
+
+def _resolve_env_file() -> Path:
+    """Prefer CWD when .env already exists there (the user's project root)."""
+    cwd_env = Path.cwd() / ".env"
+    if cwd_env.exists():
+        return cwd_env
+    return get_env_file()
+
+
+_ENV_FILE = _resolve_env_file()
 
 
 # ── import-time setup ──────────────────────────────────────────────

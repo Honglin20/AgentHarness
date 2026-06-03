@@ -85,4 +85,8 @@ def get_checkpoint_db_path() -> Path:
 
 
 def get_profiles_file() -> Path:
+    """Return path to profiles.json — co-located with .env."""
+    cwd = Path.cwd()
+    if (cwd / ".env").exists():
+        return cwd / "profiles.json"
     return get_project_root() / "profiles.json"
