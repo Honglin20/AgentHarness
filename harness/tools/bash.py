@@ -167,4 +167,4 @@ class BashToolFactory(ToolFactory):
             except Exception as e:
                 return f"Error: {e}"
 
-        return PydanticAITool(bash, takes_ctx=True)
+        return PydanticAITool(self._wrap_fn(bash, self.name), takes_ctx=True)

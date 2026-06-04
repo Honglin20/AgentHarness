@@ -176,7 +176,7 @@ class AskUserToolFactory(ToolFactory):
             return assemble_answer(payload, options, multi_select, allow_custom_input)
 
         return PydanticAITool(
-            ask_user,
+            self._wrap_fn(ask_user, self.name),
             takes_ctx=True,
             description=self.description,
         )

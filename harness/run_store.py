@@ -1,12 +1,17 @@
 """File-based run persistence. Each run is a JSON file in runs/ directory."""
 
 import json
+import logging
+import os
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from harness.paths import get_runs_dir
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_RUNS_DIR = get_runs_dir()
 
@@ -25,6 +30,23 @@ class RunStore:
         if not _SAFE_ID_RE.match(run_id):
             return None
         return self._dir / f"{run_id}.json"
+
+    def _atomic_write(self, path: Path, content: str) -> None:
+        """Write content atomically via tmp + rename.
+
+        Prevents file corruption if the process is cancelled mid-write
+        (e.g. asyncio CancelledError during _save_incremental).
+        """
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        try:
+            tmp_path.write_text(content)
+            os.replace(str(tmp_path), str(path))
+        except BaseException:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
 
     def save(
         self,
@@ -66,11 +88,19 @@ class RunStore:
         path = self._safe_path(run_id)
         if path is None:
             raise ValueError(f"Invalid run_id: {run_id}")
-        path.write_text(json.dumps(record, indent=2, ensure_ascii=False))
-        print(f"[run_store] saved run → {path}")
+        self._atomic_write(path, json.dumps(record, indent=2, ensure_ascii=False))
         return path
 
     def list_runs(self, workflow_name: str | None = None, include_batch: bool = False, user_id: str | None = None, summary_only: bool = False) -> list[dict]:
+        # Cleanup stale .tmp files from interrupted atomic writes
+        now = time.time()
+        for tmp in self._dir.glob("*.json.tmp"):
+            try:
+                if now - tmp.stat().st_mtime > 300:
+                    tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+
         runs = []
         for f in self._dir.glob("*.json"):
             try:
@@ -94,7 +124,10 @@ class RunStore:
                     })
                 else:
                     runs.append(data)
-            except (json.JSONDecodeError, KeyError):
+            except json.JSONDecodeError:
+                logger.warning("Corrupted run file skipped: %s", f.name)
+                continue
+            except KeyError:
                 continue
         runs.sort(key=lambda r: r.get("created_at", ""), reverse=True)
         return runs
@@ -120,7 +153,7 @@ class RunStore:
         record["followup_sessions"] = sessions
         path = self._safe_path(run_id)
         if path:
-            path.write_text(json.dumps(record, indent=2, ensure_ascii=False))
+            self._atomic_write(path, json.dumps(record, indent=2, ensure_ascii=False))
 
     def delete_followup(self, run_id: str, agent_name: str) -> None:
         """Remove a single agent's follow-up session from the persisted record."""
@@ -132,4 +165,4 @@ class RunStore:
         record["followup_sessions"] = sessions if sessions else None
         path = self._safe_path(run_id)
         if path:
-            path.write_text(json.dumps(record, indent=2, ensure_ascii=False))
+            self._atomic_write(path, json.dumps(record, indent=2, ensure_ascii=False))

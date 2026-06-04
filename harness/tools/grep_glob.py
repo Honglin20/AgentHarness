@@ -160,7 +160,7 @@ class GrepToolFactory(ToolFactory):
 
             return result
 
-        return PydanticAITool(grep, takes_ctx=True)
+        return PydanticAITool(self._wrap_fn(grep, self.name), takes_ctx=True)
 
 
 class GlobToolFactory(ToolFactory):
@@ -246,4 +246,4 @@ class GlobToolFactory(ToolFactory):
 
             return result
 
-        return PydanticAITool(glob, takes_ctx=True)
+        return PydanticAITool(self._wrap_fn(glob, self.name), takes_ctx=True)

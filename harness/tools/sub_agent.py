@@ -77,4 +77,4 @@ class SubAgentToolFactory(ToolFactory):
             finally:
                 await client.aclose()
 
-        return PydanticAITool(sub_agent, takes_ctx=True)
+        return PydanticAITool(self._wrap_fn(sub_agent, self.name), takes_ctx=True)

@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
+from asyncio import iscoroutinefunction
 from fnmatch import fnmatchcase
+from functools import wraps
 
 from pydantic_ai import Tool as PydanticAITool
 
@@ -16,6 +18,32 @@ class ToolFactory(ABC):
 
     @abstractmethod
     def create(self) -> PydanticAITool: ...
+
+    def _wrap_fn(self, fn, tool_name: str):
+        """Wrap a tool function with dedup guard if configured.
+
+        Preserves sync/async nature of the original function.
+        """
+        from harness.tools.dedup_guard import get_dedup_guard
+
+        guard = get_dedup_guard()
+        if guard is None:
+            return fn
+
+        if iscoroutinefunction(fn):
+            @wraps(fn)
+            async def _async_wrapped(*args, **kwargs):
+                if guard.check(tool_name, kwargs):
+                    return f"[dedup: {tool_name} skipped — duplicate call]"
+                return await fn(*args, **kwargs)
+            return _async_wrapped
+        else:
+            @wraps(fn)
+            def _sync_wrapped(*args, **kwargs):
+                if guard.check(tool_name, kwargs):
+                    return f"[dedup: {tool_name} skipped — duplicate call]"
+                return fn(*args, **kwargs)
+            return _sync_wrapped
 
 
 class ToolRegistry:

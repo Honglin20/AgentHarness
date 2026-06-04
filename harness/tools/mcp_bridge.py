@@ -68,7 +68,7 @@ class McpToolFactory(ToolFactory):
             return tool_def
 
         return PydanticAITool(
-            mcp_tool_call,
+            self._wrap_fn(mcp_tool_call, self.name),
             name=self.name,
             description=self.description,
             takes_ctx=True,

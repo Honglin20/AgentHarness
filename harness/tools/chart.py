@@ -13,6 +13,8 @@ from typing import Any
 
 from pydantic_ai import RunContext
 
+from harness.tools.registry import ToolFactory
+
 logger = logging.getLogger(__name__)
 
 _CHART_ENDPOINT = "/api/charts"
@@ -346,7 +348,7 @@ def render_chart(
 # Pydantic AI Tool wrapper
 # ---------------------------------------------------------------------------
 
-class RenderChartToolFactory:
+class RenderChartToolFactory(ToolFactory):
     """ToolFactory that exposes render_chart as a Pydantic AI agent tool."""
 
     name = "render_chart"
@@ -405,4 +407,4 @@ class RenderChartToolFactory:
             )
 
         from pydantic_ai import Tool as PydanticAITool
-        return PydanticAITool(render_chart_tool, name="render_chart", takes_ctx=True, description=self.description)
+        return PydanticAITool(self._wrap_fn(render_chart_tool, "render_chart"), name="render_chart", takes_ctx=True, description=self.description)

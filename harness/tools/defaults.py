@@ -59,6 +59,10 @@ def default_tool_registry(event_bus=None) -> ToolRegistry:
     if event_bus:
         from harness.tools.ask_user import AskUserToolFactory
         registry.register("ask_user", AskUserToolFactory(event_bus=event_bus))
+
+    from harness.tools.dedup_guard import configure_dedup
+    configure_dedup(window_ms=5)
+
     return registry
 
 

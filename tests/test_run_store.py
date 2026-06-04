@@ -240,3 +240,101 @@ def test_get_run_without_events_backward_compat(tmp_path):
     loaded = store.get_run("old-run-1")
     assert loaded is not None
     assert "events" not in loaded
+
+
+def test_atomic_write_produces_valid_json(tmp_path):
+    """Atomic write should produce a valid JSON file."""
+    store = RunStore(str(tmp_path))
+    store.save(
+        run_id="atomic-1",
+        workflow_name="test",
+        agents_snapshot=[],
+        status="completed",
+        inputs={"x": 1},
+        result=None,
+    )
+    raw = (tmp_path / "atomic-1.json").read_text()
+    data = json.loads(raw)
+    assert data["run_id"] == "atomic-1"
+    assert data["inputs"] == {"x": 1}
+
+
+def test_atomic_write_overwrite_preserves_data(tmp_path):
+    """Overwriting an existing record should not corrupt it."""
+    store = RunStore(str(tmp_path))
+    store.save(
+        run_id="overwrite-1",
+        workflow_name="test",
+        agents_snapshot=[],
+        status="running",
+        inputs={},
+        result=None,
+    )
+    store.save(
+        run_id="overwrite-1",
+        workflow_name="test",
+        agents_snapshot=[],
+        status="completed",
+        inputs={},
+        result={"outputs": {"a": "done"}},
+        agent_io={"a": {"output": "hello"}},
+    )
+    run = store.get_run("overwrite-1")
+    assert run["status"] == "completed"
+    assert run["agent_io"] == {"a": {"output": "hello"}}
+
+
+def test_corrupted_file_skipped_with_warning(tmp_path):
+    """Corrupted JSON files should be skipped gracefully."""
+    store = RunStore(str(tmp_path))
+
+    # Write a valid run
+    store.save(
+        run_id="valid-1",
+        workflow_name="test",
+        agents_snapshot=[],
+        status="completed",
+        inputs={},
+        result=None,
+    )
+
+    # Manually create a corrupted file
+    (tmp_path / "corrupted-1.json").write_text("{invalid json content")
+
+    runs = store.list_runs()
+    assert len(runs) == 1
+    assert runs[0]["run_id"] == "valid-1"
+
+
+def test_stale_tmp_files_cleaned_up(tmp_path):
+    """list_runs should clean up stale .json.tmp files."""
+    import time as _time
+    import os
+
+    store = RunStore(str(tmp_path))
+
+    # Create a stale tmp file (old mtime)
+    tmp_file = tmp_path / "stale-run.json.tmp"
+    tmp_file.write_text("stale")
+    # Set mtime to 10 minutes ago
+    old_time = _time.time() - 600
+    os.utime(tmp_file, (old_time, old_time))
+
+    # list_runs should clean it up
+    store.list_runs()
+    assert not tmp_file.exists()
+
+
+def test_no_tmp_left_after_successful_save(tmp_path):
+    """Successful save should not leave .tmp files behind."""
+    store = RunStore(str(tmp_path))
+    store.save(
+        run_id="no-tmp",
+        workflow_name="test",
+        agents_snapshot=[],
+        status="completed",
+        inputs={},
+        result=None,
+    )
+    tmp_files = list(tmp_path.glob("*.json.tmp"))
+    assert len(tmp_files) == 0
