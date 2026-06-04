@@ -583,7 +583,7 @@ async def delete_run(run_id: str, request: Request) -> dict:
     path = store._safe_path(run_id)
     if path is None or not path.exists():
         raise HTTPException(status_code=404, detail="Run not found")
-    path.unlink()
+    store.delete_run(run_id)
     repo.remove(run_id)
     return {"status": "ok", "deleted": run_id}
 
@@ -634,7 +634,7 @@ async def batch_delete_runs(request: Request) -> dict:
         if path is None or not path.exists():
             errors.append(rid)
             continue
-        path.unlink()
+        store.delete_run(rid)
         repo.remove(rid)
         deleted.append(rid)
 
@@ -697,7 +697,11 @@ async def list_runs(request: Request, workflow_name: str | None = None) -> list[
 
 @router.get("/runs/{run_id}", response_model=RunDetail)
 async def get_run(run_id: str, request: Request) -> RunDetail:
-    """Get a run by id — persisted disk record or live in-memory workflow."""
+    """Get a run by id — persisted disk record or live in-memory workflow.
+
+    Returns main record WITHOUT chart_groups or events (they are loaded
+    lazily via /runs/{id}/charts and /runs/{id}/events).
+    """
     from harness.run_store import RunStore
     from harness.user_manager import get_user_manager
 
@@ -709,7 +713,6 @@ async def get_run(run_id: str, request: Request) -> RunDetail:
     if run:
         if not is_admin and run.get("user_id", "default") != user.user_id:
             raise HTTPException(status_code=403, detail="Not your run")
-        # Ensure all fields from RunDetail are present
         return {
             "run_id": run.get("run_id"),
             "workflow_name": run.get("workflow_name"),
@@ -720,13 +723,15 @@ async def get_run(run_id: str, request: Request) -> RunDetail:
             "conversation": run.get("conversation", []),
             "created_at": run.get("created_at", ""),
             "dag": run.get("dag"),
-            "chart_groups": run.get("chart_groups"),
+            "chart_groups": None,  # loaded lazily via /runs/{id}/charts
             "agent_io": run.get("agent_io"),
-            "events": run.get("events"),
+            "events": None,  # loaded lazily via /runs/{id}/events
             "work_dir": run.get("work_dir"),
             "batch_id": run.get("batch_id"),
             "user_id": run.get("user_id"),
             "followup_sessions": run.get("followup_sessions"),
+            "_has_charts": run.get("_has_charts", False),
+            "_has_events": run.get("_has_events", False),
         }
 
     # Fall back to in-memory live workflow
@@ -753,9 +758,53 @@ async def get_run(run_id: str, request: Request) -> RunDetail:
             "batch_id": data.get("batch_id"),
             "user_id": data.get("user_id"),
             "followup_sessions": None,
+            "_has_charts": False,
+            "_has_events": False,
         }
 
     raise HTTPException(status_code=404, detail="Run not found")
+
+
+@router.get("/runs/{run_id}/charts")
+async def get_run_charts(run_id: str, request: Request) -> dict | None:
+    """Load chart_groups sidecar data for a persisted run (lazy loading)."""
+    from harness.run_store import RunStore
+    from harness.user_manager import get_user_manager
+
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+    is_admin = user_mgr.is_admin(user)
+
+    store = RunStore()
+    run = store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if not is_admin and run.get("user_id", "default") != user.user_id:
+        raise HTTPException(status_code=403, detail="Not your run")
+
+    charts = store.get_charts(run_id)
+    return charts
+
+
+@router.get("/runs/{run_id}/events")
+async def get_run_events(run_id: str, request: Request) -> list[dict] | None:
+    """Load events sidecar data for a persisted run (lazy loading)."""
+    from harness.run_store import RunStore
+    from harness.user_manager import get_user_manager
+
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+    is_admin = user_mgr.is_admin(user)
+
+    store = RunStore()
+    run = store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if not is_admin and run.get("user_id", "default") != user.user_id:
+        raise HTTPException(status_code=403, detail="Not your run")
+
+    events = store.get_events(run_id)
+    return events
 
 
 @router.patch("/runs/{run_id}/conversation")
@@ -777,12 +826,7 @@ async def update_run_conversation(run_id: str, request: Request) -> dict:
     if run:
         if not is_admin and run.get("user_id", "default") != user.user_id:
             raise HTTPException(status_code=403, detail="Not your run")
-        run["conversation"] = conversation
-        path = store._safe_path(run_id)
-        if not path:
-            raise HTTPException(status_code=400, detail="Invalid run_id")
-        import json
-        path.write_text(json.dumps(run, indent=2, ensure_ascii=False))
+        store.save_conversation(run_id, conversation)
         return {"status": "ok"}
 
     # For in-memory running workflows, store conversation in repository
@@ -816,12 +860,7 @@ async def update_run_charts(run_id: str, request: Request) -> dict:
         raise HTTPException(status_code=404, detail="Run not found")
     if not is_admin and run.get("user_id", "default") != user.user_id:
         raise HTTPException(status_code=403, detail="Not your run")
-    run["chart_groups"] = chart_groups
-    path = store._safe_path(run_id)
-    if not path:
-        raise HTTPException(status_code=400, detail="Invalid run_id")
-    import json
-    path.write_text(json.dumps(run, indent=2, ensure_ascii=False))
+    store.save_charts(run_id, chart_groups)
     return {"status": "ok"}
 
 

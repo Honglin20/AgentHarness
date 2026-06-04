@@ -179,9 +179,10 @@ class WorkflowRunner:
                 data["status"] = "paused"
                 batch_id = data.get("batch_id")
                 from harness.run_store import RunStore
-                existing = RunStore().get_run(workflow_id) or {}
+                store = RunStore()
+                existing = store.get_run(workflow_id) or {}
                 try:
-                    RunStore().save(
+                    store.save(
                         run_id=workflow_id,
                         workflow_name=workflow.name,
                         agents_snapshot=data.get("agents_snapshot")
@@ -194,8 +195,8 @@ class WorkflowRunner:
                         batch_id=batch_id or existing.get("batch_id"),
                         user_id=data.get("user_id") or existing.get("user_id"),
                         conversation=existing.get("conversation"),
-                        chart_groups=existing.get("chart_groups"),
-                        events=existing.get("events"),
+                        chart_groups=store.get_charts(workflow_id),
+                        events=store.get_events(workflow_id),
                         created_at=existing.get("created_at"),
                         work_dir=data.get("work_dir") or existing.get("work_dir"),
                     )

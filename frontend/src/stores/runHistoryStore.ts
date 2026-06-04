@@ -75,6 +75,8 @@ export interface RunRecord {
     ts: number;
     payload: Record<string, unknown>;
   }>;
+  _has_charts?: boolean;
+  _has_events?: boolean;
 }
 
 interface RunHistoryState {
@@ -86,6 +88,8 @@ interface RunHistoryState {
 
   fetchRuns: (workflowName?: string) => Promise<void>;
   fetchRun: (runId: string) => Promise<RunRecord | null>;
+  fetchRunCharts: (runId: string) => Promise<RunRecord["chart_groups"]>;
+  fetchRunEvents: (runId: string) => Promise<RunRecord["events"]>;
   selectRun: (runId: string | null) => void;
   toggleSelectMode: () => void;
   toggleRunSelection: (runId: string) => void;
@@ -121,6 +125,22 @@ export const useRunHistoryStore = create<RunHistoryState>()((set) => ({
   fetchRun: async (runId: string) => {
     try {
       const r = await fetchWithAuth(`/api/runs/${runId}`);
+      if (r.ok) return await r.json();
+    } catch {}
+    return null;
+  },
+
+  fetchRunCharts: async (runId: string) => {
+    try {
+      const r = await fetchWithAuth(`/api/runs/${runId}/charts`);
+      if (r.ok) return await r.json();
+    } catch {}
+    return null;
+  },
+
+  fetchRunEvents: async (runId: string) => {
+    try {
+      const r = await fetchWithAuth(`/api/runs/${runId}/events`);
       if (r.ok) return await r.json();
     } catch {}
     return null;

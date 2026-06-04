@@ -88,13 +88,15 @@ class RunDetail(BaseModel):
     conversation: list[dict] = []
     created_at: str
     dag: dict | None = None  # {nodes, edges, conditional_edges} — needed so replay view can render the DAG identically to live view
-    chart_groups: dict | None = None  # {groups: {label: ChartGroup}, groupOrder: [labels]} — snapshot of frontend chartStore so Results tab replays
+    chart_groups: dict | None = None  # null — loaded lazily via GET /runs/{id}/charts
     agent_io: dict | None = None  # {agent_name: {input_prompt, system_prompt, output_result}} — for conversation replay
-    events: list[dict] | None = None  # Raw event buffer for full replay fidelity (IO, tools, thinking, etc.)
+    events: list[dict] | None = None  # null — loaded lazily via GET /runs/{id}/events
     work_dir: str | None = None  # Working directory for MCP reconnection on resume
     batch_id: str | None = None
     user_id: str | None = None
     followup_sessions: dict | None = None  # {agent_name: {model, messages, turn_count, ...}} — persisted follow-up conversations
+    _has_charts: bool = False  # True when chart sidecar exists
+    _has_events: bool = False  # True when events sidecar exists
 
 
 class RunSummary(BaseModel):

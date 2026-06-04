@@ -66,6 +66,7 @@ export function CenterPanel({ activeBenchmark }: Props) {
   const setWorkflow = useWorkflowStore((s) => s.setWorkflow);
   const dag = useWorkflowStore((s) => s.dag);
   const activeView = useViewStore((s) => s.activeView);
+  const chartsLoading = useViewStore((s) => s.chartsLoading);
 
   const isReplay = activeView.type === "replay";
   const isIdle = !isReplay && status === "idle" && nodeCount === 0;
@@ -114,11 +115,11 @@ export function CenterPanel({ activeBenchmark }: Props) {
   }, [activeView]);
 
   const resultCount = isReplay
-    ? (activeView.run.chart_groups?.groupOrder.length ?? 0)
+    ? chartsLoading ? 0 : (activeView.run.chart_groups?.groupOrder.length ?? 0)
     : liveResultCount;
 
   const analysisCount = isReplay
-    ? filterGroupsByCategory(
+    ? chartsLoading ? 0 : filterGroupsByCategory(
         activeView.run.chart_groups?.groups ?? {},
         activeView.run.chart_groups?.groupOrder ?? [],
         "analysis",
@@ -444,18 +445,26 @@ export function CenterPanel({ activeBenchmark }: Props) {
           )
         ) : activeTab === "analysis" ? (
           isReplay ? (
-            <AnalysisTab
-              groups={activeView.run.chart_groups?.groups ?? {}}
-              groupOrder={activeView.run.chart_groups?.groupOrder ?? []}
-            />
+            chartsLoading ? (
+              <div className="flex items-center justify-center h-full text-sm text-gray-400">Loading charts...</div>
+            ) : (
+              <AnalysisTab
+                groups={activeView.run.chart_groups?.groups ?? {}}
+                groupOrder={activeView.run.chart_groups?.groupOrder ?? []}
+              />
+            )
           ) : (
             <AnalysisTab />
           )
         ) : isReplay ? (
-          <ResultsTab
-            groups={activeView.run.chart_groups?.groups ?? {}}
-            groupOrder={activeView.run.chart_groups?.groupOrder ?? []}
-          />
+          chartsLoading ? (
+            <div className="flex items-center justify-center h-full text-sm text-gray-400">Loading charts...</div>
+          ) : (
+            <ResultsTab
+              groups={activeView.run.chart_groups?.groups ?? {}}
+              groupOrder={activeView.run.chart_groups?.groupOrder ?? []}
+            />
+          )
         ) : (
           <ResultsTab />
         )}

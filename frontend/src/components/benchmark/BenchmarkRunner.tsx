@@ -126,9 +126,16 @@ export default function BenchmarkRunner({ benchmark, onBack }: Props) {
           const data = await r.json();
           if (stores.workflow.getState().dag) return; // WS beat us
 
-          if (data.conversation?.length || data.chart_groups) {
+          if (data.conversation?.length || data._has_charts) {
+            let chartGroups = data.chart_groups ?? null;
+            if (!chartGroups && data._has_charts) {
+              try {
+                const cr = await fetchWithAuth(`/api/runs/${wid}/charts`);
+                if (cr.ok) chartGroups = await cr.json();
+              } catch {}
+            }
             const { loadLegacyRunData } = await import("@/contexts/workflow-context/replayEvents");
-            loadLegacyRunData(wid, data.conversation ?? [], data.chart_groups ?? null);
+            loadLegacyRunData(wid, data.conversation ?? [], chartGroups);
           }
 
           if (!stores.workflow.getState().dag && data.dag) {

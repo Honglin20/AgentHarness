@@ -139,9 +139,17 @@ def test_save_and_retrieve_chart_groups():
             result=None,
             chart_groups=chart_groups,
         )
+
+        # Main record should NOT contain chart_groups
         run = store.get_run("run-charts")
-        assert run["chart_groups"]["groupOrder"] == ["Run Summary"]
-        assert "Tokens" in run["chart_groups"]["groups"]["Run Summary"]["charts"]
+        assert "chart_groups" not in run
+        assert run["_has_charts"] is True
+
+        # Charts are in sidecar
+        charts = store.get_charts("run-charts")
+        assert charts is not None
+        assert charts["groupOrder"] == ["Run Summary"]
+        assert "Tokens" in charts["groups"]["Run Summary"]["charts"]
 
 
 def test_save_and_retrieve_conversation():
@@ -202,11 +210,11 @@ def test_save_without_chart_groups_or_conversation():
         )
         run = store.get_run("run-minimal")
         assert "chart_groups" not in run
-        assert "conversation" not in run
+        assert run.get("conversation") == []  # empty list, not None
 
 
 def test_save_with_events(tmp_path):
-    """RunStore.save() should persist the events list."""
+    """RunStore.save() should persist events to sidecar."""
     store = RunStore(str(tmp_path))
     events = [
         {"type": "agent.text_delta", "ts": 1000, "payload": {"text": "hello"}},
@@ -221,9 +229,15 @@ def test_save_with_events(tmp_path):
         result=None,
         events=events,
     )
-    loaded = store.get_run("evt-run-1")
+    run = store.get_run("evt-run-1")
+    assert run is not None
+    assert run["_has_events"] is True
+    assert "events" not in run
+
+    loaded = store.get_events("evt-run-1")
     assert loaded is not None
-    assert loaded["events"] == events
+    assert len(loaded) == 2
+    assert loaded[0]["type"] == "agent.text_delta"
 
 
 def test_get_run_without_events_backward_compat(tmp_path):
@@ -239,7 +253,8 @@ def test_get_run_without_events_backward_compat(tmp_path):
     )
     loaded = store.get_run("old-run-1")
     assert loaded is not None
-    assert "events" not in loaded
+    assert "_has_events" in loaded
+    assert loaded["_has_events"] is False
 
 
 def test_atomic_write_produces_valid_json(tmp_path):
@@ -338,3 +353,146 @@ def test_no_tmp_left_after_successful_save(tmp_path):
     )
     tmp_files = list(tmp_path.glob("*.json.tmp"))
     assert len(tmp_files) == 0
+
+
+def test_chart_deduplication(tmp_path):
+    """chart.render events should be deduplicated in events sidecar."""
+    store = RunStore(str(tmp_path))
+    big_chart_data = [{"x": i, "y": i * 2} for i in range(1000)]
+    events = [
+        {"type": "agent.text_delta", "ts": 1000, "payload": {"text": "hello"}},
+        {
+            "type": "chart.render",
+            "ts": 1001,
+            "payload": {
+                "node_id": "agent1",
+                "agent_name": "agent1",
+                "chart": {
+                    "label": "test",
+                    "title": "Big Chart",
+                    "chart_type": "bar",
+                    "data": big_chart_data,
+                },
+            },
+        },
+        {"type": "node.completed", "ts": 1002, "payload": {"node_id": "agent1"}},
+    ]
+    chart_groups = {
+        "groups": {"test": {"label": "test", "collapsed": False, "charts": {}, "table": None}},
+        "groupOrder": ["test"],
+    }
+    store.save(
+        run_id="dedup-1",
+        workflow_name="test",
+        agents_snapshot=[],
+        status="completed",
+        inputs={},
+        result=None,
+        chart_groups=chart_groups,
+        events=events,
+    )
+
+    loaded_events = store.get_events("dedup-1")
+    assert loaded_events is not None
+    assert len(loaded_events) == 3
+
+    # The chart.render event should have a lightweight reference instead of full data
+    chart_event = loaded_events[1]
+    assert chart_event["type"] == "chart.render"
+    assert "chart_ref" in chart_event["payload"]
+    assert chart_event["payload"]["chart_ref"]["title"] == "Big Chart"
+    # The big data array should NOT be in the event
+    assert "data" not in chart_event["payload"].get("chart", {})
+
+    # Non-chart events should be unchanged
+    assert loaded_events[0]["type"] == "agent.text_delta"
+    assert loaded_events[2]["type"] == "node.completed"
+
+
+def test_delete_run_removes_sidecars(tmp_path):
+    """delete_run should remove main file and sidecar files."""
+    store = RunStore(str(tmp_path))
+    chart_groups = {
+        "groups": {"g1": {"label": "g1", "collapsed": False, "charts": {}, "table": None}},
+        "groupOrder": ["g1"],
+    }
+    events = [{"type": "agent.text_delta", "ts": 1, "payload": {"text": "hi"}}]
+    store.save(
+        run_id="del-me",
+        workflow_name="test",
+        agents_snapshot=[],
+        status="completed",
+        inputs={},
+        result=None,
+        chart_groups=chart_groups,
+        events=events,
+    )
+
+    assert (tmp_path / "del-me.json").exists()
+    assert (tmp_path / "del-me+charts.json").exists()
+    assert (tmp_path / "del-me+events.json").exists()
+
+    assert store.delete_run("del-me") is True
+    assert not (tmp_path / "del-me.json").exists()
+    assert not (tmp_path / "del-me+charts.json").exists()
+    assert not (tmp_path / "del-me+events.json").exists()
+
+
+def test_list_runs_skips_sidecar_files(tmp_path):
+    """list_runs should only iterate main JSON files, not sidecars."""
+    store = RunStore(str(tmp_path))
+    store.save(
+        run_id="run-1",
+        workflow_name="test",
+        agents_snapshot=[],
+        status="completed",
+        inputs={},
+        result=None,
+        chart_groups={"groups": {"g": {"label": "g", "collapsed": False, "charts": {}, "table": None}}, "groupOrder": ["g"]},
+        events=[{"type": "test", "ts": 1, "payload": {}}],
+    )
+    # Sidecar files exist
+    assert (tmp_path / "run-1+charts.json").exists()
+    assert (tmp_path / "run-1+events.json").exists()
+
+    runs = store.list_runs()
+    assert len(runs) == 1
+    assert runs[0]["run_id"] == "run-1"
+
+
+def test_backward_compat_inline_chart_groups_migration(tmp_path):
+    """Old-format files with inline chart_groups should be migrated on first read."""
+    store = RunStore(str(tmp_path))
+
+    # Write an old-format file with inline chart_groups and events
+    old_record = {
+        "run_id": "old-run",
+        "workflow_name": "test",
+        "agents_snapshot": [],
+        "status": "completed",
+        "inputs": {},
+        "result": None,
+        "chart_groups": {
+            "groups": {"g": {"label": "g", "collapsed": False, "charts": {"c": {"title": "c", "chart_type": "bar", "data": [{"x": 1}]}}}},
+            "groupOrder": ["g"],
+        },
+        "events": [{"type": "agent.text_delta", "ts": 1, "payload": {"text": "hi"}}],
+        "conversation": [],
+    }
+    (tmp_path / "old-run.json").write_text(json.dumps(old_record, indent=2))
+
+    # First read should trigger migration
+    run = store.get_run("old-run")
+    assert run is not None
+    assert "chart_groups" not in run
+    assert run["_has_charts"] is True
+    assert run["_has_events"] is True
+
+    # Sidecar files should now exist
+    charts = store.get_charts("old-run")
+    assert charts is not None
+    assert "g" in charts["groups"]
+
+    events = store.get_events("old-run")
+    assert events is not None
+    assert len(events) == 1
