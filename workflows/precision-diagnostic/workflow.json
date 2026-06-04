@@ -830,7 +830,7 @@
       }
     },
     {
-      "name": "summary_painter",
+      "name": "diagnostic_saver",
       "after": [
         "deep_dive_analyst",
         "intervention_explorer"
@@ -840,291 +840,47 @@
       ],
       "model": null,
       "retries": 3,
-      "result_type_name": "DiagnosticReport",
+      "result_type_name": "DiagnosticSaveResult",
       "result_type_schema": {
-        "$defs": {
-          "ConfigAccuracy": {
-            "properties": {
-              "name": {
-                "description": "Config name",
-                "title": "Name",
-                "type": "string"
-              },
-              "accuracy": {
-                "description": "Eval accuracy",
-                "title": "Accuracy",
-                "type": "number"
-              },
-              "delta": {
-                "description": "Delta from FP32",
-                "title": "Delta",
-                "type": "number"
-              },
-              "with_transform": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "description": "Best transform variant accuracy",
-                "title": "With Transform"
-              }
-            },
-            "required": [
-              "name",
-              "accuracy",
-              "delta"
-            ],
-            "title": "ConfigAccuracy",
-            "type": "object"
-          },
-          "FormatWeakness": {
-            "properties": {
-              "format": {
-                "description": "Format name (e.g. 'int4')",
-                "title": "Format",
-                "type": "string"
-              },
-              "issue": {
-                "description": "Description of the format limitation",
-                "title": "Issue",
-                "type": "string"
-              },
-              "affected_layers": {
-                "items": {
-                  "type": "string"
-                },
-                "title": "Affected Layers",
-                "type": "array"
-              },
-              "evidence": {
-                "description": "Supporting evidence",
-                "title": "Evidence",
-                "type": "string"
-              }
-            },
-            "required": [
-              "format",
-              "issue",
-              "evidence"
-            ],
-            "title": "FormatWeakness",
-            "type": "object"
-          },
-          "LayerFinding": {
-            "properties": {
-              "layer": {
-                "description": "Module name",
-                "title": "Layer",
-                "type": "string"
-              },
-              "config": {
-                "description": "Config name",
-                "title": "Config",
-                "type": "string"
-              },
-              "output_qsnr": {
-                "description": "Output QSNR (dB)",
-                "title": "Output Qsnr",
-                "type": "number"
-              },
-              "dominant_role": {
-                "description": "'input', 'weight', or 'output'",
-                "title": "Dominant Role",
-                "type": "string"
-              },
-              "diagnosis": {
-                "description": "Human-readable diagnosis",
-                "title": "Diagnosis",
-                "type": "string"
-              },
-              "worst_block_idx": {
-                "anyOf": [
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Worst Block Idx"
-              },
-              "worst_channel_idx": {
-                "anyOf": [
-                  {
-                    "type": "integer"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Worst Channel Idx"
-              },
-              "recovery_pct": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Recovery Pct"
-              }
-            },
-            "required": [
-              "layer",
-              "config",
-              "output_qsnr",
-              "dominant_role",
-              "diagnosis"
-            ],
-            "title": "LayerFinding",
-            "type": "object"
-          },
-          "Recommendation": {
-            "properties": {
-              "type": {
-                "description": "'mixed_precision', 'transform', 'format_change', or 'granularity'",
-                "title": "Type",
-                "type": "string"
-              },
-              "priority": {
-                "description": "'high', 'medium', or 'low'",
-                "title": "Priority",
-                "type": "string"
-              },
-              "target_layers": {
-                "items": {
-                  "type": "string"
-                },
-                "title": "Target Layers",
-                "type": "array"
-              },
-              "action": {
-                "description": "Specific action to take",
-                "title": "Action",
-                "type": "string"
-              },
-              "expected_recovery": {
-                "description": "Expected gap recovery %",
-                "title": "Expected Recovery",
-                "type": "number"
-              },
-              "rationale": {
-                "description": "Why this action helps",
-                "title": "Rationale",
-                "type": "string"
-              }
-            },
-            "required": [
-              "type",
-              "priority",
-              "action",
-              "expected_recovery",
-              "rationale"
-            ],
-            "title": "Recommendation",
-            "type": "object"
-          }
-        },
-        "description": "Structured output from the summary_painter agent.",
+        "description": "Structured output from the diagnostic_saver agent.",
         "properties": {
-          "fp32_accuracy": {
-            "description": "FP32 baseline accuracy",
-            "title": "Fp32 Accuracy",
-            "type": "number"
-          },
-          "target_format": {
-            "description": "Primary format analyzed",
-            "title": "Target Format",
+          "diagnostic_dir": {
+            "description": "Path to diagnostic/ directory with incremental JSON",
+            "title": "Diagnostic Dir",
             "type": "string"
           },
-          "configs": {
-            "items": {
-              "$ref": "#/$defs/ConfigAccuracy"
-            },
-            "title": "Configs",
-            "type": "array"
-          },
-          "weight_degradation": {
-            "title": "Weight Degradation",
-            "type": "number"
-          },
-          "activation_degradation": {
-            "title": "Activation Degradation",
-            "type": "number"
-          },
-          "primary_bottleneck": {
-            "title": "Primary Bottleneck",
-            "type": "string"
-          },
-          "consistent_worst_layers": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Consistent Worst Layers",
-            "type": "array"
-          },
-          "layer_findings": {
-            "items": {
-              "$ref": "#/$defs/LayerFinding"
-            },
-            "title": "Layer Findings",
-            "type": "array"
-          },
-          "format_weaknesses": {
-            "items": {
-              "$ref": "#/$defs/FormatWeakness"
-            },
-            "title": "Format Weaknesses",
-            "type": "array"
-          },
-          "recommendations": {
-            "items": {
-              "$ref": "#/$defs/Recommendation"
-            },
-            "title": "Recommendations",
-            "type": "array"
-          },
-          "charts_rendered": {
-            "description": "Names of charts rendered inline during summary",
-            "items": {
-              "type": "string"
-            },
-            "title": "Charts Rendered",
-            "type": "array"
-          },
-          "conclusion": {
-            "description": "One-sentence conclusion",
-            "title": "Conclusion",
+          "status": {
+            "description": "'success' or 'error'",
+            "title": "Status",
             "type": "string"
           },
           "summary": {
-            "description": "Executive summary of the full diagnostic",
+            "description": "One-sentence pipeline result summary",
             "title": "Summary",
             "type": "string"
           }
         },
         "required": [
-          "fp32_accuracy",
-          "target_format",
-          "weight_degradation",
-          "activation_degradation",
-          "primary_bottleneck",
-          "conclusion",
+          "diagnostic_dir",
+          "status",
           "summary"
         ],
-        "title": "DiagnosticReport",
+        "title": "DiagnosticSaveResult",
         "type": "object"
       }
+    },
+    {
+      "name": "report_painter",
+      "after": [
+        "diagnostic_saver"
+      ],
+      "tools": [
+        "render_chart",
+        "read_text_file",
+        "bash"
+      ],
+      "model": null,
+      "retries": 3
     }
   ]
 }

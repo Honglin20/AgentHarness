@@ -168,6 +168,12 @@
             "title": "Status",
             "type": "string"
           },
+          "output_dir": {
+            "default": "",
+            "description": "Directory where StudyReport.save() wrote results",
+            "title": "Output Dir",
+            "type": "string"
+          },
           "fp32_accuracy": {
             "anyOf": [
               {
@@ -239,6 +245,58 @@
         "title": "AnalysisResult",
         "type": "object"
       }
+    },
+    {
+      "name": "diagnostic_saver",
+      "after": [
+        "runner"
+      ],
+      "tools": [
+        "bash"
+      ],
+      "model": null,
+      "retries": 3,
+      "result_type_name": "DiagnosticSaveResult",
+      "result_type_schema": {
+        "description": "Structured output from the diagnostic_saver agent.",
+        "properties": {
+          "diagnostic_dir": {
+            "description": "Path to diagnostic/ directory with incremental JSON",
+            "title": "Diagnostic Dir",
+            "type": "string"
+          },
+          "status": {
+            "description": "'success' or 'error'",
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "description": "One-sentence pipeline result summary",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "diagnostic_dir",
+          "status",
+          "summary"
+        ],
+        "title": "DiagnosticSaveResult",
+        "type": "object"
+      }
+    },
+    {
+      "name": "report_painter",
+      "after": [
+        "diagnostic_saver"
+      ],
+      "tools": [
+        "render_chart",
+        "read_text_file",
+        "bash"
+      ],
+      "model": null,
+      "retries": 3
     },
     {
       "name": "_judge_configurator",
