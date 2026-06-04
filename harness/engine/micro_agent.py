@@ -91,7 +91,14 @@ class MicroAgentFactory:
         parts = []
 
         if inputs:
-            parts.append(f"## Task\n{json.dumps(inputs, indent=2, ensure_ascii=False)}")
+            task_text = inputs.get("task")
+            if task_text and isinstance(task_text, str):
+                parts.append(f"## Task\n{task_text}")
+                context_keys = {k: v for k, v in inputs.items() if k != "task"}
+                if context_keys:
+                    parts.append(f"## Context\n{json.dumps(context_keys, indent=2, ensure_ascii=False)}")
+            else:
+                parts.append(f"## Task\n{json.dumps(inputs, indent=2, ensure_ascii=False)}")
 
         for name, output in upstream_outputs.items():
             display = self._display_name(name)

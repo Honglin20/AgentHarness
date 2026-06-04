@@ -13,9 +13,9 @@ def test_build_node_prompt_first_node():
         inputs={"task": "分析代码"},
         upstream_outputs={},
     )
-    assert "## Task" in prompt
-    assert "分析代码" in prompt
+    assert "## Task\n分析代码" in prompt
     assert "## Output from" not in prompt
+    assert "## Context" not in prompt
 
 
 def test_build_node_prompt_with_upstream():
@@ -62,6 +62,30 @@ def test_build_node_prompt_no_inputs():
         upstream_outputs={},
     )
     assert prompt == ""
+
+
+def test_build_node_prompt_task_with_context():
+    factory = MicroAgentFactory()
+    prompt = factory.build_node_prompt(
+        inputs={"task": "分析代码", "language": "python", "file": "auth.ts"},
+        upstream_outputs={},
+    )
+    assert "## Task\n分析代码" in prompt
+    assert "## Context" in prompt
+    assert '"language": "python"' in prompt
+    assert '"file": "auth.ts"' in prompt
+    assert '"task"' not in prompt  # task key not in JSON blob
+
+
+def test_build_node_prompt_no_task_key():
+    factory = MicroAgentFactory()
+    prompt = factory.build_node_prompt(
+        inputs={"query": "search this"},
+        upstream_outputs={},
+    )
+    assert "## Task" in prompt
+    assert '"query"' in prompt
+    assert "## Context" not in prompt
 
 
 def test_create_returns_pydantic_ai_agent():
