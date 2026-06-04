@@ -35,4 +35,6 @@ Use the `device` value from the configurator's output — do NOT hardcode `--dev
 
 The script outputs metrics to stdout and charts via `__HARNESS_CHART__:` markers (captured automatically).
 
+Your structured output **must include `output_dir`** — the directory where the script saved its results (look for `results.json` in the output). The downstream `diagnostic_saver` agent needs this path.
+
 If the script fails, report the error and suggest fixes.
