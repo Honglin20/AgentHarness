@@ -149,7 +149,7 @@
     {
       "name": "runner",
       "after": [
-        "_judge_configurator"
+        "configurator"
       ],
       "tools": [
         "bash",
@@ -297,18 +297,6 @@
       ],
       "model": null,
       "retries": 3
-    },
-    {
-      "name": "_judge_configurator",
-      "after": [
-        "configurator"
-      ],
-      "tools": null,
-      "model": null,
-      "retries": 3,
-      "on_pass": "runner",
-      "on_fail": "configurator",
-      "eval_target": "configurator"
     }
   ]
 }

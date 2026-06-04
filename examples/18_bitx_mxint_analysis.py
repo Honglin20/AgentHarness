@@ -23,7 +23,6 @@ from __future__ import annotations
 import sys
 from pydantic import BaseModel, Field
 from harness.api import Agent, Workflow
-from harness.extensions.eval import EvalJudge
 
 
 # ── Custom result types ──────────────────────────────────────────────────
@@ -75,18 +74,18 @@ class DiagnosticSaveResult(BaseModel):
 
 wf = Workflow("mxint-analysis", agents=[
     Agent("analyzer", after=[], tools=["bash", "grep", "glob", "read_text_file"], result_type=ProjectAnalysis),
-    Agent("configurator", after=["analyzer"], tools=["ask_user", "bash", "read_text_file", "write_file", "edit_file", "grep", "glob"], result_type=AdapterConfig, eval=True),
+    Agent("configurator", after=["analyzer"], tools=["ask_user", "bash", "read_text_file", "write_file", "edit_file", "grep", "glob"], result_type=AdapterConfig),
     Agent("runner", after=["configurator"], tools=["bash", "read_text_file", "write_file", "edit_file"], result_type=AnalysisResult),
     Agent("diagnostic_saver", after=["runner"], tools=["bash"], result_type=DiagnosticSaveResult),
     Agent("report_painter", after=["diagnostic_saver"], tools=["render_chart", "read_text_file", "bash"]),
-]).use(EvalJudge(max_retries=2))
+])
 wf.compile()
 wf.save()
 
 if "--save" in sys.argv:
     print(f"Saved: workflows/{wf.name}/")
     print()
-    print("DAG:  analyzer → configurator → _judge_configurator → runner → diagnostic_saver → report_painter")
+    print("DAG:  analyzer → configurator → runner → diagnostic_saver → report_painter")
     print()
     print("Result types:")
     print("  analyzer          → ProjectAnalysis (model_class, dataset, weights_path, ...)")
