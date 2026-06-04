@@ -106,7 +106,15 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
     return descMap;
   }, [selectedTemplate]);
 
-  const { sendAnswer, sendStopAndRegenerate, sendGuidance } = useWSMethods();
+  const { sendAnswer, sendStopAndRegenerate, sendGuidance, sendFollowup } = useWSMethods();
+
+  // Build agent list from DAG nodes for follow-up @mention
+  const agentsSnapshot = useMemo(() => {
+    if (!dag?.nodes) return [];
+    return dag.nodes
+      .filter((n: string) => !n.startsWith("_judge_") && !n.includes("_passthrough"))
+      .map((n: string) => ({ name: n }));
+  }, [dag]);
 
   // ChatInput scoped store props (override legacy global store reads)
   const chatInputScopedProps = {
@@ -119,6 +127,8 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
     status,
     workflowId,
     selectedTemplate,
+    sendFollowup,
+    agentsSnapshot,
   };
 
   // When a new live workflow starts, snap back to Conversation

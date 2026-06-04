@@ -356,6 +356,29 @@ export function routeEvent(
 
     // -- Chart events ------------------------------------------------------
 
+    case "followup.started": {
+      const p = payload<{ workflow_id: string; agent_name: string; turn: number }>(event);
+      const conv = stores.conversation.getState();
+      conv.addFollowupAgentMessage(p.agent_name);
+      break;
+    }
+
+    case "followup.completed": {
+      const p = payload<{ workflow_id: string; agent_name: string; turn: number }>(event);
+      const nodeId = `followup-${p.agent_name}`;
+      stores.conversation.getState().completeAgentMessage(nodeId, p.agent_name);
+      break;
+    }
+
+    case "followup.failed": {
+      const p = payload<{ workflow_id: string; agent_name: string; error: string }>(event);
+      const nodeId = `followup-${p.agent_name}`;
+      stores.conversation.getState().failAgentMessage(nodeId, p.agent_name, p.error);
+      break;
+    }
+
+    // -- Chart events (below) ----------------------------------------------
+
     case "chart.render": {
       const p = payload<ChartRenderPayload>(event);
       // Accept both shapes:

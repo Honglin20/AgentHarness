@@ -725,6 +725,7 @@ async def get_run(run_id: str, request: Request) -> RunDetail:
             "work_dir": run.get("work_dir"),
             "batch_id": run.get("batch_id"),
             "user_id": run.get("user_id"),
+            "followup_sessions": run.get("followup_sessions"),
         }
 
     # Fall back to in-memory live workflow
@@ -750,6 +751,7 @@ async def get_run(run_id: str, request: Request) -> RunDetail:
             "work_dir": data.get("work_dir"),
             "batch_id": data.get("batch_id"),
             "user_id": data.get("user_id"),
+            "followup_sessions": None,
         }
 
     raise HTTPException(status_code=404, detail="Run not found")
@@ -819,6 +821,68 @@ async def update_run_charts(run_id: str, request: Request) -> dict:
         raise HTTPException(status_code=400, detail="Invalid run_id")
     import json
     path.write_text(json.dumps(run, indent=2, ensure_ascii=False))
+    return {"status": "ok"}
+
+
+# ── Follow-up session persistence ────────────────────────────────────────
+
+
+@router.patch("/runs/{run_id}/followup")
+async def update_run_followup(run_id: str, request: Request) -> dict:
+    """Persist a follow-up session for a specific agent."""
+    body = await request.json()
+    agent_name = body.get("agent_name")
+    messages = body.get("messages", [])
+    if not agent_name:
+        raise HTTPException(status_code=400, detail="agent_name required")
+
+    from harness.user_manager import get_user_manager
+
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+    is_admin = user_mgr.is_admin(user)
+
+    from harness.run_store import RunStore
+    store = RunStore()
+    run = store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if not is_admin and run.get("user_id", "default") != user.user_id:
+        raise HTTPException(status_code=403, detail="Not your run")
+
+    from datetime import datetime, timezone
+
+    session_data = {
+        "model": body.get("model"),
+        "messages": messages,
+        "turn_count": body.get("turn_count", 0),
+        "created_at": body.get("created_at", datetime.now(timezone.utc).isoformat()),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    store.update_followup(run_id, agent_name, session_data)
+    return {"status": "ok"}
+
+
+@router.delete("/runs/{run_id}/followup/{agent_name}")
+async def delete_run_followup(run_id: str, agent_name: str, request: Request) -> dict:
+    """Clear a follow-up session for a specific agent."""
+    from harness.user_manager import get_user_manager
+
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+    is_admin = user_mgr.is_admin(user)
+
+    from harness.run_store import RunStore
+    store = RunStore()
+    run = store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if not is_admin and run.get("user_id", "default") != user.user_id:
+        raise HTTPException(status_code=403, detail="Not your run")
+
+    from harness.followup import get_followup_manager
+    get_followup_manager().clear(run_id, agent_name)
+    store.delete_followup(run_id, agent_name)
     return {"status": "ok"}
 
 

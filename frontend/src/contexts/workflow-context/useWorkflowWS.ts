@@ -18,6 +18,7 @@ export interface WorkflowWSReturn {
   sendStructuredAnswer: (questionId: string, answer: { selected: string[]; customInput: string }) => void;
   sendStopAndRegenerate: (agentName: string, partialOutput: string, userGuidance: string) => void;
   sendGuidance: (guidance: string) => void;
+  sendFollowup: (agentName: string, question: string) => void;
 }
 
 export function useWorkflowWS(workflowId: string | null): WorkflowWSReturn {
@@ -96,5 +97,19 @@ export function useWorkflowWS(workflowId: string | null): WorkflowWSReturn {
     [ws, workflowId],
   );
 
-  return { isConnected: ws.isConnected, sendAnswer, sendStructuredAnswer, sendStopAndRegenerate, sendGuidance };
+  const sendFollowup = useCallback(
+    (agentName: string, question: string) => {
+      if (!workflowId) return;
+      ws.send({
+        type: "chat.followup",
+        payload: {
+          agent_name: agentName,
+          question,
+        },
+      });
+    },
+    [ws, workflowId],
+  );
+
+  return { isConnected: ws.isConnected, sendAnswer, sendStructuredAnswer, sendStopAndRegenerate, sendGuidance, sendFollowup };
 }

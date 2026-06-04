@@ -40,6 +40,9 @@ export interface ConversationMessage {
   questionInputType?: "text" | "number" | "url" | "textarea";
   questionInputPlaceholder?: string | null;
   questionAnswer?: QuestionAnswer;
+
+  // ── follow-up fields ──
+  followup?: boolean;
 }
 
 export interface AgentQuestionPayload {
@@ -59,6 +62,7 @@ export interface ConversationState {
   messages: ConversationMessage[];
   pendingQuestionId: string | null;
   pendingQuestionAgent: string | null;
+  activeFollowupAgent: string | null;
 
   // Per-workflow cache for batch mode
   _cache: Record<string, { messages: ConversationMessage[]; pendingQuestionId: string | null; pendingQuestionAgent: string | null }>;
@@ -84,6 +88,11 @@ export interface ConversationState {
   resumeAgentMessage: (nodeId: string, agentName: string) => void;
   reset: () => void;
 
+  // Follow-up actions
+  setActiveFollowupAgent: (name: string | null) => void;
+  addFollowupUserMessage: (agentName: string, content: string) => void;
+  addFollowupAgentMessage: (agentName: string) => void;
+
   // Cache management for batch mode
   saveToCache: (wid: string) => void;
   restoreFromCache: (wid: string) => boolean;
@@ -100,6 +109,7 @@ const initialState = {
   messages: [] as ConversationMessage[],
   pendingQuestionId: null as string | null,
   pendingQuestionAgent: null as string | null,
+  activeFollowupAgent: null as string | null,
   _cache: {} as Record<string, { messages: ConversationMessage[]; pendingQuestionId: string | null; pendingQuestionAgent: string | null }>,
   _activeWid: null as string | null,
 };
@@ -416,6 +426,49 @@ export const useConversationStore = create<ConversationState>()((set) => ({
     msgCounter = 0;
     return set({ ...initialState, _cache: {}, _activeWid: null });
   },
+
+  setActiveFollowupAgent: (name) => set({ activeFollowupAgent: name }),
+
+  addFollowupUserMessage: (agentName, content) =>
+    set((state) => ({
+      messages: [
+        ...state.messages,
+        {
+          id: `msg-${++msgCounter}`,
+          type: "user",
+          content,
+          agentName,
+          nodeId: `followup-${agentName}`,
+          followup: true,
+          timestamp: Date.now(),
+        },
+      ],
+    })),
+
+  addFollowupAgentMessage: (agentName) =>
+    set((state) => {
+      const nodeId = `followup-${agentName}`;
+      const streamingIdx = state.messages.findLastIndex(
+        (m) => m.nodeId === nodeId && m.status === "streaming" && m.followup
+      );
+      if (streamingIdx !== -1) return state;
+
+      return {
+        messages: [
+          ...state.messages,
+          {
+            id: `msg-${++msgCounter}`,
+            type: "agent",
+            nodeId,
+            agentName,
+            content: "",
+            status: "streaming",
+            followup: true,
+            timestamp: Date.now(),
+          },
+        ],
+      };
+    }),
 
   saveToCache: (wid) =>
     set((state) => {

@@ -62,6 +62,7 @@ class RunStore:
         record["conversation"] = conversation if conversation is not None else []
         record["events"] = events if events is not None else None
         record["work_dir"] = work_dir or None
+        record["followup_sessions"] = None
         path = self._safe_path(run_id)
         if path is None:
             raise ValueError(f"Invalid run_id: {run_id}")
@@ -103,3 +104,32 @@ class RunStore:
         if path is None or not path.exists():
             return None
         return json.loads(path.read_text())
+
+    def update_followup(
+        self,
+        run_id: str,
+        agent_name: str,
+        session_data: dict,
+    ) -> None:
+        """Incrementally update a single agent's follow-up session."""
+        record = self.get_run(run_id)
+        if record is None:
+            return
+        sessions = record.get("followup_sessions") or {}
+        sessions[agent_name] = session_data
+        record["followup_sessions"] = sessions
+        path = self._safe_path(run_id)
+        if path:
+            path.write_text(json.dumps(record, indent=2, ensure_ascii=False))
+
+    def delete_followup(self, run_id: str, agent_name: str) -> None:
+        """Remove a single agent's follow-up session from the persisted record."""
+        record = self.get_run(run_id)
+        if record is None:
+            return
+        sessions = record.get("followup_sessions") or {}
+        sessions.pop(agent_name, None)
+        record["followup_sessions"] = sessions if sessions else None
+        path = self._safe_path(run_id)
+        if path:
+            path.write_text(json.dumps(record, indent=2, ensure_ascii=False))

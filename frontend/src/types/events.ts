@@ -34,7 +34,10 @@ export type EventType =
   | "circular.warning"
   | "workflow.interrupted"
   | "workflow.waiting_for_guidance"
-  | "agent.provide_guidance";
+  | "agent.provide_guidance"
+  | "followup.started"
+  | "followup.completed"
+  | "followup.failed";
 
 // Workflow events
 export interface WorkflowAgentDef {
@@ -309,6 +312,9 @@ export interface EventPayloadMap {
   "span.end": SpanEndPayload;
   "step.summary": StepSummaryPayload;
   "circular.warning": CircularWarningPayload;
+  "followup.started": { workflow_id: string; agent_name: string; turn: number };
+  "followup.completed": { workflow_id: string; agent_name: string; turn: number };
+  "followup.failed": { workflow_id: string; agent_name: string; error: string };
 }
 
 // Typed event helper

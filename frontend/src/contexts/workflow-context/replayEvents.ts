@@ -223,6 +223,7 @@ interface PersistedRunData {
   chart_groups: { groups: Record<string, any>; groupOrder: string[] } | null;
   agents_snapshot?: Array<{ name: string; model: string | null; tools: string[] | null }>;
   workflow_name?: string;
+  followup_sessions?: Record<string, { messages: Array<{ role: string; content: string; timestamp?: number }>; turn_count?: number }>;
 }
 
 /**
@@ -406,6 +407,37 @@ export function loadRunFromPersistedData(
   // -- 8. chartStore ------------------------------------------------------
 
   loadChartsFromGroups(stores.chart, run.chart_groups);
+
+  // -- 8.5. followup sessions ---------------------------------------------
+
+  const followupSessions = run.followup_sessions;
+
+  if (followupSessions && Object.keys(followupSessions).length > 0) {
+    const existingMessages = stores.conversation.getState().messages;
+    const followupMessages: ConversationMessage[] = [];
+
+    for (const [agentName, session] of Object.entries(followupSessions)) {
+      const nodeId = `followup-${agentName}`;
+      for (const msg of session.messages ?? []) {
+        followupMessages.push({
+          id: `followup-${agentName}-${followupMessages.length}`,
+          type: msg.role === "user" ? "user" : "agent",
+          nodeId,
+          agentName,
+          content: msg.content ?? "",
+          status: "done",
+          followup: true,
+          timestamp: msg.timestamp ?? 0,
+        });
+      }
+    }
+
+    // Sort followup messages by timestamp and append
+    followupMessages.sort((a, b) => a.timestamp - b.timestamp);
+    stores.conversation.setState({
+      messages: [...existingMessages, ...followupMessages],
+    });
+  }
 
   // -- 9. run summary charts ----------------------------------------------
 

@@ -65,6 +65,7 @@ export function WorkflowCenterPanel({ activeBenchmark }: WorkflowCenterPanelProp
         sendStructuredAnswer={wsMethods.sendStructuredAnswer}
         sendStopAndRegenerate={wsMethods.sendStopAndRegenerate}
         sendGuidance={wsMethods.sendGuidance}
+        sendFollowup={wsMethods.sendFollowup}
       >
         <ScopedCenterPanel activeBenchmark={activeBenchmark} isReplay={isReplay} />
       </WSMethodProvider>

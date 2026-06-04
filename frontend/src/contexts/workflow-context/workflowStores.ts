@@ -76,6 +76,7 @@ export function createConversationStore(
     messages: [],
     pendingQuestionId: null,
     pendingQuestionAgent: null,
+    activeFollowupAgent: null,
 
     // Cache management (保留用于 batch 模式兼容)
     _cache: {},
@@ -157,6 +158,11 @@ export function createConversationStore(
     addToolResultToCache: (wid, nodeId, toolName, result) => {
       /* Phase 2 实现 */
     },
+
+    // Follow-up actions
+    setActiveFollowupAgent: () => {},
+    addFollowupUserMessage: () => {},
+    addFollowupAgentMessage: () => {},
   };
 
   const store = createStore<ConversationState>()((set, get) => ({
@@ -469,7 +475,7 @@ export function createConversationStore(
       }),
 
     reset: () =>
-      set({ messages: [], pendingQuestionId: null, pendingQuestionAgent: null }),
+      set({ messages: [], pendingQuestionId: null, pendingQuestionAgent: null, activeFollowupAgent: null }),
 
     saveToCache: (wid) =>
       set((state) => {

@@ -170,6 +170,7 @@ export function AgentNodeHeader({
   getNodeState,
 }: AgentNodeHeaderProps) {
   const { agentName, content, status, durationMs, nodeId } = message;
+  const isFollowup = message.followup === true;
   const badgeClass = AGENT_STATUS_BADGE_BG[status ?? "done"] ?? AGENT_STATUS_BADGE_BG.done;
   const isStreaming = status === "streaming";
   const isDone = status === "done";
@@ -201,6 +202,11 @@ export function AgentNodeHeader({
         {agentName && (
           <span className={`inline-flex max-w-[40%] shrink items-center truncate rounded-md px-2 py-0.5 text-xs font-medium ${badgeClass}`}>
             {agentName}
+          </span>
+        )}
+        {isFollowup && (
+          <span className="shrink-0 inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium text-purple-600 bg-purple-500/10">
+            追问
           </span>
         )}
         {nodeState?.model && (

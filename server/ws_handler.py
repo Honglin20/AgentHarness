@@ -70,6 +70,11 @@ BROADCAST_RULES = {
     "trace.step": "self",
     "chart.render": "self",
 
+    # Follow-up: only initiator receives
+    "followup.started": "self",
+    "followup.completed": "self",
+    "followup.failed": "self",
+
     # System-level: all users receive (rare case)
     "system.alert": "all",
 
@@ -300,6 +305,201 @@ def _rebuild_bus_from_events(workflow_id: str):
     return bus
 
 
+# ── Follow-up handler ────────────────────────────────────────────────────
+
+
+async def _handle_followup(
+    workflow_id: str,
+    agent_name: str,
+    question: str,
+    event_bus,
+) -> None:
+    """Handle a chat.followup message: run a temporary agent with tools."""
+    from harness.followup import get_followup_manager
+    from harness.run_store import RunStore
+    from harness.tools.defaults import default_tool_registry
+    from harness.tools.deps import AgentDeps
+
+    mgr = get_followup_manager()
+    session = mgr.get_or_create(workflow_id, agent_name)
+
+    # Turn limit guard
+    if mgr.at_turn_limit(session):
+        event_bus.emit("followup.failed", {
+            "workflow_id": workflow_id,
+            "agent_name": agent_name,
+            "error": f"对话轮次已达上限 ({mgr._max_turns} 轮)。",
+        })
+        return
+
+    # Load run data
+    run = RunStore().get_run(workflow_id)
+    if not run:
+        event_bus.emit("followup.failed", {
+            "workflow_id": workflow_id,
+            "agent_name": agent_name,
+            "error": "运行记录不存在。",
+        })
+        return
+
+    # Guard: only allow followup on completed/failed runs
+    run_status = run.get("status", "")
+    if run_status not in ("completed", "failed"):
+        event_bus.emit("followup.failed", {
+            "workflow_id": workflow_id,
+            "agent_name": agent_name,
+            "error": f"工作流状态为 '{run_status}'，只能在完成后追问。",
+        })
+        return
+
+    agent_io = (run.get("agent_io") or {}).get(agent_name)
+    if not agent_io:
+        event_bus.emit("followup.failed", {
+            "workflow_id": workflow_id,
+            "agent_name": agent_name,
+            "error": f"Agent '{agent_name}' 没有可用的历史输出。",
+        })
+        return
+
+    # Recover sessions from store on first interaction
+    if session.turn_count == 0 and not session.history:
+        mgr.load_from_store(workflow_id)
+        session = mgr.get_or_create(workflow_id, agent_name)
+
+    async with session.lock:
+        # Resolve agent config
+        agents_snapshot = run.get("agents_snapshot", [])
+        agent_def = next(
+            (a for a in agents_snapshot if a["name"] == agent_name), {}
+        )
+        model_override = agent_def.get("model")
+        agent_tools = agent_def.get("tools")
+
+        original_prompt = agent_io.get("system_prompt", "")
+        original_output = agent_io.get("output_result", "")
+
+        # Build tool registry with the same tools the agent had
+        registry = default_tool_registry(event_bus=event_bus)
+        if agent_tools is not None:
+            tool_names = registry.expand_globs(agent_tools, strict=False)
+        else:
+            tool_names = None  # all tools
+
+        resolved_tools = registry.resolve(tool_names)
+
+        # Create LLM client + agent
+        from harness.engine.llm import LLMClient
+        try:
+            client = LLMClient(model=model_override) if model_override else LLMClient()
+        except RuntimeError:
+            client = LLMClient()
+
+        # First turn: inject original output into system prompt
+        # After restart: also inject persisted conversation history
+        if session.turn_count == 0:
+            output_str = (
+                original_output if isinstance(original_output, str)
+                else json.dumps(original_output, ensure_ascii=False)
+            )
+            enhanced_prompt = (
+                f"{original_prompt}\n\n"
+                f"---\n"
+                f"## 你的历史输出 (工作流已完成，用户正在追问)\n"
+                f"{output_str}"
+            )
+            # Re-inject persisted conversation history after server restart
+            persisted_ctx = session.build_context_from_persisted()
+            if persisted_ctx:
+                enhanced_prompt += (
+                    f"\n\n---\n"
+                    f"## 之前的追问对话 (服务重启后恢复)\n"
+                    f"{persisted_ctx}"
+                )
+                session.turn_count = len([
+                    m for m in session._persisted_messages
+                    if m.get("role") == "user"
+                ])
+        else:
+            enhanced_prompt = original_prompt
+
+        from pydantic_ai import Agent as PydanticAgent
+        pydantic_agent = PydanticAgent(
+            model=client._model,
+            system_prompt=enhanced_prompt,
+            output_type=str,
+            tools=resolved_tools,
+            deps_type=AgentDeps,
+        )
+
+        work_dir = run.get("work_dir") or "."
+        deps = AgentDeps(
+            workdir=work_dir,
+            agent_name=agent_name,
+            workflow_id=workflow_id,
+            node_id=f"followup-{agent_name}",
+        )
+
+        node_id = f"followup-{agent_name}"
+        next_turn = session.turn_count + 1
+
+        # Emit start event
+        event_bus.emit("followup.started", {
+            "workflow_id": workflow_id,
+            "agent_name": agent_name,
+            "turn": next_turn,
+        })
+
+        # Run agent with streaming — reuse LLMExecutor for consistency
+        from harness.engine.llm_executor import LLMExecutor
+        executor = LLMExecutor(
+            pydantic_agent=pydantic_agent,
+            deps=deps,
+            event_bus=event_bus,
+            workflow_id=workflow_id,
+            node_id=node_id,
+            agent_name=agent_name,
+        )
+
+        try:
+            result = await executor.run(question)
+
+            # Update session with new messages
+            all_msgs = result.agent_run.result.all_messages()
+            if session.history:
+                # Only append the new messages (after the existing history)
+                existing_count = len(session.history)
+                new_msgs = all_msgs[existing_count:]
+                session.history.extend(new_msgs)
+            else:
+                session.history = list(all_msgs)
+
+            session.turn_count = next_turn
+            session.model = client.model_name
+            session.updated_at = _now_iso_followup()
+
+            # Persist
+            mgr.flush_session(workflow_id, agent_name)
+
+            event_bus.emit("followup.completed", {
+                "workflow_id": workflow_id,
+                "agent_name": agent_name,
+                "turn": next_turn,
+            })
+
+        except Exception as e:
+            logger.exception(f"Follow-up error for {agent_name}")
+            event_bus.emit("followup.failed", {
+                "workflow_id": workflow_id,
+                "agent_name": agent_name,
+                "error": str(e),
+            })
+
+
+def _now_iso_followup() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
 @router.websocket("/workflows/{workflow_id}")
 async def websocket_endpoint(
     workflow_id: str,
@@ -369,6 +569,16 @@ async def websocket_endpoint(
                     builder = _active_builders.get(workflow_id)
                     if builder is not None:
                         await builder.provide_guidance(guidance)
+
+            # Handle post-workflow follow-up chat
+            elif message.get("type") == "chat.followup":
+                payload = message.get("payload", {}) or {}
+                _agent_name = payload.get("agent_name", "")
+                _question = payload.get("question", "")
+                if _agent_name and _question:
+                    await _handle_followup(
+                        workflow_id, _agent_name, _question, event_bus,
+                    )
     except WebSocketDisconnect:
         pass
     finally:

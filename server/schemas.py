@@ -92,6 +92,7 @@ class RunDetail(BaseModel):
     work_dir: str | None = None  # Working directory for MCP reconnection on resume
     batch_id: str | None = None
     user_id: str | None = None
+    followup_sessions: dict | None = None  # {agent_name: {model, messages, turn_count, ...}} — persisted follow-up conversations
 
 
 class RunSummary(BaseModel):
