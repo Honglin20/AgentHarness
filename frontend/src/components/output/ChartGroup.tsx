@@ -7,7 +7,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import type { ChartGroup as ChartGroupType } from "@/stores/chartStore";
-import ChartWidget from "./ChartWidget";
+import LazyChartWidget from "./LazyChartWidget";
 import DataTable from "./charts/DataTable";
 
 interface ChartGroupProps {
@@ -50,7 +50,7 @@ export default function ChartGroup({ group, onToggleCollapse }: ChartGroupProps)
             >
               {chartEntries.map((chart) => (
                 <div key={chart.title} className="min-w-0 rounded border border-app-border bg-background p-3">
-                  <ChartWidget chart={chart} />
+                  <LazyChartWidget chart={chart} />
                 </div>
               ))}
             </div>

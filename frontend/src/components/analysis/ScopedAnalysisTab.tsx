@@ -9,7 +9,7 @@
 import React, { useState } from "react";
 import { useChartGroups, useChartActions } from "@/contexts/workflow-context";
 import { filterGroupsByCategory, type ChartGroup } from "@/stores/chartStore";
-import ChartWidget from "@/components/output/ChartWidget";
+import LazyChartWidget from "@/components/output/LazyChartWidget";
 import DataTable from "@/components/output/charts/DataTable";
 import {
   Collapsible,
@@ -110,7 +110,7 @@ export function ScopedAnalysisTab({
                             key={chart.title}
                             className="min-h-[300px] min-w-0 rounded border border-app-border bg-background p-3"
                           >
-                            <ChartWidget chart={chart} />
+                            <LazyChartWidget chart={chart} />
                           </div>
                         ))}
                       </div>

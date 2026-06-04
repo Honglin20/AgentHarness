@@ -65,6 +65,15 @@ function MarkdownTextImpl({ children, className }: MarkdownTextProps) {
               {children}
             </blockquote>
           ),
+          img: ({ src, alt }) => (
+            <img
+              src={src}
+              alt={alt ?? ""}
+              loading="lazy"
+              decoding="async"
+              className="my-2 max-w-full rounded"
+            />
+          ),
         }}
       >
         {children}
