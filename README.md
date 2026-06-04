@@ -324,6 +324,7 @@ Agent("analyst", after=[], tools=[])               # 不使用任何工具
 | `glob` | 基于 ripgrep 的文件模式匹配，按修改时间排序 |
 | `sub_agent` | 委托子 Agent 执行任务（最大深度 1） |
 | `ask_user` | 向用户提问（单选/多选/自由输入），等待回答（需要 UI） |
+| `render_chart` | 渲染图表到前端（13 种图表类型），Agent 可直接调用，无需 bash |
 
 ### MCP 工具
 
@@ -623,7 +624,25 @@ wf = Workflow(...).use(DoubleCheck())
 
 ## Chart 可视化
 
-Agent 通过 `bash` 执行的脚本中可以调用 `render_chart()` 推送图表到 UI。
+Agent 可以通过两种方式渲染图表：
+
+**方式一：内联工具（推荐）**
+
+Agent 将 `render_chart` 作为内置工具直接调用，无需经过 bash。图表自动推送到前端实时显示。
+
+```python
+# Agent 的 tools 配置中包含 render_chart 即可（默认已包含）
+Agent("analyst", after=[], tools=["bash", "render_chart"])
+```
+
+**方式二：脚本调用**
+
+Agent 通过 `bash` 执行的 Python 脚本中调用 `render_chart()` 函数。
+
+```python
+from harness.tools.chart import render_chart
+render_chart(data, chart_type="line", x="iter", y="score")
+```
 
 ### 基础图表
 
@@ -1108,6 +1127,7 @@ WebSocket 连接时自动从 Header 解析用户 ID，实现事件级隔离。
 │       └── results/        运行历史（含分数 + 图表）
 ├── runs/                   运行记录 + checkpoints.db
 ├── examples/               可运行的示例（01-17）
+├── devkit/                 开发工具：benchmark 创建、workflow 生成脚本等
 ├── tests/                  测试
 └── docs/plans/             设计文档
 ```
