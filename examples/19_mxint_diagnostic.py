@@ -1,11 +1,12 @@
 """#19 — bitx MXInt Full Precision Diagnostic Chain.
 
-Eight-agent pipeline for comprehensive MXInt quantization analysis:
+Ten-agent pipeline for comprehensive MXInt quantization analysis:
   adapter → study_runner → gap_analyzer + layer_attribution
-    → [distribution_profiler + block_analyst + intervention_evaluator] → synthesis
+    → [distribution_profiler + block_analyst + intervention_evaluator]
+    → synthesis → diagnostic_saver → report_painter
 
 Coarse-to-fine analysis: accuracy gaps → layer attribution → block-level error
-→ intervention strategies → synthesis report.
+→ intervention strategies → synthesis report → diagnostic data → academic analysis.
 
 DAG:
     adapter → study_runner → gap_analyzer ──────────────────────────┐
@@ -14,6 +15,10 @@ DAG:
                                           └→ intervention_evaluator ─┘
                                                                       ↓
                                                              synthesis
+                                                                      ↓
+                                                          diagnostic_saver
+                                                                      ↓
+                                                          report_painter
 
 Usage:
     python examples/19_mxint_diagnostic.py --save            # save workflow
@@ -262,6 +267,15 @@ class MXIntDiagnosticReport(BaseModel):
     summary: str = Field(description="Executive summary of the full diagnostic")
 
 
+# ── Agent 9: diagnostic_saver ────────────────────────────────────────────
+
+class DiagnosticSaveResult(BaseModel):
+    """Structured output from the diagnostic_saver agent."""
+    diagnostic_dir: str = Field(description="Path to diagnostic/ directory with incremental JSON")
+    status: str = Field(description="'success' or 'error'")
+    summary: str = Field(description="One-sentence pipeline result summary")
+
+
 # ── Workflow definition ──────────────────────────────────────────────────
 
 wf = Workflow("mxint-diagnostic", agents=[
@@ -283,6 +297,13 @@ wf = Workflow("mxint-diagnostic", agents=[
           after=["gap_analyzer", "distribution_profiler", "block_analyst", "intervention_evaluator"],
           tools=["bash"],
           result_type=MXIntDiagnosticReport),
+    Agent("diagnostic_saver",
+          after=["synthesis"],
+          tools=["bash"],
+          result_type=DiagnosticSaveResult),
+    Agent("report_painter",
+          after=["diagnostic_saver"],
+          tools=["render_chart", "read_text_file", "bash"]),
 ])
 wf.save()
 
@@ -295,6 +316,10 @@ if "--save" in sys.argv:
     print("                                                     └→ intervent ─┘")
     print("                                                                     ↓")
     print("                                                              synthesis")
+    print("                                                                     ↓")
+    print("                                                          diagnostic_saver")
+    print("                                                                     ↓")
+    print("                                                          report_painter")
     print()
     print("Result types:")
     print("  adapter               → ProjectAnalysis")
@@ -305,6 +330,8 @@ if "--save" in sys.argv:
     print("  block_analyst         → BlockAnalysis")
     print("  intervention_evaluator→ InterventionEvaluation")
     print("  synthesis             → MXIntDiagnosticReport")
+    print("  diagnostic_saver      → DiagnosticSaveResult")
+    print("  report_painter        → (free-form academic report + inline charts)")
     print()
     print("Run with UI:")
     print("  python examples/19_mxint_diagnostic.py /path/to/project")

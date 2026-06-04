@@ -1,16 +1,17 @@
 """#18 — bitx MXInt Quantization Analysis: custom result types + chart rendering.
 
-Three-agent pipeline with structured outputs:
+Five-agent pipeline with structured outputs:
   analyzer (grep/glob) → configurator (ask_user/bash) → runner (bash)
+  → diagnostic_saver → report_painter
 
 Each agent declares a custom Pydantic result_type so the LLM outputs
 exactly the fields the downstream agent needs — no wasted tokens on
 free-form JSON.
 
-Charts are emitted via render_chart() from the runner's subprocess.
+Charts are emitted via render_chart() by the report_painter agent (Method A: inline).
 
 DAG:
-    analyzer → configurator → runner
+    analyzer → configurator → runner → diagnostic_saver → report_painter
 
 Usage:
     python examples/18_bitx_mxint_analysis.py --save            # save workflow
@@ -54,6 +55,7 @@ class AdapterConfig(BaseModel):
 class AnalysisResult(BaseModel):
     """Structured output from the runner agent."""
     status: str = Field(description="'success' or 'error'")
+    output_dir: str = Field(default="", description="Directory where StudyReport.save() wrote results")
     fp32_accuracy: float | None = Field(default=None, description="FP32 model accuracy")
     quant_accuracy: float | None = Field(default=None, description="Quantized model accuracy")
     accuracy_delta: float | None = Field(default=None, description="Quant - FP32 accuracy delta")
@@ -62,12 +64,21 @@ class AnalysisResult(BaseModel):
     summary: str = Field(description="One-sentence result summary")
 
 
+class DiagnosticSaveResult(BaseModel):
+    """Structured output from the diagnostic_saver agent."""
+    diagnostic_dir: str = Field(description="Path to diagnostic/ directory with incremental JSON")
+    status: str = Field(description="'success' or 'error'")
+    summary: str = Field(description="One-sentence pipeline result summary")
+
+
 # ── Workflow definition ──────────────────────────────────────────────────
 
 wf = Workflow("mxint-analysis", agents=[
     Agent("analyzer", after=[], tools=["bash", "grep", "glob", "read_text_file"], result_type=ProjectAnalysis),
     Agent("configurator", after=["analyzer"], tools=["ask_user", "bash", "read_text_file", "write_file", "edit_file", "grep", "glob"], result_type=AdapterConfig, eval=True),
     Agent("runner", after=["configurator"], tools=["bash", "read_text_file", "write_file", "edit_file"], result_type=AnalysisResult),
+    Agent("diagnostic_saver", after=["runner"], tools=["bash"], result_type=DiagnosticSaveResult),
+    Agent("report_painter", after=["diagnostic_saver"], tools=["render_chart", "read_text_file", "bash"]),
 ]).use(EvalJudge(max_retries=2))
 wf.compile()
 wf.save()
@@ -75,12 +86,14 @@ wf.save()
 if "--save" in sys.argv:
     print(f"Saved: workflows/{wf.name}/")
     print()
-    print("DAG:  analyzer → configurator → _judge_configurator → runner")
+    print("DAG:  analyzer → configurator → _judge_configurator → runner → diagnostic_saver → report_painter")
     print()
     print("Result types:")
-    print("  analyzer     → ProjectAnalysis (model_class, dataset, weights_path, ...)")
-    print("  configurator → AdapterConfig (adapter_path, cli_command, w_bits, ...)")
-    print("  runner       → AnalysisResult (status, fp32_accuracy, worst_layer, ...)")
+    print("  analyzer          → ProjectAnalysis (model_class, dataset, weights_path, ...)")
+    print("  configurator      → AdapterConfig (adapter_path, cli_command, w_bits, ...)")
+    print("  runner            → AnalysisResult (status, fp32_accuracy, worst_layer, ...)")
+    print("  diagnostic_saver  → DiagnosticSaveResult (diagnostic_dir, status)")
+    print("  report_painter    → (free-form academic report + inline charts)")
     print()
     print("Run with UI:")
     print("  python examples/18_bitx_mxint_analysis.py /path/to/project")

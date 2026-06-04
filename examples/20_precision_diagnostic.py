@@ -1,17 +1,19 @@
 """#20 — Precision Diagnostic Workflow: format-agnostic quantization analysis.
 
-Six-agent pipeline for analyzing precision degradation in any deep learning model:
+Seven-agent pipeline for analyzing precision degradation in any deep learning model:
   adapter → quant_study → coarse_analyzer
-    → [deep_dive_analyst + intervention_explorer] → summary_painter
+    → [deep_dive_analyst + intervention_explorer] → diagnostic_saver → report_painter
 
 From coarse to fine: accuracy gaps → layer attribution → block-level error
-→ intervention strategies → inline chart report.
+→ intervention strategies → diagnostic data → academic analysis report with inline charts.
 
 DAG:
-    adapter → quant_study → coarse_analyzer ──┬→ deep_dive_analyst ────┤
-                                               └→ intervention_explorer ─┘
+    adapter → quant_study → coarse_analyzer ──┬→ deep_dive_analyst ────┐
+                                               └→ intervention_explorer ─┤
                                                                           ↓
-                                                                summary_painter
+                                                                diagnostic_saver
+                                                                          ↓
+                                                                report_painter
 
 Usage:
     python examples/20_precision_diagnostic.py --save              # save workflow
@@ -209,57 +211,16 @@ class InterventionReport(BaseModel):
     summary: str = Field(description="One-sentence intervention summary")
 
 
-# ── Agent 5: summary_painter ──────────────────────────────────────────────
+# ── Agent 5: diagnostic_saver ──────────────────────────────────────────────
 
-class ConfigAccuracy(BaseModel):
-    name: str = Field(description="Config name")
-    accuracy: float = Field(description="Eval accuracy")
-    delta: float = Field(description="Delta from FP32")
-    with_transform: float | None = Field(
-        default=None, description="Best transform variant accuracy"
-    )
+class DiagnosticSaveResult(BaseModel):
+    """Structured output from the diagnostic_saver agent."""
+    diagnostic_dir: str = Field(description="Path to diagnostic/ directory with incremental JSON")
+    status: str = Field(description="'success' or 'error'")
+    summary: str = Field(description="One-sentence pipeline result summary")
 
 
-class LayerFinding(BaseModel):
-    layer: str = Field(description="Module name")
-    config: str = Field(description="Config name")
-    output_qsnr: float = Field(description="Output QSNR (dB)")
-    dominant_role: str = Field(description="'input', 'weight', or 'output'")
-    diagnosis: str = Field(description="Human-readable diagnosis")
-    worst_block_idx: int | None = None
-    worst_channel_idx: int | None = None
-    recovery_pct: float | None = None
-
-
-class Recommendation(BaseModel):
-    type: str = Field(
-        description="'mixed_precision', 'transform', 'format_change', or 'granularity'"
-    )
-    priority: str = Field(description="'high', 'medium', or 'low'")
-    target_layers: list[str] = Field(default_factory=list)
-    action: str = Field(description="Specific action to take")
-    expected_recovery: float = Field(description="Expected gap recovery %")
-    rationale: str = Field(description="Why this action helps")
-
-
-class DiagnosticReport(BaseModel):
-    """Structured output from the summary_painter agent."""
-    fp32_accuracy: float = Field(description="FP32 baseline accuracy")
-    target_format: str = Field(description="Primary format analyzed")
-    configs: list[ConfigAccuracy] = Field(default_factory=list)
-    weight_degradation: float
-    activation_degradation: float
-    primary_bottleneck: str
-    consistent_worst_layers: list[str] = Field(default_factory=list)
-    layer_findings: list[LayerFinding] = Field(default_factory=list)
-    format_weaknesses: list[FormatWeakness] = Field(default_factory=list)
-    recommendations: list[Recommendation] = Field(default_factory=list)
-    charts_rendered: list[str] = Field(
-        default_factory=list,
-        description="Names of charts rendered inline during summary",
-    )
-    conclusion: str = Field(description="One-sentence conclusion")
-    summary: str = Field(description="Executive summary of the full diagnostic")
+# ── Agent 6: report_painter (no structured output — free-form academic report) ──
 
 
 # ── Workflow definition ───────────────────────────────────────────────────
@@ -275,10 +236,13 @@ wf = Workflow("precision-diagnostic", agents=[
           result_type=DeepDiveReport),
     Agent("intervention_explorer", after=["coarse_analyzer"], tools=["bash", "ask_user"],
           result_type=InterventionReport),
-    Agent("summary_painter",
+    Agent("diagnostic_saver",
           after=["deep_dive_analyst", "intervention_explorer"],
           tools=["bash"],
-          result_type=DiagnosticReport),
+          result_type=DiagnosticSaveResult),
+    Agent("report_painter",
+          after=["diagnostic_saver"],
+          tools=["render_chart", "read_text_file", "bash"]),
 ])
 wf.save()
 
@@ -287,8 +251,10 @@ if "--save" in sys.argv:
     print()
     print("DAG:  adapter → quant_study → coarse_analyzer ──┬→ deep_dive_analyst ────┐")
     print("                                                   └→ intervention_explorer ─┤")
-    print("                                                                              ↓")
-    print("                                                                    summary_painter")
+    print("                                                                               ↓")
+    print("                                                                     diagnostic_saver")
+    print("                                                                               ↓")
+    print("                                                                     report_painter")
     print()
     print("Result types:")
     print("  adapter              → ProjectAnalysis")
@@ -296,7 +262,8 @@ if "--save" in sys.argv:
     print("  coarse_analyzer      → CoarseAnalysis (gap + layer attribution)")
     print("  deep_dive_analyst    → DeepDiveReport (distribution + block error)")
     print("  intervention_explorer→ InterventionReport")
-    print("  summary_painter      → DiagnosticReport (+ inline charts)")
+    print("  diagnostic_saver     → DiagnosticSaveResult")
+    print("  report_painter       → (free-form academic report + inline charts)")
     print()
     print("Run:")
     print("  python examples/20_precision_diagnostic.py /path/to/project")
