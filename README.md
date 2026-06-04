@@ -337,6 +337,52 @@ Agent("analyst", after=[], tools=[])               # 不使用任何工具
 
 MCP Server 需要安装对应的 npm 包（见安装部分）。
 
+### Tool Catalog API
+
+服务启动时自动连接所有 MCP Server 并构建完整工具目录。通过 REST API 查询：
+
+```bash
+# 查看所有可用工具（built-in + MCP）
+curl http://localhost:8000/api/tools
+
+# 强制刷新工具目录（重连 MCP servers）
+curl -X POST http://localhost:8000/api/tools/refresh
+```
+
+每个工具返回 `name`、`description`、`source`（来源分类）和 `parameters`（JSON Schema）：
+
+```json
+[
+  {
+    "name": "bash",
+    "description": "Execute a bash command and return its output.",
+    "source": "built-in",
+    "parameters": {}
+  },
+  {
+    "name": "read_file",
+    "description": "Read the contents of a file...",
+    "source": "mcp_filesystem",
+    "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}
+  },
+  {
+    "name": "codegraph_search",
+    "description": "Quick symbol search by name.",
+    "source": "mcp_codegraph",
+    "parameters": {"type": "object", "properties": {"query": {"type": "string"}}}
+  }
+]
+```
+
+**来源分类**：
+
+| source | 说明 |
+|--------|------|
+| `built-in` | 框架内置工具（bash, grep, glob, sub_agent, render_chart, ask_user） |
+| `mcp_filesystem` | MCP 文件系统工具（read_file, write_file, edit_file 等） |
+| `mcp_codegraph` | MCP codegraph 工具（codegraph_search, codegraph_context 等） |
+| `mcp_custom` | 用户自定义 MCP Server 提供的工具 |
+
 ### MCP 开关
 
 通过 `Workflow` 参数控制 MCP 加载：
@@ -946,7 +992,8 @@ trace[0].token_usage.total    # int
 | `GET` | `/api/me` | 获取当前用户信息 |
 | `GET` | `/api/agents` | 列出可用 Agent |
 | `GET` | `/api/agents/{name}` | 获取 Agent 定义 |
-| `GET` | `/api/tools` | 列出已注册工具 |
+| `GET` | `/api/tools` | 列出所有可用工具（built-in + MCP，含 source/description/parameters） |
+| `POST` | `/api/tools/refresh` | 强制刷新工具目录（重连 MCP servers） |
 | `GET` | `/api/config` | 获取配置（Key 已脱敏） |
 | `POST` | `/api/config` | 设置 API Key / Model |
 | `GET` | `/api/workflows/definitions` | 列出已保存工作流 |

@@ -51,14 +51,14 @@ def default_tool_registry(event_bus=None) -> ToolRegistry:
             tools (ask_user).
     """
     registry = ToolRegistry()
-    registry.register("sub_agent", SubAgentToolFactory(registry=registry))
-    registry.register("bash", BashToolFactory())
-    registry.register("grep", GrepToolFactory())
-    registry.register("glob", GlobToolFactory())
-    registry.register("render_chart", RenderChartToolFactory(event_bus=event_bus))
+    registry.register("sub_agent", SubAgentToolFactory(registry=registry), source="built-in")
+    registry.register("bash", BashToolFactory(), source="built-in")
+    registry.register("grep", GrepToolFactory(), source="built-in")
+    registry.register("glob", GlobToolFactory(), source="built-in")
+    registry.register("render_chart", RenderChartToolFactory(event_bus=event_bus), source="built-in")
     if event_bus:
         from harness.tools.ask_user import AskUserToolFactory
-        registry.register("ask_user", AskUserToolFactory(event_bus=event_bus))
+        registry.register("ask_user", AskUserToolFactory(event_bus=event_bus), source="built-in")
 
     from harness.tools.dedup_guard import configure_dedup
     configure_dedup(window_ms=5)
@@ -92,7 +92,7 @@ async def setup_default_mcp(
             args=["-y", "@modelcontextprotocol/server-filesystem", workdir],
         )
 
-    bridge = McpBridge(config, registry=registry)
+    bridge = McpBridge(config, registry=registry, source="mcp_filesystem")
     await bridge.connect()
     await bridge.register_tools()
     return [bridge]
@@ -139,7 +139,7 @@ async def setup_codegraph_mcp(
             args=["-y", "@colbymchenry/codegraph", *base_args],
         )
 
-    bridge = McpBridge(config, registry=registry)
+    bridge = McpBridge(config, registry=registry, source="mcp_codegraph")
     await bridge.connect()
     await bridge.register_tools()
     return bridge

@@ -672,7 +672,7 @@ class Workflow:
 
         for config in self.mcp_servers:
             try:
-                bridge = McpBridge(config, registry=self.tool_registry)
+                bridge = McpBridge(config, registry=self.tool_registry, source="mcp_custom")
                 await bridge.connect()
                 await bridge.register_tools()
                 bridges.append(bridge)

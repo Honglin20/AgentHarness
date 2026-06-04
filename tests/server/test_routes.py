@@ -119,12 +119,28 @@ def test_agent_snapshot_schema_accepts_new_fields():
 
 @pytest.mark.asyncio
 async def test_list_tools():
-    """list_tools() returns registered tools."""
+    """list_tools() returns registered tools from the catalog."""
+    from starlette.requests import Request
+    from harness.tools.catalog import ToolCatalogService
+    from harness.tools.defaults import default_tool_registry
+
+    # Build a catalog with just built-in tools (no MCP)
+    catalog = ToolCatalogService()
+    reg = default_tool_registry()
+    catalog._registry = reg
+    catalog._catalog = reg.get_tool_catalog()
+
+    class FakeState:
+        tool_catalog = catalog
+    class FakeApp:
+        state = FakeState()
+
+    scope = {"type": "http", "headers": [], "query_string": b"", "path": "/", "app": FakeApp()}
+    fake_request = Request(scope)
+
     from server.routes import list_tools
+    tools = await list_tools(fake_request)
 
-    tools = await list_tools()
-
-    # Should have at least bash and sub_agent from default registry
-    tool_names = [t.name for t in tools]
+    tool_names = [t["name"] for t in tools]
     assert "bash" in tool_names
     assert "sub_agent" in tool_names

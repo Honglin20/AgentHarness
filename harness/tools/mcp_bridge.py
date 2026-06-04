@@ -79,9 +79,10 @@ class McpToolFactory(ToolFactory):
 class McpBridge:
     """连接 MCP Server，发现工具并注册到 ToolRegistry"""
 
-    def __init__(self, config: McpServerConfig, registry: ToolRegistry):
+    def __init__(self, config: McpServerConfig, registry: ToolRegistry, source: str = "mcp_custom"):
         self.config = config
         self.registry = registry
+        self.source = source
         self._session: ClientSession | None = None
         self._session_cm: Any = None   # ClientSession context manager
         self._stdio_cm: Any = None     # stdio_client context manager
@@ -146,7 +147,7 @@ class McpBridge:
                 description=mcp_tool.description or "",
                 input_schema=mcp_tool.inputSchema or {},
             )
-            self.registry.register(registered_name, factory)
+            self.registry.register(registered_name, factory, source=self.source)
             self._tool_names.append(registered_name)
 
         return self._tool_names

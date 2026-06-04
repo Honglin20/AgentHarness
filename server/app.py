@@ -47,6 +47,17 @@ async def lifespan(app: FastAPI):
     app.state.event_bus = bus
     app.state.runner = runner
 
+    # Build tool catalog (built-in + MCP filesystem + MCP codegraph)
+    from harness.tools.catalog import ToolCatalogService
+    catalog = ToolCatalogService()
+    try:
+        await catalog.refresh(workdir=".")
+        n = len(catalog.get_catalog())
+        print(f"  Tool catalog:     {n} tools loaded")
+    except Exception as e:
+        print(f"  Tool catalog:     failed ({e})")
+    app.state.tool_catalog = catalog
+
     # Best-effort initial URL from env (CLI sets HARNESS_PORT before uvicorn).
     # The PortDetectionMiddleware will correct this on the first real request.
     port = os.environ.get("HARNESS_PORT", "8000")
@@ -67,6 +78,9 @@ async def lifespan(app: FastAPI):
             pass
 
     yield
+
+    # Cleanup tool catalog MCP connections
+    await catalog.cleanup()
 
 
 class HttpOnlyStaticFiles(StaticFiles):

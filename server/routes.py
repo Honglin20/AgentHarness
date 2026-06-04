@@ -36,7 +36,6 @@ from server.schemas import (
     BenchmarkRunSummary,
     BenchmarkTaskResult,
     RunBenchmarkRequest,
-    ToolInfo,
     WorkflowStatusResponse,
 )
 from server.repository import get_repository
@@ -451,21 +450,23 @@ async def update_agent_md(name: str, request: Request) -> dict:
 
 
 @router.get("/tools")
-async def list_tools() -> list[ToolInfo]:
-    """List all registered tools."""
-    from harness.tools.defaults import default_tool_registry
+async def list_tools(request: Request) -> list[dict]:
+    """List all available tools (built-in + MCP) with source and description."""
+    catalog = getattr(request.app.state, "tool_catalog", None)
+    if catalog is None:
+        return []
+    return [entry.model_dump() for entry in catalog.get_catalog()]
 
-    registry = default_tool_registry()
-    tool_names = registry.list_tools()
 
-    tools = []
-    for name in tool_names:
-        # Get description from factory
-        factory = registry._factories.get(name)
-        desc = factory.description if factory else ""
-        tools.append(ToolInfo(name=name, description=desc))
-
-    return tools
+@router.post("/tools/refresh")
+async def refresh_tools(request: Request) -> dict:
+    """Force-refresh the tool catalog by reconnecting MCP servers."""
+    catalog = getattr(request.app.state, "tool_catalog", None)
+    if catalog is None:
+        return {"status": "error", "detail": "Tool catalog not initialized"}
+    workdir = request.query_params.get("workdir", ".")
+    await catalog.refresh(workdir=workdir)
+    return {"status": "ok", "count": len(catalog.get_catalog())}
 
 
 @router.post("/charts")

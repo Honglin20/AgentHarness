@@ -1,9 +1,21 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from asyncio import iscoroutinefunction
 from fnmatch import fnmatchcase
 from functools import wraps
+from typing import Any
 
+from pydantic import BaseModel
 from pydantic_ai import Tool as PydanticAITool
+
+
+class ToolCatalogEntry(BaseModel):
+    """A single tool's metadata for the catalog API."""
+    name: str
+    description: str
+    source: str  # "built-in" | "mcp_filesystem" | "mcp_codegraph" | "mcp_custom"
+    parameters: dict[str, Any] = {}
 
 
 class ToolNotFoundError(Exception):
@@ -51,9 +63,11 @@ class ToolRegistry:
 
     def __init__(self):
         self._factories: dict[str, ToolFactory] = {}
+        self._sources: dict[str, str] = {}  # tool_name → source tag
 
-    def register(self, name: str, factory: ToolFactory) -> None:
+    def register(self, name: str, factory: ToolFactory, source: str = "built-in") -> None:
         self._factories[name] = factory
+        self._sources[name] = source
 
     def expand_globs(self, patterns: list[str], strict: bool = True) -> list[str]:
         """Expand glob patterns and ``!`` exclusions against the registry.
@@ -132,3 +146,20 @@ class ToolRegistry:
             factory = self._factories.get(name)
             result.append({"name": name, "description": factory.description if factory else ""})
         return result
+
+    def get_tool_catalog(self, tool_names: list[str] | None = None) -> list[ToolCatalogEntry]:
+        """Return full tool catalog entries with source and parameters."""
+        names = tool_names if tool_names is not None else list(self._factories.keys())
+        entries = []
+        for name in names:
+            factory = self._factories.get(name)
+            params = {}
+            if hasattr(factory, "input_schema"):
+                params = factory.input_schema  # type: ignore[union-attr]
+            entries.append(ToolCatalogEntry(
+                name=name,
+                description=factory.description if factory else "",
+                source=self._sources.get(name, "unknown"),
+                parameters=params,
+            ))
+        return entries

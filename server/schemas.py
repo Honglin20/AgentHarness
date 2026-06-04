@@ -50,9 +50,11 @@ class AgentInfo(BaseModel):
 
 
 class ToolInfo(BaseModel):
-    """Tool information."""
+    """Tool information (deprecated — use harness.tools.registry.ToolCatalogEntry)."""
     name: str
     description: str
+    source: str = "unknown"
+    parameters: dict[str, Any] = {}
 
 
 class HealthResponse(BaseModel):
