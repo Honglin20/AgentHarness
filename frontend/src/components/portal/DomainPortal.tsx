@@ -1,19 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { Logo } from "@/components/ui/logo";
-import { fetchWithAuth } from "@/lib/api";
-import type { DomainMeta, TutorialMeta } from "@/types/domains";
-import { Layers, Search, Flame, Scissors, Lock, ArrowRight, Terminal } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { usePortalStore } from "@/stores/portalStore";
-
-const COLOR_MAP: Record<string, { accent: string; text: string; badge: string }> = {
-  blue:   { accent: "border-l-blue-500",   text: "text-blue-700 dark:text-blue-400",   badge: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400" },
-  violet: { accent: "border-l-violet-500",  text: "text-violet-700 dark:text-violet-400", badge: "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-400" },
-  amber:  { accent: "border-l-amber-500",   text: "text-amber-700 dark:text-amber-400",  badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400" },
-  rose:   { accent: "border-l-rose-500",     text: "text-rose-700 dark:text-rose-400",    badge: "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-400" },
-};
-const DEFAULT_COLOR = COLOR_MAP.blue;
+import { COLOR_MAP, DEFAULT_COLOR } from "./colors";
+import { Layers, Search, Flame, Scissors, ArrowRight, Lock, Terminal } from "lucide-react";
+import type { DomainMeta, TutorialMeta } from "@/types/domains";
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   Layers: Layers, Search: Search, Flame: Flame, Scissors: Scissors,
@@ -93,26 +86,36 @@ function TutorialCard({
   );
 }
 
+function PortalSkeleton() {
+  return (
+    <div className="flex flex-col gap-5">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i}>
+          <div className="flex items-center gap-2.5 mb-2.5">
+            <Skeleton className="h-3.5 w-3.5" />
+            <Skeleton className="h-4 w-24" />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {Array.from({ length: 3 }).map((_, j) => (
+              <Skeleton key={j} className="h-24 rounded-lg" />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function DomainPortal({ workflowCountByDomain = {} }: Props) {
-  const [domains, setDomains] = useState<DomainMeta[]>([]);
-
-  useEffect(() => {
-    fetchWithAuth("/api/domains")
-      .then((r) => r.json())
-      .then((data: DomainMeta[]) => setDomains(data))
-      .catch(() => {});
-  }, []);
-
+  const domains = usePortalStore((s) => s.domains);
+  const domainsLoading = usePortalStore((s) => s.domainsLoading);
+  const ensureDomains = usePortalStore((s) => s.ensureDomains);
   const showWorkflows = usePortalStore((s) => s.showWorkflows);
   const showTutorial = usePortalStore((s) => s.showTutorial);
 
-  const handleTutorialClick = (domainId: string, tutorialId: string) => {
-    showTutorial(domainId, tutorialId);
-  };
-
-  const handleWorkflows = (domainId: string) => {
-    showWorkflows(domainId);
-  };
+  useEffect(() => {
+    ensureDomains();
+  }, [ensureDomains]);
 
   return (
     <div className="flex flex-1 flex-col items-center bg-app-bg-primary px-6 py-8 overflow-y-auto">
@@ -121,49 +124,53 @@ export function DomainPortal({ workflowCountByDomain = {} }: Props) {
           <Logo size="lg" className="text-primary" />
         </div>
 
-        {domains.map((domain) => {
-          const c = COLOR_MAP[domain.color] || DEFAULT_COLOR;
-          const Icon = ICON_MAP[domain.icon] || Layers;
-          const isComingSoon = domain.status === "coming_soon";
+        {domainsLoading && domains.length === 0 ? (
+          <PortalSkeleton />
+        ) : (
+          domains.map((domain) => {
+            const c = COLOR_MAP[domain.color] || DEFAULT_COLOR;
+            const Icon = ICON_MAP[domain.icon] || Layers;
+            const isComingSoon = domain.status === "coming_soon";
 
-          return (
-            <div key={domain.id} className="mb-5">
-              <div className={`flex items-center gap-2.5 mb-2.5 border-l-[3px] pl-3 py-0.5 ${c.accent}`}>
-                <Icon className={`h-3.5 w-3.5 ${c.text}`} />
-                <span className="text-sm font-semibold text-app-text-primary">{domain.title}</span>
-                {!isComingSoon && (
-                  <button
-                    onClick={() => handleWorkflows(domain.id)}
-                    className="ml-auto flex items-center gap-0.5 text-xs text-muted-foreground hover:text-app-text-primary transition-colors"
-                  >
-                    工作流 <ArrowRight className="h-3 w-3" />
-                  </button>
+            return (
+              <div key={domain.id} className="mb-5">
+                <div className={`flex items-center gap-2.5 mb-2.5 border-l-[3px] pl-3 py-0.5 ${c.accent}`}>
+                  <Icon className={`h-3.5 w-3.5 ${c.text}`} />
+                  <span className="text-sm font-semibold text-app-text-primary">{domain.title}</span>
+                  {!isComingSoon && (
+                    <button
+                      onClick={() => showWorkflows(domain.id)}
+                      className="ml-auto flex items-center gap-0.5 text-xs text-muted-foreground hover:text-app-text-primary transition-colors"
+                    >
+                      Workflows <ArrowRight className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+
+                {isComingSoon ? (
+                  <div className="flex items-center gap-2 px-4 py-3 rounded-lg border border-dashed border-app-border bg-muted/30">
+                    <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">Coming soon</span>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-3">
+                    {domain.tutorials.map((tutorial) => (
+                      <TutorialCard
+                        key={tutorial.id}
+                        tutorial={tutorial}
+                        domain={domain}
+                        onClick={() => showTutorial(domain.id, tutorial.id)}
+                      />
+                    ))}
+                  </div>
                 )}
               </div>
+            );
+          })
+        )}
 
-              {isComingSoon ? (
-                <div className="flex items-center gap-2 px-4 py-3 rounded-lg border border-dashed border-app-border bg-muted/30">
-                  <Lock className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground">即将推出</span>
-                </div>
-              ) : (
-                <div className="grid grid-cols-3 gap-3">
-                  {domain.tutorials.map((tutorial) => (
-                    <TutorialCard
-                      key={tutorial.id}
-                      tutorial={tutorial}
-                      domain={domain}
-                      onClick={() => handleTutorialClick(domain.id, tutorial.id)}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-
-        {domains.length === 0 && (
-          <p className="text-center text-xs text-muted-foreground">暂无领域教程</p>
+        {!domainsLoading && domains.length === 0 && (
+          <p className="text-center text-xs text-muted-foreground">No tutorials available</p>
         )}
       </div>
     </div>

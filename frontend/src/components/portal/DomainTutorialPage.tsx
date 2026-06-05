@@ -1,40 +1,36 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { ArrowLeft, Play } from "lucide-react";
+import { Play } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { usePortalStore } from "@/stores/portalStore";
-import type { ApiDocMeta } from "@/types/domains";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { fetchWithAuth } from "@/lib/api";
 import { MarkdownText } from "@/components/conversation/MarkdownText";
 import { DagChapterNav } from "@/components/portal/DagChapterNav";
-import type { TutorialDetail, DomainMeta } from "@/types/domains";
-
-interface WorkflowDef {
-  name: string;
-  agents: { name: string; description?: string }[];
-  dag: { nodes: string[]; edges: [string, string][] };
-}
+import { MiniDag } from "@/components/portal/MiniDag";
+import { Breadcrumb } from "@/components/portal/Breadcrumb";
+import type { TutorialDetail } from "@/types/domains";
 
 export function DomainTutorialPage() {
   const { tutorialContext, goHome } = usePortalStore();
-  const showApiDoc = usePortalStore((s) => s.showApiDoc);
+  const domains = usePortalStore((s) => s.domains);
+  const ensureDomains = usePortalStore((s) => s.ensureDomains);
+  const workflowDefs = usePortalStore((s) => s.workflowDefs);
+  const ensureWorkflowDefs = usePortalStore((s) => s.ensureWorkflowDefs);
   const setSelectedTemplate = useWorkflowStore((s) => s.setSelectedTemplate);
   const previewTemplate = useWorkflowStore((s) => s.previewTemplate);
 
   const [tutorial, setTutorial] = useState<TutorialDetail | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [domains, setDomains] = useState<DomainMeta[]>([]);
-  const [workflowDefs, setWorkflowDefs] = useState<WorkflowDef[]>([]);
-
-  // Build API lookup from domains (stable across activeIndex changes)
-  const apiMap = useMemo(() => {
-    const domain = domains.find((d) => d.id === tutorialContext?.domainId);
-    return new Map<string, ApiDocMeta>((domain?.apis ?? []).map((a) => [a.id, a]));
-  }, [domains, tutorialContext?.domainId]);
 
   const sectionRefs = useRef<(HTMLDivElement | null)[]>([]);
   const rightPanelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    ensureDomains();
+    ensureWorkflowDefs();
+  }, [ensureDomains, ensureWorkflowDefs]);
 
   // Fetch tutorial detail
   useEffect(() => {
@@ -49,25 +45,12 @@ export function DomainTutorialPage() {
       .catch(() => {});
   }, [tutorialContext]);
 
-  // Fetch domains + workflow definitions
-  useEffect(() => {
-    fetchWithAuth("/api/domains")
-      .then((r) => r.json())
-      .then((data: DomainMeta[]) => setDomains(data))
-      .catch(() => {});
-    fetchWithAuth("/api/workflows/definitions")
-      .then((r) => r.json())
-      .then((data: WorkflowDef[]) => setWorkflowDefs(data))
-      .catch(() => {});
-  }, []);
-
   // IntersectionObserver
   useEffect(() => {
     if (!tutorial || !rightPanelRef.current) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
-        // Collect all currently visible sections, pick the one closest to top
         let topIdx = -1;
         let topY = Infinity;
         for (const entry of entries) {
@@ -121,100 +104,120 @@ export function DomainTutorialPage() {
     }
   }, [tutorial, workflowDefs, setSelectedTemplate, previewTemplate]);
 
-  // Loading states
+  // Not found state
   if (!tutorialContext) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center bg-app-bg-primary">
-        <p className="text-sm text-muted-foreground">教程未找到</p>
-        <button onClick={goHome} className="mt-2 flex items-center gap-1 text-xs text-blue-500 hover:underline">
-          <ArrowLeft className="h-3 w-3" /> 返回
-        </button>
+        <p className="text-sm text-muted-foreground">Tutorial not found</p>
+        <button onClick={goHome} className="mt-2 text-xs text-blue-500 hover:underline">Back to portal</button>
       </div>
     );
   }
 
+  // Loading state
   if (!tutorial) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center bg-app-bg-primary">
-        <p className="text-sm text-muted-foreground">加载中...</p>
+      <div className="flex flex-1 flex-col bg-app-bg-primary overflow-hidden">
+        <div className="flex items-center gap-3 border-b border-app-border px-4 py-2.5">
+          <Skeleton className="h-4 w-48" />
+          <div className="ml-auto flex gap-1.5">
+            <Skeleton className="h-6 w-6 rounded-full" />
+            <Skeleton className="h-6 w-6 rounded-full" />
+          </div>
+        </div>
+        <div className="flex flex-1 overflow-hidden">
+          <div className="w-56 shrink-0 border-r border-app-border p-4">
+            <Skeleton className="h-4 w-32 mb-3" />
+            <Skeleton className="h-3 w-24 mb-2" />
+            <Skeleton className="h-3 w-28 mb-2" />
+            <Skeleton className="h-3 w-20" />
+          </div>
+          <div className="flex-1 p-8">
+            <Skeleton className="h-6 w-48 mb-4" />
+            <Skeleton className="h-4 w-full mb-2" />
+            <Skeleton className="h-4 w-3/4 mb-2" />
+            <Skeleton className="h-4 w-5/6" />
+          </div>
+        </div>
       </div>
     );
   }
 
   const domain = domains.find((d) => d.id === tutorialContext.domainId);
   const domainTutorials = domain?.tutorials ?? [];
-  const domainApis = domain?.apis ?? [];
 
-  // Current section's API refs (plain computation, no hooks)
+  // Determine active agent node for MiniDag
   const activeSection = tutorial.sections[activeIndex];
-  const activeApiRefs = activeSection?.api_refs ?? [];
+  const activeAgent = activeSection?.agent ?? null;
 
   return (
     <div className="flex flex-1 flex-col bg-app-bg-primary overflow-hidden">
-      {/* Header */}
+      {/* Header with breadcrumb, level tabs, and Try it */}
       <div className="flex items-center gap-3 border-b border-app-border px-4 py-2.5">
-        <button
-          onClick={goHome}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-app-text-primary transition-colors shrink-0"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" /> 返回
-        </button>
-        <span className="text-muted-foreground/40">/</span>
-        <span className="text-xs text-muted-foreground">{tutorial.domain_title}</span>
-        <span className="text-muted-foreground/40">/</span>
-        <span className="text-sm font-medium text-app-text-primary truncate">
-          {tutorial.title}
-        </span>
+        <Breadcrumb
+          items={[
+            { label: "Portal", onClick: goHome },
+            { label: tutorial.domain_title },
+            { label: tutorial.title },
+          ]}
+        />
 
-        {/* Level tabs */}
-        {domainTutorials.length > 1 && (
-          <div className="ml-auto flex items-center gap-1.5 shrink-0">
-            {domainTutorials.map((t) => {
-              const isActive = t.id === tutorialContext.tutorialId;
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => usePortalStore.getState().showTutorial(tutorialContext.domainId, t.id)}
-                  className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
-                    isActive
-                      ? "bg-foreground text-background"
-                      : "text-muted-foreground hover:text-app-text-primary hover:bg-muted"
-                  }`}
-                >
-                  {t.level}
-                </button>
-              );
-            })}
-          </div>
-        )}
+        {/* Level tabs + Try it */}
+        <div className="ml-auto flex items-center gap-1.5 shrink-0">
+          {domainTutorials.length > 1 && domainTutorials.map((t) => {
+            const isActive = t.id === tutorialContext.tutorialId;
+            return (
+              <button
+                key={t.id}
+                onClick={() => usePortalStore.getState().showTutorial(tutorialContext.domainId, t.id)}
+                className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
+                  isActive
+                    ? "bg-foreground text-background"
+                    : "text-muted-foreground hover:text-app-text-primary hover:bg-muted"
+                }`}
+              >
+                {t.level}
+              </button>
+            );
+          })}
+          {tutorial.workflow && (
+            <button
+              onClick={handleTryIt}
+              className="flex items-center gap-1.5 rounded-md bg-blue-500 px-3 py-1 text-xs font-medium text-white hover:bg-blue-600 transition-colors"
+            >
+              <Play className="h-3 w-3" /> Try it
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Body: 3 columns */}
+      {/* Body: 2 columns (sidebar + content) */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left: chapter nav (with DAG dots) + try-it */}
+        {/* Left: MiniDag + chapter nav */}
         <div className="w-56 shrink-0 border-r border-app-border overflow-y-auto flex flex-col">
-          <div className="px-4 pt-4 pb-2">
+          {/* MiniDag — shows workflow topology */}
+          {tutorial.dag && (
+            <div className="border-b border-app-border px-4 pt-4 pb-3">
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+                Workflow
+              </p>
+              <MiniDag
+                nodes={tutorial.dag.nodes}
+                edges={tutorial.dag.edges}
+                activeNode={activeAgent}
+              />
+            </div>
+          )}
+          <div className="px-4 pt-3 pb-2">
             <DagChapterNav
               sections={tutorial.sections}
               activeIndex={activeIndex}
               onSectionClick={handleSectionClick}
             />
           </div>
-
-          {/* Try it button */}
-          {tutorial.workflow && (
-            <div className="mt-auto border-t border-app-border p-3">
-              <button
-                onClick={handleTryIt}
-                className="flex w-full items-center justify-center gap-1.5 rounded-md bg-blue-500 px-3 py-2 text-xs font-medium text-white hover:bg-blue-600 transition-colors"
-              >
-                <Play className="h-3 w-3" /> 试一试
-              </button>
-            </div>
-          )}
         </div>
 
-        {/* Center: reading area */}
+        {/* Right: reading area */}
         <div ref={rightPanelRef} className="flex-1 overflow-y-auto">
           <div className="mx-auto px-8 py-8" style={{ maxWidth: 780 }}>
             {tutorial.sections.map((section, i) => (
@@ -238,40 +241,6 @@ export function DomainTutorialPage() {
               </div>
             ))}
           </div>
-        </div>
-
-        {/* Right: API reference — always show all, highlight active */}
-        <div className="w-52 shrink-0 border-l border-app-border overflow-y-auto">
-          {domainApis.length > 0 && (
-            <div className="p-3">
-              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
-                API 参考
-              </p>
-              <div className="flex flex-col gap-2">
-                {domainApis.map((api) => {
-                  const isActive = activeApiRefs.includes(api.id);
-                  return (
-                    <button
-                      key={api.id}
-                      onClick={() => showApiDoc(tutorialContext.domainId, api.id)}
-                      className={`flex flex-col gap-0.5 rounded-md border p-2.5 text-left transition-all hover:shadow-sm ${
-                        isActive
-                          ? "border-blue-300 bg-blue-50/50 dark:border-blue-700 dark:bg-blue-950/20"
-                          : "border-app-border bg-background hover:border-gray-300 dark:hover:border-gray-600"
-                      }`}
-                    >
-                      <span className={`text-xs font-medium ${isActive ? "text-blue-600 dark:text-blue-400" : "text-app-text-primary"}`}>
-                        {api.title}
-                      </span>
-                      {api.description && (
-                        <span className="text-[10px] text-muted-foreground line-clamp-2">{api.description}</span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>

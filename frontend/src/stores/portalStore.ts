@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import type { DomainMeta } from "@/types/domains";
+import { fetchWithAuth } from "@/lib/api";
 
 export type PortalView = "home" | "workflows" | "tutorial" | "api-doc";
 
@@ -12,16 +14,30 @@ interface ApiDocContext {
   apiName: string;
 }
 
+export interface WorkflowDef {
+  name: string;
+  agents: { name: string; description?: string }[];
+  dag: { nodes: string[]; edges: [string, string][] };
+}
+
 interface PortalState {
   portalView: PortalView;
   activeDomain: string | null;
   tutorialContext: TutorialContext | null;
   apiDocContext: ApiDocContext | null;
+  // Cached data — fetched once, shared across all portal views
+  domains: DomainMeta[];
+  domainsLoading: boolean;
+  workflowDefs: WorkflowDef[];
+  workflowDefsLoading: boolean;
+  // Actions
   setPortalView: (view: PortalView) => void;
   showWorkflows: (domainId: string) => void;
   showTutorial: (domainId: string, tutorialId: string) => void;
   showApiDoc: (domainId: string, apiName: string) => void;
   goHome: () => void;
+  ensureDomains: () => void;
+  ensureWorkflowDefs: () => void;
 }
 
 type PortalData = Pick<PortalState, "portalView" | "activeDomain" | "tutorialContext" | "apiDocContext">;
@@ -70,6 +86,11 @@ export const usePortalStore = create<PortalState>((set, get) => ({
   activeDomain: null,
   tutorialContext: null,
   apiDocContext: null,
+  domains: [],
+  domainsLoading: false,
+  workflowDefs: [],
+  workflowDefsLoading: false,
+
   setPortalView: (view) => {
     const data: PortalData = { portalView: view, activeDomain: get().activeDomain, tutorialContext: get().tutorialContext, apiDocContext: get().apiDocContext };
     set({ portalView: view });
@@ -94,5 +115,23 @@ export const usePortalStore = create<PortalState>((set, get) => ({
     const data: PortalData = { portalView: "home", activeDomain: null, tutorialContext: null, apiDocContext: null };
     set(data);
     syncUrl(data);
+  },
+  ensureDomains: () => {
+    const { domains, domainsLoading } = get();
+    if (domains.length > 0 || domainsLoading) return;
+    set({ domainsLoading: true });
+    fetchWithAuth("/api/domains")
+      .then((r) => r.json())
+      .then((data: DomainMeta[]) => set({ domains: data, domainsLoading: false }))
+      .catch(() => set({ domainsLoading: false }));
+  },
+  ensureWorkflowDefs: () => {
+    const { workflowDefs, workflowDefsLoading } = get();
+    if (workflowDefs.length > 0 || workflowDefsLoading) return;
+    set({ workflowDefsLoading: true });
+    fetchWithAuth("/api/workflows/definitions")
+      .then((r) => r.json())
+      .then((data: WorkflowDef[]) => set({ workflowDefs: data, workflowDefsLoading: false }))
+      .catch(() => set({ workflowDefsLoading: false }));
   },
 }));

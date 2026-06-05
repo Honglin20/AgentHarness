@@ -52,7 +52,6 @@ export function CenterPanel({ activeBenchmark }: Props) {
     setActiveTabRaw(tab);
     syncTabToUrl(tab);
   }, []);
-  const [templates, setTemplates] = useState<SavedWorkflow[]>([]);
   const [editAgentName, setEditAgentName] = useState<string | null>(null);
   const [benchmarkView, setBenchmarkView] = useState<BenchmarkView>("runner");
   const [benchmarkData, setBenchmarkData] = useState<Record<string, unknown> | null>(null);
@@ -130,14 +129,6 @@ export function CenterPanel({ activeBenchmark }: Props) {
         "analysis",
       ).order.length
     : liveAnalysisCount;
-
-  // Fetch templates for the landing page cards
-  useEffect(() => {
-    fetch("/api/workflows/definitions")
-      .then((r) => r.json())
-      .then((data: SavedWorkflow[]) => setTemplates(data))
-      .catch(() => {});
-  }, []);
 
   // Fetch benchmark data when activeBenchmark changes
   useEffect(() => {
