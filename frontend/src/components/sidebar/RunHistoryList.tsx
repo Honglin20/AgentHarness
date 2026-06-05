@@ -7,6 +7,7 @@ import { useViewStore } from "@/stores/viewStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useBatchStore } from "@/stores/batchStore";
 import { setActiveWorkflowId } from "@/contexts/workflow-context";
+import { useShallow } from "zustand/shallow";
 import { fetchWithAuth } from "@/lib/api";
 import { showSuccess, showError } from "@/lib/confirm";
 import { RunHistorySkeleton } from "./RunHistorySkeleton";
@@ -47,24 +48,43 @@ async function pauseWorkflow(runId: string): Promise<void> {
 }
 
 export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => void }) {
-  const runs = useRunHistoryStore((s) => s.runs);
-  const loading = useRunHistoryStore((s) => s.loading);
-  const selectedRunId = useRunHistoryStore((s) => s.selectedRunId);
-  const fetchRuns = useRunHistoryStore((s) => s.fetchRuns);
-  const fetchRun = useRunHistoryStore((s) => s.fetchRun);
-  const selectRun = useRunHistoryStore((s) => s.selectRun);
-  const isSelectMode = useRunHistoryStore((s) => s.isSelectMode);
-  const selectedRunIds = useRunHistoryStore((s) => s.selectedRunIds);
-  const toggleSelectMode = useRunHistoryStore((s) => s.toggleSelectMode);
-  const toggleRunSelection = useRunHistoryStore((s) => s.toggleRunSelection);
-  const clearSelection = useRunHistoryStore((s) => s.clearSelection);
-  const hasMore = useRunHistoryStore((s) => s.hasMore);
-  const showLive = useViewStore((s) => s.showLive);
-  const showReplay = useViewStore((s) => s.showReplay);
-  const activeView = useViewStore((s) => s.activeView);
-  const workflowStatus = useWorkflowStore((s) => s.status);
-  const liveWorkflowId = useWorkflowStore((s) => s.workflowId);
-  const setWorkflow = useWorkflowStore((s) => s.setWorkflow);
+  const {
+    runs, loading, selectedRunId, fetchRuns, fetchRun, selectRun,
+    isSelectMode, selectedRunIds, toggleSelectMode, toggleRunSelection,
+    clearSelection, hasMore,
+  } = useRunHistoryStore(
+    useShallow((s) => ({
+      runs: s.runs,
+      loading: s.loading,
+      selectedRunId: s.selectedRunId,
+      fetchRuns: s.fetchRuns,
+      fetchRun: s.fetchRun,
+      selectRun: s.selectRun,
+      isSelectMode: s.isSelectMode,
+      selectedRunIds: s.selectedRunIds,
+      toggleSelectMode: s.toggleSelectMode,
+      toggleRunSelection: s.toggleRunSelection,
+      clearSelection: s.clearSelection,
+      hasMore: s.hasMore,
+    }))
+  );
+
+  const { showLive, showReplay, activeView } = useViewStore(
+    useShallow((s) => ({
+      showLive: s.showLive,
+      showReplay: s.showReplay,
+      activeView: s.activeView,
+    }))
+  );
+
+  const { workflowStatus, liveWorkflowId, setWorkflow } = useWorkflowStore(
+    useShallow((s) => ({
+      workflowStatus: s.status,
+      liveWorkflowId: s.workflowId,
+      setWorkflow: s.setWorkflow,
+    }))
+  );
+
   const activeBatchId = useBatchStore((s) => s.activeBatchId);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);

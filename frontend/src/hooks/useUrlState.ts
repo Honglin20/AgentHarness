@@ -55,6 +55,11 @@ export function useUrlState(activeBenchmark?: string | null): void {
       useRunHistoryStore.getState().fetchRun(runId).then((run) => {
         if (!cancelled && run) {
           useViewStore.getState().showReplay(run);
+        } else if (!cancelled) {
+          // Run not found — clear URL params silently
+          const params = readParams();
+          params.delete("run");
+          writeParams(params);
         }
       });
       return () => { cancelled = true; };
