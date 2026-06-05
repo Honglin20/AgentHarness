@@ -16,6 +16,7 @@ from pathlib import Path
 __all__ = [
     "get_project_root",
     "get_workflows_dir",
+    "get_tutorials_dir",
     "get_benchmarks_dir",
     "get_runs_dir",
     "get_shared_agents_dir",
@@ -61,6 +62,10 @@ def get_project_root() -> Path:
 
 def get_workflows_dir() -> Path:
     return get_project_root() / "workflows"
+
+
+def get_tutorials_dir() -> Path:
+    return get_project_root() / "tutorials"
 
 
 def get_benchmarks_dir() -> Path:

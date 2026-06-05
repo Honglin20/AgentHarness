@@ -12,6 +12,7 @@ import { useViewStore } from "@/stores/viewStore";
 import { useUrlState } from "@/hooks/useUrlState";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { WorkflowScope } from "@/contexts/workflow-context/WorkflowScope";
+import { usePortalStore, restoreFromUrl } from "@/stores/portalStore";
 
 function useActiveWorkflowId(): string | null {
   const activeView = useViewStore((s) => s.activeView);
@@ -24,11 +25,40 @@ function useActiveWorkflowId(): string | null {
   return workflowId;
 }
 
+function useIsPortalMode(): boolean {
+  const workflowId = useWorkflowStore((s) => s.workflowId);
+  const nodeCount = useWorkflowStore((s) => Object.keys(s.nodes).length);
+  const selectedTemplate = useWorkflowStore((s) => s.selectedTemplate);
+  const activeView = useViewStore((s) => s.activeView);
+  const activeBatchId = useBatchStore((s) => s.activeBatchId);
+
+  if (activeView.type === "replay") return false;
+  if (activeBatchId) return false;
+  if (workflowId) return false;
+  // No workflow running and no template selected = portal mode
+  return nodeCount === 0 && !selectedTemplate;
+}
+
 export default function Home() {
   const [activeBenchmark, setActiveBenchmark] = useState<string | null>(null);
   const activeWorkflowId = useActiveWorkflowId();
+  const isPortalMode = useIsPortalMode();
 
   useUrlState(activeBenchmark);
+
+  // Restore portal state from URL on mount + handle browser back/forward
+  useEffect(() => {
+    const restored = restoreFromUrl();
+    if (restored.portalView && restored.portalView !== "home") {
+      usePortalStore.setState(restored);
+    }
+    const onPopState = () => {
+      const state = restoreFromUrl();
+      usePortalStore.setState(state);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -47,6 +77,18 @@ export default function Home() {
     setActiveBenchmark(null);
     useBatchStore.getState().setActiveBatch(null);
   }, []);
+
+  // Portal mode: full-width center panel, no sidebar/diagnostics
+  if (isPortalMode && !activeBenchmark) {
+    return (
+      <ErrorBoundary>
+        <div className="flex h-screen flex-col">
+          <HeaderBar />
+          <WorkflowCenterPanel />
+        </div>
+      </ErrorBoundary>
+    );
+  }
 
   return (
     <ErrorBoundary>

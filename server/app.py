@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .routes import router
 from .ws_handler import router as ws_router
+from .domain_routes import router as domain_router
 from .event_bus import get_event_bus
 from .runner import get_runner
 
@@ -57,6 +58,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"  Tool catalog:     failed ({e})")
     app.state.tool_catalog = catalog
+
+    # Parse and cache domain/tutorial data
+    from scripts.parse_tutorials import parse_tutorials
+    try:
+        domain_data = parse_tutorials()
+        print(f"  Domain portal:    {len(domain_data)} domains loaded")
+    except Exception as e:
+        domain_data = []
+        print(f"  Domain portal:    failed ({e})")
+    app.state.domain_data = domain_data
 
     # Best-effort initial URL from env (CLI sets HARNESS_PORT before uvicorn).
     # The PortDetectionMiddleware will correct this on the first real request.
@@ -140,6 +151,7 @@ def create_app() -> FastAPI:
 
     # API routes (must come before static mount)
     app.include_router(router, prefix="/api")
+    app.include_router(domain_router, prefix="/api")
     app.include_router(ws_router, prefix="/ws")
 
     from .routes import health_check

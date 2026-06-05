@@ -227,3 +227,39 @@ class BenchmarkRunSummary(BaseModel):
     created_at: str = ""
     task_results: list[BenchmarkTaskResult] = []
     avg_score: float | None = None
+
+
+# --- Domain Portal ---
+
+
+class TutorialSection(BaseModel):
+    title: str
+    agent: str | None = None
+
+
+class TutorialMeta(BaseModel):
+    id: str
+    level: int
+    title: str
+    description: str = ""
+    badge: str | None = None
+    workflow: str | None = None
+    sections: list[TutorialSection] = []
+    apis: list[str] = []
+
+
+class ApiDocMeta(BaseModel):
+    id: str
+    title: str
+    file: str
+
+
+class DomainMeta(BaseModel):
+    id: str
+    title: str
+    description: str = ""
+    color: str = "blue"
+    icon: str = "Layers"
+    status: str = "active"
+    tutorials: list[TutorialMeta] = []
+    apis: list[ApiDocMeta] = []

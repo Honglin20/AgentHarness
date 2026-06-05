@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect } from "react";
-import { LayoutTemplate } from "lucide-react";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useOutputStore } from "@/stores/outputStore";
 import { useChatStore } from "@/stores/chatStore";
@@ -15,6 +14,11 @@ import AnalysisTab from "@/components/analysis/AnalysisTab";
 import ChatInput from "@/components/chat/ChatInput";
 import { DAGPreview } from "@/components/dag/DAGPreview";
 import { AgentEditorModal } from "@/components/agent/AgentEditorModal";
+import { DomainPortal } from "@/components/portal/DomainPortal";
+import { DomainWorkflowsPage } from "@/components/portal/DomainWorkflowsPage";
+import { DomainTutorialPage } from "@/components/portal/DomainTutorialPage";
+import { ApiDocPage } from "@/components/portal/ApiDocPage";
+import { usePortalStore } from "@/stores/portalStore";
 import { useWorkflowEvents, setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
 import BenchmarkEditor from "@/components/benchmark/BenchmarkEditor";
 import BenchmarkRunner from "@/components/benchmark/BenchmarkRunner";
@@ -70,6 +74,7 @@ export function CenterPanel({ activeBenchmark }: Props) {
 
   const isReplay = activeView.type === "replay";
   const isIdle = !isReplay && status === "idle" && nodeCount === 0;
+  const portalView = usePortalStore((s) => s.portalView);
   const workflowName = useWorkflowStore((s) => s.workflowName);
   const effectiveWorkflowName = workflowName ?? ((selectedTemplate as Record<string, unknown> | null)?.name as string | undefined);
   const agentDescriptions = useMemo(() => {
@@ -316,53 +321,21 @@ export function CenterPanel({ activeBenchmark }: Props) {
     );
   }
 
-  // Landing page — ChatGPT-style
+  // Landing page — Domain Portal
   if (isIdle && !selectedTemplate) {
+    if (portalView === "workflows") {
+      return <DomainWorkflowsPage />;
+    }
+    if (portalView === "tutorial") {
+      return <DomainTutorialPage />;
+    }
+    if (portalView === "api-doc") {
+      return <ApiDocPage />;
+    }
     return (
-      <div className="flex flex-1 flex-col items-center justify-center bg-app-bg-primary px-4">
-        <div className="w-full max-w-2xl">
-          <div className="mb-2 flex flex-col items-center gap-2">
-            <Logo size="lg" className="text-primary" />
-            <p className="text-sm text-muted-foreground">
-              Choose a workflow template, then describe your task
-            </p>
-          </div>
-
-          {templates.length > 0 && (
-            <div className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {templates.map((wf) => {
-                const isSelected = (selectedTemplate as SavedWorkflow | null)?.name === wf.name;
-                return (
-                  <button
-                    key={wf.name}
-                    onClick={() => {
-                      if (!isSelected) {
-                        setSelectedTemplate(wf as unknown as Record<string, unknown>);
-                        useWorkflowStore.getState().previewTemplate(wf as unknown as Record<string, unknown>);
-                      } else {
-                        setSelectedTemplate(null);
-                        useWorkflowStore.getState().clearPreview();
-                      }
-                    }}
-                    className={`flex flex-col items-start gap-1.5 rounded-lg border p-4 text-left transition-colors ${
-                      isSelected
-                        ? "border-accent bg-accent/10"
-                        : "border-app-border bg-background hover:border-gray-300 hover:bg-muted"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <LayoutTemplate className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm font-medium text-app-text-primary">{wf.name}</span>
-                    </div>
-                    <span className="text-xs text-muted-foreground">
-                      {wf.dag.nodes.length} agent{wf.dag.nodes.length !== 1 ? "s" : ""}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
+      <>
+        <DomainPortal />
+        <div className="w-full max-w-4xl mx-auto px-4">
           <ChatInput
             sendAnswer={sendAnswer}
             sendStopAndRegenerate={sendStopAndRegenerate}
@@ -371,7 +344,7 @@ export function CenterPanel({ activeBenchmark }: Props) {
             alwaysVisible
           />
         </div>
-      </div>
+      </>
     );
   }
 
