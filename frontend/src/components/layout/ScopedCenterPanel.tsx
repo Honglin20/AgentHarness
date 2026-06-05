@@ -9,17 +9,20 @@
 "use client";
 
 import { useState, useCallback, useEffect, useMemo } from "react";
-import { LayoutTemplate } from "lucide-react";
 import { fetchWithAuth } from "@/lib/api";
 import { useViewStore } from "@/stores/viewStore";
 import { useBatchStore } from "@/stores/batchStore";
-import { Logo } from "@/components/ui/logo";
 import { ScopedConversationTab } from "@/components/conversation/ScopedConversationTab";
 import { ScopedResultsTab } from "@/components/results/ScopedResultsTab";
 import { ScopedAnalysisTab } from "@/components/analysis/ScopedAnalysisTab";
 import ChatInput from "@/components/chat/ChatInput";
 import { DAGPreview } from "@/components/dag/DAGPreview";
 import { AgentEditorModal } from "@/components/agent/AgentEditorModal";
+import { DomainPortal } from "@/components/portal/DomainPortal";
+import { DomainWorkflowsPage } from "@/components/portal/DomainWorkflowsPage";
+import { DomainTutorialPage } from "@/components/portal/DomainTutorialPage";
+import { ApiDocPage } from "@/components/portal/ApiDocPage";
+import { usePortalStore } from "@/stores/portalStore";
 import BenchmarkEditor from "@/components/benchmark/BenchmarkEditor";
 import BenchmarkRunner from "@/components/benchmark/BenchmarkRunner";
 import BenchmarkCompare from "@/components/benchmark/BenchmarkCompare";
@@ -41,16 +44,11 @@ import {
   usePendingQuestion,
   useConversationMessages,
 } from "@/contexts/workflow-context";
+import { getWorkflowManager } from "@/contexts/workflow-context";
 import { useSettingsStore } from "@/stores/settingsStore";
 
 type Tab = "conversation" | "results" | "analysis";
 type BenchmarkView = "runner" | "compare" | "editor";
-
-interface SavedWorkflow {
-  name: string;
-  agents: { name: string; after: string[]; on_pass?: string; on_fail?: string; description?: string }[];
-  dag: { nodes: string[]; edges: [string, string][] };
-}
 
 interface Props {
   activeBenchmark?: string | null;
@@ -61,7 +59,6 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
   const [activeTab, setActiveTab] = useState<Tab>("conversation");
   const [benchmarkView, setBenchmarkView] = useState<BenchmarkView>("runner");
   const [benchmarkData, setBenchmarkData] = useState<Record<string, unknown> | null>(null);
-  const [templates, setTemplates] = useState<any[]>([]);
   const [editAgentName, setEditAgentName] = useState<string | null>(null);
 
   // 从 scoped stores 读取状态
@@ -90,6 +87,7 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
   const activeView = useViewStore((s) => s.activeView);
   const activeBatchId = useBatchStore((s) => s.activeBatchId);
   const batchRunning = activeBatchId !== null;
+  const portalView = usePortalStore((s) => s.portalView);
 
   const isReplay = isReplayProp ?? activeView.type === "replay";
   const isIdle = !isReplay && status === "idle" && nodeCount === 0;
@@ -140,14 +138,6 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
   const resultCount = liveResultCount;
   const analysisCount = liveAnalysisCount;
 
-  // Fetch templates for the landing page cards
-  useEffect(() => {
-    fetchWithAuth("/api/workflows/definitions")
-      .then((r) => r.json())
-      .then((data) => setTemplates(data))
-      .catch(() => {});
-  }, []);
-
   // Fetch benchmark data when activeBenchmark changes
   useEffect(() => {
     if (!activeBenchmark) {
@@ -190,6 +180,7 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
     outputActions.reset();
     chartActions.reset();
     workflowActions.reset();
+    useViewStore.getState().showLive();
 
     try {
       const r = await fetchWithAuth("/api/workflows", {
@@ -205,6 +196,7 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
       });
       if (!r.ok) throw new Error(await r.text());
       const data = await r.json();
+      getWorkflowManager().setActiveWorkflowId(data.workflow_id);
       workflowActions.setWorkflow(data.workflow_id, t.name as string, data.dag);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -334,53 +326,21 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
     );
   }
 
-  // Landing page
+  // Landing page — Domain Portal
   if (isIdle && !selectedTemplate) {
+    if (portalView === "workflows") {
+      return <DomainWorkflowsPage />;
+    }
+    if (portalView === "tutorial") {
+      return <DomainTutorialPage />;
+    }
+    if (portalView === "api-doc") {
+      return <ApiDocPage />;
+    }
     return (
-      <div className="flex flex-1 flex-col items-center justify-center bg-app-bg-primary px-4">
-        <div className="w-full max-w-2xl">
-          <div className="mb-2 flex flex-col items-center gap-2">
-            <Logo size="lg" className="text-primary" />
-            <p className="text-sm text-muted-foreground">
-              Choose a workflow template, then describe your task
-            </p>
-          </div>
-
-          {templates.length > 0 && (
-            <div className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {templates.map((wf) => {
-                const isSelected = (selectedTemplate as any)?.name === wf.name;
-                return (
-                  <button
-                    key={wf.name}
-                    onClick={() => {
-                      if (!isSelected) {
-                        workflowActions.setSelectedTemplate(wf);
-                        workflowActions.previewTemplate(wf);
-                      } else {
-                        workflowActions.setSelectedTemplate(null);
-                        workflowActions.clearPreview();
-                      }
-                    }}
-                    className={`flex flex-col items-start gap-1.5 rounded-lg border p-4 text-left transition-colors ${
-                      isSelected
-                        ? "border-accent bg-accent/10"
-                        : "border-app-border bg-background hover:border-gray-300 hover:bg-muted"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <LayoutTemplate className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm font-medium text-app-text-primary">{wf.name}</span>
-                    </div>
-                    <span className="text-xs text-muted-foreground">
-                      {wf.dag.nodes.length} agent{wf.dag.nodes.length !== 1 ? "s" : ""}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
+      <>
+        <DomainPortal />
+        <div className="w-full max-w-4xl mx-auto px-4">
           <ChatInput
             sendAnswer={sendAnswer}
             sendStopAndRegenerate={sendStopAndRegenerate}
@@ -390,7 +350,7 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
             {...chatInputScopedProps}
           />
         </div>
-      </div>
+      </>
     );
   }
 
