@@ -107,6 +107,7 @@ let msgCounter = 0;
 
 // RAF batching for streaming text updates — coalesces multiple deltas per frame
 let _textBuf = new Map<string, { text: string; nodeId: string }>();
+let _rafSeq = 0; // monotonic counter to invalidate stale RAF callbacks
 let _rafPending = false;
 
 const initialState = {
@@ -163,7 +164,9 @@ export const useConversationStore = create<ConversationState>()((set) => ({
     _textBuf.set(nodeId, { text: (existing?.text ?? "") + text, nodeId });
     if (!_rafPending) {
       _rafPending = true;
+      const rafSeq = ++_rafSeq;
       requestAnimationFrame(() => {
+        if (rafSeq !== _rafSeq) return; // stale — sync flush already applied this text
         const updates = new Map(_textBuf);
         _textBuf.clear();
         _rafPending = false;
@@ -218,6 +221,7 @@ export const useConversationStore = create<ConversationState>()((set) => ({
       // Sync flush any pending RAF text for this nodeId before completing
       const pending = _textBuf.get(nodeId);
       if (pending) _textBuf.delete(nodeId);
+      _rafSeq++; // invalidate any pending RAF callback
 
       const idx = state.messages.findLastIndex(
         (m) => m.nodeId === nodeId && m.type === "agent" && (m.status === "streaming" || m.status === "interrupted")
@@ -240,6 +244,7 @@ export const useConversationStore = create<ConversationState>()((set) => ({
       // Sync flush any pending RAF text for this nodeId before failing
       const pending = _textBuf.get(nodeId);
       if (pending) _textBuf.delete(nodeId);
+      _rafSeq++; // invalidate any pending RAF callback
 
       const idx = state.messages.findLastIndex(
         (m) => m.nodeId === nodeId && m.type === "agent" && (m.status === "streaming" || m.status === "interrupted")
@@ -262,6 +267,7 @@ export const useConversationStore = create<ConversationState>()((set) => ({
       // Sync flush any pending RAF text for this nodeId
       const pending = _textBuf.get(nodeId);
       if (pending) _textBuf.delete(nodeId);
+      _rafSeq++; // invalidate any pending RAF callback
 
       // Finalize any streaming agent message for this node — the text before
       // this tool call becomes its own message, and continued text after the
