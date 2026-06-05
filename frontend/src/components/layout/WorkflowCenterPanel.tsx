@@ -5,21 +5,27 @@
  * Events are routed via eventRouter to scoped stores.
  * WorkflowScope is provided by page.tsx (wraps both center and diagnostics panels).
  *
- * Decisions made HERE:
- * - replay mode → ScopedCenterPanel (read-only, no WS needed)
- * - no workflowId → legacy CenterPanel (landing page)
- * - valid workflowId → Context architecture (WSMethodContext)
+ * No legacy CenterPanel fallback — ScopedCenterPanel handles all states.
+ * ScopedCenterPanel is loaded with ssr: false because it uses workflow-scoped
+ * context hooks that require a Provider (absent during SSG prerendering).
  */
 
 "use client";
 
+import dynamic from "next/dynamic";
 import { useViewStore } from "@/stores/viewStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useBatchStore } from "@/stores/batchStore";
 import { WSMethodProvider } from "@/contexts/workflow-context/WorkflowScope";
 import { useWorkflowWS } from "@/contexts/workflow-context/useWorkflowWS";
-import { ScopedCenterPanel } from "./ScopedCenterPanel";
 import { ConnectionStatusBar } from "./ConnectionStatusBar";
+
+// Load ScopedCenterPanel client-only to avoid SSG prerender errors
+// (scoped context hooks require WorkflowProvider, absent during static export)
+const ScopedCenterPanel = dynamic(
+  () => import("./ScopedCenterPanel").then((m) => m.ScopedCenterPanel),
+  { ssr: false },
+);
 
 interface WorkflowCenterPanelProps {
   activeBenchmark?: string | null;
@@ -47,19 +53,15 @@ export function WorkflowCenterPanel({ activeBenchmark }: WorkflowCenterPanelProp
   const activeView = useViewStore((s) => s.activeView);
   const isReplay = activeView.type === "replay";
 
-  // WebSocket managed at this stable level — survives workflow switches
+  // WebSocket managed at this stable level — survives workflow switches.
+  // Replay mode skips WS connection (read-only).
   const wsMethods = useWorkflowWS(isReplay ? null : workflowId);
 
-  // No workflowId (landing page / no active run): use legacy CenterPanel
-  if (!workflowId) {
-    const CenterPanel = require("./CenterPanel").CenterPanel;
-    return <CenterPanel activeBenchmark={activeBenchmark} />;
-  }
-
-  // WorkflowScope is provided by page.tsx — no inner scope needed here.
   return (
     <>
-      {!isReplay && <ConnectionStatusBar isConnected={wsMethods.isConnected} />}
+      {workflowId && !isReplay && (
+        <ConnectionStatusBar isConnected={wsMethods.isConnected} />
+      )}
       <WSMethodProvider
         sendAnswer={wsMethods.sendAnswer}
         sendStructuredAnswer={wsMethods.sendStructuredAnswer}
