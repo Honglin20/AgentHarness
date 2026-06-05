@@ -5,11 +5,8 @@
  * - 创建和管理 WorkflowStores 实例
  * - 管理 WebSocket 连接
  * - 清理空闲 workflow
- * - 分发事件到正确的 stores
  */
 
-import type { StoreApi } from "zustand/vanilla";
-import type { WSEvent } from "@/types/events";
 import type {
   WorkflowStores,
   WorkflowLifecycleState,
@@ -18,7 +15,6 @@ import type {
   WorkflowManagerConfig,
 } from "./types";
 import { createWorkflowStores } from "./workflowStores";
-import { EVENT_TO_STORES } from "./types";
 
 /**
  * Workflow Entry - 管理 workflow 的状态和资源
@@ -157,28 +153,6 @@ class WorkflowManager {
     if (!entry) return;
 
     entry.connection = connection;
-  }
-
-  /**
-   * 分发事件到正确的 stores
-   */
-  dispatchEvent(workflowId: string, event: WSEvent): void {
-    const entry = this.workflows.get(workflowId);
-    if (!entry) return;
-
-    entry.lastActiveAt = Date.now();
-
-    // 获取需要更新的 stores
-    const storeKeys = EVENT_TO_STORES[event.type] ?? [];
-
-    // 更新每个 store
-    for (const key of storeKeys) {
-      const store = entry.stores[key];
-      if (store) {
-        // TODO: 调用 store 的具体处理器
-        // 这将在 Phase 1 实现
-      }
-    }
   }
 
   /**
