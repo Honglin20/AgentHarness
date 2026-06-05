@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { CheckCircle2, Clock, HelpCircle } from "lucide-react";
 
 import { MarkdownText } from "@/components/conversation/MarkdownText";
@@ -31,7 +31,7 @@ function answerSummary(
   return left || answer.customInput;
 }
 
-export function AgentQuestionCard({ message, onSubmit }: AgentQuestionCardProps) {
+export const AgentQuestionCard = React.memo(function AgentQuestionCard({ message, onSubmit }: AgentQuestionCardProps) {
   const {
     questionOptions: options,
     questionMultiSelect: multiSelect = false,
@@ -228,4 +228,4 @@ export function AgentQuestionCard({ message, onSubmit }: AgentQuestionCardProps)
       )}
     </div>
   );
-}
+});

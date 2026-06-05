@@ -58,6 +58,7 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
   const toggleSelectMode = useRunHistoryStore((s) => s.toggleSelectMode);
   const toggleRunSelection = useRunHistoryStore((s) => s.toggleRunSelection);
   const clearSelection = useRunHistoryStore((s) => s.clearSelection);
+  const hasMore = useRunHistoryStore((s) => s.hasMore);
   const showLive = useViewStore((s) => s.showLive);
   const showReplay = useViewStore((s) => s.showReplay);
   const activeView = useViewStore((s) => s.activeView);
@@ -175,6 +176,10 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
     await fetchWithAuth(`/api/runs/${runId}`, { method: "DELETE" });
     setConfirmDeleteId(null);
     await fetchRuns();
+  };
+
+  const handleLoadMore = () => {
+    fetchRuns(undefined, true);
   };
 
   const handleBatchDelete = async () => {
@@ -366,6 +371,17 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
           })}
         </div>
       ))}
+      {hasMore && (
+        <div className="px-3 py-2">
+          <button
+            onClick={handleLoadMore}
+            disabled={loading}
+            className="w-full rounded-md border border-dashed border-app-border py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
+          >
+            {loading ? "Loading..." : "Load more runs"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

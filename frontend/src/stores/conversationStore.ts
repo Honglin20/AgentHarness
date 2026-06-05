@@ -105,6 +105,10 @@ export interface ConversationState {
 
 let msgCounter = 0;
 
+// RAF batching for streaming text updates — coalesces multiple deltas per frame
+let _textBuf = new Map<string, { text: string; nodeId: string }>();
+let _rafPending = false;
+
 const initialState = {
   messages: [] as ConversationMessage[],
   pendingQuestionId: null as string | null,
@@ -154,35 +158,47 @@ export const useConversationStore = create<ConversationState>()((set) => ({
       };
     }),
 
-  appendAgentText: (nodeId, text) =>
-    set((state) => {
-      const idx = state.messages.findLastIndex(
-        (m) => m.nodeId === nodeId && m.type === "agent" && m.status === "streaming"
-      );
-      if (idx !== -1) {
-        const messages = [...state.messages];
-        messages[idx] = { ...messages[idx], content: messages[idx].content + text };
-        return { messages };
-      }
-
-      // No streaming message — auto-create one (text arriving after a tool call)
-      const lastMsg = state.messages[state.messages.length - 1];
-      const agentName = lastMsg?.agentName ?? "";
-      return {
-        messages: [
-          ...state.messages,
-          {
-            id: `msg-${++msgCounter}`,
-            type: "agent",
-            nodeId,
-            agentName,
-            content: text,
-            status: "streaming",
-            timestamp: Date.now(),
-          },
-        ],
-      };
-    }),
+  appendAgentText: (nodeId, text) => {
+    const existing = _textBuf.get(nodeId);
+    _textBuf.set(nodeId, { text: (existing?.text ?? "") + text, nodeId });
+    if (!_rafPending) {
+      _rafPending = true;
+      requestAnimationFrame(() => {
+        const updates = new Map(_textBuf);
+        _textBuf.clear();
+        _rafPending = false;
+        if (updates.size === 0) return;
+        set((state) => {
+          const messages = [...state.messages];
+          let mutated = false;
+          updates.forEach(({ nodeId: nid, text: t }) => {
+            const idx = messages.findLastIndex(
+              (m) => m.nodeId === nid && m.type === "agent" && m.status === "streaming"
+            );
+            if (idx !== -1) {
+              messages[idx] = { ...messages[idx], content: messages[idx].content + t };
+              mutated = true;
+            } else {
+              // Auto-create streaming message
+              const lastMsg = messages[messages.length - 1];
+              const agentName = lastMsg?.agentName ?? "";
+              messages.push({
+                id: `msg-${++msgCounter}`,
+                type: "agent",
+                nodeId: nid,
+                agentName,
+                content: t,
+                status: "streaming",
+                timestamp: Date.now(),
+              });
+              mutated = true;
+            }
+          });
+          return mutated ? { messages } : state;
+        });
+      });
+    }
+  },
 
   appendAgentThinking: (nodeId, text) =>
     set((state) => {
@@ -199,6 +215,10 @@ export const useConversationStore = create<ConversationState>()((set) => ({
 
   completeAgentMessage: (nodeId, agentName, durationMs) =>
     set((state) => {
+      // Sync flush any pending RAF text for this nodeId before completing
+      const pending = _textBuf.get(nodeId);
+      if (pending) _textBuf.delete(nodeId);
+
       const idx = state.messages.findLastIndex(
         (m) => m.nodeId === nodeId && m.type === "agent" && (m.status === "streaming" || m.status === "interrupted")
       );
@@ -207,6 +227,7 @@ export const useConversationStore = create<ConversationState>()((set) => ({
       const messages = [...state.messages];
       messages[idx] = {
         ...messages[idx],
+        content: messages[idx].content + (pending?.text ?? ""),
         agentName,
         status: "done",
         durationMs,
@@ -216,6 +237,10 @@ export const useConversationStore = create<ConversationState>()((set) => ({
 
   failAgentMessage: (nodeId, agentName, error, durationMs) =>
     set((state) => {
+      // Sync flush any pending RAF text for this nodeId before failing
+      const pending = _textBuf.get(nodeId);
+      if (pending) _textBuf.delete(nodeId);
+
       const idx = state.messages.findLastIndex(
         (m) => m.nodeId === nodeId && m.type === "agent" && (m.status === "streaming" || m.status === "interrupted")
       );
@@ -224,8 +249,8 @@ export const useConversationStore = create<ConversationState>()((set) => ({
       const messages = [...state.messages];
       messages[idx] = {
         ...messages[idx],
+        content: messages[idx].content + (pending?.text ?? "") + `\n\n**Error:** ${error}`,
         agentName,
-        content: messages[idx].content + `\n\n**Error:** ${error}`,
         status: "error",
         durationMs,
       };
@@ -234,6 +259,10 @@ export const useConversationStore = create<ConversationState>()((set) => ({
 
   addToolCall: (nodeId, agentName, toolName, toolArgs) =>
     set((state) => {
+      // Sync flush any pending RAF text for this nodeId
+      const pending = _textBuf.get(nodeId);
+      if (pending) _textBuf.delete(nodeId);
+
       // Finalize any streaming agent message for this node — the text before
       // this tool call becomes its own message, and continued text after the
       // tool result will start a new streaming message.
@@ -242,6 +271,11 @@ export const useConversationStore = create<ConversationState>()((set) => ({
         (m) => m.nodeId === nodeId && m.type === "agent" && m.status === "streaming"
       );
       if (streamingIdx !== -1) {
+        // Flush pending text into the streaming message before finalizing
+        msgs[streamingIdx] = {
+          ...msgs[streamingIdx],
+          content: msgs[streamingIdx].content + (pending?.text ?? ""),
+        };
         if (!msgs[streamingIdx].content.trim() && !msgs[streamingIdx].thinking?.trim()) {
           // No text was written before this tool call — remove the empty
           // placeholder so the final output (from node.completed) appears

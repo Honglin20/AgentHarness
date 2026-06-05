@@ -1,12 +1,13 @@
 "use client";
 
+import React from "react";
 import type { ConversationMessage } from "@/stores/conversationStore";
 
 interface SystemMessageProps {
   message: ConversationMessage;
 }
 
-export function SystemMessage({ message }: SystemMessageProps) {
+export const SystemMessage = React.memo(function SystemMessage({ message }: SystemMessageProps) {
   return (
     <div className="flex items-center gap-3 py-1">
       <hr className="flex-1 border-muted-foreground/30" />
@@ -14,4 +15,4 @@ export function SystemMessage({ message }: SystemMessageProps) {
       <hr className="flex-1 border-muted-foreground/30" />
     </div>
   );
-}
+});

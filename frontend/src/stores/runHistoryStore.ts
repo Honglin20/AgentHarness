@@ -85,8 +85,10 @@ interface RunHistoryState {
   selectedRunId: string | null;
   selectedRunIds: Set<string>;
   isSelectMode: boolean;
+  hasMore: boolean;
+  totalCount: number;
 
-  fetchRuns: (workflowName?: string) => Promise<void>;
+  fetchRuns: (workflowName?: string, loadMore?: boolean) => Promise<void>;
   fetchRun: (runId: string, signal?: AbortSignal) => Promise<RunRecord | null>;
   fetchRunCharts: (runId: string) => Promise<RunRecord["chart_groups"]>;
   fetchRunEvents: (runId: string) => Promise<RunRecord["events"]>;
@@ -97,21 +99,35 @@ interface RunHistoryState {
   reset: () => void;
 }
 
-export const useRunHistoryStore = create<RunHistoryState>()((set) => ({
+export const useRunHistoryStore = create<RunHistoryState>()((set, get) => ({
   runs: [],
   loading: false,
   selectedRunId: null,
   selectedRunIds: new Set<string>(),
   isSelectMode: false,
+  hasMore: false,
+  totalCount: 0,
 
-  fetchRuns: async (workflowName?: string) => {
+  fetchRuns: async (workflowName?: string, loadMore = false) => {
     set({ loading: true });
     try {
-      const params = workflowName ? `?workflow_name=${encodeURIComponent(workflowName)}` : "";
-      const r = await fetchWithAuth(`/api/runs${params}`);
+      const { runs: currentRuns } = get();
+      const offset = loadMore ? currentRuns.length : 0;
+      const limit = 50;
+      const params = new URLSearchParams();
+      if (workflowName) params.set("workflow_name", workflowName);
+      params.set("limit", String(limit));
+      params.set("offset", String(offset));
+      const r = await fetchWithAuth(`/api/runs?${params}`);
       if (r.ok) {
-        const runs: RunSummary[] = await r.json();
-        set({ runs, loading: false });
+        const data = await r.json();
+        const newRuns: RunSummary[] = data.runs;
+        set({
+          runs: loadMore ? [...currentRuns, ...newRuns] : newRuns,
+          hasMore: data.has_more,
+          totalCount: data.total,
+          loading: false,
+        });
       } else {
         console.error(`fetchRuns: ${r.status} ${r.statusText}`);
         set({ loading: false });
@@ -166,5 +182,5 @@ export const useRunHistoryStore = create<RunHistoryState>()((set) => ({
 
   clearSelection: () => set({ selectedRunIds: new Set<string>() }),
 
-  reset: () => set({ runs: [], loading: false, selectedRunId: null, selectedRunIds: new Set<string>(), isSelectMode: false }),
+  reset: () => set({ runs: [], loading: false, selectedRunId: null, selectedRunIds: new Set<string>(), isSelectMode: false, hasMore: false, totalCount: 0 }),
 }));
