@@ -159,7 +159,17 @@ export function WorkflowScope({ workflowId, children }: WorkflowScopeProps) {
     return () => { cancelled = true; };
   }, [workflowId, stores]);
 
-  if (!stores) return <>{children}</>;
+  if (!stores) {
+    return (
+      <WorkflowProvider
+        workflowId={null}
+        stores={null}
+        setActiveWorkflowId={setActiveWorkflowId}
+      >
+        {children}
+      </WorkflowProvider>
+    );
+  }
 
   return (
     <WorkflowProvider

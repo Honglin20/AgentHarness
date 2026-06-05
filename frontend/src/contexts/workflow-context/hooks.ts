@@ -8,6 +8,7 @@
 
 import { useStore } from "zustand";
 import { useShallow } from "zustand/shallow";
+import { createStore } from "zustand/vanilla";
 import { useWorkflowStore as getWorkflowStoreApi } from "./WorkflowContext";
 import type {
   ConversationMessage,
@@ -21,6 +22,16 @@ import type { AgentIOData, AgentIOState } from "@/stores/agentIOStore";
 import type { ChatMessage, ChatState } from "@/stores/chatStore";
 import type { StoreApi } from "zustand/vanilla";
 
+// Dummy stores for when no workflow is active — keeps hooks unconditionally called
+function makeDummy<T>(initial: T): StoreApi<T> {
+  return createStore<T>(() => initial);
+}
+const dummyConversationStore = makeDummy<ConversationState>({ messages: [], pendingQuestionId: null, pendingQuestionAgent: null, activeFollowupAgent: null } as unknown as ConversationState);
+const dummyOutputStore = makeDummy<OutputState>({ texts: {}, activeNodeId: null, workflowError: null } as unknown as OutputState);
+const dummyWorkflowStore = makeDummy<WorkflowState>({ status: "idle", nodes: {}, dag: null, workflowId: null, workflowName: null } as unknown as WorkflowState);
+const dummyChartStore = makeDummy<ChartState>({ groups: {}, groupOrder: [] } as unknown as ChartState);
+const dummyChatStore = makeDummy<ChatState>({ messages: [], pendingQuestionId: null } as unknown as ChatState);
+
 // ============================================================
 // Conversation Store Hooks
 // ============================================================
@@ -33,12 +44,7 @@ import type { StoreApi } from "zustand/vanilla";
 export function useScopedConversationStore<T>(
   selector: (state: ConversationState) => T
 ): T {
-  const store = getWorkflowStoreApi("conversation");
-  if (!store) {
-    throw new Error(
-      "useScopedConversationStore must be used within WorkflowProvider with a valid workflow"
-    );
-  }
+  const store = getWorkflowStoreApi("conversation") ?? dummyConversationStore;
   return useStore(store, selector);
 }
 
@@ -78,12 +84,7 @@ export function usePendingQuestion(): {
  * 访问当前 workflow 的 output store
  */
 export function useScopedOutputStore<T>(selector: (state: OutputState) => T): T {
-  const store = getWorkflowStoreApi("output");
-  if (!store) {
-    throw new Error(
-      "useScopedOutputStore must be used within WorkflowProvider with a valid workflow"
-    );
-  }
+  const store = getWorkflowStoreApi("output") ?? dummyOutputStore;
   return useStore(store, selector);
 }
 
@@ -124,12 +125,7 @@ export function useNodeTexts(): Record<string, string> {
  * 访问当前 workflow 的 workflow store
  */
 export function useScopedWorkflowStore<T>(selector: (state: WorkflowState) => T): T {
-  const store = getWorkflowStoreApi("workflow");
-  if (!store) {
-    throw new Error(
-      "useScopedWorkflowStore must be used within WorkflowProvider with a valid workflow"
-    );
-  }
+  const store = getWorkflowStoreApi("workflow") ?? dummyWorkflowStore;
   return useStore(store, selector);
 }
 
@@ -216,12 +212,7 @@ export function useSelectedTemplate(): WorkflowState["selectedTemplate"] {
  * 访问当前 workflow 的 chart store
  */
 export function useScopedChartStore<T>(selector: (state: ChartState) => T): T {
-  const store = getWorkflowStoreApi("chart");
-  if (!store) {
-    throw new Error(
-      "useScopedChartStore must be used within WorkflowProvider with a valid workflow"
-    );
-  }
+  const store = getWorkflowStoreApi("chart") ?? dummyChartStore;
   return useStore(store, selector);
 }
 
@@ -273,12 +264,7 @@ export function useLiveAnalysisCount(): number {
  * 访问当前 workflow 的 chat store
  */
 export function useScopedChatStore<T>(selector: (state: ChatState) => T): T {
-  const store = getWorkflowStoreApi("chat");
-  if (!store) {
-    throw new Error(
-      "useScopedChatStore must be used within WorkflowProvider with a valid workflow"
-    );
-  }
+  const store = getWorkflowStoreApi("chat") ?? dummyChatStore;
   return useStore(store, selector);
 }
 
@@ -392,9 +378,7 @@ function getStableActions<T>(store: StoreApi<T>): T {
  */
 export function useWorkflowActions() {
   const store = getWorkflowStoreApi("workflow");
-  if (!store) {
-    throw new Error("useWorkflowActions must be used within WorkflowProvider");
-  }
+  if (!store) return {} as ReturnType<typeof getStableActions<WorkflowState>>;
   return getStableActions(store);
 }
 
@@ -405,9 +389,7 @@ export function useWorkflowActions() {
  */
 export function useOutputActions() {
   const store = getWorkflowStoreApi("output");
-  if (!store) {
-    throw new Error("useOutputActions must be used within WorkflowProvider");
-  }
+  if (!store) return {} as ReturnType<typeof getStableActions<OutputState>>;
   return getStableActions(store);
 }
 
@@ -418,9 +400,7 @@ export function useOutputActions() {
  */
 export function useConversationActions() {
   const store = getWorkflowStoreApi("conversation");
-  if (!store) {
-    throw new Error("useConversationActions must be used within WorkflowProvider");
-  }
+  if (!store) return {} as ReturnType<typeof getStableActions<ConversationState>>;
   return getStableActions(store);
 }
 
@@ -431,9 +411,7 @@ export function useConversationActions() {
  */
 export function useChartActions() {
   const store = getWorkflowStoreApi("chart");
-  if (!store) {
-    throw new Error("useChartActions must be used within WorkflowProvider");
-  }
+  if (!store) return {} as ReturnType<typeof getStableActions<ChartState>>;
   return getStableActions(store);
 }
 
@@ -444,8 +422,6 @@ export function useChartActions() {
  */
 export function useChatActions() {
   const store = getWorkflowStoreApi("chat");
-  if (!store) {
-    throw new Error("useChatActions must be used within WorkflowProvider");
-  }
+  if (!store) return {} as ReturnType<typeof getStableActions<ChatState>>;
   return getStableActions(store);
 }
