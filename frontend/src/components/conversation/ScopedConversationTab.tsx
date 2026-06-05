@@ -8,8 +8,9 @@
 
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useConversationMessages, useWorkflowStore as useScopedStore } from "@/contexts/workflow-context";
 import { AgentNodeHeader, ThinkingBlock } from "./AgentMessage";
 import { UserMessage } from "./UserMessage";
@@ -88,12 +89,128 @@ function groupMessages(messages: ConversationMessage[]): Block[] {
   return blocks;
 }
 
+// Memoized NodeBlockCard to prevent unnecessary re-renders
+const NodeBlockCard = React.memo(function NodeBlockCard({
+  block,
+  collapsed,
+  onToggle,
+  getAgentIO,
+  getNodeState,
+  sendStructuredAnswer,
+  conversationActions,
+}: {
+  block: NodeBlock;
+  collapsed: boolean;
+  onToggle: () => void;
+  getAgentIO: (nodeId: string) => any;
+  getNodeState: (nodeId: string) => any;
+  sendStructuredAnswer: (id: string, answer: any) => void;
+  conversationActions: { answerUserQuestion: (id: string, answer: any) => void };
+}) {
+  const { mainMessage: m, items, nodeId } = block;
+  const totalSections = items.filter(
+    (item) => (item.type === "agent" && item.content.trim()) || item.type === "tool_call"
+  ).length;
+
+  const preview = (() => {
+    for (const line of (m.content ?? "").split("\n")) {
+      const t = line.trim();
+      if (t) return t;
+    }
+    return "";
+  })();
+
+  return (
+    <div className="rounded-lg border border-app-border bg-background p-3">
+      <AgentNodeHeader
+        message={m}
+        collapsed={collapsed}
+        onToggleCollapse={onToggle}
+        sectionItemCount={totalSections}
+        getAgentIO={getAgentIO}
+        getNodeState={getNodeState}
+      />
+      {collapsed ? (
+        <button
+          type="button"
+          onClick={onToggle}
+          className="block w-full min-w-0 truncate text-left text-sm text-muted-foreground hover:text-app-text-primary"
+        >
+          {preview || "(empty output)"}
+        </button>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {items.map((item) => {
+            if (item.type === "tool_call") {
+              return <ToolCallMessage key={item.id} message={item} />;
+            }
+            if (item.type === "question") {
+              return (
+                <AgentQuestionCard
+                  key={item.id}
+                  message={item}
+                  onSubmit={(answer) => {
+                    if (item.questionId) {
+                      sendStructuredAnswer(item.questionId, answer);
+                      conversationActions.answerUserQuestion(item.questionId, answer);
+                    }
+                  }}
+                />
+              );
+            }
+            if (item.type === "agent") {
+              const isStreaming = item.status === "streaming";
+              return (
+                <div key={item.id} className="flex flex-col gap-1">
+                  {item.thinking && (
+                    <ThinkingBlock text={item.thinking} streaming={isStreaming} />
+                  )}
+                  {item.content.trim() && (
+                    <div className="text-sm">
+                      <MarkdownText>{item.content}</MarkdownText>
+                      {isStreaming && <span className="animate-pulse">▎</span>}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+            return null;
+          })}
+        </div>
+      )}
+    </div>
+  );
+});
+
+function renderOtherBlock(
+  m: ConversationMessage,
+  sendStructuredAnswer: (id: string, answer: any) => void,
+  conversationActions: { answerUserQuestion: (id: string, answer: any) => void },
+) {
+  if (m.type === "user") return <UserMessage key={m.id} message={m} />;
+  if (m.type === "system") return <SystemMessage key={m.id} message={m} />;
+  if (m.type === "question") {
+    return (
+      <AgentQuestionCard
+        key={m.id}
+        message={m}
+        onSubmit={(answer) => {
+          if (m.questionId) {
+            sendStructuredAnswer(m.questionId, answer);
+            conversationActions.answerUserQuestion(m.questionId, answer);
+          }
+        }}
+      />
+    );
+  }
+  return <ToolCallMessage key={m.id} message={m} />;
+}
+
 export function ScopedConversationTab({ autoScroll = true }: ScopedConversationTabProps = {}) {
   const messages = useConversationMessages();
   const { sendStructuredAnswer } = useWSMethods();
   const conversationActions = useConversationActions();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
 
   // Scoped store APIs for AgentNodeHeader props injection
   const agentIOStore = useScopedStore("agentIO");
@@ -105,12 +222,28 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
   const getNodeState = useCallback((nodeId: string) => workflowNodes[nodeId], [workflowNodes]);
 
   const blocks = useMemo(() => groupMessages(messages), [messages]);
-
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
+  const virtualizer = useVirtualizer({
+    count: blocks.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: (i) => {
+      const b = blocks[i];
+      if (b.kind === "other") return 60;
+      return collapsed[b.nodeId] ? 80 : 200;
+    },
+    overscan: 5,
+  });
+
+  // Auto-scroll to bottom on new messages
   useEffect(() => {
-    if (autoScroll) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, autoScroll]);
+    if (autoScroll && blocks.length > 0) {
+      // Use requestAnimationFrame to ensure layout is settled before scrolling
+      requestAnimationFrame(() => {
+        virtualizer.scrollToIndex(blocks.length - 1, { align: "end", behavior: "smooth" });
+      });
+    }
+  }, [blocks.length, autoScroll, virtualizer]);
 
   if (messages.length === 0) {
     return (
@@ -120,114 +253,52 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
     );
   }
 
-  const toggle = (id: string) =>
+  const toggle = (id: string) => {
     setCollapsed((prev) => ({ ...prev, [id]: !(prev[id] ?? false) }));
+  };
 
   return (
     <div ref={scrollRef} className="h-full overflow-y-auto">
-      <div className="flex min-w-0 flex-col gap-4 p-6">
-        {blocks.map((b) => {
-          if (b.kind === "other") {
-            const m = b.message;
-            if (m.type === "user") return <UserMessage key={m.id} message={m} />;
-            if (m.type === "system") return <SystemMessage key={m.id} message={m} />;
-            if (m.type === "question") {
-              return (
-                <AgentQuestionCard
-                  key={m.id}
-                  message={m}
-                  onSubmit={(answer) => {
-                    if (m.questionId) {
-                      sendStructuredAnswer(m.questionId, answer);
-                      conversationActions.answerUserQuestion(m.questionId, answer);
-                    }
-                  }}
-                />
-              );
-            }
-            return <ToolCallMessage key={m.id} message={m} />;
-          }
-
-          // ── NodeBlock: one card per agent node ──
-          const { mainMessage: m, items, nodeId } = b;
-          const isCollapsed = collapsed[nodeId] ?? false;
-          const totalSections = items.filter(
-            (item) => (item.type === "agent" && item.content.trim()) || item.type === "tool_call"
-          ).length;
-
-          const preview = (() => {
-            for (const line of (m.content ?? "").split("\n")) {
-              const t = line.trim();
-              if (t) return t;
-            }
-            return "";
-          })();
-
+      <div
+        style={{
+          height: virtualizer.getTotalSize(),
+          width: "100%",
+          position: "relative",
+        }}
+      >
+        {virtualizer.getVirtualItems().map((virtualRow) => {
+          const b = blocks[virtualRow.index];
           return (
-            <div key={`node-${nodeId}`} className="rounded-lg border border-app-border bg-background p-3">
-              {/* Header: always pinned at top */}
-              <AgentNodeHeader
-                message={m}
-                collapsed={isCollapsed}
-                onToggleCollapse={() => toggle(nodeId)}
-                sectionItemCount={totalSections}
-                getAgentIO={getAgentIO}
-                getNodeState={getNodeState}
-              />
-
-              {/* Content: collapsed preview or chronological items */}
-              {isCollapsed ? (
-                <button
-                  type="button"
-                  onClick={() => toggle(nodeId)}
-                  className="block w-full min-w-0 truncate text-left text-sm text-muted-foreground hover:text-app-text-primary"
-                >
-                  {preview || "(empty output)"}
-                </button>
-              ) : (
-                <div className="flex flex-col gap-1">
-                  {items.map((item) => {
-                    if (item.type === "tool_call") {
-                      return <ToolCallMessage key={item.id} message={item} />;
-                    }
-                    if (item.type === "question") {
-                      return (
-                        <AgentQuestionCard
-                          key={item.id}
-                          message={item}
-                          onSubmit={(answer) => {
-                            if (item.questionId) {
-                              sendStructuredAnswer(item.questionId, answer);
-                              conversationActions.answerUserQuestion(item.questionId, answer);
-                            }
-                          }}
-                        />
-                      );
-                    }
-                    if (item.type === "agent") {
-                      const isStreaming = item.status === "streaming";
-                      return (
-                        <div key={item.id} className="flex flex-col gap-1">
-                          {item.thinking && (
-                            <ThinkingBlock text={item.thinking} streaming={isStreaming} />
-                          )}
-                          {item.content.trim() && (
-                            <div className="text-sm">
-                              <MarkdownText>{item.content}</MarkdownText>
-                              {isStreaming && <span className="animate-pulse">▎</span>}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    }
-                    return null;
-                  })}
-                </div>
-              )}
+            <div
+              key={virtualRow.key}
+              data-index={virtualRow.index}
+              ref={virtualizer.measureElement}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                transform: `translateY(${virtualRow.start}px)`,
+              }}
+            >
+              <div className="px-6 py-2">
+                {b.kind === "other" ? (
+                  renderOtherBlock(b.message, sendStructuredAnswer, conversationActions)
+                ) : (
+                  <NodeBlockCard
+                    block={b}
+                    collapsed={collapsed[b.nodeId] ?? false}
+                    onToggle={() => toggle(b.nodeId)}
+                    getAgentIO={getAgentIO}
+                    getNodeState={getNodeState}
+                    sendStructuredAnswer={sendStructuredAnswer}
+                    conversationActions={conversationActions}
+                  />
+                )}
+              </div>
             </div>
           );
         })}
-        <div ref={bottomRef} />
       </div>
     </div>
   );
