@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle, XCircle, X, Trash2, Play, RotateCcw, Pause, CheckSquare, Square } from "lucide-react";
 import { useRunHistoryStore, type RunSummary, type RunRecord } from "@/stores/runHistoryStore";
 import { useViewStore } from "@/stores/viewStore";
@@ -67,6 +67,7 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
   const activeBatchId = useBatchStore((s) => s.activeBatchId);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   // Initial load - only when not in batch mode
   useEffect(() => {
@@ -105,15 +106,18 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
       toggleRunSelection(run.run_id);
       return;
     }
-    // Leave benchmark view if we're in one
     onLeaveBenchmark?.();
     selectRun(run.run_id);
-    // Fetch fresh record — sidebar list status can lag behind by up to one poll
-    // cycle (5s). Trust backend status, not the cached list item.
-    const full = await fetchRun(run.run_id);
-    if (!full) return;
+
+    // Abort previous fetch
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+
+    const full = await fetchRun(run.run_id, ac.signal);
+    if (!full || ac.signal.aborted) return;
+
     if (full.status === "running") {
-      // Switch to live view — WorkflowScope handles scoped store reset + WS replay
       setWorkflow(full.run_id, full.workflow_name, full.dag ?? null);
       showLive();
       return;

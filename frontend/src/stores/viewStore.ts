@@ -6,6 +6,8 @@ import { useRunHistoryStore } from "./runHistoryStore";
 import { getWorkflowManager } from "@/contexts/workflow-context/WorkflowManager";
 import { replayEventsToStores, loadLegacyRunData, loadRunFromPersistedData } from "@/contexts/workflow-context/replayEvents";
 
+let _replaySeq = 0;
+
 export type ActiveView =
   | { type: "live" }
   | { type: "replay"; runId: string; run: RunRecord };
@@ -22,19 +24,17 @@ export const useViewStore = create<ViewState>()((set, get) => ({
   chartsLoading: false,
   showLive: () => set({ activeView: { type: "live" } }),
   showReplay: (run) => {
-    // Populate global agentIOStore from persisted run data (backward compat)
-    if (run.agent_io) {
-      const store = useAgentIOStore.getState();
-      for (const [nodeId, io] of Object.entries(run.agent_io)) {
-        store.setAgentIO(nodeId, io.input_prompt ?? "", io.output_result, io.system_prompt);
-      }
-    }
+    const seq = ++_replaySeq;
+
+    // Clear stale global agentIO data from previous runs
+    useAgentIOStore.getState().reset();
 
     // Ensure scoped stores exist for this workflow
     const manager = getWorkflowManager();
     manager.getOrCreate(run.run_id);
 
     const doReplay = (chartGroups: RunRecord["chart_groups"], eventsData: RunRecord["events"]) => {
+      if (seq !== _replaySeq) return;
       const wsEvents = eventsData as WSEvent[] | undefined;
       // PRIMARY: direct data restoration (not affected by buffer overflow)
       const hasPersistedData = run.agent_io && run.conversation && run.dag && run.result?.trace;
@@ -71,8 +71,10 @@ export const useViewStore = create<ViewState>()((set, get) => ({
         run._has_charts ? store.fetchRunCharts(run.run_id) : Promise.resolve(null),
         run._has_events ? store.fetchRunEvents(run.run_id) : Promise.resolve(null),
       ]).then(([charts, events]) => {
+        if (seq !== _replaySeq) return;
         doReplay(charts, events ?? undefined);
       }).catch(() => {
+        if (seq !== _replaySeq) return;
         doReplay(null, undefined);
       });
     } else {

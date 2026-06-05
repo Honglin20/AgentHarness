@@ -87,7 +87,7 @@ interface RunHistoryState {
   isSelectMode: boolean;
 
   fetchRuns: (workflowName?: string) => Promise<void>;
-  fetchRun: (runId: string) => Promise<RunRecord | null>;
+  fetchRun: (runId: string, signal?: AbortSignal) => Promise<RunRecord | null>;
   fetchRunCharts: (runId: string) => Promise<RunRecord["chart_groups"]>;
   fetchRunEvents: (runId: string) => Promise<RunRecord["events"]>;
   selectRun: (runId: string | null) => void;
@@ -122,11 +122,13 @@ export const useRunHistoryStore = create<RunHistoryState>()((set) => ({
     }
   },
 
-  fetchRun: async (runId: string) => {
+  fetchRun: async (runId: string, signal?: AbortSignal) => {
     try {
-      const r = await fetchWithAuth(`/api/runs/${runId}`);
+      const r = await fetchWithAuth(`/api/runs/${runId}`, { signal });
       if (r.ok) return await r.json();
-    } catch {}
+    } catch (e: any) {
+      if (e?.name === "AbortError") return null;
+    }
     return null;
   },
 
