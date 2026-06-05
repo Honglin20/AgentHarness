@@ -149,7 +149,7 @@ class RunStore:
         path = self._safe_path(run_id)
         if path is None:
             raise ValueError(f"Invalid run_id: {run_id}")
-        self._atomic_write(path, json.dumps(record, indent=2, ensure_ascii=False))
+        self._atomic_write(path, json.dumps(record, separators=(",", ":"), ensure_ascii=False))
 
         # Write chart_groups sidecar
         charts_path = self._charts_path(run_id)
@@ -168,7 +168,7 @@ class RunStore:
 
         return path
 
-    def list_runs(self, workflow_name: str | None = None, include_batch: bool = False, user_id: str | None = None, summary_only: bool = False) -> list[dict]:
+    def list_runs(self, workflow_name: str | None = None, include_batch: bool = False, user_id: str | None = None, summary_only: bool = False, limit: int | None = None, offset: int = 0) -> dict:
         # Cleanup stale .tmp files from interrupted atomic writes
         now = time.time()
         for tmp in self._dir.glob("*.json.tmp"):
@@ -210,7 +210,15 @@ class RunStore:
             except KeyError:
                 continue
         runs.sort(key=lambda r: r.get("created_at", ""), reverse=True)
-        return runs
+        total = len(runs)
+        if limit is not None:
+            has_more = (offset + limit) < total
+            runs = runs[offset:offset + limit]
+        else:
+            has_more = False
+            if offset > 0:
+                runs = runs[offset:]
+        return {"runs": runs, "total": total, "has_more": has_more}
 
     def get_run(self, run_id: str) -> dict | None:
         """Load main record. Does NOT include chart_groups or events.

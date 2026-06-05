@@ -641,8 +641,8 @@ async def batch_delete_runs(request: Request) -> dict:
     return {"status": "ok", "deleted": deleted, "errors": errors}
 
 
-@router.get("/runs", response_model=list[RunSummary])
-async def list_runs(request: Request, workflow_name: str | None = None) -> list[RunSummary]:
+@router.get("/runs")
+async def list_runs(request: Request, workflow_name: str | None = None, limit: int | None = None, offset: int = 0):
     """List persisted runs (summary only), merged with currently-running in-memory workflows.
 
     Only returns runs for the current user (admin sees all).
@@ -663,12 +663,16 @@ async def list_runs(request: Request, workflow_name: str | None = None) -> list[
     user_mgr = get_user_manager()
     is_admin = user_mgr.is_admin(user)
 
-    persisted = RunStore().list_runs(
+    result = RunStore().list_runs(
         workflow_name=workflow_name,
         include_batch=True,
         user_id=None if is_admin else user.user_id,
         summary_only=True,
+        limit=limit,
+        offset=offset,
     )
+
+    persisted = result["runs"]
     persisted_ids = {r.get("run_id") for r in persisted}
 
     # Add running in-memory workflows that aren't yet persisted
@@ -692,7 +696,7 @@ async def list_runs(request: Request, workflow_name: str | None = None) -> list[
         })
 
     # Live runs first (most recent), then persisted (sorted by created_at desc by RunStore)
-    return live_records + persisted
+    return {"runs": live_records + persisted, "total": result["total"] + len(live_records), "has_more": result["has_more"]}
 
 
 @router.get("/runs/{run_id}", response_model=RunDetail)

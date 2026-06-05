@@ -36,13 +36,15 @@ def test_save_and_list_runs():
             result=None,
         )
 
-        runs = store.list_runs()
+        runs_result = store.list_runs()
+        runs = runs_result["runs"]
         assert len(runs) == 3
         assert runs[0]["run_id"] == "run-003"
         assert runs[1]["run_id"] == "run-002"
         assert runs[2]["run_id"] == "run-001"
 
-        cr_runs = store.list_runs(workflow_name="code_review")
+        cr_result = store.list_runs(workflow_name="code_review")
+        cr_runs = cr_result["runs"]
         assert len(cr_runs) == 2
 
         run = store.get_run("run-001")
@@ -69,15 +71,18 @@ def test_list_runs_filters_by_user():
             agents_snapshot=[], status="completed", inputs={}, result=None,
         )
 
-        alice_runs = store.list_runs(user_id="alice")
+        alice_result = store.list_runs(user_id="alice")
+        alice_runs = alice_result["runs"]
         assert len(alice_runs) == 1
         assert alice_runs[0]["run_id"] == "run-alice"
 
-        bob_runs = store.list_runs(user_id="bob")
+        bob_result = store.list_runs(user_id="bob")
+        bob_runs = bob_result["runs"]
         assert len(bob_runs) == 1
         assert bob_runs[0]["run_id"] == "run-bob"
 
-        all_runs = store.list_runs()
+        all_result = store.list_runs()
+        all_runs = all_result["runs"]
         assert len(all_runs) == 3
 
 
@@ -96,7 +101,8 @@ def test_list_runs_combines_user_and_workflow_filter():
             user_id="alice",
         )
 
-        alice_cr = store.list_runs(user_id="alice", workflow_name="code_review")
+        alice_cr_result = store.list_runs(user_id="alice", workflow_name="code_review")
+        alice_cr = alice_cr_result["runs"]
         assert len(alice_cr) == 1
         assert alice_cr[0]["run_id"] == "run-1"
 
@@ -316,7 +322,8 @@ def test_corrupted_file_skipped_with_warning(tmp_path):
     # Manually create a corrupted file
     (tmp_path / "corrupted-1.json").write_text("{invalid json content")
 
-    runs = store.list_runs()
+    runs_result = store.list_runs()
+    runs = runs_result["runs"]
     assert len(runs) == 1
     assert runs[0]["run_id"] == "valid-1"
 
@@ -455,7 +462,8 @@ def test_list_runs_skips_sidecar_files(tmp_path):
     assert (tmp_path / "run-1+charts.json").exists()
     assert (tmp_path / "run-1+events.json").exists()
 
-    runs = store.list_runs()
+    runs_result = store.list_runs()
+    runs = runs_result["runs"]
     assert len(runs) == 1
     assert runs[0]["run_id"] == "run-1"
 
@@ -496,3 +504,39 @@ def test_backward_compat_inline_chart_groups_migration(tmp_path):
     events = store.get_events("old-run")
     assert events is not None
     assert len(events) == 1
+
+
+def test_list_runs_pagination(tmp_path):
+    """list_runs should support limit/offset pagination."""
+    store = RunStore(str(tmp_path))
+    for i in range(10):
+        store.save(
+            run_id=f"run-{i:03d}",
+            workflow_name="test",
+            agents_snapshot=[],
+            status="completed",
+            inputs={"idx": i},
+            result=None,
+        )
+
+    # First page
+    page1 = store.list_runs(limit=4, offset=0)
+    assert len(page1["runs"]) == 4
+    assert page1["total"] == 10
+    assert page1["has_more"] is True
+
+    # Second page
+    page2 = store.list_runs(limit=4, offset=4)
+    assert len(page2["runs"]) == 4
+    assert page2["has_more"] is True
+
+    # Third page (partial)
+    page3 = store.list_runs(limit=4, offset=8)
+    assert len(page3["runs"]) == 2
+    assert page3["has_more"] is False
+
+    # No pagination — returns all
+    all_runs = store.list_runs()
+    assert len(all_runs["runs"]) == 10
+    assert all_runs["total"] == 10
+    assert all_runs["has_more"] is False
