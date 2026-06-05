@@ -6,10 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useWorkflowStore } from "@/stores/workflowStore";
-import { useOutputStore } from "@/stores/outputStore";
-import { useChatStore } from "@/stores/chatStore";
-import { setActiveWorkflowId } from "@/contexts/workflow-context";
-import { useChartStore } from "@/stores/chartStore";
+import { useViewStore } from "@/stores/viewStore";
+import { setActiveWorkflowId, getWorkflowManager } from "@/contexts/workflow-context";
 import { fetchWithAuth } from "@/lib/api";
 import { useSettingsStore } from "@/stores/settingsStore";
 
@@ -82,10 +80,9 @@ export default function WorkflowLauncher() {
     setRunning(true);
     setError("");
 
-    // Reset all stores for the new workflow
-    useOutputStore.getState().reset();
-    useChatStore.getState().reset();
-    useChartStore.getState().reset();
+    // Pre-create scoped stores and reset them for the new workflow
+    // (setActiveWorkflowId below will activate them)
+    const manager = getWorkflowManager();
 
     try {
       const agentList = Array.from(selected);
@@ -110,6 +107,7 @@ export default function WorkflowLauncher() {
       const data = await r.json();
       setActiveWorkflowId(data.workflow_id);
       setWorkflow(data.workflow_id, selectedWf || agentList.join(" → "), data.dag);
+      useViewStore.getState().showLive();
     } catch (e: any) {
       setError(e.message || "Failed to start workflow");
     } finally {

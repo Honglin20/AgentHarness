@@ -7,9 +7,6 @@ import { useBatchStore, type BatchRun } from "@/stores/batchStore";
 import { useRunHistoryStore } from "@/stores/runHistoryStore";
 import { getWorkflowManager } from "@/contexts/workflow-context/WorkflowManager";
 import { fetchWithAuth } from "@/lib/api";
-import { useBatchWebSocket } from "@/hooks/useBatchWebSocket";
-import { dispatchBatchEvent } from "@/contexts/workflow-context/eventRouter";
-import type { WSEvent } from "@/types/events";
 
 const API_BASE = "";
 
@@ -49,16 +46,6 @@ export default function BenchmarkRunner({ benchmark, onBack }: Props) {
   const runs = currentBatch?.runs ?? [];
   const completedCount = runs.filter((r) => r.status === "completed" || r.status === "failed").length;
   const allDone = runs.length > 0 && completedCount === runs.length;
-
-  // Batch WebSocket connection — connects when activeBatchId is set
-  const onBatchEvent = useCallback((event: WSEvent) => {
-    dispatchBatchEvent(event);
-  }, []);
-
-  const { isConnected } = useBatchWebSocket({
-    batchId: activeBatchId,
-    onEvent: onBatchEvent,
-  });
 
   const runBenchmark = useCallback(async () => {
     if (!selectedWf) return;
@@ -209,11 +196,11 @@ export default function BenchmarkRunner({ benchmark, onBack }: Props) {
 
       {error && <p className="text-xs text-red-500">{error}</p>}
 
-      {/* WS connection indicator */}
+      {/* Progress indicator */}
       {currentBatch && (
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          <span className={`inline-block h-2 w-2 rounded-full ${isConnected ? "bg-green-500" : "bg-red-400"}`} />
-          {isConnected ? "Connected" : "Reconnecting..."}
+          <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
+          {allDone ? "All done" : `${completedCount}/${runs.length} completed`}
         </div>
       )}
 

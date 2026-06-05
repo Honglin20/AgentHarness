@@ -7,6 +7,7 @@
 import { useCallback } from "react";
 import { useConversationActions, useChatActions } from "./hooks";
 import { useWSMethods } from "./WorkflowScope";
+import { getWorkflowManager } from "./WorkflowManager";
 
 export interface ScopedWorkflowEventsReturn {
   sendAnswer: (questionId: string, answer: string) => void;
@@ -58,6 +59,5 @@ export function useScopedWorkflowEvents(): ScopedWorkflowEventsReturn {
 }
 
 export function setActiveWorkflowId(id: string | null): void {
-  const { getWorkflowManager } = require("./WorkflowManager");
   getWorkflowManager().setActiveWorkflowId(id);
 }

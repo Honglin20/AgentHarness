@@ -126,7 +126,16 @@ export function dispatchSingleEvent(event: WSEvent, currentWorkflowId: string | 
  * - batch.completed triggers run-history refresh
  */
 export function dispatchBatchEvent(event: WSEvent): void {
-  const wid = event.payload?.workflow_id as string | undefined;
+  let wid = event.payload?.workflow_id as string | undefined;
+
+  // Defensive: inject selectedRunId for events that lack workflow_id (e.g. chart.render)
+  if (!wid) {
+    const { selectedRunId } = useBatchStore.getState();
+    if (selectedRunId) {
+      wid = selectedRunId;
+      event = { ...event, payload: { ...event.payload, workflow_id: selectedRunId } };
+    }
+  }
 
   if (event.type === "batch.completed") {
     useRunHistoryStore.getState().fetchRuns();
