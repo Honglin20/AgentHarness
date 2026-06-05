@@ -70,7 +70,11 @@ export default function Home() {
   }, []);
 
   const handleSelectBenchmark = useCallback((name: string) => {
-    setActiveBenchmark((prev) => (prev === name ? null : name));
+    setActiveBenchmark((prev) => {
+      const next = prev === name ? null : name;
+      useBatchStore.getState().setActiveBatch(next);
+      return next;
+    });
   }, []);
 
   const handleLeaveBenchmark = useCallback(() => {

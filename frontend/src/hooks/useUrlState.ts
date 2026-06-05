@@ -2,9 +2,10 @@ import { useEffect, useRef } from "react";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useViewStore } from "@/stores/viewStore";
 import { useRunHistoryStore } from "@/stores/runHistoryStore";
+import { useBatchStore } from "@/stores/batchStore";
 import { setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
 
-const PARAM_KEYS = ["run", "wid", "wf", "tab", "bench"] as const;
+const PARAM_KEYS = ["run", "wid", "wf", "tab", "bench", "task"] as const;
 
 function readParams(): URLSearchParams {
   if (typeof window === "undefined") return new URLSearchParams();
@@ -47,6 +48,7 @@ export function useUrlState(activeBenchmark?: string | null): void {
     const wid = params.get("wid");
     const wf = params.get("wf");
     const bench = params.get("bench");
+    const task = params.get("task");
 
     if (runId) {
       let cancelled = false;
@@ -64,6 +66,11 @@ export function useUrlState(activeBenchmark?: string | null): void {
     }
 
     if (bench) {
+      const batchStore = useBatchStore.getState();
+      batchStore.setActiveBatch(bench);
+      if (task) {
+        batchStore.selectRun(task);
+      }
       window.dispatchEvent(
         new CustomEvent("tars:restore-benchmark", { detail: bench }),
       );
@@ -116,13 +123,28 @@ export function useUrlState(activeBenchmark?: string | null): void {
     };
   }, []);
 
+  // Sync batchStore (activeBatchId + selectedRunId) to URL params bench + task.
+  // This is the source of truth for bench; the activeBenchmark prop is handled
+  // by the batchStore subscription itself (setActiveBatch is called externally).
   useEffect(() => {
-    const params = readParams();
-    if (activeBenchmark) {
-      params.set("bench", activeBenchmark);
-    } else {
-      params.delete("bench");
-    }
-    writeParams(params);
-  }, [activeBenchmark]);
+    const unsubBatch = useBatchStore.subscribe((state) => {
+      const params = readParams();
+      if (state.activeBatchId) {
+        params.set("bench", state.activeBatchId);
+        if (state.selectedRunId) {
+          params.set("task", state.selectedRunId);
+        } else {
+          params.delete("task");
+        }
+      } else {
+        params.delete("bench");
+        params.delete("task");
+      }
+      writeParams(params);
+    });
+
+    return () => {
+      unsubBatch();
+    };
+  }, []);
 }
