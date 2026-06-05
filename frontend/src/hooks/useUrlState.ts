@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useViewStore } from "@/stores/viewStore";
 import { useRunHistoryStore } from "@/stores/runHistoryStore";
-import { setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
+import { setActiveWorkflowId } from "@/contexts/workflow-context";
 
 const PARAM_KEYS = ["run", "wid", "wf", "tab", "bench"] as const;
 

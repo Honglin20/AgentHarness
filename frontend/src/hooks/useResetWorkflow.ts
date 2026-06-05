@@ -9,7 +9,7 @@ import { useToolCallStore } from "@/stores/toolCallStore";
 import { useConversationStore } from "@/stores/conversationStore";
 import { useViewStore } from "@/stores/viewStore";
 import { useBatchStore } from "@/stores/batchStore";
-import { setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
+import { setActiveWorkflowId } from "@/contexts/workflow-context";
 
 /** Reset all live workflow state and return to the landing page. */
 export function useResetWorkflow() {

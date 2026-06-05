@@ -84,7 +84,9 @@ export default function Home() {
       <ErrorBoundary>
         <div className="flex h-screen flex-col">
           <HeaderBar />
-          <WorkflowCenterPanel />
+          <WorkflowScope workflowId={activeWorkflowId}>
+            <WorkflowCenterPanel />
+          </WorkflowScope>
         </div>
       </ErrorBoundary>
     );

@@ -6,7 +6,7 @@ import { useRunHistoryStore, type RunSummary, type RunRecord } from "@/stores/ru
 import { useViewStore } from "@/stores/viewStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useBatchStore } from "@/stores/batchStore";
-import { setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
+import { setActiveWorkflowId } from "@/contexts/workflow-context";
 import { fetchWithAuth } from "@/lib/api";
 import { showSuccess, showError } from "@/lib/confirm";
 import { RunHistorySkeleton } from "./RunHistorySkeleton";

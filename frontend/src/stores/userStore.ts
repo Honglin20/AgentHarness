@@ -10,7 +10,7 @@ import { useConversationStore } from "./conversationStore";
 import { useViewStore } from "./viewStore";
 import { useBatchStore } from "./batchStore";
 import { useAgentIOStore } from "./agentIOStore";
-import { setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
+import { setActiveWorkflowId } from "@/contexts/workflow-context";
 
 interface UserState {
   userId: string;

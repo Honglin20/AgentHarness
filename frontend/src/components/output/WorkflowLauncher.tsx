@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useOutputStore } from "@/stores/outputStore";
 import { useChatStore } from "@/stores/chatStore";
-import { setActiveWorkflowId } from "@/hooks/useWorkflowEvents";
+import { setActiveWorkflowId } from "@/contexts/workflow-context";
 import { useChartStore } from "@/stores/chartStore";
 import { fetchWithAuth } from "@/lib/api";
 import { useSettingsStore } from "@/stores/settingsStore";
