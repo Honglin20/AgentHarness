@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 
 from .routes import router
 from .ws_handler import router as ws_router
@@ -148,6 +149,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # GZip compression — reduces JSON response sizes by 60-80%
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
 
     # API routes (must come before static mount)
     app.include_router(router, prefix="/api")
