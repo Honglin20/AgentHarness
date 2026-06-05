@@ -43,6 +43,7 @@ def _parse_index(index_path: Path) -> dict:
     return {
         "title": title or fm.metadata.get("title", index_path.parent.name),
         "description": description,
+        "order": fm.metadata.get("order", 99),
         "color": fm.metadata.get("color", "blue"),
         "icon": fm.metadata.get("icon", "Layers"),
         "status": fm.metadata.get("status", "active"),
@@ -224,6 +225,9 @@ def parse_tutorials(tutorials_dir: Path | None = None) -> list[dict]:
         # Attach reverse mapping to each API entry
         for api in domain["apis"]:
             api["referenced_by"] = reverse.get(api["id"], [])
+
+    # Sort by order field (default 99 for missing)
+    domains.sort(key=lambda d: d.get("order", 99))
 
     return domains
 
