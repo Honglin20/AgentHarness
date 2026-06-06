@@ -10,14 +10,18 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
+import type { StoreApi } from "zustand/vanilla";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { InlineErrorBoundary } from "@/components/ErrorBoundary";
 import { useConversationMessages, useWorkflowStore as useScopedStore } from "@/contexts/workflow-context";
+import type { TodoState } from "@/contexts/workflow-context/workflowStores";
 import { AgentNodeHeader, ThinkingBlock } from "./AgentMessage";
 import { UserMessage } from "./UserMessage";
 import { SystemMessage } from "./SystemMessage";
 import { ToolCallMessage } from "./ToolCallMessage";
 import { MarkdownText } from "./MarkdownText";
 import { AgentQuestionCard } from "./AgentQuestionCard";
+import TodoStepList from "@/components/todo/TodoStepList";
 import type { ConversationMessage } from "@/stores/conversationStore";
 import { useWSMethods } from "@/contexts/workflow-context/WorkflowScope";
 import { useConversationActions } from "@/contexts/workflow-context/hooks";
@@ -98,6 +102,7 @@ const NodeBlockCard = React.memo(function NodeBlockCard({
   getNodeState,
   sendStructuredAnswer,
   conversationActions,
+  todoStore,
 }: {
   block: NodeBlock;
   collapsed: boolean;
@@ -106,6 +111,7 @@ const NodeBlockCard = React.memo(function NodeBlockCard({
   getNodeState: (nodeId: string) => any;
   sendStructuredAnswer: (id: string, answer: any) => void;
   conversationActions: { answerUserQuestion: (id: string, answer: any) => void };
+  todoStore: StoreApi<TodoState> | null;
 }) {
   const { mainMessage: m, items, nodeId } = block;
   const totalSections = items.filter(
@@ -140,6 +146,7 @@ const NodeBlockCard = React.memo(function NodeBlockCard({
         </button>
       ) : (
         <div className="flex flex-col gap-1">
+          {todoStore && <TodoStepList nodeId={nodeId} todoStore={todoStore} />}
           {items.map((item) => {
             if (item.type === "tool_call") {
               return <ToolCallMessage key={item.id} message={item} />;
@@ -215,11 +222,17 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
   // Scoped store APIs for AgentNodeHeader props injection
   const agentIOStore = useScopedStore("agentIO");
   const workflowStoreApi = useScopedStore("workflow");
+  const todoStore = useScopedStore("todo");
   const agentIOData = useStore(agentIOStore!, (s) => s.data);
   const workflowNodes = useStore(workflowStoreApi!, (s) => s.nodes);
 
-  const getAgentIO = useCallback((nodeId: string) => agentIOData[nodeId], [agentIOData]);
-  const getNodeState = useCallback((nodeId: string) => workflowNodes[nodeId], [workflowNodes]);
+  const agentIORef = useRef(agentIOData);
+  agentIORef.current = agentIOData;
+  const nodesRef = useRef(workflowNodes);
+  nodesRef.current = workflowNodes;
+
+  const getAgentIO = useCallback((nodeId: string) => agentIORef.current[nodeId], []);
+  const getNodeState = useCallback((nodeId: string) => nodesRef.current[nodeId], []);
 
   const blocks = useMemo(() => groupMessages(messages), [messages]);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -235,10 +248,17 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
     overscan: 5,
   });
 
-  // Auto-scroll to bottom on new messages
+  // Track whether user is near bottom — only auto-scroll if they are
+  const isAtBottomRef = useRef(true);
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }, []);
+
+  // Auto-scroll to bottom on new messages (only when user is at bottom)
   useEffect(() => {
-    if (autoScroll && blocks.length > 0) {
-      // Use requestAnimationFrame to ensure layout is settled before scrolling
+    if (autoScroll && blocks.length > 0 && isAtBottomRef.current) {
       requestAnimationFrame(() => {
         virtualizer.scrollToIndex(blocks.length - 1, { align: "end", behavior: "smooth" });
       });
@@ -258,7 +278,7 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
   };
 
   return (
-    <div ref={scrollRef} className="h-full overflow-y-auto">
+    <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto">
       <div
         style={{
           height: virtualizer.getTotalSize(),
@@ -281,21 +301,24 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
                 transform: `translateY(${virtualRow.start}px)`,
               }}
             >
-              <div className="px-6 py-2">
-                {b.kind === "other" ? (
-                  renderOtherBlock(b.message, sendStructuredAnswer, conversationActions)
-                ) : (
-                  <NodeBlockCard
-                    block={b}
-                    collapsed={collapsed[b.nodeId] ?? false}
-                    onToggle={() => toggle(b.nodeId)}
-                    getAgentIO={getAgentIO}
-                    getNodeState={getNodeState}
-                    sendStructuredAnswer={sendStructuredAnswer}
-                    conversationActions={conversationActions}
-                  />
-                )}
-              </div>
+              <InlineErrorBoundary label={b.kind === "node" ? b.nodeId : "message"}>
+                <div className="px-6 py-2">
+                  {b.kind === "other" ? (
+                    renderOtherBlock(b.message, sendStructuredAnswer, conversationActions)
+                  ) : (
+                    <NodeBlockCard
+                      block={b}
+                      collapsed={collapsed[b.nodeId] ?? false}
+                      onToggle={() => toggle(b.nodeId)}
+                      getAgentIO={getAgentIO}
+                      getNodeState={getNodeState}
+                      sendStructuredAnswer={sendStructuredAnswer}
+                      conversationActions={conversationActions}
+                      todoStore={todoStore}
+                    />
+                  )}
+                </div>
+              </InlineErrorBoundary>
             </div>
           );
         })}

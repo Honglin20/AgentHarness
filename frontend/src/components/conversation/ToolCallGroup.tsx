@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { Check, ChevronDown, ChevronRight, Loader2, Wrench } from "lucide-react";
 import type { ConversationMessage } from "@/stores/conversationStore";
 import {
@@ -153,7 +153,7 @@ function ToolRow({ message }: { message: ConversationMessage }) {
   );
 }
 
-export function ToolCallGroup({ tools }: ToolCallGroupProps) {
+export const ToolCallGroup = React.memo(function ToolCallGroup({ tools }: ToolCallGroupProps) {
   const [open, setOpen] = useState(false);
   const anyRunning = tools.some((t) => t.toolStatus === "running");
   const allDone = tools.every((t) => t.toolStatus === "done");
@@ -207,4 +207,4 @@ export function ToolCallGroup({ tools }: ToolCallGroupProps) {
       </Collapsible>
     </div>
   );
-}
+});

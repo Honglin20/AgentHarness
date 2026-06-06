@@ -4,8 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { ChevronRight, FileInput, FileOutput, Coins, Wrench } from "lucide-react";
 import type { ConversationMessage } from "@/stores/conversationStore";
 import type { ToolBrief } from "@/types/events";
-import { useAgentIOStore } from "@/stores/agentIOStore";
-import { useWorkflowStore } from "@/stores/workflowStore";
+
 import { formatDuration } from "@/components/output/status-config";
 import { MarkdownText } from "./MarkdownText";
 import {
@@ -175,10 +174,8 @@ export function AgentNodeHeader({
   const isStreaming = status === "streaming";
   const isDone = status === "done";
 
-  const globalAgentIO = useAgentIOStore((s) => nodeId ? s.data[nodeId] : undefined);
-  const globalNodeState = useWorkflowStore((s) => nodeId ? s.nodes[nodeId] : undefined);
-  const agentIO = getAgentIO && nodeId ? getAgentIO(nodeId) : globalAgentIO;
-  const nodeState = getNodeState && nodeId ? getNodeState(nodeId) : globalNodeState;
+  const agentIO = nodeId ? getAgentIO?.(nodeId) : undefined;
+  const nodeState = nodeId ? getNodeState?.(nodeId) : undefined;
   const hasIO = isDone && agentIO && (agentIO.inputPrompt || agentIO.outputResult != null);
   const tokenUsage = nodeState?.tokenUsage;
   const tools = nodeState?.tools;

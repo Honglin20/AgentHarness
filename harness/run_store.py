@@ -154,7 +154,7 @@ class RunStore:
         # Write chart_groups sidecar
         charts_path = self._charts_path(run_id)
         if chart_groups and chart_groups.get("groupOrder"):
-            self._atomic_write(charts_path, json.dumps(chart_groups, ensure_ascii=False))
+            self._atomic_write(charts_path, json.dumps(chart_groups, separators=(",", ":"), ensure_ascii=False))
         elif charts_path and charts_path.exists():
             charts_path.unlink(missing_ok=True)
 
@@ -162,7 +162,7 @@ class RunStore:
         events_path = self._events_path(run_id)
         if events:
             deduped = self._dedup_chart_events(events)
-            self._atomic_write(events_path, json.dumps(deduped, ensure_ascii=False))
+            self._atomic_write(events_path, json.dumps(deduped, separators=(",", ":"), ensure_ascii=False))
         elif events_path and events_path.exists():
             events_path.unlink(missing_ok=True)
 
@@ -273,14 +273,14 @@ class RunStore:
         if charts and charts.get("groupOrder"):
             charts_path = self._charts_path(run_id)
             if charts_path and not charts_path.exists():
-                self._atomic_write(charts_path, json.dumps(charts, ensure_ascii=False))
+                self._atomic_write(charts_path, json.dumps(charts, separators=(",", ":"), ensure_ascii=False))
             data["_has_charts"] = True
 
         if events:
             events_path = self._events_path(run_id)
             if events_path and not events_path.exists():
                 deduped = self._dedup_chart_events(events)
-                self._atomic_write(events_path, json.dumps(deduped, ensure_ascii=False))
+                self._atomic_write(events_path, json.dumps(deduped, separators=(",", ":"), ensure_ascii=False))
             data["_has_events"] = True
 
         # Rewrite main record without the bulky inline data
@@ -288,7 +288,7 @@ class RunStore:
         data.pop("events", None)
         path = self._safe_path(run_id)
         if path:
-            self._atomic_write(path, json.dumps(data, indent=2, ensure_ascii=False))
+            self._atomic_write(path, json.dumps(data, separators=(",", ":"), ensure_ascii=False))
 
     def delete_run(self, run_id: str) -> bool:
         """Delete a run and all its sidecar files. Returns True if deleted."""
@@ -320,7 +320,7 @@ class RunStore:
         record["followup_sessions"] = sessions
         path = self._safe_path(run_id)
         if path:
-            self._atomic_write(path, json.dumps(record, indent=2, ensure_ascii=False))
+            self._atomic_write(path, json.dumps(record, separators=(",", ":"), ensure_ascii=False))
 
     def delete_followup(self, run_id: str, agent_name: str) -> None:
         """Remove a single agent's follow-up session from the persisted record."""
@@ -332,7 +332,7 @@ class RunStore:
         record["followup_sessions"] = sessions if sessions else None
         path = self._safe_path(run_id)
         if path:
-            self._atomic_write(path, json.dumps(record, indent=2, ensure_ascii=False))
+            self._atomic_write(path, json.dumps(record, separators=(",", ":"), ensure_ascii=False))
 
     def save_charts(self, run_id: str, chart_groups: dict | None) -> None:
         """Update chart_groups sidecar for a persisted run."""
@@ -340,7 +340,7 @@ class RunStore:
         if charts_path is None:
             return
         if chart_groups and chart_groups.get("groupOrder"):
-            self._atomic_write(charts_path, json.dumps(chart_groups, ensure_ascii=False))
+            self._atomic_write(charts_path, json.dumps(chart_groups, separators=(",", ":"), ensure_ascii=False))
         elif charts_path.exists():
             charts_path.unlink(missing_ok=True)
         # Update _has_charts flag in main record
@@ -348,7 +348,7 @@ class RunStore:
         if path and path.exists():
             record = json.loads(path.read_text())
             record["_has_charts"] = bool(chart_groups and chart_groups.get("groupOrder"))
-            self._atomic_write(path, json.dumps(record, indent=2, ensure_ascii=False))
+            self._atomic_write(path, json.dumps(record, separators=(",", ":"), ensure_ascii=False))
 
     def save_conversation(self, run_id: str, conversation: list[dict]) -> None:
         """Update conversation for a persisted run (atomic write)."""
@@ -358,4 +358,4 @@ class RunStore:
         record["conversation"] = conversation
         path = self._safe_path(run_id)
         if path:
-            self._atomic_write(path, json.dumps(record, indent=2, ensure_ascii=False))
+            self._atomic_write(path, json.dumps(record, separators=(",", ":"), ensure_ascii=False))

@@ -48,9 +48,34 @@ export function formatOutputAsMd(output: unknown): string {
 // payload helper
 // ---------------------------------------------------------------------------
 
-/** Typed payload extractor. */
-export function payload<T>(event: WSEvent): T {
+import { eventPayloadSchemas } from "@/types/eventSchemas";
+import type { EventType } from "@/types/events";
+
+/**
+ * Validated payload extractor.
+ * If a Zod schema exists for this event type, validates the payload.
+ * On failure, logs a warning and falls back to the raw payload (graceful degradation).
+ * Events without a schema pass through unvalidated.
+ */
+export function validatedPayload<T>(
+  event: { type: string; payload: Record<string, unknown> },
+): T {
+  const schema = eventPayloadSchemas[event.type as EventType];
+  if (!schema) return event.payload as unknown as T;
+
+  const result = schema.safeParse(event.payload);
+  if (result.success) return result.data as T;
+
+  console.warn(
+    `[EventValidation] "${event.type}" failed:`,
+    result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
+  );
   return event.payload as unknown as T;
+}
+
+/** Typed payload extractor — routes through validation. */
+export function payload<T>(event: { type: string; payload: Record<string, unknown> }): T {
+  return validatedPayload<T>(event);
 }
 
 // ---------------------------------------------------------------------------

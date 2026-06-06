@@ -15,6 +15,7 @@ import type {
   WorkflowManagerConfig,
 } from "./types";
 import { createWorkflowStores } from "./workflowStores";
+import { cleanupSeqTracker } from "./routeEvent";
 
 /**
  * Workflow Entry - 管理 workflow 的状态和资源
@@ -169,6 +170,23 @@ class WorkflowManager {
   destroy(workflowId: string): void {
     const entry = this.workflows.get(workflowId);
     if (!entry) return;
+
+    // Clean up seq dedup tracker
+    cleanupSeqTracker(workflowId);
+
+    // Reset all scoped stores to free memory
+    try {
+      entry.stores.conversation.getState().reset();
+      entry.stores.output.getState().reset();
+      entry.stores.workflow.getState().reset();
+      entry.stores.chart.getState().reset();
+      entry.stores.toolCall.getState().reset();
+      entry.stores.agentIO.getState().reset();
+      entry.stores.chat.getState().reset();
+      entry.stores.span.getState().reset();
+    } catch {
+      // Best-effort cleanup
+    }
 
     // 关闭连接
     if (entry.connection.ws) {

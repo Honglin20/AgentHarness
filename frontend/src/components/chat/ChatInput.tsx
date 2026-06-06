@@ -33,6 +33,50 @@ interface ChatInputProps {
   agentsSnapshot?: AgentOption[];
 }
 
+/**
+ * Resolves scoped props vs global store subscriptions.
+ * When scoped props are provided, the global store selectors return inert
+ * constants so Zustand never re-renders on unrelated state changes.
+ */
+function useChatInputState(props: {
+  pendingQuestionId?: string | null;
+  pendingQuestionAgent?: string | null;
+  messages?: ConversationMessage[];
+  status?: string;
+  workflowId?: string | null;
+  selectedTemplate?: unknown;
+}) {
+  const hasScoped = props.pendingQuestionId !== undefined;
+
+  const globalPendingId = useConversationStore(
+    hasScoped ? (_s: any) => null : (s: any) => s.pendingQuestionId,
+  );
+  const globalPendingAgent = useConversationStore(
+    hasScoped ? (_s: any) => null : (s: any) => s.pendingQuestionAgent,
+  );
+  const globalMessages = useConversationStore(
+    hasScoped ? (_s: any) => [] : (s: any) => s.messages,
+  );
+  const globalStatus = useWorkflowStore(
+    hasScoped ? (_s: any) => "idle" : (s: any) => s.status,
+  );
+  const globalWid = useWorkflowStore(
+    hasScoped ? (_s: any) => null : (s: any) => s.workflowId,
+  );
+  const globalTemplate = useWorkflowStore(
+    hasScoped ? (_s: any) => null : (s: any) => s.selectedTemplate,
+  );
+
+  return {
+    pendingId: props.pendingQuestionId ?? globalPendingId,
+    pendingAgent: props.pendingQuestionAgent ?? globalPendingAgent,
+    messages: props.messages ?? globalMessages,
+    status: props.status ?? globalStatus,
+    workflowId: props.workflowId ?? globalWid,
+    selectedTemplate: props.selectedTemplate ?? globalTemplate,
+  };
+}
+
 export default function ChatInput({
   sendAnswer,
   sendStopAndRegenerate,
@@ -51,24 +95,27 @@ export default function ChatInput({
   selectedTemplate: propTemplate,
   agentsSnapshot: propAgents,
 }: ChatInputProps) {
-  // Always call global store hooks (React rules of hooks)
-  const globalPendingId = useConversationStore((s) => s.pendingQuestionId);
-  const globalPendingAgent = useConversationStore((s) => s.pendingQuestionAgent);
-  const globalMessages = useConversationStore((s) => s.messages);
-  const globalStatus = useWorkflowStore((s) => s.status);
-  const globalWid = useWorkflowStore((s) => s.workflowId);
-  const globalTemplate = useWorkflowStore((s) => s.selectedTemplate);
+  // Resolve scoped props vs global stores (avoids wasteful global subscriptions)
+  const {
+    pendingId: pendingQuestionId,
+    pendingAgent: pendingQuestionAgent,
+    messages,
+    status,
+    workflowId,
+    selectedTemplate,
+  } = useChatInputState({
+    pendingQuestionId: propPendingId,
+    pendingQuestionAgent: propPendingAgent,
+    messages: propMessages,
+    status: propStatus,
+    workflowId: propWid,
+    selectedTemplate: propTemplate,
+  });
+
+  // Followup agent state — less frequently triggered, kept as direct subscriptions
   const activeFollowupAgent = useConversationStore((s) => s.activeFollowupAgent);
   const setActiveFollowupAgent = useConversationStore((s) => s.setActiveFollowupAgent);
   const addFollowupUserMessage = useConversationStore((s) => s.addFollowupUserMessage);
-
-  // Use scoped props when provided, otherwise fall back to global stores
-  const pendingQuestionId = propPendingId !== undefined ? propPendingId : globalPendingId;
-  const pendingQuestionAgent = propPendingAgent !== undefined ? propPendingAgent : globalPendingAgent;
-  const messages = propMessages !== undefined ? propMessages : globalMessages;
-  const status = propStatus !== undefined ? propStatus : globalStatus;
-  const workflowId = propWid !== undefined ? propWid : globalWid;
-  const selectedTemplate = propTemplate !== undefined ? propTemplate : globalTemplate;
 
   const addUserMsg = useMemo(
     () => propAddUserMsg ?? ((text: string) => useConversationStore.getState().addUserMessage(text)),
