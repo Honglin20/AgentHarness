@@ -1,5 +1,5 @@
 /**
- * Reset all global stores — used by user switch and other full-reset flows.
+ * Reset all stores (global + scoped) — used by user switch and other full-reset flows.
  *
  * Extracted from userStore to break the circular dependency:
  *   stores/* must not import from contexts/workflow-context (the barrel).
@@ -8,6 +8,7 @@
  */
 
 import { setActiveWorkflowId } from "@/lib/workflowNavigation";
+import { getWorkflowManager } from "@/contexts/workflow-context/WorkflowManager";
 import { useWorkflowStore } from "./workflowStore";
 import { useOutputStore } from "./outputStore";
 import { useChatStore } from "./chatStore";
@@ -20,6 +21,10 @@ import { useRunHistoryStore } from "./runHistoryStore";
 import { useViewStore } from "./viewStore";
 
 export function resetAllGlobalStores(): void {
+  // Clear all scoped stores via WorkflowManager
+  getWorkflowManager().reset();
+
+  // Clear global routing stores
   setActiveWorkflowId(null);
   useWorkflowStore.getState().reset();
   useOutputStore.getState().reset();
