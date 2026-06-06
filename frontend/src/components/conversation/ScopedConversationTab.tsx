@@ -301,7 +301,10 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
                 transform: `translateY(${virtualRow.start}px)`,
               }}
             >
-              <InlineErrorBoundary label={b.kind === "node" ? b.nodeId : "message"}>
+              <InlineErrorBoundary
+                key={`${virtualRow.key}-${b.kind === "node" ? b.nodeId : b.message.id}`}
+                label={b.kind === "node" ? b.nodeId : "message"}
+              >
                 <div className="px-6 py-2">
                   {b.kind === "other" ? (
                     renderOtherBlock(b.message, sendStructuredAnswer, conversationActions)

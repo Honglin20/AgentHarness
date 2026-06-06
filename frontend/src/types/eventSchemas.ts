@@ -53,14 +53,15 @@ export const WorkflowErrorPayloadSchema = z.object({
 export const NodeStartedPayloadSchema = z.object({
   node_id: nodeId,
   agent_name: agentName,
+  attempt: z.number().optional(),
   model: z.string().optional(),
 }).passthrough();
 
 export const NodeCompletedPayloadSchema = z.object({
   node_id: nodeId,
   agent_name: agentName,
-  duration_ms: z.number().optional(),
-  status: z.string().optional(),
+  duration_ms: z.number(),
+  status: z.string(),
   token_usage: z
     .object({ input: z.number(), output: z.number(), total: z.number() })
     .optional(),
@@ -70,7 +71,7 @@ export const NodeCompletedPayloadSchema = z.object({
 export const NodeFailedPayloadSchema = z.object({
   node_id: nodeId,
   agent_name: agentName,
-  error: z.string().optional(),
+  error: z.string(),
   duration_ms: z.number().optional(),
 }).passthrough();
 

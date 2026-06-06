@@ -16,6 +16,7 @@ import type {
 } from "./types";
 import { createWorkflowStores } from "./workflowStores";
 import { cleanupSeqTracker } from "./routeEvent";
+import { resetAllStores } from "./routeEvent";
 
 /**
  * Workflow Entry - 管理 workflow 的状态和资源
@@ -176,14 +177,7 @@ class WorkflowManager {
 
     // Reset all scoped stores to free memory
     try {
-      entry.stores.conversation.getState().reset();
-      entry.stores.output.getState().reset();
-      entry.stores.workflow.getState().reset();
-      entry.stores.chart.getState().reset();
-      entry.stores.toolCall.getState().reset();
-      entry.stores.agentIO.getState().reset();
-      entry.stores.chat.getState().reset();
-      entry.stores.span.getState().reset();
+      resetAllStores(entry.stores);
     } catch {
       // Best-effort cleanup
     }
