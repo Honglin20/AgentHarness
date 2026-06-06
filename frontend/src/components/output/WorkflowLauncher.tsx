@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useViewStore } from "@/stores/viewStore";
-import { setActiveWorkflowId, getWorkflowManager } from "@/contexts/workflow-context";
+import { setActiveWorkflowId } from "@/lib/workflowNavigation";
+import { getWorkflowManager } from "@/contexts/workflow-context/WorkflowManager";
 import { fetchWithAuth } from "@/lib/api";
 import { useSettingsStore } from "@/stores/settingsStore";
 

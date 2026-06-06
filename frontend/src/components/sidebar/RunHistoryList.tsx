@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle, XCircle, X, Trash2, Play, RotateCcw, Pause, CheckSquare, Square } from "lucide-react";
 import { useRunHistoryStore, type RunSummary, type RunRecord } from "@/stores/runHistoryStore";
 import { useViewStore } from "@/stores/viewStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useBatchStore } from "@/stores/batchStore";
-import { setActiveWorkflowId } from "@/contexts/workflow-context";
+import { setActiveWorkflowId } from "@/lib/workflowNavigation";
 import { useShallow } from "zustand/shallow";
 import { fetchWithAuth } from "@/lib/api";
 import { showSuccess, showError } from "@/lib/confirm";
@@ -47,15 +47,137 @@ async function pauseWorkflow(runId: string): Promise<void> {
   }
 }
 
+interface RunHistoryItemProps {
+  run: RunSummary;
+  isSelected: boolean;
+  isSelectMode: boolean;
+  isSelectedForBatch: boolean;
+  confirmDeleteId: string | null;
+  // Stable handler references — component calls with run.run_id internally
+  onSelectRun: (run: RunSummary) => void;
+  onToggleSelectRun: (runId: string) => void;
+  onPauseRun: (e: React.MouseEvent, runId: string) => void;
+  onResumeRun: (e: React.MouseEvent, runId: string) => void;
+  onRerunRun: (e: React.MouseEvent, runId: string) => void;
+  onDeleteRun: (runId: string) => void;
+  onSetConfirmDeleteId: (id: string | null) => void;
+}
+
+const RunHistoryItem = React.memo(function RunHistoryItem({
+  run,
+  isSelected,
+  isSelectMode,
+  isSelectedForBatch,
+  confirmDeleteId,
+  onSelectRun,
+  onToggleSelectRun,
+  onPauseRun,
+  onResumeRun,
+  onRerunRun,
+  onDeleteRun,
+  onSetConfirmDeleteId,
+}: RunHistoryItemProps) {
+  const isRunning = run.status === "running";
+  const isPaused = run.status === "paused" || run.status === "interrupted";
+  const isDone = run.status === "completed" || run.status === "failed" || run.status === "cancelled";
+
+  return (
+    <div
+      onClick={() => onSelectRun(run)}
+      className={`group flex w-full cursor-pointer items-center gap-1.5 px-3 py-1.5 text-left hover:bg-muted ${
+        isSelected ? "bg-blue-50 dark:bg-blue-900/40" : ""
+      }`}
+    >
+      {isSelectMode && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleSelectRun(run.run_id); }}
+          className="shrink-0 text-muted-foreground hover:text-foreground"
+        >
+          {isSelectedForBatch
+            ? <CheckSquare className="h-3 w-3 text-blue-500" />
+            : <Square className="h-3 w-3" />}
+        </button>
+      )}
+      <span className="flex h-3 w-3 shrink-0 items-center justify-center">
+        {isRunning ? <LiveDot /> : (STATUS_ICON[run.status] ?? STATUS_ICON.completed)}
+      </span>
+      <span
+        className="min-w-0 flex-1 truncate text-xs"
+        title={run.inputs?.task ? String(run.inputs.task) : run.run_id.slice(0, 8)}
+      >
+        {run.inputs?.task ? String(run.inputs.task) : run.run_id.slice(0, 8)}
+      </span>
+      <span className="shrink-0 text-[10px] text-muted-foreground whitespace-nowrap">{formatTime(run.created_at)}</span>
+      {!isSelectMode && isRunning && (
+        <button
+          onClick={(e) => onPauseRun(e, run.run_id)}
+          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-amber-100 hover:text-amber-600 transition"
+          aria-label="Pause workflow"
+          title="Pause"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
+      {!isSelectMode && (isPaused || isDone) && (
+        <>
+          {confirmDeleteId === run.run_id ? (
+            <>
+              <button
+                onClick={(e) => { e.stopPropagation(); onDeleteRun(run.run_id); }}
+                className="shrink-0 rounded bg-red-600 px-1.5 py-0.5 text-[10px] text-white hover:bg-red-700"
+              >
+                Yes
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onSetConfirmDeleteId(null); }}
+                className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted"
+              >
+                No
+              </button>
+            </>
+          ) : (
+            <>
+              {isPaused && (
+                <button
+                  onClick={(e) => onResumeRun(e, run.run_id)}
+                  className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-emerald-100 hover:text-emerald-600 transition"
+                  title="Resume"
+                >
+                  <Play className="h-3 w-3" />
+                </button>
+              )}
+              <button
+                onClick={(e) => onRerunRun(e, run.run_id)}
+                className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-blue-100 hover:text-blue-600 transition"
+                title="Re-run"
+              >
+                <RotateCcw className="h-3 w-3" />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onSetConfirmDeleteId(run.run_id); }}
+                className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-red-100 hover:text-red-500 transition"
+                title="Delete run"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+});
+
 export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => void }) {
   const {
-    runs, loading, selectedRunId, fetchRuns, fetchRun, selectRun,
+    runs, initialLoading, refreshing, selectedRunId, fetchRuns, fetchRun, selectRun,
     isSelectMode, selectedRunIds, toggleSelectMode, toggleRunSelection,
     clearSelection, hasMore,
   } = useRunHistoryStore(
     useShallow((s) => ({
       runs: s.runs,
-      loading: s.loading,
+      initialLoading: s.initialLoading,
+      refreshing: s.refreshing,
       selectedRunId: s.selectedRunId,
       fetchRuns: s.fetchRuns,
       fetchRun: s.fetchRun,
@@ -97,20 +219,30 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
     }
   }, [activeBatchId, fetchRuns]);
 
-  // Disable auto-refresh on workflowStatus change during batch mode
-  // to avoid polling multiple concurrent workflows
+  // Refresh only on meaningful status transitions (not every node status change).
+  // WS events already handle terminal state updates via eventRouter.
+  const prevStatusRef = useRef(workflowStatus);
   useEffect(() => {
     if (activeBatchId) return;
-    fetchRuns();
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = workflowStatus;
+    const wentTerminal = prev === "running" && (
+      workflowStatus === "completed" || workflowStatus === "failed" ||
+      workflowStatus === "cancelled" || workflowStatus === "paused"
+    );
+    const started = prev !== "running" && workflowStatus === "running";
+    if (wentTerminal || started) {
+      fetchRuns();
+    }
   }, [workflowStatus, activeBatchId, fetchRuns]);
 
-  // Poll only when running and NOT in batch mode
+  // Conservative fallback: refresh every 30s in case WS events were missed.
+  // This is a safety net, not the primary update mechanism.
   useEffect(() => {
-    if (workflowStatus !== "running") return;
     if (activeBatchId) return;
-    const id = setInterval(() => fetchRuns(), 5000);
+    const id = setInterval(() => fetchRuns(), 30_000);
     return () => clearInterval(id);
-  }, [workflowStatus, activeBatchId, fetchRuns]);
+  }, [activeBatchId, fetchRuns]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, RunSummary[]>();
@@ -122,7 +254,7 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
     return Array.from(map.entries());
   }, [runs]);
 
-  const handleClickRun = async (run: RunSummary) => {
+  const handleClickRun = useCallback(async (run: RunSummary) => {
     if (isSelectMode) {
       toggleRunSelection(run.run_id);
       return;
@@ -144,15 +276,15 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
       return;
     }
     showReplay(full);
-  };
+  }, [isSelectMode, toggleRunSelection, onLeaveBenchmark, selectRun, fetchRun, setWorkflow, showLive, showReplay]);
 
-  const handlePause = async (e: React.MouseEvent, runId: string) => {
+  const handlePause = useCallback(async (e: React.MouseEvent, runId: string) => {
     e.stopPropagation();
     await pauseWorkflow(runId);
     await fetchRuns();
-  };
+  }, [fetchRuns]);
 
-  const handleResume = async (e: React.MouseEvent, runId: string) => {
+  const handleResume = useCallback(async (e: React.MouseEvent, runId: string) => {
     e.stopPropagation();
     try {
       // Pre-load existing run data for immediate conversation display
@@ -177,9 +309,9 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
       showLive();
     } catch {}
     await fetchRuns();
-  };
+  }, [fetchRun, showLive, fetchRuns]);
 
-  const handleRerun = async (e: React.MouseEvent, runId: string) => {
+  const handleRerun = useCallback(async (e: React.MouseEvent, runId: string) => {
     e.stopPropagation();
     try {
       const r = await fetchWithAuth(`/api/runs/${runId}/rerun`, { method: "POST" });
@@ -190,13 +322,17 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
       showLive();
     } catch {}
     await fetchRuns();
-  };
+  }, [setWorkflow, showLive, fetchRuns]);
 
-  const handleDeleteRun = async (runId: string) => {
+  const handleDeleteRun = useCallback(async (runId: string) => {
     await fetchWithAuth(`/api/runs/${runId}`, { method: "DELETE" });
     setConfirmDeleteId(null);
     await fetchRuns();
-  };
+  }, [fetchRuns]);
+
+  const handleConfirmDelete = useCallback((id: string | null) => {
+    setConfirmDeleteId(id);
+  }, []);
 
   const handleLoadMore = () => {
     fetchRuns(undefined, true);
@@ -232,7 +368,7 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
     await fetchRuns();
   };
 
-  if (loading && runs.length === 0) {
+  if (initialLoading) {
     return <RunHistorySkeleton />;
   }
 
@@ -294,99 +430,27 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
             {wfName}
           </div>
           {wfRuns.map((run) => {
-            const isRunning = run.status === "running";
-            const isPaused = run.status === "paused" || run.status === "interrupted";
-            const isDone = run.status === "completed" || run.status === "failed" || run.status === "cancelled";
             const isSelected =
-              (activeView.type === "live" && isRunning && run.run_id === liveWorkflowId) ||
+              (activeView.type === "live" && run.status === "running" && run.run_id === liveWorkflowId) ||
               (activeView.type === "replay" && activeView.runId === run.run_id) ||
               selectedRunId === run.run_id;
 
             return (
-              <div
+              <RunHistoryItem
                 key={run.run_id}
-                onClick={() => handleClickRun(run)}
-                className={`group flex w-full cursor-pointer items-center gap-1.5 px-3 py-1.5 text-left hover:bg-muted ${
-                  isSelected ? "bg-blue-50 dark:bg-blue-900/40" : ""
-                }`}
-              >
-                {isSelectMode && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); toggleRunSelection(run.run_id); }}
-                    className="shrink-0 text-muted-foreground hover:text-foreground"
-                  >
-                    {selectedRunIds.has(run.run_id)
-                      ? <CheckSquare className="h-3 w-3 text-blue-500" />
-                      : <Square className="h-3 w-3" />}
-                  </button>
-                )}
-                <span className="flex h-3 w-3 shrink-0 items-center justify-center">
-                  {isRunning ? <LiveDot /> : (STATUS_ICON[run.status] ?? STATUS_ICON.completed)}
-                </span>
-                <span
-                  className="min-w-0 flex-1 truncate text-xs"
-                  title={run.inputs?.task ? String(run.inputs.task) : run.run_id.slice(0, 8)}
-                >
-                  {run.inputs?.task ? String(run.inputs.task) : run.run_id.slice(0, 8)}
-                </span>
-                <span className="shrink-0 text-[10px] text-muted-foreground whitespace-nowrap">{formatTime(run.created_at)}</span>
-                {!isSelectMode && isRunning && (
-                  <button
-                    onClick={(e) => handlePause(e, run.run_id)}
-                    className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-amber-100 hover:text-amber-600 transition"
-                    aria-label="Pause workflow"
-                    title="Pause"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                )}
-                {!isSelectMode && (isPaused || isDone) && (
-                  <>
-                    {confirmDeleteId === run.run_id ? (
-                      <>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleDeleteRun(run.run_id); }}
-                          className="shrink-0 rounded bg-red-600 px-1.5 py-0.5 text-[10px] text-white hover:bg-red-700"
-                        >
-                          Yes
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
-                          className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted"
-                        >
-                          No
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        {isPaused && (
-                          <button
-                            onClick={(e) => handleResume(e, run.run_id)}
-                            className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-emerald-100 hover:text-emerald-600 transition"
-                            title="Resume"
-                          >
-                            <Play className="h-3 w-3" />
-                          </button>
-                        )}
-                        <button
-                          onClick={(e) => handleRerun(e, run.run_id)}
-                          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-blue-100 hover:text-blue-600 transition"
-                          title="Re-run"
-                        >
-                          <RotateCcw className="h-3 w-3" />
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(run.run_id); }}
-                          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-red-100 hover:text-red-500 transition"
-                          title="Delete run"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
-                      </>
-                    )}
-                  </>
-                )}
-              </div>
+                run={run}
+                isSelected={isSelected}
+                isSelectMode={isSelectMode}
+                isSelectedForBatch={selectedRunIds.has(run.run_id)}
+                confirmDeleteId={confirmDeleteId}
+                onSelectRun={handleClickRun}
+                onToggleSelectRun={toggleRunSelection}
+                onPauseRun={handlePause}
+                onResumeRun={handleResume}
+                onRerunRun={handleRerun}
+                onDeleteRun={handleDeleteRun}
+                onSetConfirmDeleteId={handleConfirmDelete}
+              />
             );
           })}
         </div>
@@ -395,10 +459,10 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
         <div className="px-3 py-2">
           <button
             onClick={handleLoadMore}
-            disabled={loading}
+            disabled={refreshing}
             className="w-full rounded-md border border-dashed border-app-border py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
           >
-            {loading ? "Loading..." : "Load more runs"}
+            {refreshing ? "Loading..." : "Load more runs"}
           </button>
         </div>
       )}

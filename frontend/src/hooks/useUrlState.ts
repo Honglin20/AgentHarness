@@ -3,7 +3,7 @@ import { useWorkflowStore } from "@/stores/workflowStore";
 import { useViewStore } from "@/stores/viewStore";
 import { useRunHistoryStore } from "@/stores/runHistoryStore";
 import { useBatchStore } from "@/stores/batchStore";
-import { setActiveWorkflowId } from "@/contexts/workflow-context";
+import { setActiveWorkflowId } from "@/lib/workflowNavigation";
 
 const PARAM_KEYS = ["run", "wid", "wf", "tab", "bench", "task"] as const;
 

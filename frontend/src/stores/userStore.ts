@@ -1,16 +1,7 @@
 import { create } from "zustand";
 import { setUserId, getUserId, getCurrentUser } from "@/lib/api";
 import { useRunHistoryStore } from "./runHistoryStore";
-import { useWorkflowStore } from "./workflowStore";
-import { useOutputStore } from "./outputStore";
-import { useChatStore } from "./chatStore";
-import { useChartStore } from "./chartStore";
-import { useToolCallStore } from "./toolCallStore";
-import { useConversationStore } from "./conversationStore";
-import { useViewStore } from "./viewStore";
-import { useBatchStore } from "./batchStore";
-import { useAgentIOStore } from "./agentIOStore";
-import { setActiveWorkflowId } from "@/contexts/workflow-context";
+import { resetAllGlobalStores } from "./resetGlobalStores";
 
 interface UserState {
   userId: string;
@@ -23,23 +14,6 @@ interface UserState {
 
   /** Switch to a different user — resets all stores and reloads data */
   switchUser: (userId: string, name: string, role: string) => void;
-}
-
-function resetAllStores() {
-  setActiveWorkflowId(null);
-  useWorkflowStore.getState().reset();
-  useOutputStore.getState().reset();
-  useChatStore.getState().reset();
-  useChartStore.getState().reset();
-  useToolCallStore.getState().reset();
-  useConversationStore.getState().reset();
-  useBatchStore.getState().setActiveBatch(null);
-  useAgentIOStore.getState().reset();
-  useRunHistoryStore.getState().reset();
-  useViewStore.getState().showLive();
-  if (typeof window !== "undefined") {
-    window.history.replaceState(null, "", window.location.pathname);
-  }
 }
 
 export const useUserStore = create<UserState>()((set) => ({
@@ -66,7 +40,7 @@ export const useUserStore = create<UserState>()((set) => ({
 
   switchUser: (userId, name, role) => {
     setUserId(userId);
-    resetAllStores();
+    resetAllGlobalStores();
     set({ userId, name, role });
     useRunHistoryStore.getState().fetchRuns();
   },
