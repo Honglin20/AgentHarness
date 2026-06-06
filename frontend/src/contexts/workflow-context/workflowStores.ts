@@ -33,36 +33,15 @@ import type {
   NodeCompletedPayload,
   NodeFailedPayload,
 } from "@/types/events";
+import type {
+  TodoStepItem,
+  TodoAutoAdvance,
+} from "@/types/events";
+import { createIdCounter, type IdCounter } from "@/lib/idCounter";
+import { createRafBatcher, type RafBatcher } from "@/lib/rafBatcher";
 
-// ============================================================
-// Helper: Message Counter
-// ============================================================
-interface MessageCounter {
-  current: number;
-  next: () => string;
-}
-function createMessageCounter(): MessageCounter {
-  let current = 0;
-  return {
-    get current() { return current; },
-    next: () => `msg-${++current}`,
-  };
-}
-
-// ============================================================
-// Helper: Tool Call ID Counter
-// ============================================================
-interface ToolCallCounter {
-  current: number;
-  next: () => string;
-}
-function createToolCallCounter(): ToolCallCounter {
-  let current = 0;
-  return {
-    get current() { return current; },
-    next: () => `tc-${++current}`,
-  };
-}
+// Re-export types consumed by routeEvent / eventRouter
+export type { IdCounter } from "@/lib/idCounter";
 
 // ============================================================
 // Conversation Store
@@ -70,7 +49,12 @@ function createToolCallCounter(): ToolCallCounter {
 export function createConversationStore(
   workflowId: string,
 ): StoreApi<ConversationState> {
-  const msgCounter = createMessageCounter();
+  const msgCounter = createIdCounter("msg-");
+
+  // Batchers are created after store so they can call store.setState.
+  let textBatcher: RafBatcher<string, { text: string; nodeId: string }>;
+  let thinkBatcher: RafBatcher<string, { text: string; nodeId: string }>;
+  let flushTextBuf: () => void;
 
   const initialState: ConversationState = {
     messages: [],
@@ -206,50 +190,22 @@ export function createConversationStore(
         };
       }),
 
-    appendAgentText: (nodeId, text) =>
-      set((state) => {
-        const idx = state.messages.findLastIndex(
-          (m) => m.nodeId === nodeId && m.type === "agent" && m.status === "streaming"
-        );
-        if (idx !== -1) {
-          const messages = [...state.messages];
-          messages[idx] = { ...messages[idx], content: messages[idx].content + text };
-          return { messages };
-        }
+    appendAgentText: (nodeId, text) => {
+      textBatcher.push(nodeId, { text, nodeId }, (prev, next) => ({
+        text: prev.text + next.text,
+        nodeId: prev.nodeId,
+      }));
+    },
 
-        // No streaming message — auto-create one (text arriving after a tool call)
-        const lastMsg = state.messages[state.messages.length - 1];
-        const agentName = lastMsg?.agentName ?? "";
-        return {
-          messages: [
-            ...state.messages,
-            {
-              id: `msg-${msgCounter.next()}`,
-              type: "agent",
-              nodeId,
-              agentName,
-              content: text,
-              status: "streaming",
-              timestamp: Date.now(),
-            },
-          ],
-        };
-      }),
+    appendAgentThinking: (nodeId, text) => {
+      thinkBatcher.push(nodeId, { text, nodeId }, (prev, next) => ({
+        text: prev.text + next.text,
+        nodeId: prev.nodeId,
+      }));
+    },
 
-    appendAgentThinking: (nodeId, text) =>
-      set((state) => {
-        const idx = state.messages.findLastIndex(
-          (m) => m.nodeId === nodeId && m.type === "agent" && m.status === "streaming"
-        );
-        if (idx !== -1) {
-          const messages = [...state.messages];
-          messages[idx] = { ...messages[idx], thinking: (messages[idx].thinking ?? "") + text };
-          return { messages };
-        }
-        return state;
-      }),
-
-    completeAgentMessage: (nodeId, agentName, durationMs) =>
+    completeAgentMessage: (nodeId, agentName, durationMs) => {
+      flushTextBuf(); // sync-flush buffered text before finalizing
       set((state) => {
         const idx = state.messages.findLastIndex(
           (m) => m.nodeId === nodeId && m.type === "agent" && (m.status === "streaming" || m.status === "interrupted")
@@ -264,9 +220,11 @@ export function createConversationStore(
           durationMs,
         };
         return { messages };
-      }),
+      });
+    },
 
-    failAgentMessage: (nodeId, agentName, error, durationMs) =>
+    failAgentMessage: (nodeId, agentName, error, durationMs) => {
+      flushTextBuf();
       set((state) => {
         const idx = state.messages.findLastIndex(
           (m) => m.nodeId === nodeId && m.type === "agent" && (m.status === "streaming" || m.status === "interrupted")
@@ -282,9 +240,11 @@ export function createConversationStore(
           durationMs,
         };
         return { messages };
-      }),
+      });
+    },
 
-    addToolCall: (nodeId, agentName, toolName, toolArgs) =>
+    addToolCall: (nodeId, agentName, toolName, toolArgs) => {
+      flushTextBuf();
       set((state) => {
         // Finalize any streaming agent message for this node
         let msgs = [...state.messages];
@@ -317,7 +277,8 @@ export function createConversationStore(
             },
           ],
         };
-      }),
+      });
+    },
 
     addToolResult: (nodeId, toolName, result) =>
       set((state) => {
@@ -603,7 +564,61 @@ export function createConversationStore(
       }),
   }));
 
-  (store as unknown as { _msgCounter: MessageCounter })._msgCounter = msgCounter;
+  (store as unknown as { _msgCounter: IdCounter })._msgCounter = msgCounter;
+
+  // Initialize batchers with store.setState now that store exists.
+  textBatcher = createRafBatcher<string, { text: string; nodeId: string }>(
+    (updates) => {
+      store.setState((state) => {
+        const messages = [...state.messages];
+        let mutated = false;
+        updates.forEach(({ nodeId: nid, text: t }) => {
+          const idx = messages.findLastIndex(
+            (m) => m.nodeId === nid && m.type === "agent" && m.status === "streaming"
+          );
+          if (idx !== -1) {
+            messages[idx] = { ...messages[idx], content: messages[idx].content + t };
+            mutated = true;
+          } else {
+            const lastMsg = messages[messages.length - 1];
+            const agentName = lastMsg?.agentName ?? "";
+            messages.push({
+              id: msgCounter.next(),
+              type: "agent",
+              nodeId: nid,
+              agentName,
+              content: t,
+              status: "streaming",
+              timestamp: Date.now(),
+            });
+            mutated = true;
+          }
+        });
+        return mutated ? { messages } : state;
+      });
+    },
+  );
+
+  thinkBatcher = createRafBatcher<string, { text: string; nodeId: string }>(
+    (updates) => {
+      store.setState((state) => {
+        const messages = [...state.messages];
+        let mutated = false;
+        updates.forEach(({ nodeId: nid, text: t }) => {
+          const idx = messages.findLastIndex(
+            (m) => m.nodeId === nid && m.type === "agent" && m.status === "streaming"
+          );
+          if (idx !== -1) {
+            messages[idx] = { ...messages[idx], thinking: (messages[idx].thinking ?? "") + t };
+            mutated = true;
+          }
+        });
+        return mutated ? { messages } : state;
+      });
+    },
+  );
+
+  flushTextBuf = () => textBatcher.flush();
 
   return store;
 }
@@ -614,6 +629,8 @@ export function createConversationStore(
 export function createOutputStore(
   workflowId: string,
 ): StoreApi<OutputState> {
+  let outputBatcher: RafBatcher<string, string>;
+
   const initialState: OutputState = {
     texts: {},
     activeNodeId: null,
@@ -650,16 +667,12 @@ export function createOutputStore(
     },
   };
 
-  return createStore<OutputState>()((set, get) => ({
+  const store = createStore<OutputState>()((set, get) => ({
     ...initialState,
 
-    appendText: (nodeId, delta) =>
-      set((state) => ({
-        texts: {
-          ...state.texts,
-          [nodeId]: (state.texts[nodeId] ?? "") + delta,
-        },
-      })),
+    appendText: (nodeId, delta) => {
+      outputBatcher.push(nodeId, delta, (prev, next) => prev + next);
+    },
 
     setActiveNode: (nodeId) => set({ activeNodeId: nodeId }),
 
@@ -704,6 +717,21 @@ export function createOutputStore(
 
     clearCache: () => set({ _cache: {}, _activeWid: null }),
   }));
+
+  // Initialize batcher with store.setState now that store exists.
+  outputBatcher = createRafBatcher<string, string>(
+    (updates) => {
+      store.setState((state) => {
+        const texts = { ...state.texts };
+        updates.forEach((d, nid) => {
+          texts[nid] = (texts[nid] ?? "") + d;
+        });
+        return { texts };
+      });
+    },
+  );
+
+  return store;
 }
 
 // ============================================================
@@ -1069,7 +1097,7 @@ export function createChartStore(
 export function createToolCallStore(
   workflowId: string,
 ): StoreApi<ToolCallState> {
-  const tcCounter = createToolCallCounter();
+  const tcCounter = createIdCounter("tc-");
 
   const initialState: ToolCallState = {
     records: {},
@@ -1121,7 +1149,7 @@ export function createToolCallStore(
     reset: () => set({ records: {}, order: [] }),
   }));
 
-  (store as unknown as { _tcCounter: ToolCallCounter })._tcCounter = tcCounter;
+  (store as unknown as { _tcCounter: IdCounter })._tcCounter = tcCounter;
 
   return store;
 }
@@ -1300,6 +1328,88 @@ export function createSpanStore(
 }
 
 // ============================================================
+// Todo Store
+// ============================================================
+
+export interface TodoStep {
+  taskId: string;
+  content: string;
+  activeForm: string;
+  status: "pending" | "in_progress" | "completed";
+  detail: string | null;
+}
+
+export interface TodoState {
+  todos: Record<string, TodoStep[]>; // key = nodeId
+}
+
+export function createTodoStore(
+  _workflowId: string,
+): StoreApi<TodoState> {
+  return createStore<TodoState>()(() => ({
+    todos: {},
+  }));
+}
+
+export function handleTodoCreated(
+  store: StoreApi<TodoState>,
+  nodeId: string,
+  items: TodoStepItem[],
+) {
+  store.setState((state) => {
+    const existing = state.todos[nodeId] || [];
+    const existingIds = new Set(existing.map((s) => s.taskId));
+    const newSteps: TodoStep[] = items
+      .filter((item) => !existingIds.has(item.task_id))
+      .map((item) => ({
+        taskId: item.task_id,
+        content: item.content,
+        activeForm: item.activeForm,
+        status: item.status,
+        detail: item.detail ?? null,
+      }));
+    return {
+      todos: {
+        ...state.todos,
+        [nodeId]: [...existing, ...newSteps],
+      },
+    };
+  });
+}
+
+export function handleTodoUpdated(
+  store: StoreApi<TodoState>,
+  nodeId: string,
+  taskId: string,
+  status?: "in_progress" | "completed" | null,
+  detail?: string | null,
+  autoAdvance?: TodoAutoAdvance | null,
+) {
+  store.setState((state) => {
+    const steps = state.todos[nodeId];
+    if (!steps) return state;
+
+    const updated = steps.map((s) => {
+      if (s.taskId === taskId) {
+        return {
+          ...s,
+          ...(status != null ? { status } : {}),
+          ...(detail !== undefined ? { detail } : {}),
+        };
+      }
+      if (autoAdvance && s.taskId === autoAdvance.next_task_id) {
+        return { ...s, status: autoAdvance.status };
+      }
+      return s;
+    });
+
+    return {
+      todos: { ...state.todos, [nodeId]: updated },
+    };
+  });
+}
+
+// ============================================================
 // Workflow Stores Container
 // ============================================================
 export interface WorkflowStores {
@@ -1311,6 +1421,7 @@ export interface WorkflowStores {
   agentIO: StoreApi<AgentIOState>;
   chat: StoreApi<ChatState>;
   span: StoreApi<import("@/stores/spanStore").SpanState>;
+  todo: StoreApi<TodoState>;
 }
 
 export function createWorkflowStores(workflowId: string): WorkflowStores {
@@ -1323,16 +1434,17 @@ export function createWorkflowStores(workflowId: string): WorkflowStores {
     agentIO: createAgentIOStore(workflowId),
     chat: createChatStore(workflowId),
     span: createSpanStore(workflowId),
+    todo: createTodoStore(workflowId),
   };
 }
 
 /**
  * 访问 store 内部计数器的辅助函数
  */
-export function getMessageCounter(store: StoreApi<ConversationState>): MessageCounter {
-  return (store as unknown as { _msgCounter: MessageCounter })._msgCounter;
+export function getMessageCounter(store: StoreApi<ConversationState>): IdCounter {
+  return (store as unknown as { _msgCounter: IdCounter })._msgCounter;
 }
 
-export function getToolCallCounter(store: StoreApi<ToolCallState>): ToolCallCounter {
-  return (store as unknown as { _tcCounter: ToolCallCounter })._tcCounter;
+export function getToolCallCounter(store: StoreApi<ToolCallState>): IdCounter {
+  return (store as unknown as { _tcCounter: IdCounter })._tcCounter;
 }
