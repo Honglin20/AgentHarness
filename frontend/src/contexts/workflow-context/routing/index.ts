@@ -13,8 +13,8 @@ export type { RouteContext, RouteMode, RoutePersistence };
 export type { EventHandler, EventRegistry } from "./types";
 
 // Re-export utilities
-export { cleanupSeqTracker, _processedSeqsByWorkflow } from "./dedup";
-export { resetAllStores, formatOutputAsMd, payload } from "./utils";
+export { cleanupSeqTracker } from "./dedup";
+export { resetAllStores, formatOutputAsMd } from "./utils";
 
 // ---------------------------------------------------------------------------
 // routeEvent — registry-based implementation

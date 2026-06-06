@@ -4,7 +4,6 @@
 
 import type { WSEvent } from "@/types/events";
 import type { WorkflowStores } from "../workflowStores";
-import { getToolCallCounter } from "../workflowStores";
 
 // ---------------------------------------------------------------------------
 // RouteContext
@@ -20,7 +19,7 @@ export interface RoutePersistence {
 export interface RouteContext {
   mode: RouteMode;
   persistence: RoutePersistence | null;
-  counter: ReturnType<typeof getToolCallCounter>;
+  counter: { next(): string };
 }
 
 // ---------------------------------------------------------------------------

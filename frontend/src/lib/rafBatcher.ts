@@ -2,9 +2,6 @@
  * RAF Batch Processor — coalesces high-frequency text deltas into a single
  * requestAnimationFrame flush. Each scoped store instance creates its own
  * batcher, so concurrent workflows never share state.
- *
- * Extracted from workflowStores.ts to eliminate ~120 lines of duplication
- * between createConversationStore and createOutputStore.
  */
 
 export interface RafBatcher<TKey, TValue> {
@@ -26,9 +23,7 @@ export function createRafBatcher<TKey, TValue>(
     buf.clear();
     seq++; // invalidate any pending RAF
     pending = false;
-    if (updates.size > 0) {
-      apply(updates);
-    }
+    apply(updates);
   }
 
   return {
@@ -40,12 +35,7 @@ export function createRafBatcher<TKey, TValue>(
         const capturedSeq = ++seq;
         requestAnimationFrame(() => {
           if (capturedSeq !== seq) return;
-          const updates = new Map(buf);
-          buf.clear();
-          pending = false;
-          if (updates.size > 0) {
-            apply(updates);
-          }
+          flush();
         });
       }
     },
