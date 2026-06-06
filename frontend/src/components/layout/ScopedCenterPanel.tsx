@@ -1,9 +1,8 @@
 /**
- * ScopedCenterPanel - 使用 Context stores 的 CenterPanel
+ * ScopedCenterPanel - Center panel using Context stores
  *
- * 这是 Phase 1 的迁移组件，简化版本
- * - 使用 scoped stores 进行状态读取
- * - 事件处理保持使用 legacy 方式（Phase 2 迁移）
+ * Routes between 5 views: Benchmark, Error, Portal/Landing, Idle DAG preview, Normal tabs.
+ * Business logic is delegated to extracted hooks/components.
  */
 
 "use client";
@@ -12,6 +11,7 @@ import { useState, useCallback, useEffect, useMemo } from "react";
 import { fetchWithAuth } from "@/lib/api";
 import { useViewStore } from "@/stores/viewStore";
 import { useBatchStore } from "@/stores/batchStore";
+import { useWorkflowStore } from "@/stores/workflowStore";
 import { ScopedConversationTab } from "@/components/conversation/ScopedConversationTab";
 import { ScopedResultsTab } from "@/components/results/ScopedResultsTab";
 import { ScopedAnalysisTab } from "@/components/analysis/ScopedAnalysisTab";
@@ -23,9 +23,6 @@ import { DomainWorkflowsPage } from "@/components/portal/DomainWorkflowsPage";
 import { DomainTutorialPage } from "@/components/portal/DomainTutorialPage";
 import { ApiDocPage } from "@/components/portal/ApiDocPage";
 import { usePortalStore } from "@/stores/portalStore";
-import BenchmarkEditor from "@/components/benchmark/BenchmarkEditor";
-import BenchmarkRunner from "@/components/benchmark/BenchmarkRunner";
-import BenchmarkCompare from "@/components/benchmark/BenchmarkCompare";
 import { useWSMethods } from "@/contexts/workflow-context/WorkflowScope";
 import {
   useWorkflowStatus,
@@ -44,11 +41,14 @@ import {
   usePendingQuestion,
   useConversationMessages,
 } from "@/contexts/workflow-context";
-import { getWorkflowManager } from "@/contexts/workflow-context";
-import { useSettingsStore } from "@/stores/settingsStore";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+
+// Extracted modules
+import { useWorkflowLaunch } from "@/hooks/useWorkflowLaunch";
+import { TabBar } from "@/components/center-panel/TabBar";
+import { BenchmarkView } from "@/components/center-panel/BenchmarkView";
 
 type Tab = "conversation" | "results" | "analysis";
-type BenchmarkView = "runner" | "compare" | "editor";
 
 interface Props {
   activeBenchmark?: string | null;
@@ -57,11 +57,10 @@ interface Props {
 
 export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("conversation");
-  const [benchmarkView, setBenchmarkView] = useState<BenchmarkView>("runner");
-  const [benchmarkData, setBenchmarkData] = useState<Record<string, unknown> | null>(null);
   const [editAgentName, setEditAgentName] = useState<string | null>(null);
+  const [benchmarkData, setBenchmarkData] = useState<Record<string, unknown> | null>(null);
 
-  // 从 scoped stores 读取状态
+  // Scoped store reads
   const status = useWorkflowStatus();
   const nodeCount = useNodeCount();
   const workflowId = useWorkflowId();
@@ -81,9 +80,8 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
   // Scoped conversation state for ChatInput
   const { questionId: scopedPendingId, agentName: scopedPendingAgent } = usePendingQuestion();
   const scopedMessages = useConversationMessages();
-  const scopedConvStore = conversationActions;
 
-  // 全局 stores（共享状态）
+  // Global stores (shared state)
   const activeView = useViewStore((s) => s.activeView);
   const activeBatchId = useBatchStore((s) => s.activeBatchId);
   const batchRunning = activeBatchId !== null;
@@ -129,12 +127,14 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
     agentsSnapshot,
   };
 
+  // Extracted hook for workflow launching
+  const startWorkflow = useWorkflowLaunch(workflowActions, outputActions, chartActions);
+
   // When a new live workflow starts, snap back to Conversation
   useEffect(() => {
     if (workflowId && !isReplay) setActiveTab("conversation");
   }, [workflowId, isReplay]);
 
-  // Scoped stores are now populated for both live and replay modes
   const resultCount = liveResultCount;
   const analysisCount = liveAnalysisCount;
 
@@ -146,175 +146,47 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
     }
     fetchWithAuth(`/api/benchmarks/${encodeURIComponent(activeBenchmark)}`)
       .then((r) => r.json())
-      .then((data) => {
-        setBenchmarkData(data);
-        setBenchmarkView("runner");
-      })
+      .then((data) => setBenchmarkData(data))
       .catch(() => setBenchmarkData(null));
   }, [activeBenchmark]);
 
-  const handleSaveBenchmark = useCallback(async (name: string, tasks: { label: string; inputs: Record<string, string> }[], description: string) => {
-    const r = await fetchWithAuth("/api/benchmarks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, description, tasks }),
-    });
-    if (!r.ok) throw new Error(await r.text());
-    // Reload benchmark data and switch to runner view
-    const data = await (await fetchWithAuth(`/api/benchmarks/${encodeURIComponent(name)}`)).json();
-    setBenchmarkData(data);
-    setBenchmarkView("runner");
-  }, []);
-
-  const startWorkflow = useCallback(async (template: unknown, task: string) => {
-    const t = template as Record<string, unknown>;
-    const agents = (t.agents as Array<Record<string, unknown>>).map((a) => ({
-      name: a.name,
-      after: a.after,
-      ...(a.on_pass != null ? { on_pass: a.on_pass } : {}),
-      ...(a.on_fail != null ? { on_fail: a.on_fail } : {}),
-      ...(a.eval ? { eval: true } : {}),
-    }));
-
-    // Reset scoped stores
-    outputActions.reset();
-    chartActions.reset();
-    workflowActions.reset();
-    useViewStore.getState().showLive();
-
-    try {
-      const r = await fetchWithAuth("/api/workflows", {
+  const handleSaveBenchmark = useCallback(
+    async (name: string, tasks: { label: string; inputs: Record<string, string> }[], description: string) => {
+      const r = await fetchWithAuth("/api/benchmarks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: t.name,
-          workflow: t.name,
-          agents,
-          inputs: { task },
-          work_dir: useSettingsStore.getState().defaultWorkDir.trim() || undefined,
-        }),
+        body: JSON.stringify({ name, description, tasks }),
       });
       if (!r.ok) throw new Error(await r.text());
-      const data = await r.json();
-      getWorkflowManager().setActiveWorkflowId(data.workflow_id);
-      workflowActions.setWorkflow(data.workflow_id, t.name as string, data.dag);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error("Failed to start workflow:", msg);
-    }
-  }, [workflowActions, outputActions, chartActions]);
+      const data = await (await fetchWithAuth(`/api/benchmarks/${encodeURIComponent(name)}`)).json();
+      setBenchmarkData(data);
+    },
+    []
+  );
 
-  // Benchmark view — takes over the center panel when a benchmark is selected
-  const benchmarkSelectedRunId = useBatchStore((s) => s.selectedRunId);
-  const showBenchmarkDetail = benchmarkView === "runner" && batchRunning && benchmarkSelectedRunId;
-
-  // Benchmark view UI
+  // ── Benchmark view ──────────────────────────────────────────────────
   if (activeBenchmark && benchmarkData) {
     return (
-      <div className="flex h-full flex-col overflow-hidden bg-app-bg-primary">
-        <div className="flex shrink-0 items-center gap-2 border-b border-app-border px-2 pt-1">
-          <button
-            onClick={() => setBenchmarkView("runner")}
-            className={`rounded-t px-3 py-1.5 text-xs font-medium transition-colors ${
-              benchmarkView === "runner"
-                ? "bg-app-bg-primary text-app-text-primary border-b-2 border-blue-500"
-                : "text-muted-foreground hover:text-app-text-primary"
-            }`}
-          >
-            Run
-          </button>
-          <button
-            onClick={() => setBenchmarkView("compare")}
-            className={`rounded-t px-3 py-1.5 text-xs font-medium transition-colors ${
-              benchmarkView === "compare"
-                ? "bg-app-bg-primary text-app-text-primary border-b-2 border-blue-500"
-                : "text-muted-foreground hover:text-app-text-primary"
-            }`}
-          >
-            Compare
-          </button>
-          <button
-            onClick={() => setBenchmarkView("editor")}
-            className={`rounded-t px-3 py-1.5 text-xs font-medium transition-colors ${
-              benchmarkView === "editor"
-                ? "bg-app-bg-primary text-app-text-primary border-b-2 border-blue-500"
-                : "text-muted-foreground hover:text-app-text-primary"
-            }`}
-          >
-            Edit
-          </button>
-          <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-            BENCHMARK · {activeBenchmark}
-          </span>
-          {showBenchmarkDetail && (
-            <>
-              <span className="text-muted-foreground">|</span>
-              <button
-                onClick={() => setActiveTab("conversation")}
-                className={`rounded-t px-3 py-1.5 text-xs font-medium transition-colors ${
-                  activeTab === "conversation"
-                    ? "bg-app-bg-primary text-app-text-primary border-b-2 border-blue-500"
-                    : "text-muted-foreground hover:text-app-text-primary"
-                }`}
-              >
-                Conversation
-              </button>
-              <button
-                onClick={() => setActiveTab("results")}
-                className={`rounded-t px-3 py-1.5 text-xs font-medium transition-colors ${
-                  activeTab === "results"
-                    ? "bg-app-bg-primary text-app-text-primary border-b-2 border-blue-500"
-                    : "text-muted-foreground hover:text-app-text-primary"
-                }`}
-              >
-                Results{liveResultCount > 0 ? ` ·${liveResultCount}` : ""}
-              </button>
-              <button
-                onClick={() => useBatchStore.getState().selectRun(null)}
-                className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground hover:text-app-text-primary"
-              >
-                Tasks
-              </button>
-            </>
-          )}
-        </div>
-        <div className="flex-1 overflow-hidden">
-          {benchmarkView === "runner" && showBenchmarkDetail && activeTab === "conversation" ? (
-            <ScopedConversationTab />
-          ) : benchmarkView === "runner" && showBenchmarkDetail && activeTab === "results" ? (
-            <ScopedResultsTab />
-          ) : benchmarkView === "runner" ? (
-            <BenchmarkRunner
-              benchmark={benchmarkData as { name: string; description?: string; tasks: { id: string; label: string; inputs: Record<string, string> }[] }}
-              onBack={() => setBenchmarkView("compare")}
-            />
-          ) : benchmarkView === "compare" ? (
-            <BenchmarkCompare benchmarkName={activeBenchmark} />
-          ) : benchmarkView === "editor" ? (
-            <BenchmarkEditor
-              initialName={activeBenchmark}
-              initialTasks={((benchmarkData as Record<string, unknown>).tasks as { label: string; inputs: Record<string, string> }[]) ?? []}
-              initialDescription={((benchmarkData as Record<string, unknown>).description as string) ?? ""}
-              onSave={handleSaveBenchmark}
-            />
-          ) : null}
-        </div>
-        {batchRunning && (
-          <div className="shrink-0">
-            <ChatInput
-              sendAnswer={sendAnswer}
-              sendStopAndRegenerate={sendStopAndRegenerate}
-              sendGuidance={sendGuidance}
-              alwaysVisible
-              {...chatInputScopedProps}
-            />
-          </div>
-        )}
-      </div>
+      <BenchmarkView
+        benchmarkData={benchmarkData}
+        benchmarkName={activeBenchmark}
+        onSaveBenchmark={handleSaveBenchmark}
+        liveResultCount={liveResultCount}
+        batchRunning={batchRunning}
+        chatInput={
+          <ChatInput
+            sendAnswer={sendAnswer}
+            sendStopAndRegenerate={sendStopAndRegenerate}
+            sendGuidance={sendGuidance}
+            alwaysVisible
+            {...chatInputScopedProps}
+          />
+        }
+      />
     );
   }
 
-  // Error state
+  // ── Error view ──────────────────────────────────────────────────────
   if (workflowError && !isReplay) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 bg-app-bg-primary p-6">
@@ -326,7 +198,7 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
     );
   }
 
-  // Landing page — Domain Portal
+  // ── Landing page — Domain Portal ────────────────────────────────────
   if (isIdle && !selectedTemplate) {
     if (portalView === "workflows") {
       return <DomainWorkflowsPage />;
@@ -354,48 +226,28 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
     );
   }
 
+  // ── Normal view — tabs + DAG preview ────────────────────────────────
   const showTabs = !isIdle || isReplay;
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg-primary">
       {showTabs && (
-        <div className="flex shrink-0 items-center gap-1 border-b border-app-border px-2 pt-1">
-          <button
-            onClick={() => setActiveTab("conversation")}
-            className={`rounded-t px-3 py-1.5 text-xs font-medium transition-colors ${
-              activeTab === "conversation"
-                ? "bg-app-bg-primary text-app-text-primary border-b-2 border-blue-500"
-                : "text-muted-foreground hover:text-app-text-primary"
-            }`}
-          >
-            Conversation
-          </button>
-          <button
-            onClick={() => setActiveTab("results")}
-            className={`rounded-t px-3 py-1.5 text-xs font-medium transition-colors ${
-              activeTab === "results"
-                ? "bg-app-bg-primary text-app-text-primary border-b-2 border-blue-500"
-                : "text-muted-foreground hover:text-app-text-primary"
-            }`}
-          >
-            Results{resultCount > 0 ? ` ·${resultCount}` : ""}
-          </button>
-          <button
-            onClick={() => setActiveTab("analysis")}
-            className={`rounded-t px-3 py-1.5 text-xs font-medium transition-colors ${
-              activeTab === "analysis"
-                ? "bg-app-bg-primary text-app-text-primary border-b-2 border-blue-500"
-                : "text-muted-foreground hover:text-app-text-primary"
-            }`}
-          >
-            Analysis{analysisCount > 0 ? ` ·${analysisCount}` : ""}
-          </button>
-          {isReplay && activeView.type === "replay" && (
-            <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-              REPLAY · {activeView.run.workflow_name}
-            </span>
-          )}
-        </div>
+        <TabBar
+          tabs={[
+            { key: "conversation", label: "Conversation" },
+            { key: "results", label: `Results${resultCount > 0 ? ` ·${resultCount}` : ""}` },
+            { key: "analysis", label: `Analysis${analysisCount > 0 ? ` ·${analysisCount}` : ""}` },
+          ]}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          trailing={
+            isReplay && activeView.type === "replay" ? (
+              <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                REPLAY · {activeView.run.workflow_name}
+              </span>
+            ) : undefined
+          }
+        />
       )}
 
       <div className="h-0 min-w-0 flex-1 overflow-hidden">
@@ -417,11 +269,17 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
             </div>
           ) : null
         ) : activeTab === "conversation" ? (
-          <ScopedConversationTab />
+          <ErrorBoundary module="ConversationTab">
+            <ScopedConversationTab />
+          </ErrorBoundary>
         ) : activeTab === "analysis" ? (
-          <ScopedAnalysisTab />
+          <ErrorBoundary module="AnalysisTab">
+            <ScopedAnalysisTab />
+          </ErrorBoundary>
         ) : (
-          <ScopedResultsTab />
+          <ErrorBoundary module="ResultsTab">
+            <ScopedResultsTab />
+          </ErrorBoundary>
         )}
       </div>
 
