@@ -4,9 +4,9 @@ from unittest.mock import MagicMock
 from harness.api import Agent, AgentResult
 from harness.engine.macro_graph import (
     MacroGraphBuilder,
-    _validate_output,
     request_stop_and_regenerate,
 )
+from harness.engine.schema_utils import validate_output as _validate_output
 
 
 def _make_workflow(agents, workflow_dir=None):

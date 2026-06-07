@@ -6,7 +6,8 @@
 """
 import pytest
 from unittest.mock import MagicMock
-from harness.engine.macro_graph import _route_decision, ReviewDecision
+from harness.engine.macro_graph import _route_decision
+from harness.engine.schema_utils import ReviewDecision
 from harness.engine.micro_agent import MicroAgentFactory
 from harness.constants import STATE_METADATA, STATE_OUTPUTS
 
