@@ -70,6 +70,10 @@ class Bus:
         self._buffer_size = buffer_size
         self._seq: int = 0
 
+        # Priority: critical events are never evicted
+        self._critical_buffer: list[dict] = []
+        self._critical_buffer_max: int = 100
+
         # Extensions
         self._hooks: dict[str, BaseHook] = {}
         self._middleware: dict[str, BaseMiddleware] = {}
@@ -118,7 +122,10 @@ class Bus:
             sub_id = str(uuid.uuid4())
             queue: asyncio.Queue[dict] = asyncio.Queue()
             self._subscribers[sub_id] = queue
-            for event in self._buffer:
+            # Merge critical + normal buffers, sorted by seq for ordered replay
+            all_events = self._critical_buffer + self._buffer
+            all_events.sort(key=lambda e: e.get("seq", 0))
+            for event in all_events:
                 # Only filter events that actually carry a seq field. Legacy
                 # events persisted before the seq cursor was introduced lack
                 # this field and must always be replayed for backward compat.
@@ -135,29 +142,57 @@ class Bus:
         async with self._lock:
             self._subscribers.pop(sub_id, None)
 
-    def emit(self, event_type: str, payload: dict) -> None:
+    def emit(self, event_type: str, payload: dict, *, priority: Literal["normal", "critical"] = "normal") -> None:
         """Broadcast a WS event. Non-blocking. Safe from any context.
 
         Note: this is the legacy fire-and-forget WS path. Extension hooks
         are NOT invoked here — use run_hooks() for that.
 
         Auto-injects user_id from current context if available.
+
+        Args:
+            event_type: Event type string (e.g. "node.failed").
+            payload: Event payload dict.
+            priority: "normal" (default, subject to FIFO eviction) or
+                      "critical" (never dropped from buffer).
         """
         # Auto-inject user_id from context if not already in payload
         payload = dict(payload)  # Copy to avoid modifying caller's dict
         if "user_id" not in payload and self._user_context.get("user_id"):
             payload["user_id"] = self._user_context["user_id"]
 
-        event = {"type": event_type, "ts": _now(), "seq": self._seq + 1, "payload": payload}
+        event: dict[str, Any] = {"type": event_type, "ts": _now(), "seq": self._seq + 1, "payload": payload}
         self._seq += 1
-        self._buffer.append(event)
-        if len(self._buffer) > self._buffer_size:
-            self._buffer = self._buffer[-self._buffer_size:]
+
+        if priority == "critical":
+            event["priority"] = "critical"
+            if len(self._critical_buffer) >= self._critical_buffer_max:
+                logger.warning(
+                    "Critical buffer exceeded max (%d); appending anyway",
+                    self._critical_buffer_max,
+                )
+            self._critical_buffer.append(event)
+        else:
+            self._buffer.append(event)
+            if len(self._buffer) > self._buffer_size:
+                self._buffer = self._buffer[-self._buffer_size:]
+
         for sub_id, queue in list(self._subscribers.items()):
             try:
                 queue.put_nowait(event)
             except asyncio.QueueFull:
-                logger.warning(f"Queue full for {sub_id}; dropping event")
+                if priority == "critical":
+                    # For critical events, force into queue by dropping oldest
+                    try:
+                        queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        pass
+                    try:
+                        queue.put_nowait(event)
+                    except asyncio.QueueFull:
+                        logger.warning(f"Queue full for {sub_id}; critical event dropped despite retry")
+                else:
+                    logger.warning(f"Queue full for {sub_id}; dropping event")
             except Exception as e:
                 logger.error(f"Error emitting to {sub_id}: {e}")
 
@@ -167,11 +202,12 @@ class Bus:
 
     @property
     def buffer(self) -> list[dict]:
-        """Return a copy of the buffered events."""
-        return list(self._buffer)
+        """Return a copy of the buffered events (critical first, then normal)."""
+        return list(self._critical_buffer) + list(self._buffer)
 
     def clear_buffer(self) -> None:
         self._buffer.clear()
+        self._critical_buffer.clear()
 
     def with_user_context(self, user_id: str, **context: Any) -> contextlib.AbstractContextManager:
         """设置用户上下文（作用域：当前事件发射会携带此 user_id）
