@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
 from pathlib import Path
 from typing import Any, Literal
@@ -15,6 +14,7 @@ from harness.compiler.md_parser import ParsedAgent, parse_agent_md, resolve_agen
 from harness.constants import STATE_ERRORS, STATE_INPUTS, STATE_METADATA, STATE_OUTPUTS
 from harness.extensions.base import AgentConfig, NodeCtx, RejectAction, RetryAction, WorkflowCtx
 from harness.engine.llm_executor import LLMExecutor
+from harness.engine.stop_signal import StopSignalManager
 from harness.extensions.bus import safe_emit
 from harness.extensions.envelope import check_envelope
 from harness.engine.micro_agent import MicroAgentFactory
@@ -27,18 +27,9 @@ logger = logging.getLogger(__name__)
 from harness.tools.registry import ToolRegistry
 
 
-# --- Stop & Regenerate signal management ---
-def _get_stop_regen_ttl() -> int:
-    """Read TTL from env, defaulting to 60s."""
-    try:
-        return int(os.environ.get("HARNESS_STOP_REGEN_TTL", "60"))
-    except ValueError:
-        return 60
-
-
 # Registry of active builders keyed by workflow_id, used by the module-level
 # request_stop_and_regenerate shim to forward to the correct builder instance.
-_active_builders: dict[str, "MacroGraphBuilder"] = {}  # populated after class def
+_active_builders: dict[str, "MacroGraphBuilder"] = {}
 
 
 async def request_stop_and_regenerate(
@@ -47,7 +38,7 @@ async def request_stop_and_regenerate(
     partial_output: str,
     user_guidance: str,
 ) -> None:
-    """Module-level shim: forwards to the active builder's instance method.
+    """Module-level shim: forwards to the active builder's signal manager.
 
     Kept for backward compatibility with ws_handler imports.
     """
@@ -76,7 +67,7 @@ def clear_stop_regen(workflow_id: str) -> None:
     """
     builder = _active_builders.get(workflow_id)
     if builder is not None:
-        builder._pending_stop_regen.pop(workflow_id, None)
+        builder._signal_mgr.clear(workflow_id)
 
 
 def _save_incremental(builder, event_bus):
@@ -206,16 +197,15 @@ class MacroGraphBuilder:
         self._workflow_name: str = ""  # Set by build()
         self.agent_io: dict[str, dict] = {}  # Collected per-node I/O for persistence
 
-        # Stop-and-regenerate signal state (instance-scoped)
-        self._pending_stop_regen: dict[str, dict[str, str | float]] = {}
-        self._stop_regen_lock = asyncio.Lock()
+        # Stop-and-regenerate signal management (delegated to StopSignalManager)
+        self._signal_mgr = StopSignalManager()
 
         # ChatGPT-style stop: asyncio.Event-based guidance waiting.
+        # These fields are kept for backward compatibility with tests that
+        # access them directly. They delegate to _signal_mgr.
         # When Stop is clicked with empty guidance, nodeFunc emits
         # workflow.waiting_for_guidance and awaits this event.
         # When user submits guidance, provide_guidance() sets it.
-        self._guidance_event: asyncio.Event | None = None
-        self._pending_guidance: str = ""
 
         # Register event-bus-dependent tools when event_bus is available
         if event_bus:
@@ -228,7 +218,37 @@ class MacroGraphBuilder:
 
         self.micro_factory = MicroAgentFactory(tool_registry=self.tool_registry)
 
-    # ---- Stop & Regenerate instance methods ----
+    # ---- Stop & Regenerate instance methods (delegate to StopSignalManager) ----
+
+    @property
+    def _guidance_event(self) -> asyncio.Event | None:
+        """Backward-compatible property for tests."""
+        wid = self.workflow_id or ""
+        return self._signal_mgr._guidance_events.get(wid)
+
+    @_guidance_event.setter
+    def _guidance_event(self, value: asyncio.Event | None) -> None:
+        wid = self.workflow_id or ""
+        if value is None:
+            self._signal_mgr._guidance_events.pop(wid, None)
+        else:
+            self._signal_mgr._guidance_events[wid] = value
+
+    @property
+    def _pending_guidance(self) -> str:
+        """Backward-compatible property for tests."""
+        wid = self.workflow_id or ""
+        return self._signal_mgr._guidance_values.get(wid, "")
+
+    @_pending_guidance.setter
+    def _pending_guidance(self, value: str) -> None:
+        wid = self.workflow_id or ""
+        self._signal_mgr._guidance_values[wid] = value
+
+    @property
+    def _pending_stop_regen(self) -> dict[str, dict[str, str | float]]:
+        """Backward-compatible property for tests."""
+        return self._signal_mgr._pending
 
     async def request_stop_and_regenerate(
         self,
@@ -238,66 +258,35 @@ class MacroGraphBuilder:
     ) -> None:
         """Request stop + regenerate for a specific agent in this workflow.
 
-        If guidance is provided and nodeFunc is already waiting for guidance
-        (i.e. _guidance_event exists and is unset), directly wake it up via
-        provide_guidance(). Otherwise store the signal for LLMExecutor to pick
-        up on its next poll.
+        Delegates to StopSignalManager.store().
         """
-        # If nodeFunc is already waiting for guidance, wake it up directly
-        if user_guidance.strip() and self._guidance_event is not None and not self._guidance_event.is_set():
-            await self.provide_guidance(user_guidance)
-            return
-
         wid = self.workflow_id or ""
-        async with self._stop_regen_lock:
-            self._pending_stop_regen[wid] = {
-                "agent_name": agent_name,
-                "partial_output": partial_output,
-                "user_guidance": user_guidance,
-                "_ts": time.time(),
-            }
-        logger.warning(
-            "[DIAG-STOP-2] Signal stored in builder: "
-            "wf=%s agent=%s guidance=%r partial_len=%d",
-            wid, agent_name, user_guidance[:50], len(partial_output),
-        )
+        await self._signal_mgr.store(wid, agent_name, partial_output, user_guidance)
 
     async def await_guidance(self, timeout: float = 300.0) -> str:
         """Block until user provides guidance via provide_guidance().
 
         Returns the guidance string, or "" on timeout.
+        Delegates to StopSignalManager.await_guidance().
         """
-        self._guidance_event = asyncio.Event()
-        try:
-            await asyncio.wait_for(self._guidance_event.wait(), timeout=timeout)
-        except asyncio.TimeoutError:
-            pass
-        guidance = self._pending_guidance
-        self._guidance_event = None
-        self._pending_guidance = ""
-        return guidance
+        wid = self.workflow_id or ""
+        return await self._signal_mgr.await_guidance(wid, timeout=timeout)
 
     async def provide_guidance(self, guidance: str) -> None:
-        """Set guidance and wake up the waiting nodeFunc."""
-        self._pending_guidance = guidance
-        if self._guidance_event is not None:
-            self._guidance_event.set()
-        logger.warning(
-            "[DIAG-GUIDANCE] provide_guidance: guidance=%r has_event=%s wf=%s",
-            guidance[:50], self._guidance_event is not None, self.workflow_id,
-        )
+        """Set guidance and wake up the waiting nodeFunc.
+
+        Delegates to StopSignalManager.provide_guidance().
+        """
+        wid = self.workflow_id or ""
+        await self._signal_mgr.provide_guidance(wid, guidance)
 
     def _has_pending_stop_regen(self, workflow_id: str, agent_name: str) -> bool:
-        pending = self._pending_stop_regen.get(workflow_id)
-        if pending is None:
-            return False
-        if time.time() - pending.get("_ts", 0) > _get_stop_regen_ttl():
-            self._pending_stop_regen.pop(workflow_id, None)
-            return False
-        return pending.get("agent_name") == agent_name
+        """Check if there's a pending signal. Delegates to StopSignalManager."""
+        return self._signal_mgr.has_pending(workflow_id, agent_name)
 
     def _consume_stop_regen(self, workflow_id: str) -> dict[str, str] | None:
-        return self._pending_stop_regen.pop(workflow_id, None)
+        """Consume and return the signal. Delegates to StopSignalManager."""
+        return self._signal_mgr.consume(workflow_id)
 
     def register_active(self) -> None:
         """Register this builder as the active one for its workflow_id.
