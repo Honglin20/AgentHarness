@@ -15,7 +15,7 @@ class _FakeBus:
     def __init__(self):
         self.events: list[tuple[str, dict]] = []
 
-    def emit(self, event_type: str, payload: dict):
+    def emit(self, event_type: str, payload: dict, **kwargs):
         self.events.append((event_type, payload))
 
 

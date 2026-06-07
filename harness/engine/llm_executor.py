@@ -13,8 +13,10 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from pydantic_graph import End
+from pydantic_ai.messages import ModelRequest, SystemPromptPart
 
 from harness.extensions.base import ToolCtx
+from harness.extensions.bus import safe_emit
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +67,7 @@ class LLMExecutor:
         ext_ctx: Any | None = None,
         check_interrupt: Callable[[str, str], dict[str, Any] | None] | None = None,
         cancel_fn: Callable[[str], None] | None = None,
+        reminder_tracker: Any | None = None,
     ):
         self._agent = pydantic_agent
         self._deps = deps
@@ -75,6 +78,7 @@ class LLMExecutor:
         self._ext_ctx = ext_ctx
         self._check_interrupt = check_interrupt
         self._cancel_fn = cancel_fn
+        self._reminder_tracker = reminder_tracker
         self.tool_calls: list[dict[str, Any]] = []
         self._span_seq = 0
         self._last_ttft_ms: int | None = None
@@ -124,6 +128,18 @@ class LLMExecutor:
 
     async def _handle_model_request(self, node, ctx) -> dict[str, Any] | None:
         """Stream model response text and thinking, emit deltas, check interrupts."""
+
+        # Inject reminder as a system message into message_history before the
+        # model call.  This is read by pydantic-ai's _prepare_request() inside
+        # node.stream(ctx), so the LLM sees it — but we never mutate event
+        # objects from the tool-execution phase.
+        if self._reminder_tracker:
+            reminder = self._reminder_tracker.get_reminder()
+            if reminder:
+                ctx.state.message_history.append(
+                    ModelRequest(parts=[SystemPromptPart(content=reminder)])
+                )
+
         span_id = self._next_span_id()
         model_name = ""
         if hasattr(self._agent, "model"):
@@ -131,7 +147,7 @@ class LLMExecutor:
             model_name = str(getattr(m, "model_name", m) if hasattr(m, "model_name") else m)
 
         if self._bus:
-            self._bus.emit("span.start", {
+            safe_emit(self._bus,"span.start", {
                 "workflow_id": self._wid,
                 "node_id": self._node_id,
                 "agent_name": self._agent_name,
@@ -184,7 +200,7 @@ class LLMExecutor:
         self._last_ttft_ms = ttft_ms
 
         if self._bus:
-            self._bus.emit("span.end", {
+            safe_emit(self._bus,"span.end", {
                 "workflow_id": self._wid,
                 "node_id": self._node_id,
                 "agent_name": self._agent_name,
@@ -225,12 +241,14 @@ class LLMExecutor:
                     ek = getattr(event, "event_kind", "")
                     if ek == "function_tool_call":
                         self._emit_tool_call(event.part)
+                        if self._reminder_tracker:
+                            self._reminder_tracker.on_tool_call(event.part.tool_name)
                     elif ek == "function_tool_result":
                         self._emit_tool_result(event.part)
                         await self._fire_tool_call_hook(event.part)
                         now_ms = int(time.time() * 1000)
                         span_id = self._next_span_id()
-                        self._bus.emit("span.start", {
+                        safe_emit(self._bus,"span.start", {
                             "workflow_id": self._wid,
                             "node_id": self._node_id,
                             "agent_name": self._agent_name,
@@ -239,7 +257,7 @@ class LLMExecutor:
                             "tool_name": event.part.tool_name,
                             "ts": last_end_ms,
                         })
-                        self._bus.emit("span.end", {
+                        safe_emit(self._bus,"span.end", {
                             "workflow_id": self._wid,
                             "node_id": self._node_id,
                             "agent_name": self._agent_name,
@@ -283,7 +301,7 @@ class LLMExecutor:
     def _emit_text_delta(self, delta: str) -> None:
         if not self._bus:
             return
-        self._bus.emit("agent.text_delta", {
+        safe_emit(self._bus,"agent.text_delta", {
             "workflow_id": self._wid,
             "node_id": self._node_id,
             "agent_name": self._agent_name,
@@ -293,7 +311,7 @@ class LLMExecutor:
     def _emit_thinking_delta(self, delta: str) -> None:
         if not self._bus:
             return
-        self._bus.emit("agent.thinking_delta", {
+        safe_emit(self._bus,"agent.thinking_delta", {
             "workflow_id": self._wid,
             "node_id": self._node_id,
             "agent_name": self._agent_name,
@@ -317,7 +335,7 @@ class LLMExecutor:
         self.tool_calls.append(entry)
         if not self._bus:
             return
-        self._bus.emit("agent.tool_call", {
+        safe_emit(self._bus,"agent.tool_call", {
             "workflow_id": self._wid,
             "node_id": self._node_id,
             "agent_name": self._agent_name,
@@ -334,7 +352,7 @@ class LLMExecutor:
                 break
         if not self._bus:
             return
-        self._bus.emit("agent.tool_result", {
+        safe_emit(self._bus,"agent.tool_result", {
             "workflow_id": self._wid,
             "node_id": self._node_id,
             "agent_name": self._agent_name,

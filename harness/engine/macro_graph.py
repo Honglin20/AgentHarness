@@ -15,11 +15,13 @@ from harness.compiler.md_parser import ParsedAgent, parse_agent_md, resolve_agen
 from harness.constants import STATE_ERRORS, STATE_INPUTS, STATE_METADATA, STATE_OUTPUTS
 from harness.extensions.base import AgentConfig, NodeCtx, RejectAction, RetryAction, WorkflowCtx
 from harness.engine.llm_executor import LLMExecutor
+from harness.extensions.bus import safe_emit
 from harness.extensions.envelope import check_envelope
 from harness.engine.micro_agent import MicroAgentFactory
 from harness.engine.state import HarnessState
 from harness.cost import calculate_cost
 from harness.tools.deps import AgentDeps
+from harness.tools.todo_reminder import TodoReminderTracker
 
 logger = logging.getLogger(__name__)
 from harness.tools.registry import ToolRegistry
@@ -491,6 +493,14 @@ class MacroGraphBuilder:
         max_iterations = self.max_iterations
         builder_self = self  # Capture for workflow_id access
         final_tool_names, model, retries, result_type = self._resolve_agent_config(agent_def, parsed)
+
+        # Per-node reminder tracker (only when todo is available).
+        # Tracker reads TodoState lazily from deps — the todo tool creates state
+        # on first call, and the tracker reads it from there.  No registry mutation.
+        todo_available = final_tool_names is None or "todo" in final_tool_names
+        # Will be set inside nodeFunc after deps is created
+        _reminder_tracker_holder: list[TodoReminderTracker | None] = [None]
+
         tool_info = micro_factory.tool_registry.get_tool_info(final_tool_names)
         upstream_names = dep_map[agent_def.name] or []
         _judge_targets = judge_targets or {}
@@ -519,7 +529,7 @@ class MacroGraphBuilder:
                 current_count = state.get("iteration_counts", {}).get(iter_key, 0)
                 if current_count >= max_iterations:
                     if bus:
-                        bus.emit("node.failed", {
+                        safe_emit(bus,"node.failed", {
                             "workflow_id": builder_self.workflow_id,
                             "node_id": agent_def.name,
                             "agent_name": agent_def.name,
@@ -538,7 +548,7 @@ class MacroGraphBuilder:
 
             # Emit node.started event (legacy WS path)
             if bus:
-                bus.emit("node.started", {
+                safe_emit(bus,"node.started", {
                     "workflow_id": builder_self.workflow_id,
                     "node_id": agent_def.name,
                     "agent_name": agent_def.name,
@@ -552,7 +562,7 @@ class MacroGraphBuilder:
             for dep_name in upstream_names:
                 if dep_name in upstream_errors:
                     if bus:
-                        bus.emit("node.failed", {
+                        safe_emit(bus,"node.failed", {
                             "workflow_id": builder_self.workflow_id,
                             "node_id": agent_def.name,
                             "agent_name": agent_def.name,
@@ -608,6 +618,10 @@ class MacroGraphBuilder:
             wid = builder_self.workflow_id or ""
             deps = AgentDeps(agent_name=agent_def.name, workflow_id=wid, node_id=agent_def.name)
 
+            # Wire up reminder tracker (reads state lazily from deps)
+            if todo_available:
+                _reminder_tracker_holder[0] = TodoReminderTracker(deps)
+
             # Build the context (user message) — system prompt is already set via md_prompt
             context = micro_factory.build_node_prompt(
                 inputs=state.get(STATE_INPUTS, {}),
@@ -652,7 +666,7 @@ class MacroGraphBuilder:
                 if isinstance(mw_result, RejectAction):
                     # Extension rejected the node — short-circuit as failure
                     duration_ms = int((time.time() - start_time) * 1000)
-                    bus.emit("node.failed", {
+                    safe_emit(bus,"node.failed", {
                         "workflow_id": builder_self.workflow_id,
                         "node_id": agent_def.name,
                         "agent_name": agent_def.name,
@@ -710,6 +724,7 @@ class MacroGraphBuilder:
                     ext_ctx=ext_ctx,
                     check_interrupt=_check_interrupt,
                     cancel_fn=_get_cancel_fn(),
+                    reminder_tracker=_reminder_tracker_holder[0],
                 )
                 exec_result = await executor.run(context)
                 agent_run = exec_result.agent_run
@@ -722,7 +737,7 @@ class MacroGraphBuilder:
 
                     if guidance.strip():
                         # WS came with guidance → inline retry (existing behavior)
-                        bus.emit("agent.text_delta", {
+                        safe_emit(bus,"agent.text_delta", {
                             "workflow_id": wid,
                             "node_id": agent_def.name,
                             "agent_name": agent_def.name,
@@ -743,7 +758,7 @@ class MacroGraphBuilder:
                             logger.warning("[DIAG-RETRY] Retry failed: %s — using partial output", retry_err)
                             agent_run = None
 
-                        bus.emit("workflow.resumed", {
+                        safe_emit(bus,"workflow.resumed", {
                             "workflow_id": wid,
                             "node_id": agent_def.name,
                             "directive": guidance,
@@ -752,7 +767,7 @@ class MacroGraphBuilder:
                         # Pure stop (no guidance) → emit waiting event,
                         # await user guidance via asyncio.Event, then retry.
                         if bus:
-                            bus.emit("workflow.waiting_for_guidance", {
+                            safe_emit(bus,"workflow.waiting_for_guidance", {
                                 "workflow_id": wid,
                                 "node_id": agent_def.name,
                                 "agent_name": agent_def.name,
@@ -764,7 +779,7 @@ class MacroGraphBuilder:
                         if guidance.strip():
                             # User provided guidance → inline retry
                             if bus:
-                                bus.emit("agent.text_delta", {
+                                safe_emit(bus,"agent.text_delta", {
                                     "workflow_id": wid,
                                     "node_id": agent_def.name,
                                     "agent_name": agent_def.name,
@@ -786,7 +801,7 @@ class MacroGraphBuilder:
                                 agent_run = None
 
                             if bus:
-                                bus.emit("workflow.resumed", {
+                                safe_emit(bus,"workflow.resumed", {
                                     "workflow_id": wid,
                                     "node_id": agent_def.name,
                                     "directive": guidance,
@@ -803,7 +818,7 @@ class MacroGraphBuilder:
                             builder_self.agent_io[agent_def.name] = io_data
                             _save_incremental(builder_self, bus)
                             if bus:
-                                bus.emit("node.completed", {
+                                safe_emit(bus,"node.completed", {
                                     "workflow_id": builder_self.workflow_id,
                                     "node_id": agent_def.name,
                                     "agent_name": agent_def.name,
@@ -830,7 +845,7 @@ class MacroGraphBuilder:
                     builder_self.agent_io[agent_def.name] = io_data
                     _save_incremental(builder_self, bus)
                     if bus:
-                        bus.emit("node.completed", {
+                        safe_emit(bus,"node.completed", {
                             "workflow_id": builder_self.workflow_id,
                             "node_id": agent_def.name,
                             "agent_name": agent_def.name,
@@ -852,7 +867,7 @@ class MacroGraphBuilder:
                 if validation_error:
                     duration_ms = int((time.time() - start_time) * 1000)
                     if bus:
-                        bus.emit("node.failed", {
+                        safe_emit(bus,"node.failed", {
                             "workflow_id": builder_self.workflow_id,
                             "node_id": agent_def.name,
                             "agent_name": agent_def.name,
@@ -913,7 +928,7 @@ class MacroGraphBuilder:
                 if ext_ctx is not None and hasattr(bus, "run_middleware_chain"):
                     mw_result = await bus.run_middleware_chain("after_node", (ext_ctx, output))
                     if isinstance(mw_result, RetryAction):
-                        bus.emit("ext.warning", {
+                        safe_emit(bus,"ext.warning", {
                             "extension": "engine",
                             "message": f"RetryAction received but not yet executed (P1 limitation): {mw_result.new_prompt!r}",
                         })
@@ -958,7 +973,7 @@ class MacroGraphBuilder:
                     envelope_error = check_envelope(acc_tokens, acc_steps, total_elapsed, envelope_cfg)
                     if envelope_error:
                         if bus:
-                            bus.emit("node.failed", {
+                            safe_emit(bus,"node.failed", {
                                 "workflow_id": builder_self.workflow_id,
                                 "node_id": agent_def.name,
                                 "agent_name": agent_def.name,
@@ -1000,7 +1015,7 @@ class MacroGraphBuilder:
                         event_payload["cost_usd"] = cost_usd
                     if ttft_ms is not None:
                         event_payload["ttft_ms"] = ttft_ms
-                    bus.emit("node.completed", event_payload)
+                    safe_emit(bus,"node.completed", event_payload)
 
                 # Build iteration_counts update for conditional edges
                 iter_update = {}
@@ -1048,7 +1063,7 @@ class MacroGraphBuilder:
                     payload["tool_calls_before_failure"] = tool_calls_before_failure
 
                 if bus:
-                    bus.emit("node.failed", payload)
+                    safe_emit(bus,"node.failed", payload)
 
                 return {
                     STATE_OUTPUTS: {},

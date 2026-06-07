@@ -330,6 +330,37 @@ class Bus:
 
 
 # ============================================================
+# safe_emit — never-throw wrapper for bus.emit()
+# ============================================================
+
+def safe_emit(
+    bus: Bus | None,
+    event_type: str,
+    payload: dict | None = None,
+    *,
+    priority: Literal["normal", "critical"] = "normal",
+) -> None:
+    """Emit event with full error handling. Never raises.
+
+    Drop-in replacement for ``bus.emit(...)`` — wraps the call so that:
+    * ``bus is None`` → silent no-op
+    * ``bus.emit(...)`` raises → exception is logged, not propagated
+
+    Args:
+        bus: The Bus instance (or None).
+        event_type: Event type string (e.g. "node.started").
+        payload: Event payload dict. ``None`` becomes ``{}``.
+        priority: "normal" (default) or "critical" (never evicted from buffer).
+    """
+    if bus is None:
+        return
+    try:
+        bus.emit(event_type, payload or {}, priority=priority)
+    except Exception:
+        logger.exception(f"Event emission failed: {event_type}")
+
+
+# ============================================================
 # Singleton + legacy aliases
 # ============================================================
 

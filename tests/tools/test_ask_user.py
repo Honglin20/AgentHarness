@@ -148,7 +148,7 @@ class _StubBus:
     def __init__(self):
         self.events = []
 
-    def emit(self, type_: str, payload: dict):
+    def emit(self, type_: str, payload: dict, **kwargs):
         self.events.append((type_, payload))
 
 
