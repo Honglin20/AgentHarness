@@ -1,8 +1,8 @@
 # Current Task
 
-**当前任务**: Phase 6B 完成 — god files 拆分到位，进入 NAS / 功能扩展
-**状态**: ✅ Phase 1-5 完成；✅ 测试基线修复；✅ Phase 6B 拆分；功能债 + NAS 待启动
-**日期**: 2026-06-09（Phase 6B 拆分批）
+**当前任务**: 隔离加固完成 — 进入性能 / UX 阶段
+**状态**: ✅ Phase 1-5 + 6B + 归类 + 隔离修复；性能/UX 优化待启动；NAS 最后
+**日期**: 2026-06-09（隔离修复批）
 
 ---
 
@@ -16,6 +16,8 @@
 | 4 后端根因架构 | ✅ | 事件管线 / macro graph 拆分 / token 计费 |
 | 5 Server 现代化 | ✅ | routes 拆分 / DI / auth / 校验 / 抽象层 |
 | 6B God files 拆分 | ✅ | macro_graph.py 1019→30 shim / api.py 967→41 shim |
+| 7 harness/ 归类 | ✅ | 16 文件 → core/persistence/users/benchmark 4 子包 |
+| 隔离加固 | ✅ | 5 个 leak 修复（chart fallback / todo store reset / payload wid） |
 
 ## 本会话累积的 45 个 commits
 
@@ -107,10 +109,11 @@ fix: commit orphaned node_phases.py
 
 | 候选 | 描述 | 优先级 |
 |------|------|--------|
+| 性能/UX | WS 流式渲染 / 长 conversation 虚拟化 / API 响应优化 / 首屏拆分 | 高 |
 | Phase 6A | 前端大组件拆分（LlmProfileSettings 777 / BenchmarkCompare 712 / RunHistoryList 471 行） | 中 |
 | Phase 6B 进一步 | 拆 `node_factory.make_node_func` 652 行闭包（Phase 7 候选） | 低 |
 | Phase 6C | 后端生产化（工具调用重试 / interrupt 持久化 / dead-letter queue） | 中 |
-| NAS | TODO/Task/parallel_tasks/代码隔离/Orchestrator 5 个 feature（TODO 已完成） | 高 |
+| NAS | TODO/Task/parallel_tasks/代码隔离/Orchestrator 5 个 feature（TODO 已完成） | 低（最后做） |
 
 ## 必读文件
 
