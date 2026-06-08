@@ -54,7 +54,9 @@ def _build_agents_snapshot(workflow) -> list[dict]:
                 md_path = resolve_agent_md(agent_def.name, workflow_dir)
                 md_content = md_path.read_text()
             except AgentNotFoundError:
-                pass
+                logger.debug(
+                    "Agent %s has no MD file — using empty content", agent_def.name,
+                )
 
         snap: dict = {
             "name": agent_def.name,
@@ -165,7 +167,9 @@ class WorkflowRunner:
                 from harness.engine.macro_graph import clear_stop_regen
                 clear_stop_regen(workflow_id)
             except Exception:
-                pass
+                logger.warning(
+                    "Failed to clear stop_regen signal for %s", workflow_id, exc_info=True,
+                )
 
             # Persist as paused so the run stays in history and can be resumed
             # Merge with existing disk record to preserve agent_io/conversation/events

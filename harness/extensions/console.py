@@ -14,6 +14,8 @@
     pip install rich
 """
 
+import logging
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -26,6 +28,8 @@ from rich.layout import Layout
 from rich.align import Align
 
 from harness.extensions.base import AgentConfig, BaseHook, WorkflowCtx, NodeCtx, ToolCtx, Any
+
+logger = logging.getLogger(__name__)
 
 # 创建全局 console 实例
 console = Console()
@@ -134,8 +138,8 @@ class ConsoleOutput(BaseHook):
                 parsed = json.loads(text)
                 if isinstance(parsed, (dict, list)):
                     return Panel(JSON(parsed, ensure_ascii=False), border_style="green", title="[bold]输出[/bold]")
-            except:
-                pass
+            except Exception:
+                logger.debug("Output was not valid JSON — falling back to text panel", exc_info=True)
             return Panel(text, border_style="green", title="[bold]输出[/bold]")
 
     async def on_workflow_start(self, ctx: WorkflowCtx) -> None:

@@ -1,6 +1,7 @@
 """REST API routes."""
 
 import json
+import logging
 import time
 import uuid
 from pathlib import Path
@@ -51,6 +52,8 @@ from server.schemas import (
 from server.repository import get_repository
 
 from harness.user_manager import get_current_user, get_user_manager
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -147,7 +150,8 @@ def _validate_workflow_dir(workflow: str, user_id: str | None = None) -> Path:
     try:
         return get_registry().resolve_workflow(workflow).resource_dir
     except FileNotFoundError:
-        pass
+        # Not found in registry — fall through to filesystem lookup below.
+        logger.debug("Workflow %s not in registry — trying filesystem", workflow)
 
     # Try shared workflows first
     shared_path = (_WORKFLOWS_DIR / "_shared" / "workflows" / workflow).resolve()
@@ -977,7 +981,10 @@ async def _create_and_start_workflow(
                 for a in json.loads(wf_json_path.read_text(encoding="utf-8")).get("agents", [])
             }
         except Exception:
-            pass
+            logger.warning(
+                "Failed to parse disk agents from %s — proceeding with empty baseline",
+                wf_json_path, exc_info=True,
+            )
 
     agents = []
     for a in agents_defs:

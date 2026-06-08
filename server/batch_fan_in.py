@@ -85,7 +85,10 @@ class BatchFanIn:
             try:
                 await bus.unsubscribe(sub_id)
             except Exception:
-                pass
+                logger.warning(
+                    "Failed to unsubscribe %s from bus (workflow %s)",
+                    sub_id, _wid, exc_info=True,
+                )
         self._subscriptions.clear()
         self._tasks.clear()
 

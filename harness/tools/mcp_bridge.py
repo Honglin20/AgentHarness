@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from mcp import ClientSession, StdioServerParameters
@@ -10,6 +11,8 @@ from harness.tools.registry import ToolFactory
 
 if TYPE_CHECKING:
     from harness.tools.registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 
 class McpServerConfig(BaseModel):
@@ -117,13 +120,13 @@ class McpBridge:
                 try:
                     await self._session_cm.__aexit__(None, None, None)
                 except BaseException:
-                    pass
+                    logger.warning("Failed to close MCP session during cleanup", exc_info=True)
                 self._session_cm = None
                 self._session = None
                 try:
                     await self._stdio_cm.__aexit__(None, None, None)
                 except BaseException:
-                    pass
+                    logger.warning("Failed to close MCP stdio during cleanup", exc_info=True)
                 self._stdio_cm = None
                 raise
         finally:
@@ -164,7 +167,11 @@ class McpBridge:
                 try:
                     await cm.__aexit__(None, None, None)
                 except (RuntimeError, Exception):
-                    pass  # Cancel scope cross-task — process cleanup is sufficient
+                    logger.warning(
+                        "MCP %s disconnect failed — process cleanup is sufficient",
+                        cm_attr,
+                        exc_info=True,
+                    )
                 setattr(self, cm_attr, None)
         self._session = None
 

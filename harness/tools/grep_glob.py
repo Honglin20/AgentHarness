@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
@@ -8,6 +9,8 @@ from pydantic_ai import RunContext, Tool as PydanticAITool
 
 from harness.tools.deps import AgentDeps
 from harness.tools.registry import ToolFactory
+
+logger = logging.getLogger(__name__)
 
 MAX_COLUMNS = 500
 DEFAULT_HEAD_LIMIT = 250
@@ -28,7 +31,7 @@ def _find_rg() -> str | None:
         if r.returncode == 0 and r.stdout.strip():
             return r.stdout.strip()
     except Exception:
-        pass
+        logger.warning("Failed to locate ripgrep via shell fallback", exc_info=True)
     return None
 
 

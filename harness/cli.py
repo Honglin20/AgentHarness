@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
+
+logger = logging.getLogger(__name__)
 
 
 def cmd_ui(args) -> None:
@@ -28,7 +31,7 @@ def cmd_ui(args) -> None:
             print(f"  Network:        http://{s.getsockname()[0]}:{port}")
             s.close()
         except Exception:
-            pass
+            logger.warning("Could not detect network IP address", exc_info=True)
     print()
     if args.open_browser:
         import webbrowser

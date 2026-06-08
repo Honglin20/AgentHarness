@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import time as _time
 from typing import Any
 
@@ -19,6 +20,8 @@ from server.schemas import (
     parse_ws_message,
 )
 from .batch_fan_in import BatchFanIn
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -180,7 +183,10 @@ class ConnectionManager:
                         if not self._user_connections[ws_user_id]:
                             del self._user_connections[ws_user_id]
                     except ValueError:
-                        pass
+                        logger.debug(
+                            "sub_id %s was not in user_connections[%s] on disconnect",
+                            sub_id, ws_user_id,
+                        )
                 del self._connections[sub_id]
                 del self._sub_to_user[sub_id]
             task = self._tasks.pop(sub_id, None)
@@ -602,7 +608,7 @@ async def websocket_endpoint(
                         workflow_id, payload.agent_name, payload.question, event_bus,
                     )
     except WebSocketDisconnect:
-        pass
+        logger.debug("WebSocket disconnected for workflow %s", workflow_id)
     finally:
         await manager.disconnect(sub_id, event_bus)
 
@@ -673,6 +679,6 @@ async def batch_websocket_endpoint(
 
             await websocket.send_text(json.dumps(event))
     except WebSocketDisconnect:
-        pass
+        logger.debug("Batch WebSocket disconnected for batch %s", batch_id)
     finally:
         await fan_in.stop()

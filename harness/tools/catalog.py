@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from typing import Any
 
 from harness.tools.defaults import default_tool_registry, setup_default_mcp, setup_codegraph_mcp
 from harness.tools.mcp_bridge import McpBridge
 from harness.tools.registry import ToolCatalogEntry, ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 
 class ToolCatalogService:
@@ -66,7 +69,7 @@ class ToolCatalogService:
             try:
                 await bridge.disconnect()
             except Exception:
-                pass
+                logger.exception("MCP bridge disconnect failed during catalog cleanup")
         self._bridges.clear()
         self._catalog = []
         self._registry = None

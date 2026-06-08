@@ -71,7 +71,7 @@ class RunStore:
             try:
                 tmp_path.unlink(missing_ok=True)
             except OSError:
-                pass
+                logger.warning("Failed to clean up tmp file %s", tmp_path, exc_info=True)
             raise
 
     @staticmethod
@@ -176,7 +176,7 @@ class RunStore:
                 if now - tmp.stat().st_mtime > 300:
                     tmp.unlink(missing_ok=True)
             except OSError:
-                pass
+                logger.warning("Failed to clean up stale tmp file %s", tmp, exc_info=True)
 
         runs = []
         for f in self._dir.glob("*.json"):

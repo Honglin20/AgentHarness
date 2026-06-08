@@ -13,12 +13,20 @@ from harness.engine.schema_utils import ReviewDecision, strip_schema, validate_o
 from harness.compiler.dag_builder import build_dag
 from harness.compiler.md_parser import ParsedAgent, parse_agent_md, resolve_agent_md
 from harness.constants import STATE_ERRORS, STATE_INPUTS, STATE_METADATA, STATE_OUTPUTS
-from harness.extensions.base import AgentConfig, NodeCtx, RejectAction, RetryAction, WorkflowCtx
+from harness.extensions.base import NodeCtx, RejectAction, RetryAction
 from harness.engine.llm_executor import LLMExecutor
 from harness.engine.stop_signal import StopSignalManager
+from harness.engine.token_aggregator import TokenAggregator
 from harness.extensions.bus import safe_emit
 from harness.extensions.envelope import check_envelope
 from harness.engine.micro_agent import MicroAgentFactory
+from harness.engine.node_phases import (
+    build_extension_context,
+    build_node_failed_payload,
+    build_node_started_payload,
+    build_node_completed_payload,
+    check_upstream_errors,
+)
 from harness.engine.state import HarnessState
 from harness.cost import calculate_cost
 from harness.tools.deps import AgentDeps
@@ -118,7 +126,7 @@ def _save_incremental(builder, event_bus):
             work_dir=data.get("work_dir"),
         )
     except Exception:
-        pass
+        logger.exception("Incremental save failed for workflow %s", wid)
 
 
 class MacroGraphBuilder:
@@ -449,7 +457,10 @@ class MacroGraphBuilder:
                     + _json.dumps(schema, indent=2, ensure_ascii=False)
                 )
             except Exception:
-                pass
+                logger.warning(
+                    "Failed to inject result_type schema into prompt for %s",
+                    agent_def.name, exc_info=True,
+                )
 
         async def node_func(state: HarnessState) -> dict:
             start_time = time.time()
@@ -460,16 +471,11 @@ class MacroGraphBuilder:
                 current_count = state.get("iteration_counts", {}).get(iter_key, 0)
                 if current_count >= max_iterations:
                     if bus:
-                        safe_emit(bus,"node.failed", {
-                            "workflow_id": builder_self.workflow_id,
-                            "node_id": agent_def.name,
-                            "agent_name": agent_def.name,
-                            "error": f"Max iterations ({max_iterations}) reached for conditional edge loop",
-                            "error_type": "MaxIterationsError",
-                            "duration_ms": 0,
-                            "attempt": 1,
-                            "will_retry": False,
-                        })
+                        safe_emit(bus, "node.failed", build_node_failed_payload(
+                            builder_self.workflow_id, agent_def.name, agent_def.name,
+                            f"Max iterations ({max_iterations}) reached for conditional edge loop",
+                            0, error_type="MaxIterationsError",
+                        ))
                     return {
                         STATE_OUTPUTS: {},
                         STATE_ERRORS: {agent_def.name: f"Max iterations ({max_iterations}) exceeded"},
@@ -479,35 +485,25 @@ class MacroGraphBuilder:
 
             # Emit node.started event (legacy WS path)
             if bus:
-                safe_emit(bus,"node.started", {
-                    "workflow_id": builder_self.workflow_id,
-                    "node_id": agent_def.name,
-                    "agent_name": agent_def.name,
-                    "attempt": 1,
-                    "tools": tool_info,
-                    "model": model,
-                })
+                safe_emit(bus, "node.started", build_node_started_payload(
+                    builder_self.workflow_id, agent_def.name, agent_def.name,
+                    model=model, tools=tool_info,
+                ))
 
             # Check if any upstream dependency has failed — skip this node
-            upstream_errors = state.get(STATE_ERRORS, {})
-            for dep_name in upstream_names:
-                if dep_name in upstream_errors:
-                    if bus:
-                        safe_emit(bus,"node.failed", {
-                            "workflow_id": builder_self.workflow_id,
-                            "node_id": agent_def.name,
-                            "agent_name": agent_def.name,
-                            "error": f"Skipped: upstream '{dep_name}' failed",
-                            "error_type": "UpstreamDependencyError",
-                            "duration_ms": 0,
-                            "attempt": 1,
-                            "will_retry": False,
-                        })
-                    return {
-                        STATE_OUTPUTS: {},
-                        STATE_ERRORS: {agent_def.name: f"Skipped: upstream '{dep_name}' failed: {upstream_errors[dep_name]}"},
-                        STATE_METADATA: {agent_def.name: {"duration_ms": 0, "skipped": True}},
-                    }
+            skip = check_upstream_errors(state, upstream_names)
+            if skip is not None:
+                if bus:
+                    safe_emit(bus, "node.failed", build_node_failed_payload(
+                        builder_self.workflow_id, agent_def.name, agent_def.name,
+                        f"Skipped: upstream '{skip.failed_dep}' failed",
+                        0, error_type="UpstreamDependencyError",
+                    ))
+                return {
+                    STATE_OUTPUTS: {},
+                    STATE_ERRORS: {agent_def.name: f"Skipped: upstream '{skip.failed_dep}' failed: {skip.error_info}"},
+                    STATE_METADATA: {agent_def.name: {"duration_ms": 0, "skipped": True}},
+                }
 
             # Gather upstream outputs
             upstream_outputs = {}
@@ -547,7 +543,14 @@ class MacroGraphBuilder:
 
             # Build deps for this agent
             wid = builder_self.workflow_id or ""
-            deps = AgentDeps(agent_name=agent_def.name, workflow_id=wid, node_id=agent_def.name)
+            # Per-node token aggregator — tracks primary agent + sub-agents
+            node_token_agg = TokenAggregator()
+            deps = AgentDeps(
+                agent_name=agent_def.name,
+                workflow_id=wid,
+                node_id=agent_def.name,
+                token_aggregator=node_token_agg,
+            )
 
             # Wire up reminder tracker (reads state lazily from deps)
             if todo_available:
@@ -568,45 +571,32 @@ class MacroGraphBuilder:
             # their own state in ctx.metadata.
             ext_ctx: NodeCtx | None = None
             if bus and hasattr(bus, "run_middleware_chain"):
-                ext_ctx = NodeCtx(
-                    workflow=WorkflowCtx(
-                        workflow_id=builder_self.workflow_id or "",
-                        workflow_name=builder_self._workflow_name,
-                        inputs=state.get(STATE_INPUTS, {}),
-                    ),
+                ext_ctx = build_extension_context(
+                    workflow_id=builder_self.workflow_id or "",
+                    workflow_name=builder_self._workflow_name,
                     node_id=agent_def.name,
                     agent_name=agent_def.name,
                     prompt=context,
-                    messages=[
-                        {"role": "system", "content": augmented_prompt},
-                        {"role": "user", "content": context},
-                    ],
+                    system_prompt=augmented_prompt,
                     upstream_outputs=upstream_outputs,
-                    config=AgentConfig(
-                        model=model,
-                        retries=retries,
-                        tools=final_tool_names,
-                        tool_info=tool_info,
-                        agent_md_path=md_path or None,
-                        critique=critique,
-                        result_type_name=result_type.__name__ if result_type else None,
-                        system_prompt=augmented_prompt,
-                    ),
+                    inputs=state.get(STATE_INPUTS, {}),
+                    config_model=model,
+                    config_retries=retries,
+                    config_tools=final_tool_names,
+                    config_tool_info=tool_info,
+                    config_agent_md_path=md_path or None,
+                    config_critique=critique,
+                    config_result_type_name=result_type.__name__ if result_type else None,
                 )
                 mw_result = await bus.run_middleware_chain("before_node", ext_ctx)
                 if isinstance(mw_result, RejectAction):
                     # Extension rejected the node — short-circuit as failure
                     duration_ms = int((time.time() - start_time) * 1000)
-                    safe_emit(bus,"node.failed", {
-                        "workflow_id": builder_self.workflow_id,
-                        "node_id": agent_def.name,
-                        "agent_name": agent_def.name,
-                        "error": f"Rejected by extension: {mw_result.reason}",
-                        "error_type": "ExtensionRejectError",
-                        "duration_ms": duration_ms,
-                        "attempt": 1,
-                        "will_retry": False,
-                    })
+                    safe_emit(bus, "node.failed", build_node_failed_payload(
+                        builder_self.workflow_id, agent_def.name, agent_def.name,
+                        f"Rejected by extension: {mw_result.reason}",
+                        duration_ms, error_type="ExtensionRejectError",
+                    ))
                     return {
                         STATE_OUTPUTS: {},
                         STATE_ERRORS: {agent_def.name: f"Rejected: {mw_result.reason}"},
@@ -656,6 +646,7 @@ class MacroGraphBuilder:
                     check_interrupt=_check_interrupt,
                     cancel_fn=_get_cancel_fn(),
                     reminder_tracker=_reminder_tracker_holder[0],
+                    token_aggregator=node_token_agg,
                 )
                 exec_result = await executor.run(context)
                 agent_run = exec_result.agent_run
@@ -749,14 +740,10 @@ class MacroGraphBuilder:
                             builder_self.agent_io[agent_def.name] = io_data
                             _save_incremental(builder_self, bus)
                             if bus:
-                                safe_emit(bus,"node.completed", {
-                                    "workflow_id": builder_self.workflow_id,
-                                    "node_id": agent_def.name,
-                                    "agent_name": agent_def.name,
-                                    "duration_ms": duration_ms,
-                                    "status": "success",
-                                    **io_data,
-                                })
+                                safe_emit(bus, "node.completed", build_node_completed_payload(
+                                    builder_self.workflow_id, agent_def.name, agent_def.name,
+                                    output, duration_ms, io_data=io_data,
+                                ))
                             return {
                                 STATE_OUTPUTS: {agent_def.name: output},
                                 STATE_ERRORS: {},
@@ -776,14 +763,10 @@ class MacroGraphBuilder:
                     builder_self.agent_io[agent_def.name] = io_data
                     _save_incremental(builder_self, bus)
                     if bus:
-                        safe_emit(bus,"node.completed", {
-                            "workflow_id": builder_self.workflow_id,
-                            "node_id": agent_def.name,
-                            "agent_name": agent_def.name,
-                            "duration_ms": duration_ms,
-                            "status": "success",
-                            **io_data,
-                        })
+                        safe_emit(bus, "node.completed", build_node_completed_payload(
+                            builder_self.workflow_id, agent_def.name, agent_def.name,
+                            output, duration_ms, io_data=io_data,
+                        ))
                     return {
                         STATE_OUTPUTS: {agent_def.name: output},
                         STATE_ERRORS: {},
@@ -793,21 +776,19 @@ class MacroGraphBuilder:
                 output = agent_run.result.output
                 usage_obj = getattr(agent_run, 'usage', None)
 
+                # Record usage into the per-node aggregator (primary agent)
+                executor.record_usage(usage_obj)
+
                 # === Output completeness validation gate ===
                 validation_error = validate_output(output, result_type)
                 if validation_error:
                     duration_ms = int((time.time() - start_time) * 1000)
                     if bus:
-                        safe_emit(bus,"node.failed", {
-                            "workflow_id": builder_self.workflow_id,
-                            "node_id": agent_def.name,
-                            "agent_name": agent_def.name,
-                            "error": validation_error,
-                            "error_type": "OutputValidationError",
-                            "duration_ms": duration_ms,
-                            "attempt": 1,
-                            "will_retry": False,
-                        })
+                        safe_emit(bus, "node.failed", build_node_failed_payload(
+                            builder_self.workflow_id, agent_def.name, agent_def.name,
+                            validation_error, duration_ms,
+                            error_type="OutputValidationError",
+                        ))
                     return {
                         STATE_OUTPUTS: {},
                         STATE_ERRORS: {agent_def.name: validation_error},
@@ -825,7 +806,9 @@ class MacroGraphBuilder:
                         "total": usage_obj.total_tokens,
                     }
                 except Exception:
-                    pass
+                    logger.debug(
+                        "Failed to extract token usage for %s", agent_def.name, exc_info=True,
+                    )
 
                 # Calculate cost from token usage and model pricing
                 cost_usd = None
@@ -875,6 +858,11 @@ class MacroGraphBuilder:
                 if ttft_ms is not None:
                     node_meta["ttft_ms"] = ttft_ms
 
+                # Include per-agent token breakdown (primary + sub-agents)
+                token_breakdown = node_token_agg.get_breakdown()
+                if token_breakdown:
+                    node_meta["token_breakdown"] = token_breakdown
+
                 # Merge hook-written score_history back for judge nodes
                 # (EvalChartPlugin accumulates via ctx.metadata[agent_name])
                 if agent_def.name.startswith("_judge_") and ext_ctx is not None:
@@ -904,16 +892,11 @@ class MacroGraphBuilder:
                     envelope_error = check_envelope(acc_tokens, acc_steps, total_elapsed, envelope_cfg)
                     if envelope_error:
                         if bus:
-                            safe_emit(bus,"node.failed", {
-                                "workflow_id": builder_self.workflow_id,
-                                "node_id": agent_def.name,
-                                "agent_name": agent_def.name,
-                                "error": envelope_error,
-                                "error_type": "EnvelopeExceeded",
-                                "duration_ms": duration_ms,
-                                "attempt": 1,
-                                "will_retry": False,
-                            })
+                            safe_emit(bus, "node.failed", build_node_failed_payload(
+                                builder_self.workflow_id, agent_def.name, agent_def.name,
+                                envelope_error, duration_ms,
+                                error_type="EnvelopeExceeded",
+                            ))
                         return {
                             STATE_OUTPUTS: {},
                             STATE_ERRORS: {agent_def.name: envelope_error},
@@ -932,21 +915,12 @@ class MacroGraphBuilder:
                 # Incremental save: persist completed node data to disk
                 _save_incremental(builder_self, bus)
                 if bus:
-                    event_payload = {
-                        "workflow_id": builder_self.workflow_id,
-                        "node_id": agent_def.name,
-                        "agent_name": agent_def.name,
-                        "duration_ms": duration_ms,
-                        "status": "success",
-                        **io_data,
-                    }
-                    if token_usage:
-                        event_payload["token_usage"] = token_usage
-                    if cost_usd is not None:
-                        event_payload["cost_usd"] = cost_usd
-                    if ttft_ms is not None:
-                        event_payload["ttft_ms"] = ttft_ms
-                    safe_emit(bus,"node.completed", event_payload)
+                    safe_emit(bus, "node.completed", build_node_completed_payload(
+                        builder_self.workflow_id, agent_def.name, agent_def.name,
+                        output, duration_ms, token_usage=token_usage,
+                        cost_usd=cost_usd, ttft_ms=ttft_ms, io_data=io_data,
+                        token_breakdown=token_breakdown or None,
+                    ))
 
                 # Build iteration_counts update for conditional edges
                 iter_update = {}
@@ -980,21 +954,15 @@ class MacroGraphBuilder:
                 except NameError:
                     pass  # executor was never created (e.g. micro_factory.create failed)
 
-                payload = {
-                    "workflow_id": builder_self.workflow_id,
-                    "node_id": agent_def.name,
-                    "agent_name": agent_def.name,
-                    "error": str(e),
-                    "error_type": error_type,
-                    "duration_ms": duration_ms,
-                    "attempt": 1,
-                    "will_retry": False,
-                }
+                extra = {}
                 if tool_calls_before_failure:
-                    payload["tool_calls_before_failure"] = tool_calls_before_failure
+                    extra["tool_calls_before_failure"] = tool_calls_before_failure
 
                 if bus:
-                    safe_emit(bus,"node.failed", payload)
+                    safe_emit(bus, "node.failed", build_node_failed_payload(
+                        builder_self.workflow_id, agent_def.name, agent_def.name,
+                        str(e), duration_ms, error_type=error_type, extra=extra or None,
+                    ))
 
                 return {
                     STATE_OUTPUTS: {},

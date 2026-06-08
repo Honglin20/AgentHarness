@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import webbrowser
 from pathlib import Path
@@ -16,6 +17,8 @@ from harness.tools.mcp_bridge import McpBridge, McpServerConfig
 from harness.tools.registry import ToolRegistry
 
 from harness.paths import get_project_root
+
+logger = logging.getLogger(__name__)
 
 _BACKEND_DIR = get_project_root()
 _WORKFLOWS_DIR = _BACKEND_DIR / "workflows"
@@ -694,7 +697,7 @@ class Workflow:
             try:
                 await bridge.disconnect()
             except BaseException:
-                pass
+                logger.exception("MCP bridge disconnect failed — process may leak")
         self._mcp_bridges = []
         self._mcp_setup_done = False
 

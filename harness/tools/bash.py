@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 import threading
 
@@ -8,6 +9,8 @@ from pydantic_ai import RunContext, Tool as PydanticAITool
 
 from harness.tools.deps import AgentDeps
 from harness.tools.registry import ToolFactory
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 30
 MAX_TIMEOUT = 600
@@ -45,7 +48,9 @@ def _emit_line(workflow_id: str, node_id: str, agent_name: str, line: str, strea
                 "stream": stream,
             })
     except Exception:
-        pass
+        logger.warning(
+            "Failed to emit tool_output_delta for workflow %s", workflow_id, exc_info=True,
+        )
 
 
 def _try_emit_chart(workflow_id: str, line: str) -> None:
@@ -63,7 +68,9 @@ def _try_emit_chart(workflow_id: str, line: str) -> None:
         if bus:
             bus.emit("chart.render", payload)
     except Exception:
-        pass
+        logger.warning(
+            "Failed to emit chart.render for workflow %s", workflow_id, exc_info=True,
+        )
 
 
 class BashToolFactory(ToolFactory):

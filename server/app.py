@@ -1,5 +1,6 @@
 """FastAPI app factory with CORS and lifespan management."""
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -14,6 +15,8 @@ from .ws_handler import router as ws_router
 from .domain_routes import router as domain_router
 from .event_bus import get_event_bus
 from .runner import get_runner
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_frontend_dir() -> Path:
@@ -87,7 +90,7 @@ async def lifespan(app: FastAPI):
             print(f"  Network:        http://{s.getsockname()[0]}:{port}")
             s.close()
         except Exception:
-            pass
+            logger.warning("Could not detect network IP address", exc_info=True)
 
     yield
 
