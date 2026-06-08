@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useSettingsStore } from "@/stores/settingsStore";
+import { fetchWithAuth } from "@/lib/api";
 
 interface Profile {
   name: string;
@@ -89,7 +90,7 @@ export default function LlmProfileSettings({
 
   const loadProfiles = useCallback(async () => {
     try {
-      const r = await fetch("/api/profiles");
+      const r = await fetchWithAuth("/api/profiles");
       if (r.ok) {
         const data = await r.json();
         setProfiles(data.profiles || []);
@@ -106,7 +107,7 @@ export default function LlmProfileSettings({
   useEffect(() => {
     if (!open) return;
     loadProfiles();
-    fetch("/api/config")
+    fetchWithAuth("/api/config")
       .then((r) => r.json())
       .then((cfg) => {
         if (cfg.thinking) setThinking(cfg.thinking);
@@ -173,7 +174,7 @@ export default function LlmProfileSettings({
     setMessage(null);
     try {
       if (!isNew && originalName && form.name !== originalName) {
-        const rr = await fetch(
+        const rr = await fetchWithAuth(
           `/api/profiles/${encodeURIComponent(originalName)}/rename`,
           {
             method: "PUT",
@@ -187,7 +188,7 @@ export default function LlmProfileSettings({
           return;
         }
       }
-      const r = await fetch("/api/profiles", {
+      const r = await fetchWithAuth("/api/profiles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -208,7 +209,7 @@ export default function LlmProfileSettings({
       setMessage({ type: "ok", text: "Profile saved" });
       await loadProfiles();
       const savedName = form.name;
-      const updated = await fetch("/api/profiles").then((r) => r.json());
+      const updated = await fetchWithAuth("/api/profiles").then((r) => r.json());
       const idx = (updated.profiles || []).findIndex(
         (p: Profile) => p.name === savedName,
       );
@@ -241,7 +242,7 @@ export default function LlmProfileSettings({
     setMessage(null);
     try {
       if (!isNew && originalName && form.name !== originalName) {
-        const rr = await fetch(
+        const rr = await fetchWithAuth(
           `/api/profiles/${encodeURIComponent(originalName)}/rename`,
           {
             method: "PUT",
@@ -255,7 +256,7 @@ export default function LlmProfileSettings({
           return;
         }
       }
-      const saveR = await fetch("/api/profiles", {
+      const saveR = await fetchWithAuth("/api/profiles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -273,7 +274,7 @@ export default function LlmProfileSettings({
         setMessage({ type: "err", text: err.detail || "Save failed" });
         return;
       }
-      const r = await fetch(`/api/profiles/${encodeURIComponent(form.name)}/activate`, {
+      const r = await fetchWithAuth(`/api/profiles/${encodeURIComponent(form.name)}/activate`, {
         method: "POST",
       });
       if (!r.ok) {
@@ -282,7 +283,7 @@ export default function LlmProfileSettings({
         return;
       }
       // Save global settings
-      await fetch("/api/config", {
+      await fetchWithAuth("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -308,7 +309,7 @@ export default function LlmProfileSettings({
     if (name === activeName) return;
     setMessage(null);
     try {
-      const r = await fetch(`/api/profiles/${encodeURIComponent(name)}`, {
+      const r = await fetchWithAuth(`/api/profiles/${encodeURIComponent(name)}`, {
         method: "DELETE",
       });
       if (!r.ok) {
@@ -327,7 +328,7 @@ export default function LlmProfileSettings({
 
   async function saveGlobalSettings() {
     try {
-      await fetch("/api/config", {
+      await fetchWithAuth("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
