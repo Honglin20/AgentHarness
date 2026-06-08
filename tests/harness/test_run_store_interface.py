@@ -78,6 +78,7 @@ def test_can_subclass_for_alternative_backend():
             self._charts: dict[str, dict] = {}
             self._events: dict[str, list] = {}
             self._followups: dict[tuple[str, str], dict] = {}
+            self._mtimes: dict[str, float] = {}
 
         def save(
             self,
@@ -103,6 +104,8 @@ def test_can_subclass_for_alternative_backend():
                 "status": status,
                 "inputs": inputs or {},
             }
+            import time as _time
+            self._mtimes[run_id] = _time.time()
             if chart_groups:
                 self._charts[run_id] = chart_groups
             if events:
@@ -151,6 +154,17 @@ def test_can_subclass_for_alternative_backend():
         def save_conversation(self, run_id, conversation):
             if run_id in self._runs:
                 self._runs[run_id]["conversation"] = conversation
+
+        # mtime accessors — for an in-memory store, use the run's last-write
+        # timestamp tracked in _mtimes.
+        def get_run_mtime(self, run_id):
+            return self._mtimes.get(run_id)
+
+        def get_charts_mtime(self, run_id):
+            return self._mtimes.get(run_id)
+
+        def get_events_mtime(self, run_id):
+            return self._mtimes.get(run_id)
 
     store = InMemoryStore()
     assert isinstance(store, RunStoreInterface)

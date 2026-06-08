@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { Settings, RotateCcw, Square, Play, Sun, Moon, User, Check, Shield, Key } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
@@ -16,10 +17,13 @@ import { useWorkflowStore, type NodeState } from "@/stores/workflowStore";
 import { useViewStore } from "@/stores/viewStore";
 import { useResetWorkflow } from "@/hooks/useResetWorkflow";
 import DAGStatusBar from "@/components/dag/DAGStatusBar";
-import ApiKeySettings from "@/components/settings/ApiKeySettings";
-import LlmProfileSettings from "@/components/settings/LlmProfileSettings";
 import { fetchWithAuth } from "@/lib/api";
 import { useUserStore } from "@/stores/userStore";
+
+// Settings modals are large (LlmProfileSettings is 777 lines) and only open
+// on user action — defer their chunks so the first paint ships without them.
+const ApiKeySettings = dynamic(() => import("@/components/settings/ApiKeySettings"), { ssr: false });
+const LlmProfileSettings = dynamic(() => import("@/components/settings/LlmProfileSettings"), { ssr: false });
 
 const API_BASE = "";
 

@@ -41,6 +41,80 @@ class RunStore(RunStoreInterface):
         self._dir = Path(runs_dir) if runs_dir else _DEFAULT_RUNS_DIR
         self._dir.mkdir(parents=True, exist_ok=True)
         self._migrate_lock = threading.Lock()
+        # Summary index for fast list_runs(summary_only=True). Lazily built
+        # on first list_runs; updated incrementally by save() / delete_run().
+        # _index_dir_mtime tracks dir mtime at last build to detect external
+        # writes (NFS / other processes touching runs/).
+        self._summary_index: dict[str, dict] | None = None
+        self._index_dir_mtime: float | None = None
+
+    # ---- Index management ----
+
+    def _maybe_rebuild_index(self) -> None:
+        """Build the summary index if it's stale or uninitialized.
+
+        Detects external writes by comparing directory mtime; falls back to
+        a full scan if mtime changed since the last build. Safe to call
+        on every list_runs — it's a no-op when the index is fresh.
+        """
+        try:
+            current_mtime = self._dir.stat().st_mtime
+        except OSError:
+            return
+        if self._summary_index is not None and self._index_dir_mtime == current_mtime:
+            return
+        # Rebuild from disk
+        new_index: dict[str, dict] = {}
+        for f in self._dir.glob("*.json"):
+            if f.name.endswith(_CHARTS_SUFFIX) or f.name.endswith(_EVENTS_SUFFIX):
+                continue
+            try:
+                data = json.loads(f.read_text())
+            except (json.JSONDecodeError, OSError):
+                continue
+            run_id = data.get("run_id", "")
+            if not run_id:
+                continue
+            new_index[run_id] = {
+                "run_id": run_id,
+                "workflow_name": data.get("workflow_name", ""),
+                "status": data.get("status", ""),
+                "inputs": data.get("inputs", {}),
+                "created_at": data.get("created_at", ""),
+                "batch_id": data.get("batch_id"),
+                "user_id": data.get("user_id"),
+            }
+        self._summary_index = new_index
+        self._index_dir_mtime = current_mtime
+
+    def _update_index_entry(self, run_id: str, summary: dict) -> None:
+        """Insert or replace a single entry in the summary index.
+
+        No-op if the index hasn't been built yet (lazy init on first
+        list_runs). Called by save() so a successful write doesn't force
+        the next list_runs to re-scan the whole directory.
+        """
+        if self._summary_index is not None:
+            self._summary_index[run_id] = summary
+            try:
+                self._index_dir_mtime = self._dir.stat().st_mtime
+            except OSError:
+                logger.warning(
+                    "Could not refresh runs dir mtime after indexing update",
+                    exc_info=True,
+                )
+
+    def _remove_index_entry(self, run_id: str) -> None:
+        """Drop an entry from the summary index (no-op if not built)."""
+        if self._summary_index is not None:
+            self._summary_index.pop(run_id, None)
+            try:
+                self._index_dir_mtime = self._dir.stat().st_mtime
+            except OSError:
+                logger.warning(
+                    "Could not refresh runs dir mtime after indexing remove",
+                    exc_info=True,
+                )
 
     def _safe_path(self, run_id: str) -> Path | None:
         """Return the JSON path if run_id is safe, else None."""
@@ -167,6 +241,18 @@ class RunStore(RunStoreInterface):
         elif events_path and events_path.exists():
             events_path.unlink(missing_ok=True)
 
+        # Keep the summary index in sync so subsequent list_runs(summary_only)
+        # sees this save without forcing a full re-scan.
+        self._update_index_entry(run_id, {
+            "run_id": run_id,
+            "workflow_name": workflow_name,
+            "status": status,
+            "inputs": inputs,
+            "created_at": record["created_at"],
+            "batch_id": batch_id,
+            "user_id": user_id,
+        })
+
         return path
 
     def list_runs(self, workflow_name: str | None = None, include_batch: bool = False, user_id: str | None = None, summary_only: bool = False, limit: int | None = None, offset: int = 0) -> dict:
@@ -179,41 +265,74 @@ class RunStore(RunStoreInterface):
             except OSError:
                 logger.warning("Failed to clean up stale tmp file %s", tmp, exc_info=True)
 
-        runs = []
-        for f in self._dir.glob("*.json"):
-            # Skip sidecar files (use suffix-based check; '+' is not in _SAFE_ID_RE so no collision)
-            if f.name.endswith(_CHARTS_SUFFIX) or f.name.endswith(_EVENTS_SUFFIX):
-                continue
-            try:
-                data = json.loads(f.read_text())
+        # Fast path: summary_only queries serve from the in-memory index,
+        # skipping per-call glob+read of every run file. The index is
+        # rebuilt on demand when directory mtime changes (external writes)
+        # and incrementally maintained by save()/delete_run().
+        self._maybe_rebuild_index()
+
+        if summary_only and self._summary_index is not None:
+            filtered = []
+            for entry in self._summary_index.values():
+                if workflow_name and entry.get("workflow_name") != workflow_name:
+                    continue
+                if not include_batch and entry.get("batch_id"):
+                    continue
+                if user_id is not None and entry.get("user_id", "default") != user_id:
+                    continue
+                filtered.append(entry)
+            filtered.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+            total = len(filtered)
+            if limit is not None:
+                has_more = (offset + limit) < total
+                filtered = filtered[offset:offset + limit]
+            else:
+                has_more = False
+                if offset > 0:
+                    filtered = filtered[offset:]
+            return {"runs": filtered, "total": total, "has_more": has_more}
+
+        # Non-summary path: still needs the full record (agents/conversation/etc).
+        # Use the index to find matching run_ids when possible to avoid the
+        # full glob; fall back to disk scan if the index isn't built.
+        runs: list[dict] = []
+        if self._summary_index is not None:
+            candidate_ids = [
+                entry["run_id"] for entry in self._summary_index.values()
+                if (not workflow_name or entry.get("workflow_name") == workflow_name)
+                and (include_batch or not entry.get("batch_id"))
+                and (user_id is None or entry.get("user_id", "default") == user_id)
+            ]
+            for run_id in candidate_ids:
+                path = self._safe_path(run_id)
+                if path is None or not path.exists():
+                    continue
+                try:
+                    runs.append(json.loads(path.read_text()))
+                except (json.JSONDecodeError, OSError):
+                    logger.warning("Corrupted run file skipped: %s", path.name)
+        else:
+            for f in self._dir.glob("*.json"):
+                if f.name.endswith(_CHARTS_SUFFIX) or f.name.endswith(_EVENTS_SUFFIX):
+                    continue
+                try:
+                    data = json.loads(f.read_text())
+                except json.JSONDecodeError:
+                    logger.warning("Corrupted run file skipped: %s", f.name)
+                    continue
+                except KeyError:
+                    logger.warning(
+                        "Malformed run file skipped (missing expected keys): %s",
+                        f.name, exc_info=True,
+                    )
+                    continue
                 if workflow_name and data.get("workflow_name") != workflow_name:
                     continue
-                # Filter out batch runs by default unless explicitly requested
                 if not include_batch and data.get("batch_id"):
                     continue
                 if user_id is not None and data.get("user_id", "default") != user_id:
                     continue
-                if summary_only:
-                    runs.append({
-                        "run_id": data.get("run_id", ""),
-                        "workflow_name": data.get("workflow_name", ""),
-                        "status": data.get("status", ""),
-                        "inputs": data.get("inputs", {}),
-                        "created_at": data.get("created_at", ""),
-                        "batch_id": data.get("batch_id"),
-                        "user_id": data.get("user_id"),
-                    })
-                else:
-                    runs.append(data)
-            except json.JSONDecodeError:
-                logger.warning("Corrupted run file skipped: %s", f.name)
-                continue
-            except KeyError:
-                logger.warning(
-                    "Malformed run file skipped (missing expected keys): %s",
-                    f.name, exc_info=True,
-                )
-                continue
+                runs.append(data)
         runs.sort(key=lambda r: r.get("created_at", ""), reverse=True)
         total = len(runs)
         if limit is not None:
@@ -254,6 +373,42 @@ class RunStore(RunStoreInterface):
         """Return True if a run record exists for run_id (cheap presence check)."""
         path = self._safe_path(run_id)
         return path is not None and path.exists()
+
+    def get_run_mtime(self, run_id: str) -> float | None:
+        """Return the mtime of the run's main JSON record (epoch seconds).
+
+        Used by the HTTP layer to populate ``Last-Modified`` and answer
+        ``If-Modified-Since`` conditional GETs cheaply — revisit a run
+        you've already loaded without re-transferring the full body.
+        """
+        path = self._safe_path(run_id)
+        if path is None or not path.exists():
+            return None
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            logger.debug("stat failed for run %s mtime", run_id, exc_info=True)
+            return None
+
+    def get_charts_mtime(self, run_id: str) -> float | None:
+        path = self._charts_path(run_id)
+        if path is None or not path.exists():
+            return None
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            logger.debug("stat failed for run %s charts mtime", run_id, exc_info=True)
+            return None
+
+    def get_events_mtime(self, run_id: str) -> float | None:
+        path = self._events_path(run_id)
+        if path is None or not path.exists():
+            return None
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            logger.debug("stat failed for run %s events mtime", run_id, exc_info=True)
+            return None
 
     def get_charts(self, run_id: str) -> dict | None:
         """Load chart_groups from sidecar file."""
@@ -313,6 +468,8 @@ class RunStore(RunStoreInterface):
         events_path = self._events_path(run_id)
         if events_path and events_path.exists():
             events_path.unlink(missing_ok=True)
+        # Keep index in sync
+        self._remove_index_entry(run_id)
         return True
 
     def update_followup(

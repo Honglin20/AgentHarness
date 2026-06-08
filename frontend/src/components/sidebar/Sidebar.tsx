@@ -1,15 +1,22 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import dynamic from "next/dynamic";
 import { Clock, FileText, Plus, GitCompare, FlaskConical, CheckSquare } from "lucide-react";
 import { RunHistoryList } from "./RunHistoryList";
 import { AgentBrowser } from "./AgentBrowser";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { useResetWorkflow } from "@/hooks/useResetWorkflow";
-import { WorkflowCompareDialog } from "@/components/compare/WorkflowCompareDialog";
 import { fetchWithAuth } from "@/lib/api";
 import { useRunHistoryStore } from "@/stores/runHistoryStore";
+
+// Compare dialog is a heavy modal opened on demand — defer its chunk so the
+// sidebar doesn't ship it on first paint.
+const WorkflowCompareDialog = dynamic(
+  () => import("@/components/compare/WorkflowCompareDialog").then((m) => m.WorkflowCompareDialog),
+  { ssr: false },
+);
 
 interface BenchmarkItem {
   name: string;

@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { Panel, Group, Separator } from "react-resizable-panels";
 import { HeaderBar } from "@/components/layout/HeaderBar";
 import { WorkflowCenterPanel } from "@/components/layout/WorkflowCenterPanel";
-import DiagnosticsPanel from "@/components/diagnostics/DiagnosticsPanel";
 import { Sidebar } from "@/components/sidebar/Sidebar";
 import { useBatchStore } from "@/stores/batchStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
@@ -13,6 +13,13 @@ import { useUrlState } from "@/hooks/useUrlState";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { WorkflowScope } from "@/contexts/workflow-context/WorkflowScope";
 import { usePortalStore, restoreFromUrl } from "@/stores/portalStore";
+
+// DiagnosticsPanel is a 3rd-pane accessory that most users don't expand on
+// first paint — defer its chunk until needed. Saves ~30-40KB on initial load.
+const DiagnosticsPanel = dynamic(
+  () => import("@/components/diagnostics/DiagnosticsPanel"),
+  { ssr: false },
+);
 
 function useActiveWorkflowId(): string | null {
   const activeView = useViewStore((s) => s.activeView);

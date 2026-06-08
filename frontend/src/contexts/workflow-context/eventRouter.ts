@@ -10,7 +10,7 @@ import { fetchWithAuth } from "@/lib/api";
 import { getWorkflowManager } from "./WorkflowManager";
 import { getToolCallCounter, type WorkflowStores } from "./workflowStores";
 import { useBatchStore } from "@/stores/batchStore";
-import { useRunHistoryStore } from "@/stores/runHistoryStore";
+import { useRunHistoryStore, invalidateRunsCache } from "@/stores/runHistoryStore";
 import { routeEvent, type RouteContext } from "./routeEvent";
 
 // ---------------------------------------------------------------------------
@@ -114,6 +114,9 @@ export function dispatchSingleEvent(event: WSEvent, currentWorkflowId: string | 
   routeEventToStores(event);
 
   if (TERMINAL_EVENT_TYPES.has(event.type)) {
+    // Bust the cache so the next fetchRuns actually pulls fresh data —
+    // the run that just terminated needs to show its new status immediately.
+    invalidateRunsCache();
     useRunHistoryStore.getState().fetchRuns();
   }
 }
@@ -138,6 +141,7 @@ export function dispatchBatchEvent(event: WSEvent): void {
   }
 
   if (event.type === "batch.completed") {
+    invalidateRunsCache();
     useRunHistoryStore.getState().fetchRuns();
     return;
   }
@@ -161,6 +165,7 @@ export function dispatchBatchEvent(event: WSEvent): void {
   }
 
   if (TERMINAL_EVENT_TYPES.has(event.type)) {
+    invalidateRunsCache();
     useRunHistoryStore.getState().fetchRuns();
   }
 }

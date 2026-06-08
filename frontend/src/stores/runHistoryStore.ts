@@ -99,6 +99,41 @@ interface RunHistoryState {
   reset: () => void;
 }
 
+// ── In-memory cache + dedup ─────────────────────────────────────────────
+//
+// Sidebar refreshes hit fetchRuns from many sources: terminal lifecycle
+// events, manual refresh, mount, polling. Without dedup we'd fire 3-5x
+// the needed requests on every workflow completion. The cache holds the
+// last successful fetch per key (workflowName) for ~3s; within that window
+// repeat calls are no-ops.
+//
+// loadMore calls bypass the cache (always fetch the next page) but still
+// go through the in-flight dedup so two near-simultative "load more"
+// clicks don't double-fetch.
+const FETCH_DEDUP_MS = 3000;
+interface CacheEntry {
+  runs: RunSummary[];
+  total: number;
+  hasMore: boolean;
+  fetchedAt: number;
+}
+const _runsCache = new Map<string, CacheEntry>();
+const _inflight = new Map<string, Promise<void>>();
+
+function runsCacheKey(workflowName?: string): string {
+  return workflowName || "__all__";
+}
+
+export function invalidateRunsCache(workflowName?: string): void {
+  // undefined wildcard — drop everything (used by terminal lifecycle events
+  // that may affect any workflow's run list, e.g. delete).
+  if (workflowName === undefined) {
+    _runsCache.clear();
+    return;
+  }
+  _runsCache.delete(runsCacheKey(workflowName));
+}
+
 export const useRunHistoryStore = create<RunHistoryState>()((set, get) => ({
   runs: [],
   loading: false,
@@ -109,38 +144,84 @@ export const useRunHistoryStore = create<RunHistoryState>()((set, get) => ({
   totalCount: 0,
 
   fetchRuns: async (workflowName?: string, loadMore = false) => {
-    set({ loading: true });
-    try {
-      const { runs: currentRuns } = get();
-      const offset = loadMore ? currentRuns.length : 0;
-      const limit = 50;
-      const params = new URLSearchParams();
-      if (workflowName) params.set("workflow_name", workflowName);
-      params.set("limit", String(limit));
-      params.set("offset", String(offset));
-      const r = await fetchWithAuth(`/api/runs?${params}`);
-      if (r.ok) {
-        const data = await r.json();
-        const newRuns: RunSummary[] = data.runs;
+    const key = runsCacheKey(workflowName);
+
+    // Cache hit: same key fetched within FETCH_DEDUP_MS and caller isn't
+    // asking for a new page → replay the cached result, no network.
+    if (!loadMore) {
+      const cached = _runsCache.get(key);
+      if (cached && Date.now() - cached.fetchedAt < FETCH_DEDUP_MS) {
         set({
-          runs: loadMore ? [...currentRuns, ...newRuns] : newRuns,
-          hasMore: data.has_more,
-          totalCount: data.total,
+          runs: cached.runs,
+          hasMore: cached.hasMore,
+          totalCount: cached.total,
           loading: false,
         });
-      } else {
-        console.error(`fetchRuns: ${r.status} ${r.statusText}`);
+        return;
+      }
+    }
+
+    // In-flight dedup: don't fire a second request for the same key while
+    // the first is still pending — wait for it instead.
+    const pending = _inflight.get(key);
+    if (pending) {
+      await pending;
+      return;
+    }
+
+    const promise = (async () => {
+      set({ loading: true });
+      try {
+        const { runs: currentRuns } = get();
+        const offset = loadMore ? currentRuns.length : 0;
+        const limit = 50;
+        const params = new URLSearchParams();
+        if (workflowName) params.set("workflow_name", workflowName);
+        params.set("limit", String(limit));
+        params.set("offset", String(offset));
+        const r = await fetchWithAuth(`/api/runs?${params}`);
+        if (r.ok) {
+          const data = await r.json();
+          const newRuns: RunSummary[] = data.runs;
+          const merged = loadMore ? [...currentRuns, ...newRuns] : newRuns;
+          set({
+            runs: merged,
+            hasMore: data.has_more,
+            totalCount: data.total,
+            loading: false,
+          });
+          // Cache first-page results (loadMore appends; can't cache without
+          // a stable shape, so leave the existing entry alone).
+          if (!loadMore) {
+            _runsCache.set(key, {
+              runs: merged,
+              total: data.total,
+              hasMore: data.has_more,
+              fetchedAt: Date.now(),
+            });
+          }
+        } else {
+          console.error(`fetchRuns: ${r.status} ${r.statusText}`);
+          set({ loading: false });
+        }
+      } catch (e) {
+        console.error("fetchRuns failed:", e);
         set({ loading: false });
       }
-    } catch (e) {
-      console.error("fetchRuns failed:", e);
-      set({ loading: false });
+    })();
+
+    _inflight.set(key, promise);
+    try {
+      await promise;
+    } finally {
+      _inflight.delete(key);
     }
   },
 
   fetchRun: async (runId: string, signal?: AbortSignal) => {
     try {
       const r = await fetchWithAuth(`/api/runs/${runId}`, { signal });
+      if (r.status === 304) return null; // caller can keep its cached run
       if (r.ok) return await r.json();
     } catch (e: any) {
       if (e?.name === "AbortError") return null;

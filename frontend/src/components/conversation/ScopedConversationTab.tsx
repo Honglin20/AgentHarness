@@ -48,11 +48,42 @@ type Block = NodeBlock | OtherBlock;
 /**
  * Group messages: all agent + tool_call messages with the same nodeId
  * become one NodeBlock. User/system messages become OtherBlocks.
+ *
+ * Stability contract: when called with `prevMessages`/`prevBlocks`, the
+ * returned array reuses the same Block object references for any prefix
+ * of messages that hasn't changed. This keeps NodeBlockCard's React.memo
+ * effective on append — without it, every message append would re-create
+ * every Block as a new object and force every visible card to re-render.
  */
-function groupMessages(messages: ConversationMessage[]): Block[] {
+function groupMessages(
+  messages: ConversationMessage[],
+  prevMessages?: ConversationMessage[],
+  prevBlocks?: Block[],
+): Block[] {
+  // Fast path: caller didn't pass prev state, or it actually matches.
+  if (prevMessages && prevBlocks && prevMessages === messages) {
+    return prevBlocks;
+  }
+
   const blocks: Block[] = [];
   let nodeBuffer: ConversationMessage[] = [];
   let currentNodeId: string | null = null;
+  // Index into prevBlocks we can still reuse. We only reuse the prefix
+  // that maps to identical message references — once we hit a divergence
+  // (new message, edit, re-order) we stop trying and rebuild from there.
+  let reuseIdx = 0;
+  let messagesConsumedFromPrev = 0;
+
+  function tryReuseBlockFor(msg: ConversationMessage): Block | null {
+    if (!prevBlocks || reuseIdx >= prevBlocks.length) return null;
+    const candidate = prevBlocks[reuseIdx];
+    // Check the first message of this block would match the message we're
+    // about to consume. We rely on message reference equality — zustand's
+    // immutable updates preserve refs for messages they don't touch.
+    const expectedFirst = candidate.kind === "node" ? candidate.items[0] : candidate.message;
+    if (expectedFirst !== msg) return null;
+    return candidate;
+  }
 
   function flushNode() {
     if (nodeBuffer.length === 0 || !currentNodeId) return;
@@ -62,23 +93,54 @@ function groupMessages(messages: ConversationMessage[]): Block[] {
       ? agentMsgs[agentMsgs.length - 1]
       : nodeBuffer[nodeBuffer.length - 1];
 
+    // Try to reuse a prev block that matches this exact item sequence.
+    if (prevBlocks && reuseIdx < prevBlocks.length) {
+      const candidate = prevBlocks[reuseIdx];
+      if (
+        candidate.kind === "node"
+        && candidate.nodeId === currentNodeId
+        && candidate.items.length === nodeBuffer.length
+        && candidate.items.every((m, i) => m === nodeBuffer[i])
+      ) {
+        blocks.push(candidate);
+        reuseIdx++;
+        messagesConsumedFromPrev += nodeBuffer.length;
+        nodeBuffer = [];
+        currentNodeId = null;
+        return;
+      }
+    }
+
     blocks.push({
       kind: "node",
       nodeId: currentNodeId,
       items: [...nodeBuffer],
       mainMessage: mainMsg,
     });
-
     nodeBuffer = [];
     currentNodeId = null;
   }
 
-  for (const m of messages) {
+  let i = 0;
+  while (i < messages.length) {
+    const m = messages[i];
     const isNodeMsg = (m.type === "agent" || m.type === "tool_call") && m.nodeId;
 
     if (!isNodeMsg) {
       flushNode();
+      // Try to reuse an "other" block at the current reuse index
+      if (prevBlocks && reuseIdx < prevBlocks.length) {
+        const candidate = prevBlocks[reuseIdx];
+        if (candidate.kind === "other" && candidate.message === m) {
+          blocks.push(candidate);
+          reuseIdx++;
+          messagesConsumedFromPrev++;
+          i++;
+          continue;
+        }
+      }
       blocks.push({ kind: "other", message: m });
+      i++;
       continue;
     }
 
@@ -87,9 +149,13 @@ function groupMessages(messages: ConversationMessage[]): Block[] {
       currentNodeId = m.nodeId!;
     }
     nodeBuffer.push(m);
+    i++;
   }
 
   flushNode();
+  // Suppress unused-var lint for the diagnostic counter (useful for future
+  // profiling). Kept in for now; remove if it ever gets in the way.
+  void messagesConsumedFromPrev;
   return blocks;
 }
 
@@ -234,7 +300,20 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
   const getAgentIO = useCallback((nodeId: string) => agentIORef.current[nodeId], []);
   const getNodeState = useCallback((nodeId: string) => nodesRef.current[nodeId], []);
 
-  const blocks = useMemo(() => groupMessages(messages), [messages]);
+  // Stable block list: pass the previous messages + blocks to groupMessages
+  // so unchanged prefix blocks keep the same React key/identity. Without
+  // this every message append rebuilds every Block object as a new ref,
+  // defeating NodeBlockCard's React.memo and forcing all visible cards
+  // to re-render.
+  const prevGroupingRef = useRef<{ messages: ConversationMessage[]; blocks: Block[] } | null>(null);
+  const blocks = useMemo(() => {
+    const prev = prevGroupingRef.current;
+    const next = (prev && prev.messages === messages)
+      ? prev.blocks
+      : groupMessages(messages, prev?.messages, prev?.blocks);
+    prevGroupingRef.current = { messages, blocks: next };
+    return next;
+  }, [messages]);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const virtualizer = useVirtualizer({

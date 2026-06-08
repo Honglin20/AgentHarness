@@ -140,6 +140,25 @@ class RunStoreInterface(ABC):
         ...
 
     @abstractmethod
+    def get_run_mtime(self, run_id: str) -> float | None:
+        """Return the modification time of the run's main record (epoch sec).
+
+        Used by the HTTP layer to populate ``Last-Modified`` and answer
+        ``If-Modified-Since`` cheaply. None if the run is absent.
+        """
+        ...
+
+    @abstractmethod
+    def get_charts_mtime(self, run_id: str) -> float | None:
+        """Like ``get_run_mtime`` but for the charts sidecar."""
+        ...
+
+    @abstractmethod
+    def get_events_mtime(self, run_id: str) -> float | None:
+        """Like ``get_run_mtime`` but for the events sidecar."""
+        ...
+
+    @abstractmethod
     def get_charts(self, run_id: str) -> dict | None:
         """Load chart_groups for a run, or None if absent / not persisted."""
         ...

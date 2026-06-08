@@ -115,6 +115,84 @@ def _get_bus_for_workflow(workflow_id: str):
     return _new_bus()
 
 
+def _check_not_modified(request, mtime):
+    """Conditional GET helper for run detail endpoints.
+
+    Returns ``(Last-Modified header value, not_modified_flag)``. The flag
+    is True when the client's ``If-Modified-Since`` indicates they already
+    have the latest version — caller should return a 304. Imported here so
+    every run / charts / events handler can use the same logic without
+    each router copy-pasting ~15 lines.
+    """
+    from email.utils import formatdate, parsedate_to_datetime
+
+    if mtime is None:
+        return None, False
+    last_modified = formatdate(mtime, usegmt=True)
+    ims = request.headers.get("If-Modified-Since") or request.headers.get("if-modified-since")
+    if not ims:
+        return last_modified, False
+    try:
+        ims_ts = parsedate_to_datetime(ims).timestamp()
+    except (TypeError, ValueError):
+        return last_modified, False
+    # Compare at 1s precision (HTTP dates have 1s resolution; truncate mtime)
+    return last_modified, ims_ts >= int(mtime)
+
+
+def _persisted_run_detail(run: dict) -> dict:
+    """Serialize a persisted run record into the RunDetail response shape.
+
+    chart_groups and events are intentionally None — they live in sidecars
+    and load lazily via /runs/{id}/charts and /runs/{id}/events.
+    """
+    return {
+        "run_id": run.get("run_id"),
+        "workflow_name": run.get("workflow_name"),
+        "agents_snapshot": run.get("agents_snapshot", []),
+        "status": run.get("status"),
+        "inputs": run.get("inputs", {}),
+        "result": run.get("result"),
+        "conversation": run.get("conversation", []),
+        "created_at": run.get("created_at", ""),
+        "dag": run.get("dag"),
+        "chart_groups": None,
+        "agent_io": run.get("agent_io"),
+        "events": None,
+        "work_dir": run.get("work_dir"),
+        "batch_id": run.get("batch_id"),
+        "user_id": run.get("user_id"),
+        "followup_sessions": run.get("followup_sessions"),
+        "_has_charts": run.get("_has_charts", False),
+        "_has_events": run.get("_has_events", False),
+    }
+
+
+def _live_run_detail(run_id: str, data: dict, repo) -> dict:
+    """Serialize an in-memory (live) workflow into the RunDetail shape."""
+    workflow = data["workflow"]
+    return {
+        "run_id": run_id,
+        "workflow_name": workflow.name,
+        "agents_snapshot": data.get("agents_snapshot", []),
+        "status": data["status"],
+        "inputs": data.get("inputs", {}),
+        "result": data.get("result"),
+        "conversation": data.get("conversation", []),
+        "created_at": data.get("created_at", ""),
+        "dag": repo.get_dag(run_id),
+        "chart_groups": None,
+        "agent_io": None,
+        "events": None,
+        "work_dir": data.get("work_dir"),
+        "batch_id": data.get("batch_id"),
+        "user_id": data.get("user_id"),
+        "followup_sessions": None,
+        "_has_charts": False,
+        "_has_events": False,
+    }
+
+
 async def _create_and_start_workflow(
     name: str,
     agents_defs: list[AgentDef],

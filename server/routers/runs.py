@@ -2,15 +2,18 @@
 import time
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from harness.api import Agent, Workflow
 from harness.run_store_interface import RunStoreInterface
 from harness.tools.registry import ToolRegistry
 from harness.user_manager import get_current_user, get_user_manager
 from server._helpers import (
+    _check_not_modified,
     _create_and_start_workflow,
+    _live_run_detail,
     _new_bus,
+    _persisted_run_detail,
     _reconstruct_run_to_repo,
     _validate_workflow_dir,
 )
@@ -182,67 +185,53 @@ async def get_run(
     run_id: str, request: Request,
     store: RunStoreInterface = Depends(get_run_store_dep),
     repo: WorkflowRepository = Depends(get_repository_dep),
-) -> RunDetail:
+) -> RunDetail | Response:
     """Get a run by id — persisted disk record or live in-memory workflow.
 
-    Returns main record WITHOUT chart_groups or events (loaded lazily via
-    /runs/{id}/charts and /runs/{id}/events).
+    Honors ``If-Modified-Since``: if the persisted record hasn't been
+    written since the client's last fetch, returns 304 with no body. This
+    makes switching back to a previously-viewed run near-instant. Live
+    (in-memory) workflows always return fresh data.
     """
     user = get_current_user(request)
     user_mgr = get_user_manager()
     is_admin = user_mgr.is_admin(user)
 
+    # Cheap conditional GET for the persisted path
+    mtime = store.get_run_mtime(run_id)
+    last_modified, not_modified = _check_not_modified(request, mtime)
+    if not_modified:
+        # Quick authorization check before honoring the 304 — don't leak
+        # existence to non-owners. get_run is what we'd call anyway; the
+        # check is cheap when the run is absent (no file to read).
+        existing = store.get_run(run_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        if not is_admin and existing.get("user_id", "default") != user.user_id:
+            raise HTTPException(status_code=403, detail="Not your run")
+        return Response(
+            status_code=304,
+            headers={"Last-Modified": last_modified} if last_modified else None,
+        )
+
+    # 200 path: stamp Last-Modified on the response so the client can 304
+    # on subsequent fetches. Use a JSONResponse so we control headers.
     run = store.get_run(run_id)
     if run:
         if not is_admin and run.get("user_id", "default") != user.user_id:
             raise HTTPException(status_code=403, detail="Not your run")
-        return {
-            "run_id": run.get("run_id"),
-            "workflow_name": run.get("workflow_name"),
-            "agents_snapshot": run.get("agents_snapshot", []),
-            "status": run.get("status"),
-            "inputs": run.get("inputs", {}),
-            "result": run.get("result"),
-            "conversation": run.get("conversation", []),
-            "created_at": run.get("created_at", ""),
-            "dag": run.get("dag"),
-            "chart_groups": None,  # loaded lazily via /runs/{id}/charts
-            "agent_io": run.get("agent_io"),
-            "events": None,  # loaded lazily via /runs/{id}/events
-            "work_dir": run.get("work_dir"),
-            "batch_id": run.get("batch_id"),
-            "user_id": run.get("user_id"),
-            "followup_sessions": run.get("followup_sessions"),
-            "_has_charts": run.get("_has_charts", False),
-            "_has_events": run.get("_has_events", False),
-        }
+        body = _persisted_run_detail(run)
+        if last_modified:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(content=body, headers={"Last-Modified": last_modified})
+        return body
 
     # Fall back to in-memory live workflow
     data = repo.get(run_id)
     if data is not None:
         if not is_admin and data.get("user_id", "default") != user.user_id:
             raise HTTPException(status_code=403, detail="Not your run")
-        workflow = data["workflow"]
-        return {
-            "run_id": run_id,
-            "workflow_name": workflow.name,
-            "agents_snapshot": data.get("agents_snapshot", []),
-            "status": data["status"],
-            "inputs": data.get("inputs", {}),
-            "result": data.get("result"),
-            "conversation": data.get("conversation", []),
-            "created_at": data.get("created_at", ""),
-            "dag": repo.get_dag(run_id),
-            "chart_groups": None,
-            "agent_io": None,
-            "events": None,
-            "work_dir": data.get("work_dir"),
-            "batch_id": data.get("batch_id"),
-            "user_id": data.get("user_id"),
-            "followup_sessions": None,
-            "_has_charts": False,
-            "_has_events": False,
-        }
+        return _live_run_detail(run_id, data, repo)
 
     raise HTTPException(status_code=404, detail="Run not found")
 
