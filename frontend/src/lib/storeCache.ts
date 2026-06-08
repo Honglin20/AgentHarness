@@ -18,8 +18,13 @@ export interface StoreCache {
   clearCache: () => void;
   /** Read a cached snapshot. Returns undefined if wid is unknown. */
   getCacheForWid: (wid: string) => CacheEntry | undefined;
-  /** Ensure a snapshot exists for wid (inserting an empty/default if missing),
-   *  or overwrite it with an explicit snap. Returns the (now-existing) snapshot. */
+  /**
+   * Ensure a cache entry exists for `wid`.
+   * - If no entry exists: insert `snap` (or `makeEmptySnapshot()` if `snap` is undefined).
+   * - If an entry exists and `snap` is provided: replace it with `snap`.
+   * - If an entry exists and `snap` is undefined: return the existing entry unchanged.
+   * Always returns the (now-existing) snapshot.
+   */
   setCacheForWid: (wid: string, snap?: CacheEntry) => CacheEntry;
 }
 
