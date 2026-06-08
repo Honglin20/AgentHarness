@@ -156,15 +156,19 @@ class ConnectionManager:
                 self._user_connections[ws_user_id] = []
             self._user_connections[ws_user_id].append(sub_id)
 
-        # Start background task to forward events (filtered by user)
+        # Start background task to forward events (filtered by user).
+        # Register the task SYNCHRONOUSLY before any await — otherwise a
+        # disconnect() racing in between create_task() and the assignment
+        # below would not find the task in self._tasks and would fail to
+        # cancel it, leaking an orphan task that keeps trying to send on a
+        # closed WebSocket.
         task = asyncio.create_task(
             self._forward_events_filtered(
                 sub_id, queue, websocket, ws_user_id,
                 filter_by_user=filter_by_user,
             )
         )
-        async with self._lock:
-            self._tasks[sub_id] = task
+        self._tasks[sub_id] = task
 
         return sub_id
 
