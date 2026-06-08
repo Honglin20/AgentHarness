@@ -8,8 +8,9 @@ interface TokenBreakdownProps {
 }
 
 /**
- * Renders a per-agent token usage table. Sub-agents (keys containing ".sub.")
- * are styled as muted. A totals row appears at the bottom.
+ * Renders a per-agent token usage table. Sub-agents (keys containing ".sub_agent",
+ * matching the backend's f"{parent_name}.sub_agent" key format) are styled as
+ * muted. A totals row appears at the bottom.
  */
 export const TokenBreakdown = React.memo(function TokenBreakdown({ breakdown }: TokenBreakdownProps) {
   const agents = Object.entries(breakdown);
@@ -41,7 +42,7 @@ export const TokenBreakdown = React.memo(function TokenBreakdown({ breakdown }: 
         </thead>
         <tbody>
           {agents.map(([name, usage]) => {
-            const isSub = name.includes(".sub.");
+            const isSub = name.includes(".sub_agent");
             return (
               <tr key={name} className={isSub ? "text-muted-foreground" : ""}>
                 <td className="font-mono">{name}</td>
