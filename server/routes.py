@@ -234,6 +234,11 @@ async def list_profiles() -> dict:
 @router.post("/profiles")
 async def save_profile(request: Request) -> dict:
     """Create or update an LLM profile."""
+    # Auth gate: require explicit X-User-Id (or X-API-Key) — don't silently
+    # act as the "default" user for unauthenticated requests.
+    if not request.headers.get("X-User-Id") and not request.headers.get("X-API-Key"):
+        raise HTTPException(status_code=401, detail="X-User-Id header required")
+
     from harness.profiles import ProfileManager
 
     body = await request.json()
@@ -471,7 +476,25 @@ async def refresh_tools(request: Request) -> dict:
 
 @router.post("/charts")
 async def chart_render(request: Request) -> dict:
-    """Receive chart payload from render_chart() HTTP fallback and emit via EventBus."""
+    """Receive chart payload from render_chart() HTTP fallback and emit via EventBus.
+
+    Auth note: this endpoint has two callers:
+      1. External (browser → frontend) — must send X-User-Id.
+      2. Internal (worker subprocess → server, via HARNESS_SERVER_URL) — has no
+         user identity, but is always localhost.
+
+    We allow localhost to bypass auth (standard pattern for internal endpoints),
+    and require X-User-Id (or X-API-Key) from any other source.
+    """
+    client_host = request.client.host if request.client else None
+    is_localhost = client_host in ("127.0.0.1", "::1", "localhost")
+    has_auth = (
+        request.headers.get("X-User-Id")
+        or request.headers.get("X-API-Key")
+    )
+    if not is_localhost and not has_auth:
+        raise HTTPException(status_code=401, detail="X-User-Id header required")
+
     body = await request.json()
     node_id = body.get("node_id", "")
     chart = body.get("chart", {})

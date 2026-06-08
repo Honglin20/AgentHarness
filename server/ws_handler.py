@@ -592,9 +592,11 @@ async def batch_websocket_endpoint(
     user_id: str | None = Query(None),
 ):
     """WebSocket endpoint for batch/benchmark runs with fan-in."""
-    await websocket.accept()
-
-    # Get or resolve user_id (priority: query > header > default)
+    # Resolve user_id (priority: query > header > default) BEFORE accepting
+    # the connection, so we can reject unauthenticated / anon clients at the
+    # protocol level. Audit fix: previously this endpoint fell back to
+    # `anon-{uuid}` and silently accepted the connection — that allowed
+    # unauthenticated clients to subscribe to batch events.
     ws_user_id = user_id
     if not ws_user_id:
         ws_user_id = websocket.query_params.get("user_id")
@@ -602,9 +604,15 @@ async def batch_websocket_endpoint(
         api_key = websocket.headers.get("x-api-key", websocket.headers.get("X-API-Key"))
         ws_user_id = get_connection_manager()._resolve_user_id(api_key)
 
-    if not ws_user_id:
-        import uuid as _uuid
-        ws_user_id = f"anon-{_uuid.uuid4().hex[:8]}"
+    if not ws_user_id or ws_user_id.startswith("anon-"):
+        # Reject before accepting: close with policy-violation (1008).
+        # Starlette requires accept() before close() in TestClient, but the
+        # real ASGI runtime supports rejecting during the handshake. Use
+        # close() directly — works for both real and test clients.
+        await websocket.close(code=1008, reason="Authentication required")
+        return
+
+    await websocket.accept()
 
     # Create fan-in for batch events
     from server.repository import get_repository
