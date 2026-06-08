@@ -2,6 +2,7 @@ import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
 import type { OutputState } from "@/stores/outputStore";
 import { createRafBatcher, type RafBatcher } from "@/lib/rafBatcher";
+import { withCache, type StoreCache, type WithCacheOptions } from "@/lib/storeCache";
 
 export function createOutputStore(
   workflowId: string,
@@ -66,34 +67,29 @@ export function createOutputStore(
 
     reset: () => set({ texts: {}, activeNodeId: null, workflowError: null }),
 
-    saveToCache: (wid) => {
-      const { texts, activeNodeId, _cache } = get();
-      _cache[wid] = { texts, activeNodeId };
-      set({ _cache });
-    },
-
-    restoreFromCache: (wid) => {
-      const snap = get()._cache[wid];
-      if (!snap) return false;
-      set({ texts: snap.texts, activeNodeId: snap.activeNodeId, _activeWid: wid });
-      return true;
-    },
-
-    setActiveWid: (wid) => {
-      const { _activeWid, _cache } = get();
-      if (_activeWid) {
-        _cache[_activeWid] = { texts: get().texts, activeNodeId: get().activeNodeId };
-      }
-      if (wid && _cache[wid]) {
-        const snap = _cache[wid];
-        set({ texts: snap.texts, activeNodeId: snap.activeNodeId, _activeWid: wid, _cache });
-      } else {
-        set({ texts: {}, activeNodeId: null, _activeWid: wid, _cache });
-      }
-    },
-
-    clearCache: () => set({ _cache: {}, _activeWid: null }),
+    saveToCache: (wid) => cache.saveToCache(wid),
+    restoreFromCache: (wid) => cache.restoreFromCache(wid),
+    setActiveWid: (wid) => cache.setActiveWid(wid),
+    clearCache: () => cache.clearCache(),
   }));
+
+  // OutputState lacks a string index signature, but withCache only relies on
+  // its internal _cache/_activeWid plumbing and casts internally — so widen the
+  // store to satisfy the Record<string, unknown> constraint without touching
+  // the typed OutputState interface. The options callbacks stay typed against
+  // OutputState for snapshot correctness.
+  const cacheOptions: WithCacheOptions<OutputState> = {
+    extractSnapshot: (s) => ({ texts: s.texts, activeNodeId: s.activeNodeId }),
+    applySnapshot: (_s, snap) => ({
+      texts: (snap.texts as Record<string, string>) ?? {},
+      activeNodeId: (snap.activeNodeId as string | null) ?? null,
+    }),
+    makeEmptySnapshot: () => ({ texts: {}, activeNodeId: null }),
+  };
+  const cache: StoreCache = withCache(
+    store as unknown as StoreApi<Record<string, unknown>>,
+    cacheOptions as unknown as WithCacheOptions<Record<string, unknown>>,
+  );
 
   // Initialize batcher with store.setState now that store exists.
   outputBatcher = createRafBatcher<string, string>(
