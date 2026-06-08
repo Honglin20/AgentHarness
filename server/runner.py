@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from fastapi import HTTPException
 from pydantic import BaseModel
 
 from server.event_bus import EventBus
@@ -115,29 +116,50 @@ class WorkflowRunner:
             user_id: User ID who initiated this run
             guidance: User guidance for interrupt resume (passed to LangGraph Command)
         """
+        # Atomic capacity check + task registration under a single lock.
+        #
+        # Previously the capacity check lived only in the route handlers,
+        # which created a TOCTOU race: two concurrent requests could both
+        # read `running_count < max_concurrent`, both pass, and both
+        # register — over-subscribing the runner. The check-in-route is
+        # now defense in depth; the authoritative gate lives here, in the
+        # same lock scope as the `_running` mutation, so the check and the
+        # registration cannot be interleaved by another coroutine.
         async with self._lock:
             if workflow_id in self._running:
                 raise RuntimeError(f"Workflow {workflow_id} is already running")
 
+            if len(self._running) >= self.max_concurrent:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Max {self.max_concurrent} concurrent workflows. "
+                        "Wait for one to finish."
+                    ),
+                )
+
             if workflow_id in self._cancelled:
                 self._cancelled.remove(workflow_id)
 
-        # Create background task
-        task = asyncio.create_task(
-            self._run_workflow(
-                workflow_id=workflow_id,
-                workflow=workflow,
-                inputs=inputs,
-                event_bus=event_bus,
-                config=config,
-                resume=resume,
-                work_dir=work_dir,
-                user_id=user_id,
-                guidance=guidance,
+            # Create the background task while still holding the lock so the
+            # capacity count is authoritative by the time we release it.
+            # `asyncio.create_task` only *schedules* the coroutine — it does
+            # not start running synchronously, so `_run_workflow`'s own
+            # `async with self._semaphore` (and any lock acquisitions) cannot
+            # deadlock against us here.
+            task = asyncio.create_task(
+                self._run_workflow(
+                    workflow_id=workflow_id,
+                    workflow=workflow,
+                    inputs=inputs,
+                    event_bus=event_bus,
+                    config=config,
+                    resume=resume,
+                    work_dir=work_dir,
+                    user_id=user_id,
+                    guidance=guidance,
+                )
             )
-        )
-
-        async with self._lock:
             self._running[workflow_id] = task
 
     async def cancel(self, workflow_id: str) -> bool:
