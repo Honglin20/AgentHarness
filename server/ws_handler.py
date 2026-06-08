@@ -102,7 +102,11 @@ class ConnectionManager:
         self._tasks: dict[str, "asyncio.Task"] = {}   # sub_id -> forward task
         self._user_connections: dict[str, list[str]] = {}  # user_id -> [sub_ids]
         self._sub_to_user: dict[str, str] = {}  # sub_id -> user_id
-        self._lock = None
+        # Lock is created eagerly so disconnect() can always clean up,
+        # even if called without a prior connect() (e.g. test harness or
+        # a race where the connection handshake never completed).
+        from asyncio import Lock
+        self._lock = Lock()
 
     async def connect(
         self,
@@ -143,11 +147,6 @@ class ConnectionManager:
         # Subscribe to EventBus
         sub_id, queue = await event_bus.subscribe(since_seq=since_seq)
 
-        # Store connection by user
-        if self._lock is None:
-            from asyncio import Lock
-            self._lock = Lock()
-
         async with self._lock:
             self._connections[sub_id] = websocket
             self._sub_to_user[sub_id] = ws_user_id
@@ -170,10 +169,11 @@ class ConnectionManager:
         return sub_id
 
     async def disconnect(self, sub_id: str, event_bus: EventBus) -> None:
-        """Disconnect a WebSocket and unsubscribe from EventBus."""
-        if self._lock is None:
-            return
+        """Disconnect a WebSocket and unsubscribe from EventBus.
 
+        Cancels any background forward task so it does not leak past the
+        connection lifetime.
+        """
         async with self._lock:
             if sub_id in self._connections:
                 ws_user_id = self._sub_to_user.get(sub_id, "default")
@@ -189,9 +189,23 @@ class ConnectionManager:
                         )
                 del self._connections[sub_id]
                 del self._sub_to_user[sub_id]
+            # Pop + cancel the forward task. Popping alone leaks the task;
+            # it keeps running in the background after the WS is gone.
             task = self._tasks.pop(sub_id, None)
 
         await event_bus.unsubscribe(sub_id)
+
+        if task is not None and not task.done():
+            task.cancel()
+            # Swallow CancelledError so disconnect() never raises to the
+            # caller (the `finally:` block in websocket_endpoint) — the
+            # task owns the cancellation, not the disconnect path.
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.debug("Forward task for %s raised on cancel", sub_id, exc_info=True)
 
     async def _forward_events_filtered(
         self,
