@@ -259,6 +259,9 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
         status: "success",
         durationMs: p.duration_ms,
         tokenUsage: p.token_usage,
+        tokenBreakdown: p.token_breakdown,
+        costUsd: p.cost_usd,
+        ttftMs: p.ttft_ms,
       };
     } else {
       // NodeStartedPayload
