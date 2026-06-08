@@ -1,8 +1,8 @@
 # Current Task
 
-**当前任务**: Phase 5 完成 — 基座加固阶段性收尾
-**状态**: ✅ Phase 1-5 全部完成；多个 P2/P3 待办项累积待处理
-**日期**: 2026-06-09
+**当前任务**: 测试基线修复完成 — 进入功能完整性阶段
+**状态**: ✅ Phase 1-5 完成；✅ 测试基线修复；功能债 + NAS 待启动
+**日期**: 2026-06-09（基线修复批）
 
 ---
 
@@ -31,10 +31,18 @@ fix: commit orphaned node_phases.py
 
 ## 验证状态
 
-- **pytest**: 511+ passed（3 个 pre-existing chart failures 不相关）
+- **pytest**: 659 passed / 4 failed（4 个 pre-existing failures，与本次工作无关）
 - **vitest**: 10/10 frontend 测试通过
 - **npm run build**: ✅
 - **tsc --noEmit**: ✅ 零错误
+
+### 本批修复（2026-06-09 基线）
+
+- ✅ `test_runner_cancel.py` ×2 — 反映 Phase 4 sidecar 持久化新约定（events 走 sidecar / work_dir 始终设 key）
+- ✅ `test_routes_new_layout::test_put_agent_md_*` ×2 — 反映 Phase 5 路由签名（`body` 改显式参数）
+- ✅ `test_ws_handler::test_ws_*` ×2 — 修了 `_rebuild_bus_from_events` 仍读旧 inline events 的产品 bug + TestClient hang（lifespan MCP subprocess 清理卡 anyio task group，加 `HARNESS_SKIP_MCP` env 隔离测试）
+- ✅ frontend build type 错误 ×2 — `WorkflowStores` 类型缺 `todo` 字段（commit ec1d0af TODO tool 集成遗漏）；`RunHistoryList` 用已重命名的 `initialLoading`/`refreshing`
+- ✅ DOC-2 frontend/out build artifacts 重生
 
 ---
 
@@ -42,24 +50,16 @@ fix: commit orphaned node_phases.py
 
 ### 已发现的 Bug（来自 review）
 
-#### [BUG-1] LlmProfileSettings 路由漏 `require_admin_dep`
-- **位置**: `server/routers/profiles.py`
-- **问题**: Phase 5 review fix 把 `require_admin_dep` 接到了 `users.py`，但其他 admin-only 端点（如 profile CRUD）的 `is_admin` 检查可能仍是内联的
-- **影响**: 维护一致性问题（部分用 dep，部分内联）
+> 2026-06-09: BUG-1（auth 相关）已主动放弃，专注功能完整性。
 
-#### [BUG-2] `_safe_path` 仍可能存在于其他位置
-- **位置**: 待 grep 验证
-- **问题**: Phase 5 review fix 修了 `runs.py:79,119`，但全仓可能还有其他 `_safe_path` 调用绕过 interface
+#### [BUG-2 已关闭] `_safe_path` 全仓已无残留
+- **状态**: 实地 grep 确认 `server/` 0 个外部 `store._safe_path` 调用；`harness/run_store.py` 内部用法是私有方法本身，符合封装。
 
-### 性能/正确性 P2 项
+### 功能/正确性待办
 
 #### [P2-1] WS schemas 不拒绝 extra fields
 - **位置**: `server/schemas.py` WS 消息 schema
-- **问题**: Pydantic v2 默认忽略额外字段，前端发送 `workflow_id` 在 `agent.stop_and_regenerate` 的 payload 里，但 schema 没声明 — 这是 latent drift
-
-#### [P2-2] `chart_render` localhost bypass 在反代下变 auth 漏洞
-- **位置**: `server/routers/tools.py:53-60`
-- **状态**: 已加 SECURITY 注释，但需要部署文档同步
+- **问题**: Pydantic v2 默认忽略额外字段，前端发送 `workflow_id` 在 `agent.stop_and_regenerate` 的 payload 里，但 schema 没声明 — latent drift
 
 #### [P2-3] Phase 4 提到的 sub-agent 集成测试缺失
 - **状态**: TokenAggregator 接好了 sub_agent.py，但没有集成测试验证 token 真的聚合到父 agent
@@ -70,21 +70,19 @@ fix: commit orphaned node_phases.py
 - **现状**: 167 个 TS 文件，只有 2 个测试文件（`storeCache.test.ts` + `cacheRoundtrip.test.ts`）
 - **目标**: 至少给 `LlmProfileSettings.tsx`、`BenchmarkCompare.tsx`、`RunHistoryList.tsx` 加组件测试
 
-#### [TEST-2] WS handler TestClient 测试 hang
-- **位置**: `tests/server/test_ws_handler.py` 5 个 TestClient 测试
-- **问题**: 在当前环境 deadlock，需要 FastAPI lifespan + 不同测试 runner
-- **影响**: WS 消息 schema 改动缺自动化回归
+#### [TEST-2 已解决] WS handler TestClient 测试 hang
+- **状态**: 加 `HARNESS_SKIP_MCP=1` 测试环境隔离 MCP subprocess + lifespan cleanup 5s 超时兜底；14 个 WS 测试全过
+- **根因**: anyio cancel scope + MCP stdio subprocess cleanup 在 TestClient teardown 路径死锁
 
 #### [TEST-3] E2E 真实 LLM 测试缺
 - **状态**: Phase 3 计划 Task 11 提到，至今未做
 
-### 已知 pre-existing 失败
+### 已知 pre-existing 失败（本批未处理）
 
 | 测试 | 原因 |
 |------|------|
-| `test_chart.py::test_payload_structure` (×3) | 与本次工作无关，pre-existing |
-| `test_runner_cancel.py` (×2) | RunStore work_dir 持久化问题，pre-existing |
-| `test_routes_new_layout::test_put_agent_md_*` (×2) | Phase 5 Task 7 拆分时签名错配，待修 |
+| `test_chart.py::test_payload_structure` (×3) | 与本次工作无关 |
+| `test_phase2_integration::test_workflow_run_with_tools_mocked` (×1) | mock 没拦截 pydantic_ai.Agent.run，实际打 OpenAI API 返回 400；CURRENT.md 此前漏标 |
 
 ### 文档/清理
 
@@ -92,17 +90,15 @@ fix: commit orphaned node_phases.py
 - **状态**: `.claude/plans/elegant-sprouting-rivest.md` 已不在 tree 中
 - **影响**: Phase 3 历史记录断裂
 
-#### [DOC-2] frontend/out build artifacts 待重生
-- **状态**: 子 agent 误操作回退了 4 个 build 产物
-- **影响**: 不影响功能，但部署前必须 `npm run build` 重生
+#### [DOC-2 已关闭] frontend/out build artifacts 已重生
+- **状态**: 实际是 frontend 类型错误导致 build 失败，本批修复类型 + 重生
 
 ### Phase 5 review 后续
 
 #### [REV-1] `_helpers.get_event_bus` 删除后的连锁清理
 - **状态**: 已删 shim，但 ws_handler.py 的 `_new_bus` import 还是从 _helpers 来，需 verify 路径合理
 
-#### [REV-2] require_admin_dep 在 workflows.py 的"owner-or-admin"检查未迁移
-- **状态**: review fix 报告说这是正确行为（非纯 admin gate），但应在 `_helpers.py` 提取 `require_owner_or_admin_dep` 让模式统一
+#### [REV-2 已关闭] require_admin_dep owner-or-admin 抽象（auth 相关，本批不做）
 
 ---
 

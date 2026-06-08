@@ -69,8 +69,9 @@ def test_cancel_preserves_events(tmp_path):
         ],
     )
 
-    # Simulate cancel: read existing, save as paused
+    # Simulate cancel: read existing record + events sidecar, save as paused
     existing = store.get_run(run_id)
+    persisted_events = store.get_events(run_id)
     store.save(
         run_id=run_id,
         workflow_name="test_wf",
@@ -78,13 +79,16 @@ def test_cancel_preserves_events(tmp_path):
         status="paused",
         inputs=existing.get("inputs", {}),
         result=existing.get("result"),
-        events=existing.get("events"),
+        events=persisted_events,
     )
 
     paused = store.get_run(run_id)
     assert paused["status"] == "paused"
-    assert len(paused["events"]) == 2
-    assert paused["events"][0]["type"] == "node.started"
+    # Events live in a sidecar file since Phase 4 (main record only has _has_events flag).
+    assert paused.get("_has_events") is True
+    reloaded_events = store.get_events(run_id)
+    assert len(reloaded_events) == 2
+    assert reloaded_events[0]["type"] == "node.started"
 
 
 def test_run_store_persists_work_dir(tmp_path):
@@ -107,7 +111,8 @@ def test_run_store_persists_work_dir(tmp_path):
 
 
 def test_run_store_work_dir_none_not_persisted(tmp_path):
-    """When work_dir is None, it should not appear in the record."""
+    """When work_dir is None, the record holds None (Phase 4: key always present
+    so frontend can rely on the shape; value None means 'no work_dir')."""
     from harness.run_store import RunStore
 
     store = RunStore(runs_dir=tmp_path / "runs")
@@ -121,4 +126,4 @@ def test_run_store_work_dir_none_not_persisted(tmp_path):
     )
 
     record = store.get_run("test-no-workdir")
-    assert "work_dir" not in record
+    assert record.get("work_dir") is None

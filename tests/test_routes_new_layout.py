@@ -111,17 +111,14 @@ async def test_put_agent_md_target_private(tmp_path, monkeypatch):
     monkeypatch.setattr(agents_router, "_SHARED_AGENTS_DIR", shared)
     monkeypatch.setattr(routes, "_SHARED_AGENTS_DIR", shared)
 
-    class FakeRequest:
-        headers = {}
+    from server.schemas import UpdateAgentMdRequest
 
-        async def json(self):
-            return {
-                "workflow": "demo",
-                "target": "private",
-                "md_content": "---\nname: writer\n---\nbody",
-            }
-
-    result = await routes.update_agent_md(name="writer", request=FakeRequest())
+    body = UpdateAgentMdRequest(
+        workflow="demo",
+        target="private",
+        md_content="---\nname: writer\n---\nbody",
+    )
+    result = await routes.update_agent_md(name="writer", body=body, request=_make_fake_request())
     assert result["status"] == "ok"
     assert (wf_dir / "agents" / "writer.md").exists()
 
@@ -146,17 +143,14 @@ async def test_put_agent_md_target_shared(tmp_path, monkeypatch):
     monkeypatch.setattr(agents_router, "_SHARED_AGENTS_DIR", shared)
     monkeypatch.setattr(routes, "_SHARED_AGENTS_DIR", shared)
 
-    class FakeRequest:
-        headers = {}
+    from server.schemas import UpdateAgentMdRequest
 
-        async def json(self):
-            return {
-                "workflow": "demo",
-                "target": "shared",
-                "md_content": "---\nname: helper\n---\nbody",
-            }
-
-    result = await routes.update_agent_md(name="helper", request=FakeRequest())
+    body = UpdateAgentMdRequest(
+        workflow="demo",
+        target="shared",
+        md_content="---\nname: helper\n---\nbody",
+    )
+    result = await routes.update_agent_md(name="helper", body=body, request=_make_fake_request())
     assert result["status"] == "ok"
     assert (shared / "helper.md").exists()
 

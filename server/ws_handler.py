@@ -314,16 +314,24 @@ def get_connection_manager() -> ConnectionManager:
 def _rebuild_bus_from_events(workflow_id: str):
     """Reconstruct a read-only Bus from persisted events for completed runs.
 
-    Returns None if no events file exists or events list is empty.
+    Returns None if no events sidecar exists or events list is empty.
+
+    Phase 4+ storage layout: main record holds only `_has_events` flag;
+    actual events live in the {run_id}+events.json sidecar. Reading
+    `run["events"]` directly returns None and silently breaks replay.
     """
     from harness.run_store import RunStore
-    run = RunStore().get_run(workflow_id)
-    if not run or not run.get("events"):
+    store = RunStore()
+    run = store.get_run(workflow_id)
+    if not run or not run.get("_has_events"):
+        return None
+
+    events = store.get_events(workflow_id)
+    if not events:
         return None
 
     from harness.extensions.bus import Bus
     bus = Bus()
-    events = run["events"]
     max_seq = 0
     for event in events:
         seq = event.get("seq", 0)

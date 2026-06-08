@@ -170,14 +170,13 @@ const RunHistoryItem = React.memo(function RunHistoryItem({
 
 export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => void }) {
   const {
-    runs, initialLoading, refreshing, selectedRunId, fetchRuns, fetchRun, selectRun,
+    runs, selectedRunId, fetchRuns, fetchRun, selectRun,
     isSelectMode, selectedRunIds, toggleSelectMode, toggleRunSelection,
-    clearSelection, hasMore,
+    clearSelection, hasMore, loading,
   } = useRunHistoryStore(
     useShallow((s) => ({
       runs: s.runs,
-      initialLoading: s.initialLoading,
-      refreshing: s.refreshing,
+      loading: s.loading,
       selectedRunId: s.selectedRunId,
       fetchRuns: s.fetchRuns,
       fetchRun: s.fetchRun,
@@ -367,6 +366,9 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
     toggleSelectMode();
     await fetchRuns();
   };
+
+  const initialLoading = loading && runs.length === 0;
+  const refreshing = loading;
 
   if (initialLoading) {
     return <RunHistorySkeleton />;

@@ -52,15 +52,22 @@ async def lifespan(app: FastAPI):
     app.state.event_bus = bus
     app.state.runner = runner
 
-    # Build tool catalog (built-in + MCP filesystem + MCP codegraph)
+    # Build tool catalog (built-in + MCP filesystem + MCP codegraph).
+    # Test isolation: setting HARNESS_SKIP_MCP=1 skips MCP startup so unit
+    # tests don't spawn subprocesses whose anyio cleanup path can hang the
+    # TestClient teardown on certain anyio/MCP combinations. Production
+    # leaves the env var unset and gets the full catalog.
     from harness.tools.catalog import ToolCatalogService
     catalog = ToolCatalogService()
-    try:
-        await catalog.refresh(workdir=".")
-        n = len(catalog.get_catalog())
-        print(f"  Tool catalog:     {n} tools loaded")
-    except Exception as e:
-        print(f"  Tool catalog:     failed ({e})")
+    if os.environ.get("HARNESS_SKIP_MCP") == "1":
+        print("  Tool catalog:     skipped (HARNESS_SKIP_MCP=1)")
+    else:
+        try:
+            await catalog.refresh(workdir=".")
+            n = len(catalog.get_catalog())
+            print(f"  Tool catalog:     {n} tools loaded")
+        except Exception as e:
+            print(f"  Tool catalog:     failed ({e})")
     app.state.tool_catalog = catalog
 
     # Parse and cache domain/tutorial data
@@ -94,8 +101,20 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Cleanup tool catalog MCP connections
-    await catalog.cleanup()
+    # Cleanup tool catalog MCP connections.
+    # Best-effort with a hard timeout: MCP subprocesses can hang in anyio's
+    # task-group exit path on certain Python/anyio combinations. Bounding
+    # the wait keeps the server (and TestClient) shutdown responsive.
+    if os.environ.get("HARNESS_SKIP_MCP") == "1":
+        # No subprocesses were started; nothing to clean.
+        return
+    import asyncio as _asyncio
+    try:
+        await _asyncio.wait_for(catalog.cleanup(), timeout=5.0)
+    except _asyncio.TimeoutError:
+        print("  Tool catalog: cleanup timeout (subprocesses may linger)")
+    except Exception:
+        logger.warning("Tool catalog cleanup failed", exc_info=True)
 
 
 class HttpOnlyStaticFiles(StaticFiles):
