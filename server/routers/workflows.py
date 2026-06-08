@@ -3,7 +3,7 @@ import shutil
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from harness.api import Workflow
 from harness.user_manager import get_current_user, get_user_manager
@@ -12,7 +12,12 @@ from server._helpers import (
     _create_and_start_workflow,
     _get_bus_for_workflow,
 )
-from server.repository import get_repository
+from server.dependencies import (
+    get_repository_dep,
+    get_runner_dep,
+)
+from server.repository import WorkflowRepository
+from server.runner import WorkflowRunner
 from server.schemas import (
     CreateBatchRequest,
     CreateBatchResponse,
@@ -71,13 +76,11 @@ async def delete_workflow_definition(name: str, request: Request) -> dict:
 async def create_workflow(
     request_obj: CreateWorkflowRequest,
     request: Request,
+    runner: WorkflowRunner = Depends(get_runner_dep),
 ) -> CreateWorkflowResponse:
     """Create and start a single workflow."""
-    from server.runner import get_runner
-
     user = get_current_user(request)
 
-    runner = get_runner()
     if runner.running_count >= runner.max_concurrent:
         raise HTTPException(status_code=409, detail=f"Max {runner.max_concurrent} concurrent workflows. Wait for one to finish.")
 
@@ -98,6 +101,8 @@ async def create_workflow(
 async def create_batch(
     request_obj: CreateBatchRequest,
     request: Request,
+    runner: WorkflowRunner = Depends(get_runner_dep),
+    repo: WorkflowRepository = Depends(get_repository_dep),
 ) -> CreateBatchResponse:
     """Create and start a batch of workflow runs with different inputs.
 
@@ -106,9 +111,6 @@ async def create_batch(
     Each run gets its own isolated Bus.
     """
     user = get_current_user(request)
-
-    from server.runner import get_runner
-    runner = get_runner()
 
     if not request_obj.workflow:
         raise HTTPException(status_code=400, detail="workflow is required")
@@ -135,7 +137,6 @@ async def create_batch(
         ))
 
     # Store batch metadata
-    repo = get_repository()
     batch_meta: dict = {
         "batch_id": batch_id,
         "name": request_obj.name,
@@ -150,9 +151,12 @@ async def create_batch(
 
 
 @router.get("/batch/{batch_id}", response_model=CreateBatchResponse)
-async def get_batch_status(batch_id: str, request: Request) -> CreateBatchResponse:
+async def get_batch_status(
+    batch_id: str,
+    request: Request,
+    repo: WorkflowRepository = Depends(get_repository_dep),
+) -> CreateBatchResponse:
     """Get the status of all runs in a batch."""
-    repo = get_repository()
     batch = repo.get_batch(batch_id)
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
@@ -197,12 +201,16 @@ async def get_batch_status(batch_id: str, request: Request) -> CreateBatchRespon
 
 
 @router.get("/workflows/{workflow_id}", response_model=WorkflowStatusResponse)
-async def get_workflow(workflow_id: str, request: Request) -> WorkflowStatusResponse:
+async def get_workflow(
+    workflow_id: str,
+    request: Request,
+    repo: WorkflowRepository = Depends(get_repository_dep),
+) -> WorkflowStatusResponse:
     """Get workflow status and result."""
-    if not get_repository().contains(workflow_id):
+    if not repo.contains(workflow_id):
         raise HTTPException(status_code=404, detail="Workflow not found")
 
-    data = get_repository().get(workflow_id)
+    data = repo.get(workflow_id)
     user = get_current_user(request)
     if not get_user_manager().is_admin(user):
         owner = data.get("user_id", "default")
@@ -218,9 +226,13 @@ async def get_workflow(workflow_id: str, request: Request) -> WorkflowStatusResp
 
 
 @router.post("/workflows/{workflow_id}/cancel")
-async def cancel_workflow(workflow_id: str, request: Request) -> dict:
+async def cancel_workflow(
+    workflow_id: str,
+    request: Request,
+    repo: WorkflowRepository = Depends(get_repository_dep),
+    runner: WorkflowRunner = Depends(get_runner_dep),
+) -> dict:
     """Pause a running workflow. Status becomes 'paused' and can be resumed."""
-    repo = get_repository()
     if not repo.contains(workflow_id):
         raise HTTPException(status_code=404, detail="Workflow not found")
 
@@ -230,9 +242,6 @@ async def cancel_workflow(workflow_id: str, request: Request) -> dict:
     is_admin = user_mgr.is_admin(user)
     if not is_admin and data.get("user_id", "default") != user.user_id:
         raise HTTPException(status_code=403, detail="Not your workflow")
-
-    from server.runner import get_runner
-    runner = get_runner()
 
     paused = await runner.cancel(workflow_id)
 
@@ -249,9 +258,13 @@ async def cancel_workflow(workflow_id: str, request: Request) -> dict:
 
 
 @router.get("/workflows/{workflow_id}/dag")
-async def get_workflow_dag(workflow_id: str, request: Request) -> dict:
+async def get_workflow_dag(
+    workflow_id: str,
+    request: Request,
+    repo: WorkflowRepository = Depends(get_repository_dep),
+) -> dict:
     """Get DAG structure for React Flow."""
-    dag = get_repository().get_dag(workflow_id)
+    dag = repo.get_dag(workflow_id)
     if dag is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
@@ -260,9 +273,12 @@ async def get_workflow_dag(workflow_id: str, request: Request) -> dict:
 
 
 @router.get("/workflows/{workflow_id}/trace")
-async def get_workflow_trace(workflow_id: str, request: Request) -> dict:
+async def get_workflow_trace(
+    workflow_id: str,
+    request: Request,
+    repo: WorkflowRepository = Depends(get_repository_dep),
+) -> dict:
     """Get execution trace."""
-    repo = get_repository()
     if not repo.contains(workflow_id):
         raise HTTPException(status_code=404, detail="Workflow not found")
 

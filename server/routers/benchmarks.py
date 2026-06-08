@@ -2,7 +2,7 @@
 import json
 import uuid
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from harness.user_manager import get_current_user, get_user_manager
 from server._helpers import (
@@ -12,7 +12,8 @@ from server._helpers import (
     _get_benchmark_store,
     _validate_workflow_dir,
 )
-from server.repository import get_repository
+from server.dependencies import get_repository_dep
+from server.repository import WorkflowRepository
 from server.schemas import (
     AgentDef,
     BenchmarkDef,
@@ -80,6 +81,7 @@ async def run_benchmark(
     name: str,
     body: RunBenchmarkRequest,
     request: Request,
+    repo: WorkflowRepository = Depends(get_repository_dep),
 ) -> BenchmarkRunSummary:
     """Run a benchmark with a specific workflow.
 
@@ -134,7 +136,6 @@ async def run_benchmark(
         ))
 
     # Store batch metadata
-    repo = get_repository()
     batch_meta: dict = {
         "batch_id": batch_id,
         "name": name,
@@ -186,7 +187,11 @@ async def run_benchmark(
 
 
 @router.get("/benchmarks/{name}/results")
-async def list_benchmark_results(name: str, request: Request) -> list[dict]:
+async def list_benchmark_results(
+    name: str,
+    request: Request,
+    repo: WorkflowRepository = Depends(get_repository_dep),
+) -> list[dict]:
     """List all run results for a benchmark, enriched with live scores."""
     store = _get_benchmark_store()
     bm = store.load_benchmark(name)
@@ -203,7 +208,6 @@ async def list_benchmark_results(name: str, request: Request) -> list[dict]:
     historical = store.list_results(name)
     from harness.scoring.efficiency import EfficiencyScorer
     baseline = EfficiencyScorer.compute_baseline(historical)
-    repo = get_repository()
     for result in results:
         _enrich_benchmark_result(result, repo, store, name, scoring_config, baseline)
 
@@ -211,7 +215,12 @@ async def list_benchmark_results(name: str, request: Request) -> list[dict]:
 
 
 @router.get("/benchmarks/{name}/results/{run_id}")
-async def get_benchmark_result(name: str, run_id: str, request: Request) -> dict:
+async def get_benchmark_result(
+    name: str,
+    run_id: str,
+    request: Request,
+    repo: WorkflowRepository = Depends(get_repository_dep),
+) -> dict:
     """Get a specific benchmark run result with aggregated scores."""
     store = _get_benchmark_store()
     bm = store.load_benchmark(name)
@@ -226,7 +235,6 @@ async def get_benchmark_result(name: str, run_id: str, request: Request) -> dict
     historical = store.list_results(name)
     from harness.scoring.efficiency import EfficiencyScorer
     baseline = EfficiencyScorer.compute_baseline(historical)
-    repo = get_repository()
     _enrich_benchmark_result(result, repo, store, name, scoring_config, baseline)
 
     return result
@@ -237,6 +245,7 @@ async def benchmark_regression(
     name: str,
     baseline_run: str | None = None,
     request: Request = None,
+    repo: WorkflowRepository = Depends(get_repository_dep),
 ) -> dict:
     """Compare latest benchmark run against a baseline for regressions.
 
@@ -270,7 +279,6 @@ async def benchmark_regression(
     all_results = store.list_results(name)
     from harness.scoring.efficiency import EfficiencyScorer
     baseline = EfficiencyScorer.compute_baseline(all_results)
-    repo = get_repository()
     _enrich_benchmark_result(current_result, repo, store, name, scoring_config, baseline)
     _enrich_benchmark_result(baseline_result, repo, store, name, scoring_config, baseline)
 
@@ -294,6 +302,7 @@ async def judge_benchmark_run(
     name: str,
     run_id: str,
     request: Request,
+    repo: WorkflowRepository = Depends(get_repository_dep),
 ) -> dict:
     """Run LLM-as-Judge on a specific benchmark run.
 
@@ -319,7 +328,6 @@ async def judge_benchmark_run(
     if result.get("status") == "running":
         raise HTTPException(status_code=409, detail="Benchmark is still running. Wait for it to complete.")
 
-    repo = get_repository()
     judged_tasks = []
 
     for tr in result.get("task_results", []):

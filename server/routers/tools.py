@@ -1,8 +1,13 @@
 """Tool catalog endpoints."""
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from harness.extensions.bus import Bus
 from server._helpers import get_event_bus
-from server.repository import get_repository
+from server.dependencies import (
+    get_event_bus_dep,
+    get_repository_dep,
+)
+from server.repository import WorkflowRepository
 from server.schemas import ChartRenderRequest
 
 router = APIRouter()
@@ -29,7 +34,12 @@ async def refresh_tools(request: Request) -> dict:
 
 
 @router.post("/charts")
-async def chart_render(body: ChartRenderRequest, request: Request) -> dict:
+async def chart_render(
+    body: ChartRenderRequest,
+    request: Request,
+    repo: WorkflowRepository = Depends(get_repository_dep),
+    event_bus: Bus = Depends(get_event_bus_dep),
+) -> dict:
     """Receive chart payload from render_chart() HTTP fallback and emit via EventBus.
 
     Auth note: this endpoint has two callers:
@@ -52,7 +62,6 @@ async def chart_render(body: ChartRenderRequest, request: Request) -> dict:
     node_id = body.node_id
     chart = body.chart
 
-    repo = get_repository()
     event_payload = {
         "node_id": node_id,
         "agent_name": node_id,
@@ -65,21 +74,21 @@ async def chart_render(body: ChartRenderRequest, request: Request) -> dict:
         if workflow and node_id:
             # Check if this node_id matches any agent in this workflow
             if any(a.name == node_id for a in workflow.agents):
-                event_bus = data.get("event_bus")
-                if event_bus:
-                    event_bus.emit("chart.render", event_payload)
+                wf_bus = data.get("event_bus")
+                if wf_bus:
+                    wf_bus.emit("chart.render", event_payload)
                     return {"status": "ok"}
 
     # If node_id is empty or no specific match, try the active (last-started) running workflow
     running = list(repo.all_running())
     if running:
         _wid, data = running[-1]
-        event_bus = data.get("event_bus")
-        if event_bus:
-            event_bus.emit("chart.render", event_payload)
+        wf_bus = data.get("event_bus")
+        if wf_bus:
+            wf_bus.emit("chart.render", event_payload)
             return {"status": "ok"}
 
     # Fallback: emit on global bus for backwards compat
-    get_event_bus().emit("chart.render", event_payload)
+    event_bus.emit("chart.render", event_payload)
 
     return {"status": "ok"}

@@ -2,9 +2,10 @@
 import time
 import uuid
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from harness.api import Agent, Workflow
+from harness.run_store import RunStore
 from harness.tools.registry import ToolRegistry
 from harness.user_manager import get_current_user, get_user_manager
 from server._helpers import (
@@ -13,7 +14,13 @@ from server._helpers import (
     _reconstruct_run_to_repo,
     _validate_workflow_dir,
 )
-from server.repository import get_repository
+from server.dependencies import (
+    get_repository_dep,
+    get_runner_dep,
+    get_run_store_dep,
+)
+from server.repository import WorkflowRepository
+from server.runner import WorkflowRunner
 from server.schemas import (
     BatchDeleteRunsRequest,
     CheckpointInfo,
@@ -28,15 +35,17 @@ from server.schemas import (
 router = APIRouter()
 
 
-def _load_run_for_user(run_id: str, request: Request):
-    """Common loader: returns (store, run, user, is_admin). Raises 404/403."""
-    from harness.run_store import RunStore
+def _load_run_for_user(run_id: str, request: Request, store: RunStore):
+    """Common loader: returns (store, run, user, is_admin). Raises 404/403.
 
+    NOTE: helper takes the store as a parameter because it is called from
+    FastAPI handlers. The handler receives the store via Depends() and
+    passes it down. Helpers cannot use Depends() themselves.
+    """
     user = get_current_user(request)
     user_mgr = get_user_manager()
     is_admin = user_mgr.is_admin(user)
 
-    store = RunStore()
     run = store.get_run(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -46,15 +55,16 @@ def _load_run_for_user(run_id: str, request: Request):
 
 
 @router.delete("/runs/{run_id}")
-async def delete_run(run_id: str, request: Request) -> dict:
+async def delete_run(
+    run_id: str, request: Request,
+    store: RunStore = Depends(get_run_store_dep),
+    repo: WorkflowRepository = Depends(get_repository_dep),
+) -> dict:
     """Delete a persisted run record. Only the run owner or admin can delete."""
-    from harness.run_store import RunStore
-
     user = get_current_user(request)
     user_mgr = get_user_manager()
     is_admin = user_mgr.is_admin(user)
 
-    store = RunStore()
     run = store.get_run(run_id)
 
     # Check if run belongs to user (or admin)
@@ -62,7 +72,6 @@ async def delete_run(run_id: str, request: Request) -> dict:
         raise HTTPException(status_code=403, detail="Not your run")
 
     # Also check in-memory runs
-    repo = get_repository()
     data = repo.get(run_id)
     if data and not is_admin and data.get("user_id", "default") != user.user_id:
         raise HTTPException(status_code=403, detail="Not your run")
@@ -76,10 +85,12 @@ async def delete_run(run_id: str, request: Request) -> dict:
 
 
 @router.post("/runs/batch-delete")
-async def batch_delete_runs(body: BatchDeleteRunsRequest, request: Request) -> dict:
+async def batch_delete_runs(
+    body: BatchDeleteRunsRequest, request: Request,
+    store: RunStore = Depends(get_run_store_dep),
+    repo: WorkflowRepository = Depends(get_repository_dep),
+) -> dict:
     """Delete multiple persisted run records. Owner/admin only. Running runs skipped."""
-    from harness.run_store import RunStore
-
     run_ids = body.run_ids
     if not run_ids:
         return {"status": "ok", "deleted": [], "errors": []}
@@ -90,8 +101,6 @@ async def batch_delete_runs(body: BatchDeleteRunsRequest, request: Request) -> d
     user_mgr = get_user_manager()
     is_admin = user_mgr.is_admin(user)
 
-    store = RunStore()
-    repo = get_repository()
     deleted: list[str] = []
     errors: list[str] = []
 
@@ -119,18 +128,23 @@ async def batch_delete_runs(body: BatchDeleteRunsRequest, request: Request) -> d
 
 
 @router.get("/runs")
-async def list_runs(request: Request, workflow_name: str | None = None, limit: int | None = None, offset: int = 0):
+async def list_runs(
+    request: Request,
+    workflow_name: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+    store: RunStore = Depends(get_run_store_dep),
+    repo: WorkflowRepository = Depends(get_repository_dep),
+):
     """List persisted runs (summary only), merged with currently-running in-memory workflows.
 
     Only returns runs for the current user (admin sees all).
     """
-    from harness.run_store import RunStore
-
     user = get_current_user(request)
     user_mgr = get_user_manager()
     is_admin = user_mgr.is_admin(user)
 
-    result = RunStore().list_runs(
+    result = store.list_runs(
         workflow_name=workflow_name,
         include_batch=True,
         user_id=None if is_admin else user.user_id,
@@ -144,7 +158,6 @@ async def list_runs(request: Request, workflow_name: str | None = None, limit: i
 
     # Add running in-memory workflows that aren't yet persisted
     live_records = []
-    repo = get_repository()
     for wid, data in repo.all_running():
         if wid in persisted_ids:
             continue
@@ -167,19 +180,21 @@ async def list_runs(request: Request, workflow_name: str | None = None, limit: i
 
 
 @router.get("/runs/{run_id}", response_model=RunDetail)
-async def get_run(run_id: str, request: Request) -> RunDetail:
+async def get_run(
+    run_id: str, request: Request,
+    store: RunStore = Depends(get_run_store_dep),
+    repo: WorkflowRepository = Depends(get_repository_dep),
+) -> RunDetail:
     """Get a run by id — persisted disk record or live in-memory workflow.
 
     Returns main record WITHOUT chart_groups or events (loaded lazily via
     /runs/{id}/charts and /runs/{id}/events).
     """
-    from harness.run_store import RunStore
-
     user = get_current_user(request)
     user_mgr = get_user_manager()
     is_admin = user_mgr.is_admin(user)
 
-    run = RunStore().get_run(run_id)
+    run = store.get_run(run_id)
     if run:
         if not is_admin and run.get("user_id", "default") != user.user_id:
             raise HTTPException(status_code=403, detail="Not your run")
@@ -205,7 +220,6 @@ async def get_run(run_id: str, request: Request) -> RunDetail:
         }
 
     # Fall back to in-memory live workflow
-    repo = get_repository()
     data = repo.get(run_id)
     if data is not None:
         if not is_admin and data.get("user_id", "default") != user.user_id:
@@ -236,21 +250,31 @@ async def get_run(run_id: str, request: Request) -> RunDetail:
 
 
 @router.get("/runs/{run_id}/charts")
-async def get_run_charts(run_id: str, request: Request) -> dict | None:
+async def get_run_charts(
+    run_id: str, request: Request,
+    store: RunStore = Depends(get_run_store_dep),
+) -> dict | None:
     """Load chart_groups sidecar data for a persisted run (lazy loading)."""
-    store, run, user, is_admin = _load_run_for_user(run_id, request)
+    store, run, user, is_admin = _load_run_for_user(run_id, request, store)
     return store.get_charts(run_id)
 
 
 @router.get("/runs/{run_id}/events")
-async def get_run_events(run_id: str, request: Request) -> list[dict] | None:
+async def get_run_events(
+    run_id: str, request: Request,
+    store: RunStore = Depends(get_run_store_dep),
+) -> list[dict] | None:
     """Load events sidecar data for a persisted run (lazy loading)."""
-    store, run, user, is_admin = _load_run_for_user(run_id, request)
+    store, run, user, is_admin = _load_run_for_user(run_id, request, store)
     return store.get_events(run_id)
 
 
 @router.patch("/runs/{run_id}/conversation")
-async def update_run_conversation(run_id: str, body: UpdateRunConversationRequest, request: Request) -> dict:
+async def update_run_conversation(
+    run_id: str, body: UpdateRunConversationRequest, request: Request,
+    store: RunStore = Depends(get_run_store_dep),
+    repo: WorkflowRepository = Depends(get_repository_dep),
+) -> dict:
     """Update conversation messages for a run — persisted or in-memory."""
     conversation = body.conversation
 
@@ -259,8 +283,6 @@ async def update_run_conversation(run_id: str, body: UpdateRunConversationReques
     is_admin = user_mgr.is_admin(user)
 
     # Try persisted run first
-    from harness.run_store import RunStore
-    store = RunStore()
     run = store.get_run(run_id)
     if run:
         if not is_admin and run.get("user_id", "default") != user.user_id:
@@ -269,7 +291,6 @@ async def update_run_conversation(run_id: str, body: UpdateRunConversationReques
         return {"status": "ok"}
 
     # For in-memory running workflows, store conversation in repository
-    repo = get_repository()
     data = repo.get(run_id)
     if data is not None:
         if not is_admin and data.get("user_id", "default") != user.user_id:
@@ -281,9 +302,12 @@ async def update_run_conversation(run_id: str, body: UpdateRunConversationReques
 
 
 @router.patch("/runs/{run_id}/charts")
-async def update_run_charts(run_id: str, body: UpdateRunChartsRequest, request: Request) -> dict:
+async def update_run_charts(
+    run_id: str, body: UpdateRunChartsRequest, request: Request,
+    store: RunStore = Depends(get_run_store_dep),
+) -> dict:
     """Update chart_groups snapshot for a persisted run (so Results tab replays)."""
-    store, _run, _user, _is_admin = _load_run_for_user(run_id, request)
+    store, _run, _user, _is_admin = _load_run_for_user(run_id, request, store)
     store.save_charts(run_id, body.chart_groups)
     return {"status": "ok"}
 
@@ -292,9 +316,12 @@ async def update_run_charts(run_id: str, body: UpdateRunChartsRequest, request: 
 
 
 @router.patch("/runs/{run_id}/followup")
-async def update_run_followup(run_id: str, body: UpdateRunFollowupRequest, request: Request) -> dict:
+async def update_run_followup(
+    run_id: str, body: UpdateRunFollowupRequest, request: Request,
+    store: RunStore = Depends(get_run_store_dep),
+) -> dict:
     """Persist a follow-up session for a specific agent."""
-    store, _run, _user, _is_admin = _load_run_for_user(run_id, request)
+    store, _run, _user, _is_admin = _load_run_for_user(run_id, request, store)
 
     from datetime import datetime, timezone
     session_data = {
@@ -309,9 +336,14 @@ async def update_run_followup(run_id: str, body: UpdateRunFollowupRequest, reque
 
 
 @router.delete("/runs/{run_id}/followup/{agent_name}")
-async def delete_run_followup(run_id: str, agent_name: str, request: Request) -> dict:
+async def delete_run_followup(
+    run_id: str,
+    agent_name: str,
+    request: Request,
+    store: RunStore = Depends(get_run_store_dep),
+) -> dict:
     """Clear a follow-up session for a specific agent."""
-    store, _run, _user, _is_admin = _load_run_for_user(run_id, request)
+    store, _run, _user, _is_admin = _load_run_for_user(run_id, request, store)
 
     from harness.followup import get_followup_manager
     get_followup_manager().clear(run_id, agent_name)
@@ -320,9 +352,12 @@ async def delete_run_followup(run_id: str, agent_name: str, request: Request) ->
 
 
 @router.get("/runs/{run_id}/checkpoints", response_model=list[CheckpointInfo])
-async def list_checkpoints(run_id: str, request: Request) -> list[CheckpointInfo]:
+async def list_checkpoints(
+    run_id: str,
+    request: Request,
+    repo: WorkflowRepository = Depends(get_repository_dep),
+) -> list[CheckpointInfo]:
     """List all checkpoints for a workflow run."""
-    repo = get_repository()
     if not repo.contains(run_id):
         raise HTTPException(status_code=404, detail="Run not found")
 
@@ -355,9 +390,10 @@ async def list_checkpoints(run_id: str, request: Request) -> list[CheckpointInfo
 
 @router.post("/runs/{run_id}/resume")
 async def resume_run(
-    run_id: str,
-    body: ResumeRequest,
-    req: Request,
+    run_id: str, body: ResumeRequest, req: Request,
+    repo: WorkflowRepository = Depends(get_repository_dep),
+    store: RunStore = Depends(get_run_store_dep),
+    runner: WorkflowRunner = Depends(get_runner_dep),
 ) -> dict:
     """Resume a workflow from a checkpoint.
 
@@ -365,11 +401,9 @@ async def resume_run(
     checkpoint. After a process restart, reconstructs the Workflow from
     the persisted disk record and resumes from the last checkpoint.
     """
-    repo = get_repository()
     if not repo.contains(run_id):
         # Cross-restart: try to reconstruct from disk record
-        from harness.run_store import RunStore
-        disk_record = RunStore().get_run(run_id)
+        disk_record = store.get_run(run_id)
         if disk_record is None:
             raise HTTPException(status_code=404, detail="Run not found")
 
@@ -414,8 +448,6 @@ async def resume_run(
             raise HTTPException(status_code=400, detail="No resumable checkpoint found")
 
     # Block if already at capacity
-    from server.runner import get_runner
-    runner = get_runner()
     if runner.running_count >= runner.max_concurrent:
         raise HTTPException(status_code=409, detail=f"Max {runner.max_concurrent} concurrent workflows. Wait for one to finish.")
 
@@ -428,7 +460,7 @@ async def resume_run(
             "workflow_id": run_id,
             "name": workflow.name,
             "inputs": data.get("inputs", {}),
-            "dag": get_repository().get_dag(run_id),
+            "dag": repo.get_dag(run_id),
             "resumed_from": config["configurable"].get("checkpoint_id"),
             "envelope": workflow.envelope,
             "started_ts_ms": int(time.time() * 1000),
@@ -452,12 +484,13 @@ async def resume_run(
 
 @router.post("/runs/{run_id}/rerun", response_model=CreateWorkflowResponse)
 async def rerun(
-    run_id: str,
-    request: Request,
+    run_id: str, request: Request,
+    store: RunStore = Depends(get_run_store_dep),
+    repo: WorkflowRepository = Depends(get_repository_dep),
+    runner: WorkflowRunner = Depends(get_runner_dep),
 ) -> CreateWorkflowResponse:
     """Re-run a previous run with the same workflow config and inputs."""
-    from harness.run_store import RunStore
-    run = RunStore().get_run(run_id)
+    run = store.get_run(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
 
@@ -468,8 +501,6 @@ async def rerun(
         raise HTTPException(status_code=403, detail="Not your run")
 
     # Block concurrent workflows at capacity
-    from server.runner import get_runner
-    runner = get_runner()
     if runner.running_count >= runner.max_concurrent:
         raise HTTPException(status_code=409, detail=f"Max {runner.max_concurrent} concurrent workflows. Wait for one to finish.")
 
@@ -527,7 +558,6 @@ async def rerun(
 
     from datetime import datetime, timezone
     from server.runner import _build_agents_snapshot
-    repo = get_repository()
     repo.put(new_id, {
         "workflow": workflow,
         "status": "running",
