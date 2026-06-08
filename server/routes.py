@@ -22,12 +22,16 @@ from harness.tools.registry import ToolRegistry
 from server.schemas import (
     AgentDef,
     AgentInfo,
+    BatchDeleteRunsRequest,
+    ChartRenderRequest,
     CheckpointInfo,
     CreateBatchRequest,
     CreateBatchResponse,
+    CreateUserRequest,
     CreateWorkflowRequest,
     CreateWorkflowResponse,
     HealthResponse,
+    RenameProfileRequest,
     ResumeRequest,
     RunDetail,
     RunSummary,
@@ -36,6 +40,12 @@ from server.schemas import (
     BenchmarkRunSummary,
     BenchmarkTaskResult,
     RunBenchmarkRequest,
+    SaveProfileRequest,
+    SetConfigRequest,
+    UpdateAgentMdRequest,
+    UpdateRunChartsRequest,
+    UpdateRunConversationRequest,
+    UpdateRunFollowupRequest,
     WorkflowStatusResponse,
 )
 from server.repository import get_repository
@@ -64,22 +74,19 @@ async def list_users() -> list[dict]:
 
 
 @router.post("/users")
-async def create_user(request: Request) -> dict:
+async def create_user(body: CreateUserRequest, request: Request) -> dict:
     """Create a new user (admin only)."""
     user = get_current_user(request)
     mgr = get_user_manager()
     if not mgr.is_admin(user):
         raise HTTPException(status_code=403, detail="Admin only")
 
-    body = await request.json()
-    user_id = body.get("user_id", "").strip()
-    name = body.get("name", "").strip()
-    role = body.get("role", "developer")
+    user_id = body.user_id.strip()
+    name = body.name.strip()
+    role = body.role
 
     if not user_id or not name:
         raise HTTPException(status_code=400, detail="user_id and name are required")
-    if role not in ("developer", "admin"):
-        raise HTTPException(status_code=400, detail="role must be 'developer' or 'admin'")
 
     try:
         new_user = mgr.create_user(user_id, name, role)
@@ -194,18 +201,17 @@ async def health_check() -> HealthResponse:
 
 
 @router.post("/config")
-async def set_config(request: Request) -> dict:
+async def set_config(body: SetConfigRequest, request: Request) -> dict:
     """Set API key / model at runtime. Optionally persist to .env."""
     from harness.config import configure
 
-    body = await request.json()
     return configure(
-        api_key=body.get("api_key"),
-        model=body.get("model"),
-        api_url=body.get("api_url"),
-        stop_regen_ttl=body.get("stop_regen_ttl"),
-        thinking=body.get("thinking"),
-        persist=body.get("persist", True),
+        api_key=body.api_key,
+        model=body.model,
+        api_url=body.api_url,
+        stop_regen_ttl=body.stop_regen_ttl,
+        thinking=body.thinking,
+        persist=body.persist,
     )
 
 
@@ -232,7 +238,7 @@ async def list_profiles() -> dict:
 
 
 @router.post("/profiles")
-async def save_profile(request: Request) -> dict:
+async def save_profile(body: SaveProfileRequest, request: Request) -> dict:
     """Create or update an LLM profile."""
     # Auth gate: require explicit X-User-Id (or X-API-Key) — don't silently
     # act as the "default" user for unauthenticated requests.
@@ -241,20 +247,19 @@ async def save_profile(request: Request) -> dict:
 
     from harness.profiles import ProfileManager
 
-    body = await request.json()
-    name = body.get("name", "").strip()
+    name = body.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Profile name is required")
     mgr = ProfileManager()
     try:
         return mgr.save_profile({
             "name": name,
-            "model": body.get("model", ""),
-            "api_key": body.get("api_key", ""),
-            "api_url": body.get("api_url", ""),
-            "proxy": body.get("proxy", ""),
-            "proxy_enabled": body.get("proxy_enabled", False),
-            "ssl_verify": body.get("ssl_verify", True),
+            "model": body.model,
+            "api_key": body.api_key,
+            "api_url": body.api_url,
+            "proxy": body.proxy,
+            "proxy_enabled": body.proxy_enabled,
+            "ssl_verify": body.ssl_verify,
         })
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -286,12 +291,11 @@ async def activate_profile(name: str) -> dict:
 
 
 @router.put("/profiles/{name}/rename")
-async def rename_profile(name: str, request: Request) -> dict:
+async def rename_profile(name: str, body: RenameProfileRequest, request: Request) -> dict:
     """Rename an LLM profile."""
     from harness.profiles import ProfileManager
 
-    body = await request.json()
-    new_name = body.get("new_name", "").strip()
+    new_name = body.new_name.strip()
     if not new_name:
         raise HTTPException(status_code=400, detail="New name is required")
     mgr = ProfileManager()
@@ -409,7 +413,7 @@ async def get_agent_md(
 
 
 @router.put("/agents/{name}/md")
-async def update_agent_md(name: str, request: Request) -> dict:
+async def update_agent_md(name: str, body: UpdateAgentMdRequest, request: Request) -> dict:
     """Update an agent's Markdown file.
 
     Body fields:
@@ -418,16 +422,10 @@ async def update_agent_md(name: str, request: Request) -> dict:
         "private"): write to ``workflows/<workflow>/agents/<name>.md`` or
         ``workflows/_shared/agents/<name>.md``.
     """
-    body = await request.json()
-    md_content = body.get("md_content", "")
-    workflow = body.get("workflow")
-    target = body.get("target", "private")
+    md_content = body.md_content
+    workflow = body.workflow
+    target = body.target
 
-    if not workflow:
-        raise HTTPException(status_code=400, detail="workflow is required")
-
-    if target not in ("private", "shared"):
-        raise HTTPException(status_code=400, detail="target must be 'private' or 'shared'")
     if target == "private":
         user = get_current_user(request)
         user_id = user.user_id if user.user_id != "default" else None
@@ -475,7 +473,7 @@ async def refresh_tools(request: Request) -> dict:
 
 
 @router.post("/charts")
-async def chart_render(request: Request) -> dict:
+async def chart_render(body: ChartRenderRequest, request: Request) -> dict:
     """Receive chart payload from render_chart() HTTP fallback and emit via EventBus.
 
     Auth note: this endpoint has two callers:
@@ -495,9 +493,8 @@ async def chart_render(request: Request) -> dict:
     if not is_localhost and not has_auth:
         raise HTTPException(status_code=401, detail="X-User-Id header required")
 
-    body = await request.json()
-    node_id = body.get("node_id", "")
-    chart = body.get("chart", {})
+    node_id = body.node_id
+    chart = body.chart
 
     repo = get_repository()
     event_payload = {
@@ -612,7 +609,7 @@ async def delete_run(run_id: str, request: Request) -> dict:
 
 
 @router.post("/runs/batch-delete")
-async def batch_delete_runs(request: Request) -> dict:
+async def batch_delete_runs(body: BatchDeleteRunsRequest, request: Request) -> dict:
     """Delete multiple persisted run records.
 
     Only the run owner or admin can delete. Running runs are skipped.
@@ -620,10 +617,7 @@ async def batch_delete_runs(request: Request) -> dict:
     from harness.run_store import RunStore
     from harness.user_manager import get_user_manager
 
-    body = await request.json()
-    run_ids = body.get("run_ids", [])
-    if not isinstance(run_ids, list):
-        raise HTTPException(status_code=422, detail="run_ids must be an array")
+    run_ids = body.run_ids
     if not run_ids:
         return {"status": "ok", "deleted": [], "errors": []}
     if len(run_ids) > 100:
@@ -639,9 +633,6 @@ async def batch_delete_runs(request: Request) -> dict:
     errors: list[str] = []
 
     for rid in run_ids:
-        if not isinstance(rid, str):
-            errors.append(rid)
-            continue
         data = repo.get(rid)
         if data and data.get("status") == "running":
             errors.append(rid)
@@ -835,10 +826,9 @@ async def get_run_events(run_id: str, request: Request) -> list[dict] | None:
 
 
 @router.patch("/runs/{run_id}/conversation")
-async def update_run_conversation(run_id: str, request: Request) -> dict:
+async def update_run_conversation(run_id: str, body: UpdateRunConversationRequest, request: Request) -> dict:
     """Update conversation messages for a run — persisted or in-memory."""
-    body = await request.json()
-    conversation = body.get("conversation", [])
+    conversation = body.conversation
 
     from harness.user_manager import get_user_manager
 
@@ -869,10 +859,9 @@ async def update_run_conversation(run_id: str, request: Request) -> dict:
 
 
 @router.patch("/runs/{run_id}/charts")
-async def update_run_charts(run_id: str, request: Request) -> dict:
+async def update_run_charts(run_id: str, body: UpdateRunChartsRequest, request: Request) -> dict:
     """Update chart_groups snapshot for a persisted run (so Results tab replays)."""
-    body = await request.json()
-    chart_groups = body.get("chart_groups")
+    chart_groups = body.chart_groups
 
     from harness.user_manager import get_user_manager
 
@@ -895,13 +884,10 @@ async def update_run_charts(run_id: str, request: Request) -> dict:
 
 
 @router.patch("/runs/{run_id}/followup")
-async def update_run_followup(run_id: str, request: Request) -> dict:
+async def update_run_followup(run_id: str, body: UpdateRunFollowupRequest, request: Request) -> dict:
     """Persist a follow-up session for a specific agent."""
-    body = await request.json()
-    agent_name = body.get("agent_name")
-    messages = body.get("messages", [])
-    if not agent_name:
-        raise HTTPException(status_code=400, detail="agent_name required")
+    agent_name = body.agent_name
+    messages = body.messages
 
     from harness.user_manager import get_user_manager
 
@@ -920,10 +906,10 @@ async def update_run_followup(run_id: str, request: Request) -> dict:
     from datetime import datetime, timezone
 
     session_data = {
-        "model": body.get("model"),
+        "model": body.model,
         "messages": messages,
-        "turn_count": body.get("turn_count", 0),
-        "created_at": body.get("created_at", datetime.now(timezone.utc).isoformat()),
+        "turn_count": body.turn_count,
+        "created_at": body.created_at or datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     store.update_followup(run_id, agent_name, session_data)
@@ -1108,15 +1094,13 @@ async def _create_and_start_workflow(
 
 @router.post("/workflows", response_model=CreateWorkflowResponse)
 async def create_workflow(
+    request_obj: CreateWorkflowRequest,
     request: Request,
 ) -> CreateWorkflowResponse:
     """Create and start a single workflow."""
     from server.runner import get_runner
 
     user = get_current_user(request)
-
-    body = await request.json()
-    request_obj = CreateWorkflowRequest(**body)
 
     runner = get_runner()
     if runner.running_count >= runner.max_concurrent:
@@ -1137,6 +1121,7 @@ async def create_workflow(
 
 @router.post("/batch", response_model=CreateBatchResponse)
 async def create_batch(
+    request_obj: CreateBatchRequest,
     request: Request,
 ) -> CreateBatchResponse:
     """Create and start a batch of workflow runs with different inputs.
@@ -1146,8 +1131,6 @@ async def create_batch(
     Each run gets its own isolated Bus.
     """
     user = get_current_user(request)
-    body = await request.json()
-    request_obj = CreateBatchRequest(**body)
 
     from server.runner import get_runner
     runner = get_runner()

@@ -1,8 +1,8 @@
 """Pydantic schemas for API request/response models."""
 
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 
 
 class AgentDef(BaseModel):
@@ -263,3 +263,91 @@ class DomainMeta(BaseModel):
     status: str = "active"
     tutorials: list[TutorialMeta] = []
     apis: list[ApiDocMeta] = []
+
+
+# --- User management ---
+
+
+class CreateUserRequest(BaseModel):
+    """POST /users — admin creates a new user."""
+    user_id: str
+    name: str
+    role: Literal["developer", "admin"] = "developer"
+
+
+# --- Runtime config ---
+
+
+class SetConfigRequest(BaseModel):
+    """POST /config — set API key/model at runtime."""
+    api_key: str | None = None
+    model: str | None = None
+    api_url: str | None = None
+    stop_regen_ttl: int | None = None
+    thinking: StrictBool | None = None
+    persist: StrictBool = True
+
+
+# --- LLM profiles ---
+
+
+class SaveProfileRequest(BaseModel):
+    """POST /profiles — create or update an LLM profile."""
+    name: str
+    model: str = ""
+    api_key: str = ""
+    api_url: str = ""
+    proxy: str = ""
+    proxy_enabled: StrictBool = False
+    ssl_verify: StrictBool = True
+
+
+class RenameProfileRequest(BaseModel):
+    """PUT /profiles/{name}/rename."""
+    new_name: str
+
+
+# --- Agent MD ---
+
+
+class UpdateAgentMdRequest(BaseModel):
+    """PUT /agents/{name}/md — update agent markdown file."""
+    md_content: str = ""
+    workflow: str
+    target: Literal["private", "shared"] = "private"
+
+
+# --- Chart render (HTTP fallback) ---
+
+
+class ChartRenderRequest(BaseModel):
+    """POST /charts — chart payload from render_chart() HTTP fallback."""
+    node_id: str = ""
+    chart: dict[str, Any] = Field(default_factory=dict)
+
+
+# --- Runs ---
+
+
+class BatchDeleteRunsRequest(BaseModel):
+    """POST /runs/batch-delete — delete multiple runs."""
+    run_ids: list[str]
+
+
+class UpdateRunConversationRequest(BaseModel):
+    """PATCH /runs/{run_id}/conversation — persist conversation messages."""
+    conversation: list[dict[str, Any]]
+
+
+class UpdateRunChartsRequest(BaseModel):
+    """PATCH /runs/{run_id}/charts — persist chart_groups snapshot."""
+    chart_groups: dict[str, Any] | None = None
+
+
+class UpdateRunFollowupRequest(BaseModel):
+    """PATCH /runs/{run_id}/followup — persist a follow-up session."""
+    agent_name: str
+    messages: list[dict[str, Any]] = Field(default_factory=list)
+    model: str | None = None
+    turn_count: int = 0
+    created_at: str | None = None  # falls back to now() in handler if absent
