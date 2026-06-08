@@ -1,8 +1,8 @@
 # Current Task
 
-**当前任务**: 测试基线修复完成 — 进入功能完整性阶段
-**状态**: ✅ Phase 1-5 完成；✅ 测试基线修复；功能债 + NAS 待启动
-**日期**: 2026-06-09（基线修复批）
+**当前任务**: Phase 6B 完成 — god files 拆分到位，进入 NAS / 功能扩展
+**状态**: ✅ Phase 1-5 完成；✅ 测试基线修复；✅ Phase 6B 拆分；功能债 + NAS 待启动
+**日期**: 2026-06-09（Phase 6B 拆分批）
 
 ---
 
@@ -15,6 +15,7 @@
 | 3 验证 + 隔离 + 性能 | ✅ | Zod / ErrorBoundary / memo / 内存清理 |
 | 4 后端根因架构 | ✅ | 事件管线 / macro graph 拆分 / token 计费 |
 | 5 Server 现代化 | ✅ | routes 拆分 / DI / auth / 校验 / 抽象层 |
+| 6B God files 拆分 | ✅ | macro_graph.py 1019→30 shim / api.py 967→41 shim |
 
 ## 本会话累积的 45 个 commits
 
@@ -106,10 +107,10 @@ fix: commit orphaned node_phases.py
 
 | 候选 | 描述 | 优先级 |
 |------|------|--------|
-| Phase 6A | 前端大组件拆分（LlmProfileSettings 776 / BenchmarkCompare 712 / RunHistoryList 471 行） | 中 |
-| Phase 6B | macro_graph 终极拆分（1,019 → < 400 行）+ Workflow 类拆分 | 中 |
+| Phase 6A | 前端大组件拆分（LlmProfileSettings 777 / BenchmarkCompare 712 / RunHistoryList 471 行） | 中 |
+| Phase 6B 进一步 | 拆 `node_factory.make_node_func` 652 行闭包（Phase 7 候选） | 低 |
 | Phase 6C | 后端生产化（工具调用重试 / interrupt 持久化 / dead-letter queue） | 中 |
-| NAS | TODO/Task/parallel_tasks/代码隔离/Orchestrator 5 个 feature | 高 |
+| NAS | TODO/Task/parallel_tasks/代码隔离/Orchestrator 5 个 feature（TODO 已完成） | 高 |
 
 ## 必读文件
 
