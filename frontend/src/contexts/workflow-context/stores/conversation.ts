@@ -1,13 +1,23 @@
 import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
-import type { ConversationState } from "@/stores/conversationStore";
+import type { ConversationState, ConversationMessage } from "@/stores/conversationStore";
 import { createIdCounter, type IdCounter } from "@/lib/idCounter";
 import { createRafBatcher, type RafBatcher } from "@/lib/rafBatcher";
+import { withCache, type StoreCache, type WithCacheOptions } from "@/lib/storeCache";
+
+type ConversationCacheSnap = {
+  messages: ConversationMessage[];
+  pendingQuestionId: string | null;
+  pendingQuestionAgent: string | null;
+};
 
 export function createConversationStore(
   workflowId: string,
 ): StoreApi<ConversationState> {
   const msgCounter = createIdCounter("msg-");
+
+  // Cache helper is assigned after the store is created.
+  let cache: StoreCache;
 
   // Batchers are created after store so they can call store.setState.
   let textBatcher: RafBatcher<string, { text: string; nodeId: string }>;
@@ -396,133 +406,128 @@ export function createConversationStore(
     reset: () =>
       set({ messages: [], pendingQuestionId: null, pendingQuestionAgent: null, activeFollowupAgent: null }),
 
-    saveToCache: (wid) =>
-      set((state) => {
-        const { messages, pendingQuestionId, pendingQuestionAgent, _cache } = state;
-        return {
-          _cache: { ..._cache, [wid]: { messages, pendingQuestionId, pendingQuestionAgent } },
-        };
-      }),
+    saveToCache: (wid) => cache.saveToCache(wid),
 
-    restoreFromCache: (wid) => {
-      set((state) => {
-        const { _cache } = state;
-        const snap = _cache[wid];
-        if (!snap) return state;
-        return { messages: snap.messages, pendingQuestionId: snap.pendingQuestionId, pendingQuestionAgent: snap.pendingQuestionAgent };
-      });
-      return true;
-    },
+    restoreFromCache: (wid) => cache.restoreFromCache(wid),
 
-    setActiveWid: (wid) =>
-      set((state) => {
-        const _activeWid = state._activeWid;
-        const _cache = state._cache;
-        if (_activeWid) {
-          return {
-            ...state,
-            _cache: { ..._cache, [_activeWid]: { messages: state.messages, pendingQuestionId: state.pendingQuestionId, pendingQuestionAgent: state.pendingQuestionAgent } },
-          };
-        }
-        if (wid && _cache[wid]) {
-          const snap = _cache[wid];
-          return {
-            ...state,
-            messages: snap.messages,
-            pendingQuestionId: snap.pendingQuestionId,
-            pendingQuestionAgent: snap.pendingQuestionAgent,
-            _activeWid: wid,
-          };
-        }
-        return {
-          ...state,
+    setActiveWid: (wid) => cache.setActiveWid(wid),
+
+    clearCache: () => cache.clearCache(),
+
+    appendAgentTextToCache: (wid, nodeId, text, agentName) => {
+      const existing = cache.getCacheForWid(wid);
+      const base = (existing ??
+        (cache.setCacheForWid(wid, {
           messages: [],
           pendingQuestionId: null,
           pendingQuestionAgent: null,
-          _activeWid: wid,
+        }) as ConversationCacheSnap)) as ConversationCacheSnap;
+
+      const messages = [...base.messages]; // immutable copy
+      const idx = messages.findLastIndex(
+        (m) => m.nodeId === nodeId && m.type === "agent" && m.status === "streaming",
+      );
+      if (idx !== -1) {
+        messages[idx] = { ...messages[idx], content: messages[idx].content + text };
+      } else {
+        messages.push({
+          id: `msg-${msgCounter.next()}`,
+          type: "agent",
+          nodeId,
+          agentName: agentName || "",
+          content: text,
+          status: "streaming",
+          timestamp: Date.now(),
+        });
+      }
+      cache.setCacheForWid(wid, { ...base, messages });
+    },
+
+    addToolCallToCache: (wid, nodeId, agentName, toolName, toolArgs) => {
+      const existing = cache.getCacheForWid(wid);
+      const base = (existing ??
+        (cache.setCacheForWid(wid, {
+          messages: [],
+          pendingQuestionId: null,
+          pendingQuestionAgent: null,
+        }) as ConversationCacheSnap)) as ConversationCacheSnap;
+
+      const messages = [
+        ...base.messages,
+        {
+          id: `msg-${msgCounter.next()}`,
+          type: "tool_call",
+          nodeId,
+          agentName,
+          content: "",
+          toolName,
+          toolArgs,
+          toolStatus: "running",
+          timestamp: Date.now(),
+        },
+      ];
+      cache.setCacheForWid(wid, { ...base, messages });
+    },
+
+    addToolResultToCache: (wid, nodeId, toolName, result) => {
+      const existing = cache.getCacheForWid(wid);
+      const base = (existing ??
+        (cache.setCacheForWid(wid, {
+          messages: [],
+          pendingQuestionId: null,
+          pendingQuestionAgent: null,
+        }) as ConversationCacheSnap)) as ConversationCacheSnap;
+
+      const messages = [...base.messages]; // immutable copy
+      const idx = messages.findLastIndex(
+        (m) =>
+          m.nodeId === nodeId &&
+          m.type === "tool_call" &&
+          m.toolName === toolName &&
+          m.toolResult === undefined,
+      );
+      if (idx !== -1) {
+        const msg = messages[idx];
+        const elapsed = msg.timestamp ? Date.now() - msg.timestamp : undefined;
+        messages[idx] = {
+          ...msg,
+          toolResult: result,
+          toolStatus: "done",
+          toolDurationMs: elapsed,
         };
-      }),
-
-    clearCache: () => set({ _cache: {}, _activeWid: null }),
-
-    appendAgentTextToCache: (wid, nodeId, text, agentName) =>
-      set((state) => {
-        if (!state._cache[wid]) {
-          state._cache[wid] = { messages: [], pendingQuestionId: null, pendingQuestionAgent: null };
-        }
-        const cache = state._cache[wid];
-        const idx = cache.messages.findLastIndex(
-          (m) => m.nodeId === nodeId && m.type === "agent" && m.status === "streaming"
-        );
-        if (idx !== -1) {
-          state._cache[wid].messages[idx] = {
-            ...cache.messages[idx],
-            content: cache.messages[idx].content + text,
-          };
-          return { _cache: state._cache };
-        }
-        state._cache[wid].messages = [
-          ...cache.messages,
-          {
-            id: `msg-${msgCounter.next()}`,
-            type: "agent",
-            nodeId,
-            agentName: agentName || "",
-            content: text,
-            status: "streaming",
-            timestamp: Date.now(),
-          },
-        ];
-        return { _cache: state._cache };
-      }),
-
-    addToolCallToCache: (wid, nodeId, agentName, toolName, toolArgs) =>
-      set((state) => {
-        if (!state._cache[wid]) {
-          state._cache[wid] = { messages: [], pendingQuestionId: null, pendingQuestionAgent: null };
-        }
-        state._cache[wid].messages = [
-          ...state._cache[wid].messages,
-          {
-            id: `msg-${msgCounter.next()}`,
-            type: "tool_call",
-            nodeId,
-            agentName,
-            content: "",
-            toolName,
-            toolArgs,
-            toolStatus: "running",
-            timestamp: Date.now(),
-          },
-        ];
-        return { _cache: state._cache };
-      }),
-
-    addToolResultToCache: (wid, nodeId, toolName, result) =>
-      set((state) => {
-        if (!state._cache[wid]) {
-          state._cache[wid] = { messages: [], pendingQuestionId: null, pendingQuestionAgent: null };
-        }
-        const cache = state._cache[wid];
-        const idx = cache.messages.findLastIndex(
-          (m) => m.nodeId === nodeId && m.type === "tool_call" && m.toolName === toolName && m.toolResult === undefined
-        );
-        if (idx !== -1) {
-          const msg = cache.messages[idx];
-          const elapsed = msg.timestamp ? Date.now() - msg.timestamp : undefined;
-          state._cache[wid].messages[idx] = {
-            ...msg,
-            toolResult: result,
-            toolStatus: "done",
-            toolDurationMs: elapsed,
-          };
-          return { _cache: state._cache };
-        }
-        return state;
-      }),
+        cache.setCacheForWid(wid, { ...base, messages });
+      }
+    },
   }));
 
   (store as unknown as { _msgCounter: IdCounter })._msgCounter = msgCounter;
+
+  // ConversationState lacks a string index signature, but withCache only relies
+  // on its internal _cache/_activeWid plumbing and casts internally — so widen
+  // the store to satisfy the Record<string, unknown> constraint without
+  // touching the typed ConversationState interface. The options callbacks stay
+  // typed against ConversationState for snapshot correctness.
+  const cacheOptions: WithCacheOptions<ConversationState> = {
+    extractSnapshot: (s) => ({
+      messages: s.messages,
+      pendingQuestionId: s.pendingQuestionId,
+      pendingQuestionAgent: s.pendingQuestionAgent,
+    }),
+    applySnapshot: (_s, snap) => ({
+      messages: (snap.messages as ConversationMessage[]) ?? [],
+      pendingQuestionId: (snap.pendingQuestionId as string | null) ?? null,
+      pendingQuestionAgent: (snap.pendingQuestionAgent as string | null) ?? null,
+    }),
+    makeEmptySnapshot: () => ({
+      messages: [],
+      pendingQuestionId: null,
+      pendingQuestionAgent: null,
+    }),
+  };
+  cache = withCache(
+    store as unknown as StoreApi<Record<string, unknown>>,
+    cacheOptions as unknown as WithCacheOptions<Record<string, unknown>>,
+  );
 
   // Initialize batchers with store.setState now that store exists.
   textBatcher = createRafBatcher<string, { text: string; nodeId: string }>(
