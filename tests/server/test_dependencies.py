@@ -23,6 +23,17 @@ def test_get_run_store_dep_returns_run_store():
     assert isinstance(s, RunStore)
 
 
+def test_get_run_store_dep_returns_singleton():
+    """Two calls to get_run_store_dep should return the same instance.
+
+    RunStore.__init__ calls mkdir; creating one per request is wasteful and
+    can race on the runs directory. The provider must cache the singleton.
+    """
+    s1 = get_run_store_dep()
+    s2 = get_run_store_dep()
+    assert s1 is s2
+
+
 def test_get_repository_dep_returns_singleton():
     r1 = get_repository_dep()
     r2 = get_repository_dep()

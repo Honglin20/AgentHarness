@@ -22,6 +22,13 @@ from server.runner import WorkflowRunner, get_runner
 from server.event_bus import get_event_bus
 
 
+# Module-level singleton — RunStore.__init__ calls mkdir, so creating a fresh
+# instance per request is wasteful (and races on the directory). Cached on
+# first use. Test overrides via `app.dependency_overrides[get_run_store_dep]`
+# still work because FastAPI swaps the whole callable, bypassing this cache.
+_run_store_singleton: RunStoreInterface | None = None
+
+
 def get_run_store_dep() -> RunStoreInterface:
     """Provide the RunStore singleton. Override in tests for DB backend.
 
@@ -29,7 +36,10 @@ def get_run_store_dep() -> RunStoreInterface:
     on disk. Swap to a DB-backed implementation by overriding this provider
     in `app.dependency_overrides` or by changing the one line below.
     """
-    return RunStore()
+    global _run_store_singleton
+    if _run_store_singleton is None:
+        _run_store_singleton = RunStore()
+    return _run_store_singleton
 
 
 def get_repository_dep() -> WorkflowRepository:
