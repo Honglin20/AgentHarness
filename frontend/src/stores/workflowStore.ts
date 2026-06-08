@@ -7,6 +7,7 @@ import type {
   NodeFailedPayload,
   ToolBrief,
   ToolCallBrief,
+  AgentTokenUsage,
 } from "@/types/events";
 
 export interface NodeState {
@@ -20,6 +21,8 @@ export interface NodeState {
   attempt?: number;
   willRetry?: boolean;
   tokenUsage?: { input: number; output: number; total: number };
+  /** Per-agent token breakdown — present when backend emits `token_breakdown`. */
+  tokenBreakdown?: Record<string, AgentTokenUsage>;
   tools?: ToolBrief[];
   model?: string;
   costUsd?: number;
@@ -177,6 +180,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
           status: "success",
           durationMs: payload.duration_ms,
           tokenUsage: payload.token_usage,
+          tokenBreakdown: payload.token_breakdown,
           costUsd: payload.cost_usd,
           ttftMs: payload.ttft_ms,
         },

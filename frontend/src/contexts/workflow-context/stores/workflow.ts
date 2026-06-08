@@ -174,6 +174,7 @@ export function createWorkflowStore(
             status: "success",
             durationMs: payload.duration_ms,
             tokenUsage: payload.token_usage,
+            tokenBreakdown: payload.token_breakdown,
             costUsd: payload.cost_usd,
             ttftMs: payload.ttft_ms,
           },
@@ -239,6 +240,7 @@ export function createWorkflowStore(
           status: "success",
           durationMs: p.duration_ms,
           tokenUsage: p.token_usage,
+          tokenBreakdown: p.token_breakdown,
           costUsd: p.cost_usd,
           ttftMs: p.ttft_ms,
         };
