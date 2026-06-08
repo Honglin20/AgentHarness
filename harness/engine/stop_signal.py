@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import threading
 import time
 
 logger = logging.getLogger(__name__)
@@ -34,13 +35,19 @@ class StopSignalManager:
     - ``_guidance_events``: asyncio.Event per workflow_id for the guidance handshake
     - ``_guidance_values``: guidance text per workflow_id
 
-    Thread-safety for ``_pending`` is provided by ``_lock`` (asyncio.Lock).
+    Thread-safety for ``_pending``:
+    - Async writers (``store`` / ``store_and_wake``) use ``_lock`` (asyncio.Lock).
+    - Sync readers (``has_pending`` / ``consume``) use ``_sync_lock``
+      (threading.Lock). This closes the check-then-act race between reading
+      ``_ts`` and popping ``_pending``, which a concurrent ``store`` could
+      otherwise mutate mid-check.
     """
 
     def __init__(self, ttl_seconds: int | None = None):
         self._ttl = ttl_seconds if ttl_seconds is not None else _get_stop_regen_ttl()
         self._pending: dict[str, dict[str, str | float]] = {}
         self._lock = asyncio.Lock()
+        self._sync_lock = threading.Lock()
         self._guidance_events: dict[str, asyncio.Event] = {}
         self._guidance_values: dict[str, str] = {}
 
@@ -69,12 +76,13 @@ class StopSignalManager:
             return
 
         async with self._lock:
-            self._pending[workflow_id] = {
-                "agent_name": agent_name,
-                "partial_output": partial_output,
-                "user_guidance": user_guidance,
-                "_ts": time.time(),
-            }
+            with self._sync_lock:
+                self._pending[workflow_id] = {
+                    "agent_name": agent_name,
+                    "partial_output": partial_output,
+                    "user_guidance": user_guidance,
+                    "_ts": time.time(),
+                }
         logger.warning(
             "[DIAG-STOP-2] Signal stored: "
             "wf=%s agent=%s guidance=%r partial_len=%d",
@@ -94,12 +102,13 @@ class StopSignalManager:
         the stop request and a waiter may be listening.
         """
         async with self._lock:
-            self._pending[workflow_id] = {
-                "agent_name": agent_name,
-                "partial_output": partial_output,
-                "user_guidance": user_guidance,
-                "_ts": time.time(),
-            }
+            with self._sync_lock:
+                self._pending[workflow_id] = {
+                    "agent_name": agent_name,
+                    "partial_output": partial_output,
+                    "user_guidance": user_guidance,
+                    "_ts": time.time(),
+                }
         if user_guidance.strip():
             await self.provide_guidance(workflow_id, user_guidance)
 
@@ -108,21 +117,28 @@ class StopSignalManager:
 
         Also handles TTL expiry: if the signal is older than ``_ttl`` seconds,
         it is removed and False is returned.
+
+        Holds ``_sync_lock`` across the check-then-act (read ``_ts`` + pop)
+        so a concurrent ``store`` cannot mutate ``_pending`` mid-check.
         """
-        pending = self._pending.get(workflow_id)
-        if pending is None:
-            return False
-        if time.time() - pending.get("_ts", 0) > self._ttl:
-            self._pending.pop(workflow_id, None)
-            return False
-        return pending.get("agent_name") == agent_name
+        with self._sync_lock:
+            pending = self._pending.get(workflow_id)
+            if pending is None:
+                return False
+            if time.time() - pending.get("_ts", 0) > self._ttl:
+                self._pending.pop(workflow_id, None)
+                return False
+            return pending.get("agent_name") == agent_name
 
     def consume(self, workflow_id: str) -> dict[str, str] | None:
         """Consume and return the signal, or None if absent.
 
         This is a destructive read: the signal is removed after consumption.
+        Holds ``_sync_lock`` to stay consistent with ``has_pending`` and the
+        async writers.
         """
-        return self._pending.pop(workflow_id, None)
+        with self._sync_lock:
+            return self._pending.pop(workflow_id, None)
 
     # ---- Async guidance handshake ----
 
@@ -158,6 +174,7 @@ class StopSignalManager:
 
     def clear(self, workflow_id: str) -> None:
         """Clear all signals and guidance state for a workflow."""
-        self._pending.pop(workflow_id, None)
+        with self._sync_lock:
+            self._pending.pop(workflow_id, None)
         self._guidance_events.pop(workflow_id, None)
         self._guidance_values.pop(workflow_id, None)
