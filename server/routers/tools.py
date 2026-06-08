@@ -48,6 +48,12 @@ async def chart_render(
 
     We allow localhost to bypass auth (standard pattern for internal endpoints),
     and require X-User-Id (or X-API-Key) from any other source.
+
+    SECURITY: This bypass trusts request.client.host for loopback detection.
+    Assumption: server runs single-host (no reverse proxy). If a proxy is added
+    (Nginx, etc.), request.client.host becomes the proxy IP and this check
+    fails open. Either remove the bypass when adding a proxy, or use
+    X-Forwarded-For validation.
     """
     client_host = request.client.host if request.client else None
     is_localhost = client_host in ("127.0.0.1", "::1", "localhost")
