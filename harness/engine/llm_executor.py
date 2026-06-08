@@ -85,6 +85,10 @@ class LLMExecutor:
         self.tool_calls: list[dict[str, Any]] = []
         self._span_seq = 0
         self._last_ttft_ms: int | None = None
+        # Per-instance throttle counter for text_delta backpressure.
+        # Class-level would be shared across concurrent workflows, breaking
+        # per-workflow throttle semantics.
+        self._delta_skip_counter: int = 0
 
     # ------------------------------------------------------------------
     # Public API
@@ -169,7 +173,7 @@ class LLMExecutor:
             model_name = str(getattr(m, "model_name", m) if hasattr(m, "model_name") else m)
 
         if self._bus:
-            safe_emit(self._bus,"span.start", {
+            safe_emit(self._bus, "span.start", {
                 "workflow_id": self._wid,
                 "node_id": self._node_id,
                 "agent_name": self._agent_name,
@@ -222,7 +226,7 @@ class LLMExecutor:
         self._last_ttft_ms = ttft_ms
 
         if self._bus:
-            safe_emit(self._bus,"span.end", {
+            safe_emit(self._bus, "span.end", {
                 "workflow_id": self._wid,
                 "node_id": self._node_id,
                 "agent_name": self._agent_name,
@@ -270,7 +274,7 @@ class LLMExecutor:
                         await self._fire_tool_call_hook(event.part)
                         now_ms = int(time.time() * 1000)
                         span_id = self._next_span_id()
-                        safe_emit(self._bus,"span.start", {
+                        safe_emit(self._bus, "span.start", {
                             "workflow_id": self._wid,
                             "node_id": self._node_id,
                             "agent_name": self._agent_name,
@@ -279,7 +283,7 @@ class LLMExecutor:
                             "tool_name": event.part.tool_name,
                             "ts": last_end_ms,
                         })
-                        safe_emit(self._bus,"span.end", {
+                        safe_emit(self._bus, "span.end", {
                             "workflow_id": self._wid,
                             "node_id": self._node_id,
                             "agent_name": self._agent_name,
@@ -320,23 +324,25 @@ class LLMExecutor:
     # Event emission helpers
     # ------------------------------------------------------------------
 
-    _delta_skip_counter: int = 0  # class-level throttle counter
-
     def _emit_text_delta(self, delta: str) -> None:
         if not self._bus:
             return
-        # Backpressure: when buffer >80% full, skip every other text_delta
-        try:
-            if hasattr(self._bus, "buffer_usage") and self._bus.buffer_usage() > 0.8:
-                LLMExecutor._delta_skip_counter += 1
-                if LLMExecutor._delta_skip_counter % 2 == 0:
-                    return
-        except (TypeError, AttributeError):
-            pass
-            LLMExecutor._delta_skip_counter += 1
-            if LLMExecutor._delta_skip_counter % 2 == 0:
+        # Backpressure: when buffer >80% full, skip every other text_delta.
+        # Usage of 0.0 (or missing/broken buffer_usage()) means no throttle.
+        # Guard the entire read+compare so a bus that returns a non-numeric
+        # value (e.g. a MagicMock in tests, or a broken implementation) fails
+        # open (no throttle) rather than crashing the stream loop.
+        over_threshold = False
+        if hasattr(self._bus, "buffer_usage"):
+            try:
+                over_threshold = self._bus.buffer_usage() > 0.8
+            except (TypeError, AttributeError):
+                over_threshold = False
+        if over_threshold:
+            self._delta_skip_counter += 1
+            if self._delta_skip_counter % 2 == 0:
                 return
-        safe_emit(self._bus,"agent.text_delta", {
+        safe_emit(self._bus, "agent.text_delta", {
             "workflow_id": self._wid,
             "node_id": self._node_id,
             "agent_name": self._agent_name,
@@ -346,7 +352,7 @@ class LLMExecutor:
     def _emit_thinking_delta(self, delta: str) -> None:
         if not self._bus:
             return
-        safe_emit(self._bus,"agent.thinking_delta", {
+        safe_emit(self._bus, "agent.thinking_delta", {
             "workflow_id": self._wid,
             "node_id": self._node_id,
             "agent_name": self._agent_name,
@@ -370,7 +376,7 @@ class LLMExecutor:
         self.tool_calls.append(entry)
         if not self._bus:
             return
-        safe_emit(self._bus,"agent.tool_call", {
+        safe_emit(self._bus, "agent.tool_call", {
             "workflow_id": self._wid,
             "node_id": self._node_id,
             "agent_name": self._agent_name,
@@ -387,7 +393,7 @@ class LLMExecutor:
                 break
         if not self._bus:
             return
-        safe_emit(self._bus,"agent.tool_result", {
+        safe_emit(self._bus, "agent.tool_result", {
             "workflow_id": self._wid,
             "node_id": self._node_id,
             "agent_name": self._agent_name,
