@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from harness.api import Agent, Workflow
-from harness.run_store import RunStore
+from harness.run_store_interface import RunStoreInterface
 from harness.tools.registry import ToolRegistry
 from harness.user_manager import get_current_user, get_user_manager
 from server._helpers import (
@@ -35,7 +35,7 @@ from server.schemas import (
 router = APIRouter()
 
 
-def _load_run_for_user(run_id: str, request: Request, store: RunStore):
+def _load_run_for_user(run_id: str, request: Request, store: RunStoreInterface):
     """Common loader: returns (store, run, user, is_admin). Raises 404/403.
 
     NOTE: helper takes the store as a parameter because it is called from
@@ -57,7 +57,7 @@ def _load_run_for_user(run_id: str, request: Request, store: RunStore):
 @router.delete("/runs/{run_id}")
 async def delete_run(
     run_id: str, request: Request,
-    store: RunStore = Depends(get_run_store_dep),
+    store: RunStoreInterface = Depends(get_run_store_dep),
     repo: WorkflowRepository = Depends(get_repository_dep),
 ) -> dict:
     """Delete a persisted run record. Only the run owner or admin can delete."""
@@ -86,7 +86,7 @@ async def delete_run(
 @router.post("/runs/batch-delete")
 async def batch_delete_runs(
     body: BatchDeleteRunsRequest, request: Request,
-    store: RunStore = Depends(get_run_store_dep),
+    store: RunStoreInterface = Depends(get_run_store_dep),
     repo: WorkflowRepository = Depends(get_repository_dep),
 ) -> dict:
     """Delete multiple persisted run records. Owner/admin only. Running runs skipped."""
@@ -131,7 +131,7 @@ async def list_runs(
     workflow_name: str | None = None,
     limit: int | None = None,
     offset: int = 0,
-    store: RunStore = Depends(get_run_store_dep),
+    store: RunStoreInterface = Depends(get_run_store_dep),
     repo: WorkflowRepository = Depends(get_repository_dep),
 ):
     """List persisted runs (summary only), merged with currently-running in-memory workflows.
@@ -180,7 +180,7 @@ async def list_runs(
 @router.get("/runs/{run_id}", response_model=RunDetail)
 async def get_run(
     run_id: str, request: Request,
-    store: RunStore = Depends(get_run_store_dep),
+    store: RunStoreInterface = Depends(get_run_store_dep),
     repo: WorkflowRepository = Depends(get_repository_dep),
 ) -> RunDetail:
     """Get a run by id — persisted disk record or live in-memory workflow.
@@ -250,7 +250,7 @@ async def get_run(
 @router.get("/runs/{run_id}/charts")
 async def get_run_charts(
     run_id: str, request: Request,
-    store: RunStore = Depends(get_run_store_dep),
+    store: RunStoreInterface = Depends(get_run_store_dep),
 ) -> dict | None:
     """Load chart_groups sidecar data for a persisted run (lazy loading)."""
     store, run, user, is_admin = _load_run_for_user(run_id, request, store)
@@ -260,7 +260,7 @@ async def get_run_charts(
 @router.get("/runs/{run_id}/events")
 async def get_run_events(
     run_id: str, request: Request,
-    store: RunStore = Depends(get_run_store_dep),
+    store: RunStoreInterface = Depends(get_run_store_dep),
 ) -> list[dict] | None:
     """Load events sidecar data for a persisted run (lazy loading)."""
     store, run, user, is_admin = _load_run_for_user(run_id, request, store)
@@ -270,7 +270,7 @@ async def get_run_events(
 @router.patch("/runs/{run_id}/conversation")
 async def update_run_conversation(
     run_id: str, body: UpdateRunConversationRequest, request: Request,
-    store: RunStore = Depends(get_run_store_dep),
+    store: RunStoreInterface = Depends(get_run_store_dep),
     repo: WorkflowRepository = Depends(get_repository_dep),
 ) -> dict:
     """Update conversation messages for a run — persisted or in-memory."""
@@ -302,7 +302,7 @@ async def update_run_conversation(
 @router.patch("/runs/{run_id}/charts")
 async def update_run_charts(
     run_id: str, body: UpdateRunChartsRequest, request: Request,
-    store: RunStore = Depends(get_run_store_dep),
+    store: RunStoreInterface = Depends(get_run_store_dep),
 ) -> dict:
     """Update chart_groups snapshot for a persisted run (so Results tab replays)."""
     store, _run, _user, _is_admin = _load_run_for_user(run_id, request, store)
@@ -316,7 +316,7 @@ async def update_run_charts(
 @router.patch("/runs/{run_id}/followup")
 async def update_run_followup(
     run_id: str, body: UpdateRunFollowupRequest, request: Request,
-    store: RunStore = Depends(get_run_store_dep),
+    store: RunStoreInterface = Depends(get_run_store_dep),
 ) -> dict:
     """Persist a follow-up session for a specific agent."""
     store, _run, _user, _is_admin = _load_run_for_user(run_id, request, store)
@@ -338,7 +338,7 @@ async def delete_run_followup(
     run_id: str,
     agent_name: str,
     request: Request,
-    store: RunStore = Depends(get_run_store_dep),
+    store: RunStoreInterface = Depends(get_run_store_dep),
 ) -> dict:
     """Clear a follow-up session for a specific agent."""
     store, _run, _user, _is_admin = _load_run_for_user(run_id, request, store)
@@ -390,7 +390,7 @@ async def list_checkpoints(
 async def resume_run(
     run_id: str, body: ResumeRequest, req: Request,
     repo: WorkflowRepository = Depends(get_repository_dep),
-    store: RunStore = Depends(get_run_store_dep),
+    store: RunStoreInterface = Depends(get_run_store_dep),
     runner: WorkflowRunner = Depends(get_runner_dep),
 ) -> dict:
     """Resume a workflow from a checkpoint.
@@ -483,7 +483,7 @@ async def resume_run(
 @router.post("/runs/{run_id}/rerun", response_model=CreateWorkflowResponse)
 async def rerun(
     run_id: str, request: Request,
-    store: RunStore = Depends(get_run_store_dep),
+    store: RunStoreInterface = Depends(get_run_store_dep),
     repo: WorkflowRepository = Depends(get_repository_dep),
     runner: WorkflowRunner = Depends(get_runner_dep),
 ) -> CreateWorkflowResponse:
