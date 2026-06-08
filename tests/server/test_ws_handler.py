@@ -308,7 +308,7 @@ def test_ws_completed_run_replays_persisted_events(tmp_path, monkeypatch):
     # Use an isolated runs directory so we don't pollute the real one.
     # RunStore() reads the module-level _DEFAULT_RUNS_DIR at __init__ time
     # via attribute lookup, so monkeypatching the module attr works.
-    monkeypatch.setattr("harness.run_store._DEFAULT_RUNS_DIR", tmp_path)
+    monkeypatch.setattr("harness.persistence.run_store._DEFAULT_RUNS_DIR", tmp_path)
 
     run_id = "completed-replay-test"
     events = [

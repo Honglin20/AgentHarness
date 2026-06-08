@@ -18,7 +18,7 @@ def test_list_saved_includes_description(tmp_path, monkeypatch):
         "---\nname: analyst\n---\nAnalyzes the input data and produces insights.\n\nMore detail here."
     )
 
-    import harness.workflow as api_mod
+    import harness.core.workflow as api_mod
     monkeypatch.setattr(api_mod, "_WORKFLOWS_DIR", tmp_path / "workflows")
 
     from harness.registry import configure_registry, get_registry

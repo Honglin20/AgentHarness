@@ -45,7 +45,7 @@ async def test_list_agents_from_fixtures(tmp_path, monkeypatch):
 
     # Monkeypatch _WORKFLOWS_DIR at the canonical source (harness.api) so
     # _helpers._validate_workflow_dir resolves under tmp_path.
-    import harness.workflow as harness_api
+    import harness.core.workflow as harness_api
     workflows_dir = tmp_path / "workflows"
     workflows_dir.mkdir()
     monkeypatch.setattr(harness_api, "_WORKFLOWS_DIR", workflows_dir)

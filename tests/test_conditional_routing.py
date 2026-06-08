@@ -202,7 +202,7 @@ class TestListSavedAfterNone:
 
     def test_list_saved_with_after_none_in_private_workflow(self, tmp_path, monkeypatch):
         """list_saved should not crash when an agent has after=None."""
-        import harness.workflow as api_mod
+        import harness.core.workflow as api_mod
 
         # Set up private workflow directory
         user_wf_dir = tmp_path / "workflows" / "users" / "user1" / "workflows" / "cond_route"
@@ -240,7 +240,7 @@ class TestListSavedAfterNone:
 
     def test_list_saved_with_after_none_in_legacy_workflow(self, tmp_path, monkeypatch):
         """Legacy workflows (no user_id) should also handle after=None."""
-        import harness.workflow as api_mod
+        import harness.core.workflow as api_mod
 
         wf_dir = tmp_path / "workflows" / "cond_route"
         agents_dir = wf_dir / "agents"
