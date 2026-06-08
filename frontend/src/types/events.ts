@@ -4,6 +4,7 @@
 export interface WSEvent {
   type: EventType;
   ts: number;
+  seq?: number;
   payload: Record<string, unknown>;
 }
 
@@ -37,7 +38,9 @@ export type EventType =
   | "agent.provide_guidance"
   | "followup.started"
   | "followup.completed"
-  | "followup.failed";
+  | "followup.failed"
+  | "todo.created"
+  | "todo.updated";
 
 // Workflow events
 export interface WorkflowAgentDef {
@@ -87,12 +90,22 @@ export interface TokenUsage {
   total: number;
 }
 
+export interface AgentTokenUsage {
+  input: number;
+  output: number;
+  total: number;
+  cache_hit?: number;
+  reasoning?: number;
+}
+
 export interface NodeCompletedPayload {
   node_id: string;
   agent_name: string;
   duration_ms: number;
   status: string;
   token_usage?: TokenUsage;
+  /** Per-agent token breakdown — includes sub-agents if any. */
+  token_breakdown?: Record<string, AgentTokenUsage>;
   cost_usd?: number;
   ttft_ms?: number;
   input_prompt?: string;
@@ -286,6 +299,35 @@ export interface CircularWarningPayload {
   message: string;
 }
 
+// TODO step events
+export interface TodoStepItem {
+  task_id: string;
+  content: string;
+  activeForm: string;
+  status: "pending" | "in_progress" | "completed";
+  detail?: string | null;
+}
+
+export interface TodoCreatedPayload {
+  node_id: string;
+  agent_name: string;
+  items: TodoStepItem[];
+}
+
+export interface TodoAutoAdvance {
+  next_task_id: string;
+  status: "in_progress";
+}
+
+export interface TodoUpdatedPayload {
+  node_id: string;
+  agent_name: string;
+  task_id: string;
+  status?: "in_progress" | "completed" | null;
+  detail?: string | null;
+  auto_advance?: TodoAutoAdvance | null;
+}
+
 // Event type to payload mapping
 export interface EventPayloadMap {
   "workflow.started": WorkflowStartedPayload;
@@ -315,6 +357,8 @@ export interface EventPayloadMap {
   "followup.started": { workflow_id: string; agent_name: string; turn: number };
   "followup.completed": { workflow_id: string; agent_name: string; turn: number };
   "followup.failed": { workflow_id: string; agent_name: string; error: string };
+  "todo.created": TodoCreatedPayload;
+  "todo.updated": TodoUpdatedPayload;
 }
 
 // Typed event helper
