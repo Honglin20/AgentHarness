@@ -7,6 +7,7 @@ import TraceTab from "./TraceTab";
 import ToolCallsTab from "./ToolCallsTab";
 import ErrorsTab from "./ErrorsTab";
 import BudgetBar, { BudgetBarScoped } from "./BudgetBar";
+import { TokenBreakdown } from "./TokenBreakdown";
 import { useWorkflowStore, type NodeState } from "@/stores/workflowStore";
 import { useToolCallStore, type ToolCallRecord } from "@/stores/toolCallStore";
 import { useObservabilityStore } from "@/stores/observabilityStore";
@@ -49,7 +50,7 @@ function ScopedDiagnosticsPanel({ stores }: { stores: WorkflowStores }) {
   const errorCount = countErrors(nodes);
 
   return renderPanel({
-    activeTab, setActiveTab, nodes, status,
+    activeTab, setActiveTab, nodes, status, selectedNodeId,
     toolRecords, toolOrder, toolCallCount, errorCount,
     replayDerived: null,
     circularWarnings,
@@ -84,10 +85,11 @@ function GlobalDiagnosticsPanel() {
 
   const nodes = replayDerived?.nodes ?? liveNodes;
   const status = replayDerived?.status ?? liveStatus;
+  const selectedNodeId = replayDerived ? null : liveSelectedNodeId;
   const toolCallCount = replayDerived?.order ? replayDerived.order.length : liveToolCallCount;
   const errorCount = countErrors(nodes);
 
-  return renderPanel({ activeTab, setActiveTab, nodes, status, toolRecords: replayDerived?.records, toolOrder: replayDerived?.order, toolCallCount, errorCount, replayDerived, circularWarnings, scopedStores: null });
+  return renderPanel({ activeTab, setActiveTab, nodes, status, selectedNodeId, toolRecords: replayDerived?.records, toolOrder: replayDerived?.order, toolCallCount, errorCount, replayDerived, circularWarnings, scopedStores: null });
 }
 
 // ── Shared helpers ───────────────────────────────────────────────────
@@ -138,13 +140,14 @@ function countErrors(nodes: Record<string, NodeState>): number {
 
 function renderPanel({
   activeTab, setActiveTab,
-  nodes, status, toolRecords, toolOrder, toolCallCount, errorCount, replayDerived,
+  nodes, status, selectedNodeId, toolRecords, toolOrder, toolCallCount, errorCount, replayDerived,
   circularWarnings, scopedStores,
 }: {
   activeTab: string;
   setActiveTab: (t: string) => void;
   nodes: Record<string, NodeState>;
   status: string;
+  selectedNodeId: string | null;
   toolRecords?: Record<string, ToolCallRecord>;
   toolOrder?: string[];
   toolCallCount: number;
@@ -156,6 +159,11 @@ function renderPanel({
   return (
     <aside aria-label="Diagnostics" className="flex h-full flex-col border-l border-app-border bg-app-bg-secondary">
       {scopedStores ? <BudgetBarScoped stores={scopedStores} /> : <BudgetBar />}
+      {selectedNodeId && nodes[selectedNodeId]?.tokenBreakdown && (
+        <div className="py-2">
+          <TokenBreakdown breakdown={nodes[selectedNodeId].tokenBreakdown!} />
+        </div>
+      )}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-1 flex-col">
         <TabsList className="mx-2 mt-2 grid w-auto grid-cols-3">
           <TabsTrigger value="trace" className="text-xs">
