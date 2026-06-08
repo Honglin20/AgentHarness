@@ -39,11 +39,13 @@ describe("withCache", () => {
 
   it("restoreFromCache applies snapshot and returns true when wid exists", () => {
     const { store, cache } = makeTestStore();
+    store.setState({ value: 42, label: "wf-1-state" });
     cache.saveToCache("wf-1");
     store.setState({ value: 99, label: "different" });
     const ok = cache.restoreFromCache("wf-1");
     expect(ok).toBe(true);
     expect(store.getState().value).toBe(42);
+    expect(store.getState()._activeWid).toBe("wf-1");
   });
 
   it("restoreFromCache returns false when wid is absent", () => {
