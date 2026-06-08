@@ -60,6 +60,10 @@ class SubAgentToolFactory(ToolFactory):
                 depth=depth + 1,
             )
 
+            # Propagate parent's token aggregator so sub-agent usage is tracked
+            parent_agg = getattr(ctx.deps, "token_aggregator", None)
+            parent_name = getattr(ctx.deps, "agent_name", "unknown")
+
             client = LLMClient(model=model) if model else LLMClient()
             try:
                 child = client.agent(
@@ -70,6 +74,20 @@ class SubAgentToolFactory(ToolFactory):
                 )
 
                 result = await child.run(task, deps=child_deps)
+
+                # Record sub-agent token usage into parent's aggregator
+                if parent_agg is not None:
+                    usage_obj = getattr(result, "usage", None)
+                    if usage_obj is not None:
+                        sub_key = f"{parent_name}.sub_agent"
+                        parent_agg.record(
+                            sub_key,
+                            input_tokens=getattr(usage_obj, "input_tokens", 0) or 0,
+                            output_tokens=getattr(usage_obj, "output_tokens", 0) or 0,
+                            cache_hit_tokens=getattr(usage_obj, "prompt_cache_hit_tokens", 0) or 0,
+                            reasoning_tokens=getattr(usage_obj, "reasoning_tokens", 0) or 0,
+                        )
+
                 return result.output
             except Exception as e:
                 logger.warning("sub_agent failed: %s: %s", type(e).__name__, e)

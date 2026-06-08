@@ -17,6 +17,7 @@ from pydantic_ai.messages import ModelRequest, SystemPromptPart
 
 from harness.extensions.base import ToolCtx
 from harness.extensions.bus import safe_emit
+from harness.engine.token_aggregator import TokenAggregator
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,7 @@ class LLMExecutor:
         check_interrupt: Callable[[str, str], dict[str, Any] | None] | None = None,
         cancel_fn: Callable[[str], None] | None = None,
         reminder_tracker: Any | None = None,
+        token_aggregator: TokenAggregator | None = None,
     ):
         self._agent = pydantic_agent
         self._deps = deps
@@ -79,6 +81,7 @@ class LLMExecutor:
         self._check_interrupt = check_interrupt
         self._cancel_fn = cancel_fn
         self._reminder_tracker = reminder_tracker
+        self._token_aggregator = token_aggregator
         self.tool_calls: list[dict[str, Any]] = []
         self._span_seq = 0
         self._last_ttft_ms: int | None = None
@@ -121,6 +124,25 @@ class LLMExecutor:
                     node = await agent_run.next(node)
 
         return AgentRunResult(agent_run=agent_run, stop_regen=stop_regen, ttft_ms=self._last_ttft_ms)
+
+    # ------------------------------------------------------------------
+    # Token usage recording
+    # ------------------------------------------------------------------
+
+    def record_usage(self, usage_obj: Any) -> None:
+        """Record token usage from a Pydantic AI usage object into the aggregator.
+
+        Safe to call with None — does nothing if aggregator is unset or usage is missing.
+        """
+        if self._token_aggregator is None or usage_obj is None:
+            return
+        self._token_aggregator.record(
+            self._agent_name,
+            input_tokens=getattr(usage_obj, "input_tokens", 0) or 0,
+            output_tokens=getattr(usage_obj, "output_tokens", 0) or 0,
+            cache_hit_tokens=getattr(usage_obj, "prompt_cache_hit_tokens", 0) or 0,
+            reasoning_tokens=getattr(usage_obj, "reasoning_tokens", 0) or 0,
+        )
 
     # ------------------------------------------------------------------
     # Internal: model-request node (text streaming)
