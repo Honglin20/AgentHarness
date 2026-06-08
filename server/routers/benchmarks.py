@@ -243,8 +243,8 @@ async def get_benchmark_result(
 @router.get("/benchmarks/{name}/regression")
 async def benchmark_regression(
     name: str,
+    request: Request,
     baseline_run: str | None = None,
-    request: Request = None,
     repo: WorkflowRepository = Depends(get_repository_dep),
 ) -> dict:
     """Compare latest benchmark run against a baseline for regressions.
