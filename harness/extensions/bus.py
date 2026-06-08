@@ -71,7 +71,14 @@ class Bus:
         self._subscriber_queue_size = subscriber_queue_size  # 0 = unlimited
         self._seq: int = 0
 
-        # Priority: critical events are never evicted
+        # Priority: critical events are never evicted.
+        # _critical_buffer_max is an ADVISORY limit — by design we never drop
+        # or FIFO-evict critical events (that would violate the "critical
+        # never dropped" guarantee). The warning below fires only as a
+        # health signal so operators notice runaway error storms; the events
+        # are still appended. If memory growth under sustained error storms
+        # becomes a real concern, the fix belongs in the producer (rate-limit
+        # ext.error emission), not here.
         self._critical_buffer: list[dict] = []
         self._critical_buffer_max: int = 100
 
@@ -168,8 +175,11 @@ class Bus:
         if priority == "critical":
             event["priority"] = "critical"
             if len(self._critical_buffer) >= self._critical_buffer_max:
+                # Advisory only — never evict. See __init__ docstring for
+                # why we intentionally grow past the limit rather than drop.
                 logger.warning(
-                    "Critical buffer exceeded max (%d); appending anyway",
+                    "Critical buffer exceeded advisory max (%d); appending anyway "
+                    "(critical events are never evicted by design)",
                     self._critical_buffer_max,
                 )
             self._critical_buffer.append(event)
