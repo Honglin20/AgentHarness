@@ -8,10 +8,21 @@ import type {
   NodeCompletedPayload,
   NodeFailedPayload,
 } from "@/types/events";
+import {
+  withCache,
+  type StoreCache,
+  type WithCacheOptions,
+} from "@/lib/storeCache";
 
 export function createWorkflowStore(
   workflowId: string,
 ): StoreApi<WorkflowState> {
+  let cache: StoreCache;
+
+  // Inline mirror of WorkflowSnapshot (not exported from workflowStore.ts).
+  // Kept structurally identical so the cache CRUD round-trips losslessly.
+  type Snapshot = WorkflowState["_cache"][string];
+
   const initialState: WorkflowState = {
     workflowId: workflowId,
     workflowName: null,
@@ -78,7 +89,7 @@ export function createWorkflowStore(
     },
   };
 
-  return createStore<WorkflowState>()((set, get) => ({
+  const store = createStore<WorkflowState>()((set, get) => ({
     ...initialState,
 
     setWorkflow: (id, name, dag) =>
@@ -186,32 +197,23 @@ export function createWorkflowStore(
         },
       })),
 
-    saveToCache: (wid) => {
-      const { nodes, status, workflowId, workflowName, dag, envelope, _cache } = get();
-      _cache[wid] = { nodes, status, workflowId, workflowName, dag, envelope };
-      set({ _cache });
-    },
+    saveToCache: (wid) => cache.saveToCache(wid),
 
-    restoreFromCache: (wid) => {
-      const snap = get()._cache[wid];
-      if (!snap) return false;
-      set({
-        nodes: snap.nodes,
-        status: snap.status,
-        workflowId: snap.workflowId,
-        workflowName: snap.workflowName,
-        dag: snap.dag,
-        envelope: snap.envelope,
-      });
-      return true;
-    },
+    restoreFromCache: (wid) => cache.restoreFromCache(wid),
 
     updateNodeInCache: (wid, payload) => {
-      const _cache = { ...get()._cache };
-      if (!_cache[wid]) {
-        _cache[wid] = { nodes: {}, status: "running", workflowId: wid, workflowName: null, dag: null, envelope: null };
-      }
-      const snap = _cache[wid];
+      const existing = cache.getCacheForWid(wid);
+      const base =
+        existing ??
+        cache.setCacheForWid(wid, {
+          nodes: {},
+          status: "running",
+          workflowId: wid,
+          workflowName: null,
+          dag: null,
+          envelope: null,
+        });
+      const snap = base as unknown as Snapshot;
       const nodes = { ...snap.nodes };
 
       if ("status" in payload && "error" in payload && "will_retry" in payload) {
@@ -253,47 +255,49 @@ export function createWorkflowStore(
         };
       }
 
-      _cache[wid] = { ...snap, nodes };
-      set({ _cache });
+      cache.setCacheForWid(wid, { ...snap, nodes });
     },
 
-    setActiveWid: (wid) => {
-      const cache = { ...get()._cache };
-      const currentWid = get().workflowId;
-      if (currentWid) {
-        cache[currentWid] = {
-          nodes: get().nodes,
-          status: get().status,
-          workflowId: get().workflowId,
-          workflowName: get().workflowName,
-          dag: get().dag,
-          envelope: get().envelope,
-        };
-      }
-      if (wid && cache[wid]) {
-        const snap = cache[wid];
-        set({
-          nodes: snap.nodes,
-          status: snap.status,
-          workflowId: snap.workflowId,
-          workflowName: snap.workflowName,
-          dag: snap.dag,
-          envelope: snap.envelope,
-          _cache: cache,
-        });
-      } else {
-        set({
-          nodes: {},
-          status: "idle" as const,
-          workflowId: wid,
-          workflowName: null,
-          dag: null,
-          envelope: null,
-          _cache: cache,
-        });
-      }
-    },
+    setActiveWid: (wid) => cache.setActiveWid(wid),
 
-    clearCache: () => set({ _cache: {} }),
+    clearCache: () => cache.clearCache(),
   }));
+
+  // WorkflowState lacks a string index signature, but withCache only relies on
+  // its internal _cache/_activeWid plumbing and casts internally — so widen the
+  // store to satisfy the Record<string, unknown> constraint without touching
+  // the typed WorkflowState interface. The options callbacks stay typed against
+  // WorkflowState for snapshot correctness.
+  const cacheOptions: WithCacheOptions<WorkflowState> = {
+    extractSnapshot: (s) => ({
+      nodes: s.nodes,
+      status: s.status,
+      workflowId: s.workflowId,
+      workflowName: s.workflowName,
+      dag: s.dag,
+      envelope: s.envelope,
+    }),
+    applySnapshot: (_s, snap) => ({
+      nodes: (snap.nodes as WorkflowState["nodes"]) ?? {},
+      status: (snap.status as WorkflowState["status"]) ?? "idle",
+      workflowId: (snap.workflowId as string | null) ?? null,
+      workflowName: (snap.workflowName as string | null) ?? null,
+      dag: (snap.dag as WorkflowState["dag"]) ?? null,
+      envelope: (snap.envelope as WorkflowState["envelope"]) ?? null,
+    }),
+    makeEmptySnapshot: () => ({
+      nodes: {},
+      status: "running",
+      workflowId,
+      workflowName: null,
+      dag: null,
+      envelope: null,
+    }),
+  };
+  cache = withCache(
+    store as unknown as StoreApi<Record<string, unknown>>,
+    cacheOptions as unknown as WithCacheOptions<Record<string, unknown>>,
+  );
+
+  return store;
 }
