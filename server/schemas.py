@@ -1,6 +1,7 @@
 """Pydantic schemas for API request/response models."""
 
-from typing import Any, Literal
+import json
+from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, Field, StrictBool
 
@@ -351,3 +352,168 @@ class UpdateRunFollowupRequest(BaseModel):
     model: str | None = None
     turn_count: int = 0
     created_at: str | None = None  # falls back to now() in handler if absent
+
+
+# --- WebSocket inbound messages ---
+#
+# Wire format (matches what the frontend actually sends and what
+# ws_handler.py reads): every inbound message is a JSON object with a
+# top-level `type` discriminator and a nested `payload` object. The
+# payload schema differs per message type.
+#
+# Parsing entry point: `parse_ws_message(raw: str)` — raises
+# `WSValidationError` on any failure (malformed JSON, unknown type,
+# missing required field, wrong field type). Callers (the WS loop)
+# should send the error message back to the client and continue.
+
+
+class WSChatAnswerPayload(BaseModel):
+    """Payload for a `chat.answer` message.
+
+    Two accepted shapes (mirrors ws_handler.parse_chat_answer_payload):
+      - new:    {question_id, selected: [...], custom_input: "..."}
+      - legacy: {question_id, answer: "..."}
+
+    Note: `selected`, `custom_input`, and `answer` are intentionally
+    NOT given defaults. Downstream `parse_chat_answer_payload()` /
+    `assemble_answer()` distinguish the two shapes by field *presence*
+    (not by emptiness), so we must serialize back with only the keys
+    the client actually sent. The handler does this via
+    `model_dump(exclude_unset=True)`.
+    """
+    question_id: str
+    selected: list[str] | None = None
+    custom_input: str | None = None
+    answer: str | None = None
+
+
+class WSStopAndRegeneratePayload(BaseModel):
+    """Payload for an `agent.stop_and_regenerate` message."""
+    agent_name: str
+    partial_output: str = ""
+    user_guidance: str = ""
+
+
+class WSProvideGuidancePayload(BaseModel):
+    """Payload for an `agent.provide_guidance` message (post-stop guidance)."""
+    guidance: str
+
+
+class WSChatFollowupPayload(BaseModel):
+    """Payload for a `chat.followup` message (post-workflow follow-up)."""
+    agent_name: str
+    question: str
+
+
+class WSChatAnswer(BaseModel):
+    """`chat.answer` — answer an ask_user question."""
+    type: Literal["chat.answer"] = "chat.answer"
+    payload: WSChatAnswerPayload
+
+
+class WSStopAndRegenerate(BaseModel):
+    """`agent.stop_and_regenerate` — interrupt current agent + regenerate."""
+    type: Literal["agent.stop_and_regenerate"] = "agent.stop_and_regenerate"
+    payload: WSStopAndRegeneratePayload
+
+
+class WSProvideGuidance(BaseModel):
+    """`agent.provide_guidance` — provide guidance after a stop."""
+    type: Literal["agent.provide_guidance"] = "agent.provide_guidance"
+    payload: WSProvideGuidancePayload
+
+
+class WSChatFollowup(BaseModel):
+    """`chat.followup` — post-workflow follow-up question to an agent."""
+    type: Literal["chat.followup"] = "chat.followup"
+    payload: WSChatFollowupPayload
+
+
+# All recognized inbound message types. Kept as a list (not derived from
+# the union) so unknown-type errors can name them in a stable order.
+WS_KNOWN_TYPES: tuple[str, ...] = (
+    "chat.answer",
+    "agent.stop_and_regenerate",
+    "agent.provide_guidance",
+    "chat.followup",
+)
+
+# Map from message type → model. Manual dispatch (instead of relying on
+# Pydantic's discriminated-union error) so unknown-type failures get a
+# friendly "Unknown message type 'X'. Known: [...]" message instead of
+# Pydantic's generic discriminator error.
+_WS_TYPE_TO_MODEL: dict[str, type[BaseModel]] = {
+    "chat.answer": WSChatAnswer,
+    "agent.stop_and_regenerate": WSStopAndRegenerate,
+    "agent.provide_guidance": WSProvideGuidance,
+    "chat.followup": WSChatFollowup,
+}
+
+# Discriminated union — exported for callers that want isinstance-based
+# narrowing. Pydantic v2 picks the right variant on the `type` field.
+WSMessage = Annotated[
+    Union[WSChatAnswer, WSStopAndRegenerate, WSProvideGuidance, WSChatFollowup],
+    Field(discriminator="type"),
+]
+
+
+class WSValidationError(Exception):
+    """Raised when an inbound WS message fails validation.
+
+    Message text is safe to forward verbatim to the client.
+    """
+
+
+def parse_ws_message(raw: str) -> BaseModel:
+    """Parse + validate a raw WS text frame.
+
+    Returns the validated model instance (one of the WS* classes above),
+    or raises `WSValidationError` with a client-safe message.
+
+    Replaces raw `json.loads()` + `msg.get("type")` dispatch in
+    `ws_handler.py`. Unknown types, malformed JSON, missing `type`,
+    missing `payload`, and per-message field errors all surface here as
+    `WSValidationError` instead of being silently ignored or surfacing
+    as opaque 500s / handler-level KeyErrors.
+    """
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise WSValidationError(f"Invalid JSON: {e.msg}") from e
+
+    if not isinstance(data, dict):
+        raise WSValidationError(
+            f"Message must be a JSON object, got {type(data).__name__}"
+        )
+
+    msg_type = data.get("type")
+    if msg_type is None:
+        raise WSValidationError("Message missing 'type' field")
+    if not isinstance(msg_type, str):
+        raise WSValidationError(
+            f"'type' must be a string, got {type(msg_type).__name__}"
+        )
+
+    if msg_type not in _WS_TYPE_TO_MODEL:
+        raise WSValidationError(
+            f"Unknown message type '{msg_type}'. "
+            f"Known: {list(WS_KNOWN_TYPES)}"
+        )
+
+    model = _WS_TYPE_TO_MODEL[msg_type]
+    try:
+        return model.model_validate(data)
+    except Exception as e:  # noqa: BLE001 — surface Pydantic errors verbatim-ish
+        # Pydantic v2 raises ValidationError. Flatten the first error into
+        # a one-line message — clients get a precise, actionable reason
+        # ("payload.question_id: field required") instead of a stack trace.
+        errors = getattr(e, "errors", None)
+        if callable(errors):
+            errors = errors()
+        if errors:
+            first = errors[0]
+            loc = ".".join(str(x) for x in first.get("loc", ()) if x != "__root__")
+            raise WSValidationError(
+                f"Field '{loc}': {first.get('msg', 'invalid')}"
+            ) from e
+        raise WSValidationError(str(e)) from e

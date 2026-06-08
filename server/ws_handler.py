@@ -10,6 +10,14 @@ from fastapi import APIRouter, Query
 
 from harness.user_manager import get_user_manager
 from server.event_bus import EventBus, get_event_bus
+from server.schemas import (
+    WSChatAnswer,
+    WSChatFollowup,
+    WSProvideGuidance,
+    WSStopAndRegenerate,
+    WSValidationError,
+    parse_ws_message,
+)
 from .batch_fan_in import BatchFanIn
 
 router = APIRouter()
@@ -531,39 +539,55 @@ async def websocket_endpoint(
 
     try:
         while True:
-            # Receive incoming messages (e.g., ask_user responses)
-            data = await websocket.receive_text()
-            message = json.loads(data)
+            # Receive incoming messages (e.g., ask_user responses).
+            # Each frame is validated via parse_ws_message() — unknown
+            # types, missing fields, and malformed JSON all raise
+            # WSValidationError and are sent back to the client as an
+            # error frame (the connection stays open). Replaces raw
+            # json.loads() + msg.get("type") string dispatch.
+            raw = await websocket.receive_text()
+            try:
+                msg = parse_ws_message(raw)
+            except WSValidationError as e:
+                await websocket.send_json({"type": "error", "detail": str(e)})
+                continue
 
             # Handle ask_user responses (chat.answer).
             # Accepts both:
             #   new: {question_id, selected: [...], custom_input: "..."}
             #   legacy: {question_id, answer: "..."}
-            if message.get("type") == "chat.answer":
-                payload = message.get("payload", {}) or {}
-                question_id = payload.get("question_id")
-
+            if isinstance(msg, WSChatAnswer):
+                payload = msg.payload
+                question_id = payload.question_id
                 if question_id:
                     from harness.tools.ask_user import resolve_answer
-                    answer_payload = parse_chat_answer_payload(payload)
+                    # Serialize back to a dict containing ONLY the keys
+                    # the client actually sent. parse_chat_answer_payload()
+                    # (and downstream assemble_answer()) distinguish new
+                    # vs legacy shape by field *presence*, not emptiness,
+                    # so exclude_unset=True is load-bearing here — without
+                    # it, an empty legacy {"answer":"x"} message would
+                    # serialize as {"selected": None, "custom_input": None,
+                    # "answer": "x"} and lose its answer.
+                    raw_payload = payload.model_dump(exclude_unset=True)
+                    answer_payload = parse_chat_answer_payload(raw_payload)
                     await resolve_answer(question_id, answer_payload)
 
             # Handle stop + regenerate requests
-            elif message.get("type") == "agent.stop_and_regenerate":
-                payload = message.get("payload", {}) or {}
-                agent_name = payload.get("agent_name") or ""
-                partial_output = payload.get("partial_output", "") or ""
-                user_guidance = payload.get("user_guidance", "") or ""
-                if agent_name:
+            elif isinstance(msg, WSStopAndRegenerate):
+                payload = msg.payload
+                if payload.agent_name:
                     from harness.engine.macro_graph import request_stop_and_regenerate
                     await request_stop_and_regenerate(
-                        workflow_id, agent_name, partial_output, user_guidance,
+                        workflow_id,
+                        payload.agent_name,
+                        payload.partial_output,
+                        payload.user_guidance,
                     )
 
             # Handle guidance provided after stop
-            elif message.get("type") == "agent.provide_guidance":
-                payload = message.get("payload", {}) or {}
-                guidance = payload.get("guidance", "") or ""
+            elif isinstance(msg, WSProvideGuidance):
+                guidance = msg.payload.guidance
                 if guidance:
                     from harness.engine.macro_graph import _active_builders
                     builder = _active_builders.get(workflow_id)
@@ -571,13 +595,11 @@ async def websocket_endpoint(
                         await builder.provide_guidance(guidance)
 
             # Handle post-workflow follow-up chat
-            elif message.get("type") == "chat.followup":
-                payload = message.get("payload", {}) or {}
-                _agent_name = payload.get("agent_name", "")
-                _question = payload.get("question", "")
-                if _agent_name and _question:
+            elif isinstance(msg, WSChatFollowup):
+                payload = msg.payload
+                if payload.agent_name and payload.question:
                     await _handle_followup(
-                        workflow_id, _agent_name, _question, event_bus,
+                        workflow_id, payload.agent_name, payload.question, event_bus,
                     )
     except WebSocketDisconnect:
         pass
