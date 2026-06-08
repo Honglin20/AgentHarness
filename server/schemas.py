@@ -325,6 +325,10 @@ class ChartRenderRequest(BaseModel):
     """POST /charts — chart payload from render_chart() HTTP fallback."""
     node_id: str = ""
     chart: dict[str, Any] = Field(default_factory=dict)
+    # Workflow ID injected by render_chart() via contextvar when called inside
+    # an agent's execution. Lets the server route the event to the correct
+    # workflow's Bus instead of guessing by node_id or "last running".
+    workflow_id: str | None = None
 
 
 # --- Runs ---

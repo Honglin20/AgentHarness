@@ -12,14 +12,18 @@ export interface TodoStep {
 
 export interface TodoState {
   todos: Record<string, TodoStep[]>; // key = nodeId
+  /** Reset to initial state. Used by resetAllStores() when the workflow scope changes. */
+  reset: () => void;
 }
 
 export function createTodoStore(
   _workflowId: string,
 ): StoreApi<TodoState> {
-  return createStore<TodoState>()(() => ({
+  const store = createStore<TodoState>()(() => ({
     todos: {},
+    reset: () => store.setState({ todos: {}, reset: store.getState().reset }),
   }));
+  return store;
 }
 
 export function handleTodoCreated(

@@ -151,7 +151,7 @@ class AskUserToolFactory(ToolFactory):
             future = await _human_io.register(question_id)
 
             if bus:
-                bus.emit("chat.question", {
+                question_payload: dict[str, Any] = {
                     "node_id": ctx.deps.agent_name,
                     "agent_name": ctx.deps.agent_name,
                     "question_id": question_id,
@@ -162,7 +162,13 @@ class AskUserToolFactory(ToolFactory):
                     "allow_custom_input": allow_custom_input,
                     "input_type": input_type,
                     "input_placeholder": input_placeholder,
-                })
+                }
+                # Stamp workflow_id so the receiving WS client can verify
+                # the event belongs to its active workflow before rendering.
+                wid = getattr(ctx.deps, "workflow_id", None)
+                if wid:
+                    question_payload["workflow_id"] = wid
+                bus.emit("chat.question", question_payload)
 
             raw = await _human_io.wait(future, timeout=DEFAULT_TIMEOUT_SEC)
             if raw is None:

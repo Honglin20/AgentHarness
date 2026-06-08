@@ -107,6 +107,7 @@ class TodoToolFactory(ToolFactory):
             deps = ctx.deps
             agent_name = deps.agent_name if isinstance(deps, AgentDeps) else ""
             node_id = agent_name
+            workflow_id = deps.workflow_id if isinstance(deps, AgentDeps) else None
 
             # Lazily init per-node state on first call
             state = ensure_todo_state(deps) if isinstance(deps, AgentDeps) else None
@@ -130,11 +131,14 @@ class TodoToolFactory(ToolFactory):
                 state.has_plan = True
 
                 if bus:
-                    bus.emit("todo.created", {
+                    payload_created: dict[str, Any] = {
                         "node_id": node_id,
                         "agent_name": agent_name,
                         "items": [e.model_dump() for e in new_steps],
-                    })
+                    }
+                    if workflow_id:
+                        payload_created["workflow_id"] = workflow_id
+                    bus.emit("todo.created", payload_created)
 
                 first = new_steps[0]
                 if len(new_steps) == 1:
@@ -168,14 +172,17 @@ class TodoToolFactory(ToolFactory):
                     entry.detail = detail
 
                 if bus:
-                    bus.emit("todo.updated", {
+                    payload_updated: dict[str, Any] = {
                         "node_id": node_id,
                         "agent_name": agent_name,
                         "task_id": entry.task_id,
                         "status": entry.status if status else None,
                         "detail": detail,
                         "auto_advance": auto_advance,
-                    })
+                    }
+                    if workflow_id:
+                        payload_updated["workflow_id"] = workflow_id
+                    bus.emit("todo.updated", payload_updated)
 
                 parts = [f"Step '{entry.content}' updated."]
                 if auto_advance and next_pending:

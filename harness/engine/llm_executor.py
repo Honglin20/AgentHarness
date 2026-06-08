@@ -106,28 +106,42 @@ class LLMExecutor:
         - tool_call / tool_result event emission
         - interrupt (stop-and-regenerate) detection at every iteration step
         """
+        # Bind the workflow_id into the async context so chart/render_chart
+        # (called by the agent as a Pydantic AI tool, deep in the call stack)
+        # can stamp it on its events. Without this, server's chart fallback
+        # used to guess the workflow by node_id and could route across
+        # concurrently-running workflows.
+        from harness.tools.chart import (
+            reset_chart_workflow_context,
+            set_chart_workflow_context,
+        )
+        wid_token = set_chart_workflow_context(self._wid or None)
+
         stop_regen: dict[str, Any] | None = None
 
-        async with self._agent.iter(context, deps=self._deps) as agent_run:
-            node = agent_run.next_node
+        try:
+            async with self._agent.iter(context, deps=self._deps) as agent_run:
+                node = agent_run.next_node
 
-            while not isinstance(node, End):
-                if self._agent.is_model_request_node(node):
-                    stop_regen = await self._handle_model_request(node, agent_run.ctx)
-                    if stop_regen:
-                        break
-                    node = await agent_run.next(node)
+                while not isinstance(node, End):
+                    if self._agent.is_model_request_node(node):
+                        stop_regen = await self._handle_model_request(node, agent_run.ctx)
+                        if stop_regen:
+                            break
+                        node = await agent_run.next(node)
 
-                elif self._agent.is_call_tools_node(node):
-                    stop_regen = await self._handle_call_tools(node, agent_run.ctx)
-                    if stop_regen:
-                        break
-                    node = await agent_run.next(node)
+                    elif self._agent.is_call_tools_node(node):
+                        stop_regen = await self._handle_call_tools(node, agent_run.ctx)
+                        if stop_regen:
+                            break
+                        node = await agent_run.next(node)
 
-                else:
-                    node = await agent_run.next(node)
+                    else:
+                        node = await agent_run.next(node)
 
-        return AgentRunResult(agent_run=agent_run, stop_regen=stop_regen, ttft_ms=self._last_ttft_ms)
+            return AgentRunResult(agent_run=agent_run, stop_regen=stop_regen, ttft_ms=self._last_ttft_ms)
+        finally:
+            reset_chart_workflow_context(wid_token)
 
     # ------------------------------------------------------------------
     # Token usage recording

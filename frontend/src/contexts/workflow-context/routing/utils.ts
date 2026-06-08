@@ -82,7 +82,12 @@ export function payload<T>(event: { type: string; payload: Record<string, unknow
 // resetAllStores
 // ---------------------------------------------------------------------------
 
-/** Reset all stores in a WorkflowStores container. */
+/** Reset all stores in a WorkflowStores container.
+
+ * Every store in WorkflowStores MUST be listed here — anything missing
+ * survives workflow switches and surfaces as cross-workflow data leak
+ * (the previous workflow's content appears in the new workflow's UI).
+ */
 export function resetAllStores(stores: WorkflowStores): void {
   stores.conversation.getState().reset();
   stores.output.getState().reset();
@@ -92,6 +97,7 @@ export function resetAllStores(stores: WorkflowStores): void {
   stores.agentIO.getState().reset();
   stores.chat.getState().reset();
   stores.span.getState().reset();
+  stores.todo.getState().reset();
 }
 
 // ---------------------------------------------------------------------------

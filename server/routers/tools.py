@@ -66,14 +66,31 @@ async def chart_render(
 
     node_id = body.node_id
     chart = body.chart
+    request_workflow_id = body.workflow_id
 
     event_payload = {
         "node_id": node_id,
         "agent_name": node_id,
         "chart": chart,
     }
+    if request_workflow_id:
+        event_payload["workflow_id"] = request_workflow_id
 
-    # Try to find the specific workflow whose nodes include this node_id
+    # Preferred path: caller (render_chart via contextvar) told us which
+    # workflow this chart belongs to. Use it directly — no guessing.
+    if request_workflow_id:
+        data = repo.get(request_workflow_id)
+        wf_bus = data.get("event_bus") if data else None
+        if wf_bus:
+            wf_bus.emit("chart.render", event_payload)
+            return {"status": "ok"}
+        # No matching workflow — fall through to node_id heuristic below
+        # (legacy callers without contextvar may still hit this path).
+
+    # Legacy fallback: match by node_id when caller didn't supply workflow_id.
+    # This is racy when multiple workflows have an agent with the same name,
+    # but kept for back-compat with subprocess tool calls that don't carry
+    # contextvar (e.g. bash → stdout __HARNESS_CHART__).
     for _wid, data in repo.all_running():
         workflow = data.get("workflow")
         if workflow and node_id:
@@ -84,16 +101,10 @@ async def chart_render(
                     wf_bus.emit("chart.render", event_payload)
                     return {"status": "ok"}
 
-    # If node_id is empty or no specific match, try the active (last-started) running workflow
-    running = list(repo.all_running())
-    if running:
-        _wid, data = running[-1]
-        wf_bus = data.get("event_bus")
-        if wf_bus:
-            wf_bus.emit("chart.render", event_payload)
-            return {"status": "ok"}
-
-    # Fallback: emit on global bus for backwards compat
+    # Last-resort: emit on the global Bus. WS clients subscribed to per-workflow
+    # buses (which is the normal case) won't receive it — that's correct:
+    # we'd rather drop the chart than route it to the wrong workflow's UI
+    # (the previous "running[-1]" heuristic did exactly that under load).
     event_bus.emit("chart.render", event_payload)
 
     return {"status": "ok"}

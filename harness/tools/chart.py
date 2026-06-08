@@ -5,6 +5,7 @@ Also provides RenderChartToolFactory so agents can call render_chart as a Pydant
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
@@ -19,6 +20,29 @@ logger = logging.getLogger(__name__)
 
 _CHART_ENDPOINT = "/api/charts"
 _CHART_STDOUT_PREFIX = "__HARNESS_CHART__:"
+
+# contextvar: workflow_id for the currently-executing agent. Set by
+# LLMExecutor.run() so render_chart() — which has no other way to know
+# the workflow — can stamp its events / HTTP POSTs. Without this, the
+# server's chart fallback used to pick "last running workflow" and could
+# route charts from one workflow to another when multiple ran in parallel.
+_current_workflow_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "harness_chart_workflow_id", default=None,
+)
+
+
+def set_chart_workflow_context(workflow_id: str | None) -> contextvars.Token[str | None]:
+    """Bind the workflow_id for the current async context.
+
+    Used by LLMExecutor.run() so render_chart() can read it. Returns the
+    token to pass to reset_chart_workflow_context() in a finally clause.
+    """
+    return _current_workflow_id.set(workflow_id)
+
+
+def reset_chart_workflow_context(token: contextvars.Token[str | None]) -> None:
+    """Restore the previous workflow_id binding."""
+    _current_workflow_id.reset(token)
 _VALID_CHART_TYPES = {
     "line", "bar", "scatter", "pareto", "optimal_line",
     "heatmap", "box", "bubble", "area", "radar", "table", "waterfall",
@@ -322,6 +346,12 @@ def render_chart(
         "agent_name": node_id,
         "chart": chart_payload,
     }
+    # Stamp the current workflow_id so downstream routing doesn't have to
+    # guess. Set both on the in-process event and on the HTTP POST payload.
+    wid = _current_workflow_id.get()
+    if wid:
+        event_payload["workflow_id"] = wid
+
     rendered_msg = f"Chart rendered: {chart_type} | label='{label}' | title='{title or chart_type}'"
 
     # Channel 1: EventBus (same-process — only if active server instance)
@@ -339,7 +369,10 @@ def render_chart(
     server_url = os.environ.get("HARNESS_SERVER_URL")
     if server_url:
         url = f"{server_url.rstrip('/')}{_CHART_ENDPOINT}"
-        _http_post(url, {"node_id": node_id, "chart": chart_payload})
+        post_payload: dict[str, Any] = {"node_id": node_id, "chart": chart_payload}
+        if wid:
+            post_payload["workflow_id"] = wid
+        _http_post(url, post_payload)
 
     return rendered_msg
 
