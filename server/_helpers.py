@@ -47,8 +47,8 @@ def _validate_workflow_dir(workflow: str, user_id: str | None = None) -> Path:
 
     Rejects path traversal. The directory does not need to exist (caller decides).
 
-    Note: ``_WORKFLOWS_DIR`` is resolved dynamically from ``harness.api`` so
-    tests that monkey-patch ``harness.api._WORKFLOWS_DIR`` take effect.
+    Note: ``_WORKFLOWS_DIR`` is resolved dynamically from ``harness.workflow``
+    so tests that monkey-patch ``harness.workflow._WORKFLOWS_DIR`` take effect.
     """
     if not workflow or "/" in workflow or "\\" in workflow or workflow.startswith("."):
         raise HTTPException(status_code=400, detail="invalid workflow name")
@@ -61,8 +61,11 @@ def _validate_workflow_dir(workflow: str, user_id: str | None = None) -> Path:
         # Not found in registry — fall through to filesystem lookup below.
         logger.debug("Workflow %s not in registry — trying filesystem", workflow)
 
-    # Re-read in case tests patched harness.api._WORKFLOWS_DIR
-    from harness.api import _WORKFLOWS_DIR as workflows_root
+    # Re-read each call via the compatibility getter — tests historically
+    # patched harness.api._WORKFLOWS_DIR (legacy binding), newer tests patch
+    # harness.workflow._WORKFLOWS_DIR. The getter honors both.
+    import harness.workflow as _wf_mod
+    workflows_root = _wf_mod._get_workflows_dir()
 
     # Try shared workflows first
     shared_path = (workflows_root / "_shared" / "workflows" / workflow).resolve()

@@ -3,7 +3,7 @@ from harness.api import Workflow, Agent
 
 
 def test_save_creates_workflow_dir_and_subdirs(tmp_path, monkeypatch):
-    monkeypatch.setattr("harness.api._WORKFLOWS_DIR", tmp_path)
+    monkeypatch.setattr("harness.workflow._WORKFLOWS_DIR", tmp_path)
     wf = Workflow("demo", agents=[Agent("a")])
     path = wf.save()
     assert path == tmp_path / "demo" / "workflow.json"
@@ -14,7 +14,7 @@ def test_save_creates_workflow_dir_and_subdirs(tmp_path, monkeypatch):
 
 
 def test_load_uses_new_layout(tmp_path, monkeypatch):
-    monkeypatch.setattr("harness.api._WORKFLOWS_DIR", tmp_path)
+    monkeypatch.setattr("harness.workflow._WORKFLOWS_DIR", tmp_path)
     wf_dir = tmp_path / "demo"
     (wf_dir / "agents").mkdir(parents=True)
     (wf_dir / "scripts").mkdir()

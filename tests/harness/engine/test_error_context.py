@@ -75,7 +75,7 @@ async def test_node_failed_includes_error_type():
     # Patch LLMExecutor to raise inside the try block
     mock_executor_cls = MagicMock(side_effect=ValueError("test boom"))
 
-    with patch("harness.engine.macro_graph.LLMExecutor", mock_executor_cls):
+    with patch("harness.engine.node_factory.LLMExecutor", mock_executor_cls):
         result = await node_func(state)
 
     # Drain events from the queue
@@ -133,7 +133,7 @@ async def test_node_failed_includes_tool_calls_before_failure():
     mock_instance.run = MagicMock(side_effect=RuntimeError("LLM crashed"))
     mock_executor_cls.return_value = mock_instance
 
-    with patch("harness.engine.macro_graph.LLMExecutor", mock_executor_cls):
+    with patch("harness.engine.node_factory.LLMExecutor", mock_executor_cls):
         result = await node_func(state)
 
     events = []
@@ -288,7 +288,7 @@ async def test_output_validation_failure_has_synthetic_error_type():
     mock_instance.run = fake_run
     mock_executor_cls.return_value = mock_instance
 
-    with patch("harness.engine.macro_graph.LLMExecutor", mock_executor_cls):
+    with patch("harness.engine.node_factory.LLMExecutor", mock_executor_cls):
         result = await node_func(state)
 
     events = []
@@ -336,7 +336,7 @@ async def test_node_failed_no_tool_calls_field_when_empty():
     mock_instance.run = MagicMock(side_effect=RuntimeError("fail"))
     mock_executor_cls.return_value = mock_instance
 
-    with patch("harness.engine.macro_graph.LLMExecutor", mock_executor_cls):
+    with patch("harness.engine.node_factory.LLMExecutor", mock_executor_cls):
         result = await node_func(state)
 
     events = []

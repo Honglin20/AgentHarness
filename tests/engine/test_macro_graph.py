@@ -99,9 +99,14 @@ def test_stop_regen_signal_ttl_expiry():
 
 
 def test_node_completed_event_includes_io_fields():
-    """node.completed event payload should include input_prompt and output_result fields."""
+    """node.completed event payload should include input_prompt and output_result fields.
+
+    Phase 6B split: io_data construction lives in node_factory.py now; the
+    macro_graph.py shim re-exports the public class but does not contain
+    the literal source.
+    """
     import inspect
-    from harness.engine import macro_graph
-    source = inspect.getsource(macro_graph)
+    from harness.engine import node_factory
+    source = inspect.getsource(node_factory)
     assert '"input_prompt"' in source, "node.completed event must include input_prompt field"
     assert '"output_result"' in source, "node.completed event must include output_result field"
