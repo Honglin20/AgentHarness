@@ -1,7 +1,8 @@
 """User management endpoints."""
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from harness.user_manager import get_current_user, get_user_manager
+from server.auth import require_admin_dep
 from server.schemas import CreateUserRequest
 
 router = APIRouter()
@@ -26,12 +27,12 @@ async def list_users() -> list[dict]:
 
 
 @router.post("/users")
-async def create_user(body: CreateUserRequest, request: Request) -> dict:
+async def create_user(
+    body: CreateUserRequest,
+    _admin: None = Depends(require_admin_dep),
+) -> dict:
     """Create a new user (admin only)."""
-    user = get_current_user(request)
     mgr = get_user_manager()
-    if not mgr.is_admin(user):
-        raise HTTPException(status_code=403, detail="Admin only")
 
     user_id = body.user_id.strip()
     name = body.name.strip()
@@ -49,12 +50,12 @@ async def create_user(body: CreateUserRequest, request: Request) -> dict:
 
 
 @router.delete("/users/{user_id}")
-async def delete_user(user_id: str, request: Request) -> dict:
+async def delete_user(
+    user_id: str,
+    _admin: None = Depends(require_admin_dep),
+) -> dict:
     """Delete a user (admin only)."""
-    user = get_current_user(request)
     mgr = get_user_manager()
-    if not mgr.is_admin(user):
-        raise HTTPException(status_code=403, detail="Admin only")
 
     try:
         mgr.delete_user(user_id)
