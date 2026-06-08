@@ -320,9 +320,22 @@ class LLMExecutor:
     # Event emission helpers
     # ------------------------------------------------------------------
 
+    _delta_skip_counter: int = 0  # class-level throttle counter
+
     def _emit_text_delta(self, delta: str) -> None:
         if not self._bus:
             return
+        # Backpressure: when buffer >80% full, skip every other text_delta
+        try:
+            if hasattr(self._bus, "buffer_usage") and self._bus.buffer_usage() > 0.8:
+                LLMExecutor._delta_skip_counter += 1
+                if LLMExecutor._delta_skip_counter % 2 == 0:
+                    return
+        except (TypeError, AttributeError):
+            pass
+            LLMExecutor._delta_skip_counter += 1
+            if LLMExecutor._delta_skip_counter % 2 == 0:
+                return
         safe_emit(self._bus,"agent.text_delta", {
             "workflow_id": self._wid,
             "node_id": self._node_id,

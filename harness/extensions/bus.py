@@ -62,12 +62,13 @@ class Bus:
     create a fresh Bus() to isolate.
     """
 
-    def __init__(self, buffer_size: int = 2000):
+    def __init__(self, buffer_size: int = 2000, subscriber_queue_size: int = 0):
         # WS subscribers (unchanged from old EventBus)
         self._subscribers: dict[str, asyncio.Queue] = {}
         self._lock = asyncio.Lock()
         self._buffer: list[dict] = []
         self._buffer_size = buffer_size
+        self._subscriber_queue_size = subscriber_queue_size  # 0 = unlimited
         self._seq: int = 0
 
         # Priority: critical events are never evicted
@@ -120,7 +121,7 @@ class Bus:
     async def subscribe(self, since_seq: int | None = None) -> tuple[str, asyncio.Queue]:
         async with self._lock:
             sub_id = str(uuid.uuid4())
-            queue: asyncio.Queue[dict] = asyncio.Queue()
+            queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=self._subscriber_queue_size) if self._subscriber_queue_size > 0 else asyncio.Queue()
             self._subscribers[sub_id] = queue
             # Merge critical + normal buffers, sorted by seq for ordered replay
             all_events = self._critical_buffer + self._buffer
@@ -208,6 +209,12 @@ class Bus:
     def clear_buffer(self) -> None:
         self._buffer.clear()
         self._critical_buffer.clear()
+
+    def buffer_usage(self) -> float:
+        """Return buffer fill ratio 0.0-1.0+. Normal buffer only (excludes critical)."""
+        if self._buffer_size == 0:
+            return 0.0
+        return len(self._buffer) / self._buffer_size
 
     def with_user_context(self, user_id: str, **context: Any) -> contextlib.AbstractContextManager:
         """设置用户上下文（作用域：当前事件发射会携带此 user_id）
