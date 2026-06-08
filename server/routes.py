@@ -20,7 +20,6 @@ from server._helpers import (
     _new_bus,
     _reconstruct_run_to_repo,
     _validate_workflow_dir,
-    get_event_bus,
     health_check,
 )
 from server.routers import (

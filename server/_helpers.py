@@ -94,15 +94,6 @@ def _check_workflow_owner(workflow_id: str, request: Request) -> None:
             raise HTTPException(status_code=403, detail="Not your workflow")
 
 
-def get_event_bus():
-    """Legacy shim — returns global Bus.
-
-    Prefer creating a new Bus per workflow via _new_bus() below.
-    """
-    from server.event_bus import get_event_bus
-    return get_event_bus()
-
-
 def _new_bus():
     """Create a fresh Bus with default hooks registered."""
     from harness.extensions.bus import Bus

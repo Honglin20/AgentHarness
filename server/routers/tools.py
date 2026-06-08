@@ -2,7 +2,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from harness.extensions.bus import Bus
-from server._helpers import get_event_bus
 from server.dependencies import (
     get_event_bus_dep,
     get_repository_dep,

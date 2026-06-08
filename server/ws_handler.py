@@ -276,15 +276,11 @@ class ConnectionManager:
 
     def get_connection(self, sub_id: str) -> WebSocket | None:
         """Get WebSocket by sub_id."""
-        if self._lock is None:
-            return None
         # Non-blocking access (without lock for simplicity)
         return self._connections.get(sub_id)
 
     def get_user_connections(self, user_id: str) -> list[WebSocket]:
         """Get all WebSocket connections for a user."""
-        if self._lock is None:
-            return []
         # 返回副本避免外部修改
         return self._user_connections.get(user_id, []).copy()
 
@@ -556,7 +552,7 @@ async def websocket_endpoint(
         event_bus = _rebuild_bus_from_events(workflow_id)
         if not event_bus:
             # No persisted events either — empty Bus for bidirectional messages only.
-            from server.routes import _new_bus
+            from server._helpers import _new_bus
             event_bus = _new_bus()
 
     # Per-workflow WS: Bus is already isolated, no need for user filtering.
