@@ -246,6 +246,11 @@ class RunStore(RunStoreInterface):
 
         return data
 
+    def run_exists(self, run_id: str) -> bool:
+        """Return True if a run record exists for run_id (cheap presence check)."""
+        path = self._safe_path(run_id)
+        return path is not None and path.exists()
+
     def get_charts(self, run_id: str) -> dict | None:
         """Load chart_groups from sidecar file."""
         path = self._charts_path(run_id)

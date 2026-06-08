@@ -130,6 +130,16 @@ class RunStoreInterface(ABC):
         ...
 
     @abstractmethod
+    def run_exists(self, run_id: str) -> bool:
+        """Return True if a run record exists for run_id.
+
+        Cheaper than get_run() when the caller only needs to check presence
+        (e.g. delete-path authorization). Implementations MUST NOT expose
+        internal storage details (file paths, DB rows) through this method.
+        """
+        ...
+
+    @abstractmethod
     def get_charts(self, run_id: str) -> dict | None:
         """Load chart_groups for a run, or None if absent / not persisted."""
         ...

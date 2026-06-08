@@ -76,8 +76,7 @@ async def delete_run(
     if data and not is_admin and data.get("user_id", "default") != user.user_id:
         raise HTTPException(status_code=403, detail="Not your run")
 
-    path = store._safe_path(run_id)
-    if path is None or not path.exists():
+    if not store.run_exists(run_id):
         raise HTTPException(status_code=404, detail="Run not found")
     store.delete_run(run_id)
     repo.remove(run_id)
@@ -116,8 +115,7 @@ async def batch_delete_runs(
         if run and not is_admin and run.get("user_id", "default") != user.user_id:
             errors.append(rid)
             continue
-        path = store._safe_path(rid)
-        if path is None or not path.exists():
+        if not store.run_exists(rid):
             errors.append(rid)
             continue
         store.delete_run(rid)

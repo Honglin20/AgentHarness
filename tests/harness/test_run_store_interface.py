@@ -122,6 +122,9 @@ def test_can_subclass_for_alternative_backend():
         def get_run(self, run_id):
             return self._runs.get(run_id)
 
+        def run_exists(self, run_id):
+            return run_id in self._runs
+
         def get_charts(self, run_id):
             return self._charts.get(run_id)
 
@@ -177,3 +180,37 @@ def test_provider_returns_interface_type():
         assert return_annotation is RunStoreInterface, (
             f"Expected RunStoreInterface return annotation, got {return_annotation!r}"
         )
+
+
+def test_interface_declares_run_exists():
+    """run_exists must be declared on the interface (used by delete handlers)."""
+    assert hasattr(RunStoreInterface, "run_exists"), (
+        "RunStoreInterface.run_exists missing — delete handlers depend on it"
+    )
+    assert getattr(RunStoreInterface.run_exists, "__isabstractmethod__", False), (
+        "RunStoreInterface.run_exists must be @abstractmethod"
+    )
+
+
+def test_run_store_run_exists(tmp_path):
+    """RunStore.run_exists returns True iff the main record is on disk."""
+    store = RunStore(str(tmp_path))
+
+    # Invalid run_id (regex fail) — should never exist
+    assert store.run_exists("../escape") is False
+    assert store.run_exists("missing-run") is False
+
+    # Save a record, then it should exist
+    store.save(
+        run_id="run-exists-1",
+        workflow_name="demo",
+        agents_snapshot=[],
+        status="completed",
+        inputs={},
+        result=None,
+    )
+    assert store.run_exists("run-exists-1") is True
+
+    # After delete, gone again
+    store.delete_run("run-exists-1")
+    assert store.run_exists("run-exists-1") is False
