@@ -23,70 +23,21 @@ export function createWorkflowStore(
   // Kept structurally identical so the cache CRUD round-trips losslessly.
   type Snapshot = WorkflowState["_cache"][string];
 
-  const initialState: WorkflowState = {
+  // Only the data fields — method implementations live in createStore below
+  // and override anything present here. Type is inferred from the literal so
+  // we don't need no-op stubs for every action just to satisfy the type.
+  const initialState = {
     workflowId: workflowId,
-    workflowName: null,
-    status: "idle",
-    nodes: {},
-    dag: null,
-    envelope: null,
-    selectedNodeId: null,
-    selectedTemplate: null,
+    workflowName: null as string | null,
+    status: "idle" as WorkflowState["status"],
+    nodes: {} as WorkflowState["nodes"],
+    dag: null as WorkflowState["dag"],
+    envelope: null as WorkflowState["envelope"],
+    selectedNodeId: null as string | null,
+    selectedTemplate: null as Record<string, unknown> | null,
     activeWorkflowId: workflowId,
 
-    _cache: {},
-
-    setWorkflow: (id, name, dag) => {
-      /* Phase 2 实现 */
-    },
-    setSelectedNode: (id) => {
-      /* Phase 2 实现 */
-    },
-    setSelectedTemplate: (template) => {
-      /* Phase 2 实现 */
-    },
-    setActiveWorkflowId: (id) => {
-      /* Phase 2 实现 */
-    },
-    reset: () => {
-      /* Phase 2 实现 */
-    },
-    previewTemplate: (template) => {
-      /* Phase 2 实现 */
-    },
-    clearPreview: () => {
-      /* Phase 2 实现 */
-    },
-
-    handleWorkflowStarted: (payload) => {
-      /* Phase 2 实现 */
-    },
-    handleWorkflowCompleted: (payload) => {
-      /* Phase 2 实现 */
-    },
-    handleNodeStarted: (payload) => {
-      /* Phase 2 实现 */
-    },
-    handleNodeCompleted: (payload) => {
-      /* Phase 2 实现 */
-    },
-    handleNodeFailed: (payload) => {
-      /* Phase 2 实现 */
-    },
-
-    saveToCache: (wid) => {
-      /* Phase 2 实现 */
-    },
-    restoreFromCache: (wid) => false,
-    updateNodeInCache: (wid, payload) => {
-      /* Phase 2 实现 */
-    },
-    setActiveWid: (wid) => {
-      /* Phase 2 实现 */
-    },
-    clearCache: () => {
-      /* Phase 2 实现 */
-    },
+    _cache: {} as WorkflowState["_cache"],
   };
 
   const store = createStore<WorkflowState>()((set, get) => ({

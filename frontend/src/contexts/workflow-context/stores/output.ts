@@ -9,40 +9,16 @@ export function createOutputStore(
 ): StoreApi<OutputState> {
   let outputBatcher: RafBatcher<string, string>;
 
-  const initialState: OutputState = {
-    texts: {},
-    activeNodeId: null,
-    workflowError: null,
+  // Only the data fields — method implementations live in createStore below
+  // and override anything present here. Type is inferred from the literal so
+  // we don't need no-op stubs for every action just to satisfy the type.
+  const initialState = {
+    texts: {} as Record<string, string>,
+    activeNodeId: null as string | null,
+    workflowError: null as string | null,
 
-    _cache: {},
-    _activeWid: null,
-
-    appendText: (nodeId, delta) => {
-      /* Phase 2 实现 */
-    },
-    setActiveNode: (nodeId) => {
-      /* Phase 2 实现 */
-    },
-    clearNode: (nodeId) => {
-      /* Phase 2 实现 */
-    },
-    setWorkflowError: (error) => {
-      /* Phase 2 实现 */
-    },
-    reset: () => {
-      /* Phase 2 实现 */
-    },
-
-    saveToCache: (wid) => {
-      /* Phase 2 实现 */
-    },
-    restoreFromCache: (wid) => false,
-    setActiveWid: (wid) => {
-      /* Phase 2 实现 */
-    },
-    clearCache: () => {
-      /* Phase 2 实现 */
-    },
+    _cache: {} as OutputState["_cache"],
+    _activeWid: null as string | null,
   };
 
   const store = createStore<OutputState>()((set, get) => ({

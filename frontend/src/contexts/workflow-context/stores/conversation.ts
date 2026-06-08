@@ -24,97 +24,18 @@ export function createConversationStore(
   let thinkBatcher: RafBatcher<string, { text: string; nodeId: string }>;
   let flushTextBuf: () => void;
 
-  const initialState: ConversationState = {
-    messages: [],
-    pendingQuestionId: null,
-    pendingQuestionAgent: null,
-    activeFollowupAgent: null,
+  // Only the data fields — method implementations live in createStore below
+  // and override anything present here. Type is inferred from the literal so
+  // we don't need no-op stubs for every action just to satisfy the type.
+  const initialState = {
+    messages: [] as ConversationMessage[],
+    pendingQuestionId: null as string | null,
+    pendingQuestionAgent: null as string | null,
+    activeFollowupAgent: null as string | null,
 
     // Cache management (保留用于 batch 模式兼容)
-    _cache: {},
-    _activeWid: null,
-
-    // Actions (在事件层实现，这里提供基础实现)
-    addSystemMessage: (content) => {
-      /* Phase 2 实现 */
-    },
-    addAgentMessage: (nodeId, agentName) => {
-      /* Phase 2 实现 */
-    },
-    appendAgentText: (nodeId, text) => {
-      /* Phase 2 实现 */
-    },
-    appendAgentThinking: (nodeId, text) => {
-      /* Phase 2 实现 */
-    },
-    completeAgentMessage: (nodeId, agentName, durationMs) => {
-      /* Phase 2 实现 */
-    },
-    failAgentMessage: (nodeId, agentName, error, durationMs) => {
-      /* Phase 2 实现 */
-    },
-    addToolCall: (nodeId, agentName, toolName, toolArgs) => {
-      /* Phase 2 实现 */
-    },
-    addToolResult: (nodeId, toolName, result) => {
-      /* Phase 2 实现 */
-    },
-    appendToolOutput: (nodeId, toolName, line, stream) => {
-      /* Phase 2 实现 */
-    },
-    addAgentQuestion: (questionId, question, agentName) => {
-      /* Phase 2 实现 */
-    },
-    addUserQuestion: (_payload) => {
-      /* Phase 2 implementation: see lower createConversationStore */
-    },
-    answerUserQuestion: (_questionId, _answer) => {
-      /* Phase 2 implementation: see lower createConversationStore */
-    },
-    markQuestionTimeout: (_questionId) => {
-      /* Phase 2 implementation: see lower createConversationStore */
-    },
-    addUserMessage: (content) => {
-      /* Phase 2 实现 */
-    },
-    clearPendingQuestion: (questionId) => {
-      /* Phase 2 实现 */
-    },
-    interruptAgentMessage: (agentName) => {
-      /* Phase 2 实现 */
-    },
-    resumeAgentMessage: (nodeId, agentName) => {
-      /* Phase 2 实现 */
-    },
-    reset: () => {
-      /* Phase 2 实现 */
-    },
-
-    // Cache management
-    saveToCache: (wid) => {
-      /* Phase 2 实现 */
-    },
-    restoreFromCache: (wid) => false,
-    setActiveWid: (wid) => {
-      /* Phase 2 实现 */
-    },
-    clearCache: () => {
-      /* Phase 2 实现 */
-    },
-    appendAgentTextToCache: (wid, nodeId, text, agentName) => {
-      /* Phase 2 实现 */
-    },
-    addToolCallToCache: (wid, nodeId, agentName, toolName, toolArgs) => {
-      /* Phase 2 实现 */
-    },
-    addToolResultToCache: (wid, nodeId, toolName, result) => {
-      /* Phase 2 实现 */
-    },
-
-    // Follow-up actions
-    setActiveFollowupAgent: () => {},
-    addFollowupUserMessage: () => {},
-    addFollowupAgentMessage: () => {},
+    _cache: {} as ConversationState["_cache"],
+    _activeWid: null as string | null,
   };
 
   const store = createStore<ConversationState>()((set, get) => ({
@@ -498,6 +419,50 @@ export function createConversationStore(
         cache.setCacheForWid(wid, { ...base, messages });
       }
     },
+
+    // Follow-up actions
+    setActiveFollowupAgent: (name) => set({ activeFollowupAgent: name }),
+
+    addFollowupUserMessage: (agentName, content) =>
+      set((state) => ({
+        messages: [
+          ...state.messages,
+          {
+            id: `msg-${msgCounter.next()}`,
+            type: "user",
+            content,
+            agentName,
+            nodeId: `followup-${agentName}`,
+            followup: true,
+            timestamp: Date.now(),
+          },
+        ],
+      })),
+
+    addFollowupAgentMessage: (agentName) =>
+      set((state) => {
+        const nodeId = `followup-${agentName}`;
+        const streamingIdx = state.messages.findLastIndex(
+          (m) => m.nodeId === nodeId && m.status === "streaming" && m.followup
+        );
+        if (streamingIdx !== -1) return state;
+
+        return {
+          messages: [
+            ...state.messages,
+            {
+              id: `msg-${msgCounter.next()}`,
+              type: "agent",
+              nodeId,
+              agentName,
+              content: "",
+              status: "streaming",
+              followup: true,
+              timestamp: Date.now(),
+            },
+          ],
+        };
+      }),
   }));
 
   (store as unknown as { _msgCounter: IdCounter })._msgCounter = msgCounter;
