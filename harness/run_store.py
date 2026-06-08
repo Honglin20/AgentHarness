@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from harness.paths import get_runs_dir
+from harness.run_store_interface import RunStoreInterface
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ _CHARTS_SUFFIX = "+charts.json"
 _EVENTS_SUFFIX = "+events.json"
 
 
-class RunStore:
+class RunStore(RunStoreInterface):
     """Persist and query workflow run records.
 
     chart_groups and events are stored in separate sidecar files:

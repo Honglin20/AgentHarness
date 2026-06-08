@@ -14,6 +14,7 @@ from __future__ import annotations
 from fastapi import Request
 
 from harness.run_store import RunStore
+from harness.run_store_interface import RunStoreInterface
 from harness.extensions.bus import Bus
 from harness.user_manager import User, UserManager, get_current_user
 from server.repository import WorkflowRepository, get_repository
@@ -21,8 +22,13 @@ from server.runner import WorkflowRunner, get_runner
 from server.event_bus import get_event_bus
 
 
-def get_run_store_dep() -> RunStore:
-    """Provide the RunStore singleton. Override in tests for DB backend."""
+def get_run_store_dep() -> RunStoreInterface:
+    """Provide the RunStore singleton. Override in tests for DB backend.
+
+    Handlers receive the interface type — they should not assume runs live
+    on disk. Swap to a DB-backed implementation by overriding this provider
+    in `app.dependency_overrides` or by changing the one line below.
+    """
     return RunStore()
 
 
