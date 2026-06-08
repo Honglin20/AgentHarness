@@ -35,8 +35,8 @@ def test_reconstruct_run_to_repo_basic(tmp_path, monkeypatch):
     mock_user = MagicMock()
     mock_user.user_id = "default"
     mock_user.role = "admin"
-    monkeypatch.setattr("server.routes.get_current_user", lambda r: mock_user)
-    monkeypatch.setattr("server.routes.get_user_manager", lambda: MagicMock(is_admin=lambda u: True))
+    monkeypatch.setattr("server._helpers.get_current_user", lambda r: mock_user)
+    monkeypatch.setattr("server._helpers.get_user_manager", lambda: MagicMock(is_admin=lambda u: True))
 
     # Patch RunStore to use our temp dir
     monkeypatch.setattr("harness.run_store._DEFAULT_RUNS_DIR", tmp_path / "runs")
@@ -88,8 +88,8 @@ def test_reconstruct_preserves_conditional_edges(tmp_path, monkeypatch):
     mock_user = MagicMock()
     mock_user.user_id = "default"
     mock_user.role = "admin"
-    monkeypatch.setattr("server.routes.get_current_user", lambda r: mock_user)
-    monkeypatch.setattr("server.routes.get_user_manager", lambda: MagicMock(is_admin=lambda u: True))
+    monkeypatch.setattr("server._helpers.get_current_user", lambda r: mock_user)
+    monkeypatch.setattr("server._helpers.get_user_manager", lambda: MagicMock(is_admin=lambda u: True))
     monkeypatch.setattr("harness.run_store._DEFAULT_RUNS_DIR", tmp_path / "runs")
 
     record = store.get_run(run_id)
@@ -124,8 +124,8 @@ def test_reconstruct_preserves_work_dir(tmp_path, monkeypatch):
     mock_user = MagicMock()
     mock_user.user_id = "default"
     mock_user.role = "admin"
-    monkeypatch.setattr("server.routes.get_current_user", lambda r: mock_user)
-    monkeypatch.setattr("server.routes.get_user_manager", lambda: MagicMock(is_admin=lambda u: True))
+    monkeypatch.setattr("server._helpers.get_current_user", lambda r: mock_user)
+    monkeypatch.setattr("server._helpers.get_user_manager", lambda: MagicMock(is_admin=lambda u: True))
     monkeypatch.setattr("harness.run_store._DEFAULT_RUNS_DIR", tmp_path / "runs")
 
     record = store.get_run(run_id)
@@ -158,8 +158,8 @@ def test_reconstruct_rejects_wrong_user(tmp_path, monkeypatch):
     mock_user = MagicMock()
     mock_user.user_id = "bob"
     mock_user.role = "developer"
-    monkeypatch.setattr("server.routes.get_current_user", lambda r: mock_user)
-    monkeypatch.setattr("server.routes.get_user_manager", lambda: MagicMock(is_admin=lambda u: False))
+    monkeypatch.setattr("server._helpers.get_current_user", lambda r: mock_user)
+    monkeypatch.setattr("server._helpers.get_user_manager", lambda: MagicMock(is_admin=lambda u: False))
     monkeypatch.setattr("harness.run_store._DEFAULT_RUNS_DIR", tmp_path / "runs")
 
     record = store.get_run(run_id)

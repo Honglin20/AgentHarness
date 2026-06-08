@@ -16,6 +16,9 @@ def _make_fake_request() -> Request:
 async def test_get_agent_md_workflow_query_private(tmp_path, monkeypatch):
     """GET /agents/{name}/md?workflow=... returns private MD when present."""
     from server import routes
+    import harness.api as harness_api
+    import harness.compiler.md_parser as md_parser
+    import server.routers.agents as agents_router
 
     wf_root = tmp_path / "workflows"
     wf_dir = wf_root / "demo"
@@ -25,9 +28,11 @@ async def test_get_agent_md_workflow_query_private(tmp_path, monkeypatch):
     shared.mkdir(parents=True)
     (shared / "a.md").write_text("---\nname: a\n---\nshared body")
 
+    monkeypatch.setattr(harness_api, "_WORKFLOWS_DIR", wf_root)
     monkeypatch.setattr(routes, "_WORKFLOWS_DIR", wf_root)
+    monkeypatch.setattr(md_parser, "_SHARED_AGENTS_DIR", shared)
+    monkeypatch.setattr(agents_router, "_SHARED_AGENTS_DIR", shared)
     monkeypatch.setattr(routes, "_SHARED_AGENTS_DIR", shared)
-    monkeypatch.setattr("harness.compiler.md_parser._SHARED_AGENTS_DIR", shared)
 
     result = await routes.get_agent_md(name="a", workflow="demo", request=_make_fake_request())
     assert "private body" in result["md_content"]
@@ -39,6 +44,9 @@ async def test_get_agent_md_workflow_query_private(tmp_path, monkeypatch):
 async def test_get_agent_md_workflow_fallback_shared(tmp_path, monkeypatch):
     """When the private MD is missing, falls back to the shared pool."""
     from server import routes
+    import harness.api as harness_api
+    import harness.compiler.md_parser as md_parser
+    import server.routers.agents as agents_router
 
     wf_root = tmp_path / "workflows"
     wf_dir = wf_root / "demo"
@@ -47,9 +55,11 @@ async def test_get_agent_md_workflow_fallback_shared(tmp_path, monkeypatch):
     shared.mkdir(parents=True)
     (shared / "runner.md").write_text("---\nname: runner\n---\nrunner body")
 
+    monkeypatch.setattr(harness_api, "_WORKFLOWS_DIR", wf_root)
     monkeypatch.setattr(routes, "_WORKFLOWS_DIR", wf_root)
+    monkeypatch.setattr(md_parser, "_SHARED_AGENTS_DIR", shared)
+    monkeypatch.setattr(agents_router, "_SHARED_AGENTS_DIR", shared)
     monkeypatch.setattr(routes, "_SHARED_AGENTS_DIR", shared)
-    monkeypatch.setattr("harness.compiler.md_parser._SHARED_AGENTS_DIR", shared)
 
     result = await routes.get_agent_md(name="runner", workflow="demo", request=_make_fake_request())
     assert "runner body" in result["md_content"]
@@ -60,6 +70,9 @@ async def test_get_agent_md_workflow_fallback_shared(tmp_path, monkeypatch):
 async def test_get_agent_md_workflow_not_found_404(tmp_path, monkeypatch):
     from fastapi import HTTPException
     from server import routes
+    import harness.api as harness_api
+    import harness.compiler.md_parser as md_parser
+    import server.routers.agents as agents_router
 
     wf_root = tmp_path / "workflows"
     wf_dir = wf_root / "demo"
@@ -67,9 +80,11 @@ async def test_get_agent_md_workflow_not_found_404(tmp_path, monkeypatch):
     shared = wf_root / "_shared" / "agents"
     shared.mkdir(parents=True)
 
+    monkeypatch.setattr(harness_api, "_WORKFLOWS_DIR", wf_root)
     monkeypatch.setattr(routes, "_WORKFLOWS_DIR", wf_root)
+    monkeypatch.setattr(md_parser, "_SHARED_AGENTS_DIR", shared)
+    monkeypatch.setattr(agents_router, "_SHARED_AGENTS_DIR", shared)
     monkeypatch.setattr(routes, "_SHARED_AGENTS_DIR", shared)
-    monkeypatch.setattr("harness.compiler.md_parser._SHARED_AGENTS_DIR", shared)
 
     with pytest.raises(HTTPException) as exc:
         await routes.get_agent_md(name="ghost", workflow="demo", request=_make_fake_request())
@@ -80,6 +95,9 @@ async def test_get_agent_md_workflow_not_found_404(tmp_path, monkeypatch):
 async def test_put_agent_md_target_private(tmp_path, monkeypatch):
     """PUT with target='private' writes to workflows/<wf>/agents/<name>.md."""
     from server import routes
+    import harness.api as harness_api
+    import harness.compiler.md_parser as md_parser
+    import server.routers.agents as agents_router
 
     wf_root = tmp_path / "workflows"
     wf_dir = wf_root / "demo"
@@ -87,9 +105,11 @@ async def test_put_agent_md_target_private(tmp_path, monkeypatch):
     shared = wf_root / "_shared" / "agents"
     shared.mkdir(parents=True)
 
+    monkeypatch.setattr(harness_api, "_WORKFLOWS_DIR", wf_root)
     monkeypatch.setattr(routes, "_WORKFLOWS_DIR", wf_root)
+    monkeypatch.setattr(md_parser, "_SHARED_AGENTS_DIR", shared)
+    monkeypatch.setattr(agents_router, "_SHARED_AGENTS_DIR", shared)
     monkeypatch.setattr(routes, "_SHARED_AGENTS_DIR", shared)
-    monkeypatch.setattr("harness.compiler.md_parser._SHARED_AGENTS_DIR", shared)
 
     class FakeRequest:
         headers = {}
@@ -110,6 +130,9 @@ async def test_put_agent_md_target_private(tmp_path, monkeypatch):
 async def test_put_agent_md_target_shared(tmp_path, monkeypatch):
     """PUT with target='shared' writes to workflows/_shared/agents/<name>.md."""
     from server import routes
+    import harness.api as harness_api
+    import harness.compiler.md_parser as md_parser
+    import server.routers.agents as agents_router
 
     wf_root = tmp_path / "workflows"
     wf_dir = wf_root / "demo"
@@ -117,9 +140,11 @@ async def test_put_agent_md_target_shared(tmp_path, monkeypatch):
     shared = wf_root / "_shared" / "agents"
     shared.mkdir(parents=True)
 
+    monkeypatch.setattr(harness_api, "_WORKFLOWS_DIR", wf_root)
     monkeypatch.setattr(routes, "_WORKFLOWS_DIR", wf_root)
+    monkeypatch.setattr(md_parser, "_SHARED_AGENTS_DIR", shared)
+    monkeypatch.setattr(agents_router, "_SHARED_AGENTS_DIR", shared)
     monkeypatch.setattr(routes, "_SHARED_AGENTS_DIR", shared)
-    monkeypatch.setattr("harness.compiler.md_parser._SHARED_AGENTS_DIR", shared)
 
     class FakeRequest:
         headers = {}

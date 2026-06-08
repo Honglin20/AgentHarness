@@ -43,14 +43,23 @@ async def test_list_agents_from_fixtures(tmp_path, monkeypatch):
     from server.routes import list_agents
     import server.routes as routes
 
-    # Monkeypatch _WORKFLOWS_DIR so _validate_workflow_dir resolves under tmp_path
+    # Monkeypatch _WORKFLOWS_DIR at the canonical source (harness.api) so
+    # _helpers._validate_workflow_dir resolves under tmp_path.
+    import harness.api as harness_api
     workflows_dir = tmp_path / "workflows"
     workflows_dir.mkdir()
+    monkeypatch.setattr(harness_api, "_WORKFLOWS_DIR", workflows_dir)
+    # Keep the routes-level re-export in sync for backward-compat.
     monkeypatch.setattr(routes, "_WORKFLOWS_DIR", workflows_dir)
 
-    # Monkeypatch _SHARED_AGENTS_DIR to empty dir to isolate test
+    # Monkeypatch _SHARED_AGENTS_DIR at the canonical source (harness.compiler.md_parser)
+    # because the agents router reads it from there.
+    import harness.compiler.md_parser as md_parser
+    import server.routers.agents as agents_router
     shared_dir = tmp_path / "_shared_agents"
     shared_dir.mkdir()
+    monkeypatch.setattr(md_parser, "_SHARED_AGENTS_DIR", shared_dir)
+    monkeypatch.setattr(agents_router, "_SHARED_AGENTS_DIR", shared_dir)
     monkeypatch.setattr(routes, "_SHARED_AGENTS_DIR", shared_dir)
 
     # Create a workflow with a private agent
