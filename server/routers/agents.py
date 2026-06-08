@@ -1,4 +1,6 @@
 """Agent definition endpoints (list/get/update agent MD)."""
+import logging
+
 from fastapi import APIRouter, HTTPException, Request
 
 from harness.api import _WORKFLOWS_DIR
@@ -14,6 +16,8 @@ from server.schemas import (
     AgentInfo,
     UpdateAgentMdRequest,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -50,6 +54,11 @@ async def list_agents(
                     tools=parsed.tools or [],
                 ))
             except Exception:
+                # Skip malformed agent .md — listing must not fail entirely
+                # because one agent file is broken. Log so the user can find it.
+                logger.warning(
+                    "Failed to parse agent file %s — skipping", md_file, exc_info=True,
+                )
                 continue
 
     # Shared agents (not overridden by private)
@@ -66,6 +75,9 @@ async def list_agents(
                         tools=parsed.tools or [],
                     ))
             except Exception:
+                logger.warning(
+                    "Failed to parse shared agent file %s — skipping", md_file, exc_info=True,
+                )
                 continue
 
     return agents

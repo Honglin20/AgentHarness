@@ -209,6 +209,10 @@ class RunStore(RunStoreInterface):
                 logger.warning("Corrupted run file skipped: %s", f.name)
                 continue
             except KeyError:
+                logger.warning(
+                    "Malformed run file skipped (missing expected keys): %s",
+                    f.name, exc_info=True,
+                )
                 continue
         runs.sort(key=lambda r: r.get("created_at", ""), reverse=True)
         total = len(runs)

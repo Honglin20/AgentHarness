@@ -207,7 +207,7 @@ class ConnectionManager:
             try:
                 await task
             except asyncio.CancelledError:
-                pass
+                pass  # intentional silent fallback — we cancelled this task
             except Exception:
                 logger.debug("Forward task for %s raised on cancel", sub_id, exc_info=True)
 
@@ -265,10 +265,14 @@ class ConnectionManager:
                 # Send as JSON
                 await websocket.send_text(json.dumps(event))
         except asyncio.CancelledError:
-            pass
+            pass  # intentional silent fallback — task was cancelled (disconnect()); loop should exit cleanly
         except Exception:
-            # Connection closed or error
-            pass
+            # Connection closed or error — log at debug to avoid noise on
+            # normal disconnects but still leave a breadcrumb for diagnosis.
+            logger.debug(
+                "_forward_events_filtered for sub_id terminated with error",
+                exc_info=True,
+            )
 
     def get_connection(self, sub_id: str) -> WebSocket | None:
         """Get WebSocket by sub_id."""

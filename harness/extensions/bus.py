@@ -197,7 +197,7 @@ class Bus:
                     try:
                         queue.get_nowait()
                     except asyncio.QueueEmpty:
-                        pass
+                        pass  # intentional silent fallback — nothing to drop; the put_nowait below will succeed
                     try:
                         queue.put_nowait(event)
                     except asyncio.QueueFull:

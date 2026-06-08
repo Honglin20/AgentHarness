@@ -45,4 +45,4 @@ async def wait(future: asyncio.Future, timeout: float) -> Any | None:
     try:
         return await asyncio.wait_for(future, timeout=timeout)
     except asyncio.TimeoutError:
-        return None
+        return None  # intentional silent fallback — None is the documented timeout sentinel

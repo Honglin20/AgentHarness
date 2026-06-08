@@ -80,7 +80,7 @@ class BatchFanIn:
             try:
                 await task
             except asyncio.CancelledError:
-                pass
+                pass  # intentional silent fallback — we cancelled these tasks; swallowing is the canonical pattern
         for sub_id, _wid, bus in self._subscriptions:
             try:
                 await bus.unsubscribe(sub_id)
@@ -111,7 +111,7 @@ class BatchFanIn:
                     if self._completed_runs >= self._total_runs:
                         await self._emit_batch_completed()
         except asyncio.CancelledError:
-            pass
+            pass  # intentional silent fallback — task was cancelled (stop()); no recovery needed
         except Exception:
             logger.exception(f"Forward error for {workflow_id}")
 

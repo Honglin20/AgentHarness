@@ -633,7 +633,7 @@ class MacroGraphBuilder:
                         from harness.tools.bash import cancel_process
                         return cancel_process
                     except ImportError:
-                        return None
+                        return None  # intentional silent fallback — bash tool is optional
 
                 executor = LLMExecutor(
                     pydantic_agent,

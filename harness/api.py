@@ -32,7 +32,7 @@ def _extract_description(agent_name: str, workflow_dir: Path) -> str:
         path = resolve_agent_md(agent_name, workflow_dir)
         content = path.read_text(encoding="utf-8")
     except Exception:
-        return ""
+        return ""  # intentional silent fallback — missing/unreadable agent.md yields empty description
     in_frontmatter = False
     for line in content.splitlines():
         stripped = line.strip()

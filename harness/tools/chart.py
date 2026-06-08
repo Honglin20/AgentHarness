@@ -212,7 +212,7 @@ def _try_get_event_bus():
 
         return get_event_bus()
     except Exception:
-        return None
+        return None  # intentional silent fallback — chart rendering in subprocesses can run without an EventBus
 
 
 def _http_post(url: str, payload: dict) -> bool:

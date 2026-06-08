@@ -154,7 +154,7 @@ class StopSignalManager:
                 self._guidance_events[workflow_id].wait(), timeout=timeout
             )
         except asyncio.TimeoutError:
-            pass
+            pass  # intentional silent fallback — "" sentinel returned below signals "no guidance provided"
         guidance = self._guidance_values.pop(workflow_id, "")
         self._guidance_events.pop(workflow_id, None)
         return guidance
