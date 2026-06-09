@@ -4,6 +4,8 @@
 **状态**: ✅ Phase 1-7 + 隔离 + P0+P1 性能优化完成；NAS 最后
 **日期**: 2026-06-09（性能优化批）
 
+> 2026-06-09 补：React error #185 修复（ChatInput 内联 selector 返回新数组导致死循环）+ 建立页面分类概念文档（`docs/concepts/pages.md`，覆盖全部 9 个页面 + 跳转关系图）。
+
 ---
 
 ## Phase 进度总览
@@ -117,6 +119,7 @@ fix: commit orphaned node_phases.py
 
 ## 必读文件
 
+- `docs/concepts/pages.md` — **页面分类**：9 个页面（4 个 Portal + 5 个 Workflow 阶段）+ 跳转关系图
 - `docs/plans/2026-06-08-foundation-hardening-review.md` — 全面 review 报告
 - `docs/plans/2026-06-08-phase5-server-modernization.md` — Phase 5 实施计划
 - `docs/plans/2026-06-07-phase4-root-cause-architecture.md` — Phase 4 计划
