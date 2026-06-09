@@ -184,6 +184,15 @@ const NodeBlockCard = React.memo(function NodeBlockCard({
     (item) => (item.type === "agent" && item.content.trim()) || item.type === "tool_call"
   ).length;
 
+  // C2: per-card detail expansion. Default false (collapsed) — agent final
+  // content stays visible, but thinking blocks + tool_call args/results are
+  // hidden behind a "Show details" toggle. Reduces visual noise for long
+  // nodes; user expands when they want to inspect intermediate steps.
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const hasDetails = items.some(
+    (item) => (item.type === "agent" && item.thinking) || item.type === "tool_call"
+  );
+
   const preview = (() => {
     for (const line of (m.content ?? "").split("\n")) {
       const t = line.trim();
@@ -213,8 +222,30 @@ const NodeBlockCard = React.memo(function NodeBlockCard({
       ) : (
         <div className="flex flex-col gap-1">
           {todoStore && <TodoStepList nodeId={nodeId} todoStore={todoStore} />}
+          {hasDetails && (
+            <button
+              type="button"
+              onClick={() => setDetailsExpanded((v) => !v)}
+              className="self-start rounded px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-app-text-primary"
+            >
+              {detailsExpanded ? "Hide details" : "Show details"}
+            </button>
+          )}
           {items.map((item) => {
             if (item.type === "tool_call") {
+              if (!detailsExpanded) {
+                // Collapsed: show a one-line summary (tool name + status icon)
+                const done = item.toolStatus === "done";
+                return (
+                  <div
+                    key={item.id}
+                    className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
+                  >
+                    <span>{done ? "✓" : "…"}</span>
+                    <span className="font-mono">{item.toolName}</span>
+                  </div>
+                );
+              }
               return <ToolCallMessage key={item.id} message={item} />;
             }
             if (item.type === "question") {
@@ -235,7 +266,7 @@ const NodeBlockCard = React.memo(function NodeBlockCard({
               const isStreaming = item.status === "streaming";
               return (
                 <div key={item.id} className="flex flex-col gap-1">
-                  {item.thinking && (
+                  {detailsExpanded && item.thinking && (
                     <ThinkingBlock text={item.thinking} streaming={isStreaming} />
                   )}
                   {item.content.trim() && (
@@ -305,6 +336,22 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
   // this every message append rebuilds every Block object as a new ref,
   // defeating NodeBlockCard's React.memo and forcing all visible cards
   // to re-render.
+  // Auto-collapse policy: nodes whose status is "success" or "failed" are
+  // collapsed by default (user usually only cares about the running node's
+  // streaming output). userCollapseOverride stores only the entries the user
+  // has explicitly toggled; everything else falls back to status-based default.
+  // This way streaming/running nodes stay open automatically, and toggling
+  // a completed node open stays open even after re-render.
+  const [userCollapseOverride, setUserCollapseOverride] = useState<Record<string, boolean>>({});
+  const getNodeCollapsed = useCallback((nodeId: string): boolean => {
+    if (nodeId in userCollapseOverride) return userCollapseOverride[nodeId];
+    const status = workflowNodes[nodeId]?.status;
+    return status === "success" || status === "failed";
+  }, [userCollapseOverride, workflowNodes]);
+  const toggleNode = useCallback((nodeId: string) => {
+    setUserCollapseOverride((prev) => ({ ...prev, [nodeId]: !getNodeCollapsed(nodeId) }));
+  }, [getNodeCollapsed]);
+
   const prevGroupingRef = useRef<{ messages: ConversationMessage[]; blocks: Block[] } | null>(null);
   const blocks = useMemo(() => {
     const prev = prevGroupingRef.current;
@@ -314,7 +361,6 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
     prevGroupingRef.current = { messages, blocks: next };
     return next;
   }, [messages]);
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const virtualizer = useVirtualizer({
     count: blocks.length,
@@ -322,7 +368,7 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
     estimateSize: (i) => {
       const b = blocks[i];
       if (b.kind === "other") return 60;
-      return collapsed[b.nodeId] ? 80 : 200;
+      return getNodeCollapsed(b.nodeId) ? 80 : 200;
     },
     overscan: 5,
   });
@@ -351,10 +397,6 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
       </div>
     );
   }
-
-  const toggle = (id: string) => {
-    setCollapsed((prev) => ({ ...prev, [id]: !(prev[id] ?? false) }));
-  };
 
   return (
     <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto">
@@ -390,8 +432,8 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
                   ) : (
                     <NodeBlockCard
                       block={b}
-                      collapsed={collapsed[b.nodeId] ?? false}
-                      onToggle={() => toggle(b.nodeId)}
+                      collapsed={getNodeCollapsed(b.nodeId)}
+                      onToggle={() => toggleNode(b.nodeId)}
                       getAgentIO={getAgentIO}
                       getNodeState={getNodeState}
                       sendStructuredAnswer={sendStructuredAnswer}
