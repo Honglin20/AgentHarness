@@ -15,6 +15,7 @@ import { useWorkflowStore } from "@/stores/workflowStore";
 import { ScopedConversationTab } from "@/components/conversation/ScopedConversationTab";
 import { ScopedResultsTab } from "@/components/results/ScopedResultsTab";
 import { ScopedAnalysisTab } from "@/components/analysis/ScopedAnalysisTab";
+import { ScopedOutlineTab } from "@/components/conversation/ScopedOutlineTab";
 import ChatInput from "@/components/chat/ChatInput";
 import { DAGPreview } from "@/components/dag/DAGPreview";
 import { AgentEditorModal } from "@/components/agent/AgentEditorModal";
@@ -48,7 +49,7 @@ import { useWorkflowLaunch } from "@/hooks/useWorkflowLaunch";
 import { TabBar } from "@/components/center-panel/TabBar";
 import { BenchmarkView } from "@/components/center-panel/BenchmarkView";
 
-type Tab = "conversation" | "results" | "analysis";
+type Tab = "outline" | "conversation" | "results" | "analysis";
 
 interface Props {
   activeBenchmark?: string | null;
@@ -234,6 +235,7 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
       {showTabs && (
         <TabBar
           tabs={[
+            { key: "outline", label: "Outline" },
             { key: "conversation", label: "Conversation" },
             { key: "results", label: `Results${resultCount > 0 ? ` ·${resultCount}` : ""}` },
             { key: "analysis", label: `Analysis${analysisCount > 0 ? ` ·${analysisCount}` : ""}` },
@@ -268,6 +270,10 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
               </div>
             </div>
           ) : null
+        ) : activeTab === "outline" ? (
+          <ErrorBoundary module="OutlineTab">
+            <ScopedOutlineTab />
+          </ErrorBoundary>
         ) : activeTab === "conversation" ? (
           <ErrorBoundary module="ConversationTab">
             <ScopedConversationTab />
