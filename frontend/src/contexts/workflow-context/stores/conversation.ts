@@ -308,6 +308,25 @@ export function createConversationStore(
         return { messages, ...clear };
       }),
 
+    markAllPendingQuestionsInterrupted: () =>
+      set((state) => {
+        let touched = false;
+        const messages = state.messages.map((m) => {
+          if (m.type === "question" && m.status === "pending") {
+            touched = true;
+            return { ...m, status: "interrupted" as const };
+          }
+          return m;
+        });
+        if (!touched && state.pendingQuestionId === null) return state;
+        schedulePersist();
+        return {
+          messages,
+          pendingQuestionId: null,
+          pendingQuestionAgent: null,
+        };
+      }),
+
     addUserMessage: (content) =>
       set((state) => ({
         messages: [

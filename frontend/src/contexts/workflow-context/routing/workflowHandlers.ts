@@ -36,6 +36,9 @@ export const workflowHandlers: [string, EventHandler][] = [
     "workflow.completed",
     (stores, event, ctx) => {
       const p = payload<WorkflowCompletedPayload>(event);
+      // Mark any still-pending ask_user questions as interrupted — workflow
+      // is done so they can't be answered anymore. Persisted via onPersist.
+      stores.conversation.getState().markAllPendingQuestionsInterrupted();
       stores.workflow.getState().handleWorkflowCompleted(p);
       const summaryNodes = Object.values(stores.workflow.getState().nodes);
       const addChart = stores.chart.getState().addChart;
@@ -52,6 +55,7 @@ export const workflowHandlers: [string, EventHandler][] = [
     "workflow.error",
     (stores, event, ctx) => {
       const p = payload<{ workflow_id: string; error: string }>(event);
+      stores.conversation.getState().markAllPendingQuestionsInterrupted();
       stores.workflow.getState().handleWorkflowCompleted({
         workflow_id: p.workflow_id,
         status: "failed",
@@ -72,6 +76,7 @@ export const workflowHandlers: [string, EventHandler][] = [
     "workflow.cancelled",
     (stores, event, ctx) => {
       const p = payload<{ workflow_id: string }>(event);
+      stores.conversation.getState().markAllPendingQuestionsInterrupted();
       stores.workflow.getState().handleWorkflowCompleted({
         workflow_id: p.workflow_id,
         status: "paused",

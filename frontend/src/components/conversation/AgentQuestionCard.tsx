@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { CheckCircle2, Clock, HelpCircle } from "lucide-react";
+import { CheckCircle2, Clock, HelpCircle, PauseCircle } from "lucide-react";
 
 import { MarkdownText } from "@/components/conversation/MarkdownText";
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,7 @@ export const AgentQuestionCard = React.memo(function AgentQuestionCard({ message
   const isAnswered = status === "answered";
   const isTimeout = status === "timeout";
   const isPending = status === "pending";
+  const isInterrupted = status === "interrupted";
 
   const [selected, setSelected] = useState<string[]>([]);
   const [customInput, setCustomInput] = useState("");
@@ -81,10 +82,12 @@ export const AgentQuestionCard = React.memo(function AgentQuestionCard({ message
     });
   };
 
-  const Icon = isAnswered ? CheckCircle2 : isTimeout ? Clock : HelpCircle;
+  const Icon = isAnswered ? CheckCircle2 : isTimeout ? Clock : isInterrupted ? PauseCircle : HelpCircle;
   const accent = isAnswered
     ? "border-emerald-500/40 bg-emerald-500/5"
     : isTimeout
+    ? "border-muted-foreground/30 bg-muted/30"
+    : isInterrupted
     ? "border-muted-foreground/30 bg-muted/30"
     : "border-amber-500/50 bg-amber-500/5";
 
@@ -107,6 +110,7 @@ export const AgentQuestionCard = React.memo(function AgentQuestionCard({ message
             <span>{agentName ?? "agent"} 想请你确认</span>
             {isAnswered && <span className="text-emerald-600">已回答</span>}
             {isTimeout && <span>已超时</span>}
+            {isInterrupted && <span>运行已结束，未回答</span>}
           </div>
           <MarkdownText className="font-medium leading-snug">{question}</MarkdownText>
         </div>

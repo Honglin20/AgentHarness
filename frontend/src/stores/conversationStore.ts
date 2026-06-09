@@ -82,6 +82,13 @@ export interface ConversationState {
   addUserQuestion: (payload: AgentQuestionPayload) => void;
   answerUserQuestion: (questionId: string, answer: QuestionAnswer) => void;
   markQuestionTimeout: (questionId: string) => void;
+  /**
+   * Mark every still-pending question as "interrupted". Called when the
+   * workflow terminates (completed/error/cancelled) so the UI doesn't keep
+   * showing a "select an option" prompt that can no longer affect anything.
+   * Persists the change so refresh sees the interrupted state too.
+   */
+  markAllPendingQuestionsInterrupted: () => void;
   addUserMessage: (content: string) => void;
   clearPendingQuestion: (questionId: string) => void;
   interruptAgentMessage: (agentName: string) => void;
@@ -416,6 +423,24 @@ export const useConversationStore = create<ConversationState>()((set) => ({
       const messages = [...state.messages];
       messages[idx] = { ...messages[idx], status: "timeout" };
       return { messages };
+    }),
+
+  markAllPendingQuestionsInterrupted: () =>
+    set((state) => {
+      let touched = false;
+      const messages = state.messages.map((m) => {
+        if (m.type === "question" && m.status === "pending") {
+          touched = true;
+          return { ...m, status: "interrupted" as const };
+        }
+        return m;
+      });
+      if (!touched && state.pendingQuestionId === null) return state;
+      return {
+        messages,
+        pendingQuestionId: null,
+        pendingQuestionAgent: null,
+      };
     }),
 
   addUserMessage: (content) =>
