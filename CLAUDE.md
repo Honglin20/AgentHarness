@@ -186,6 +186,30 @@ HarnessState = TypedDict {
 }
 ```
 
+### 事件 Priority 契约（PR-B 引入，避免关键事件被 Bus buffer FIFO 淘汰）
+
+Bus 的 WS replay buffer 有大小上限（默认 `buffer_size=2000`），normal 事件按 FIFO 淘汰；**critical 事件永不淘汰**（独立的 `_critical_buffer`）。
+
+判定规则：**"如果下游消费者错过了这个事件，UI 会永久错误吗？"** → critical；**"能被后续事件或刷新重建吗？"** → normal。
+
+白名单定义在 `harness/extensions/bus.py` 的 `CRITICAL_EVENT_TYPES`（frozenset，约 24 个）：
+- Workflow 生命周期：`workflow.started/completed/error/cancelled/resumed/interrupted/waiting_for_guidance/audit`
+- Node 生命周期：`node.started/completed/failed`
+- 工具状态变更：`agent.tool_call/tool_result/tool_output_truncated`、`bash.background_completed`
+- 交互式提问：`chat.question/answer/timeout`
+- TODO 状态：`todo.created/updated`
+- Followup 生命周期：`followup.started/completed/failed`
+- 图表最终渲染：`chart.render`
+
+非关键（流式增量）：`agent.text_delta`、`agent.thinking_delta`、`agent.tool_output_delta`、`span.start/end`、`trace.step`、`step.summary` 等。
+
+**调用约定**：
+- `bus.emit(...)` 和 `safe_emit(...)` 的 `priority` 参数**默认 `None`**，None 时按 event_type 自动查表
+- 显式传 `priority="critical"` 或 `"normal"` 会**覆盖**白名单（保留逃生通道）
+- 添加新事件类型时，如果属于 critical 语义，**必须**同时加入 `CRITICAL_EVENT_TYPES`
+
+历史教训：曾因 `node.completed` 走 normal priority，5641 个事件被 FIFO 淘汰了 3641 个 → 前端实时 token 显示只有单节点值（334.8k）而非真实总和（1.71M）。修复后所有 `node.completed` 自动 critical。
+
 ---
 
 ## 扩展系统职责分界

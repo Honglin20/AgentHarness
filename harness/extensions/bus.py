@@ -39,6 +39,66 @@ from harness.extensions.base import (
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Event priority contract
+# ---------------------------------------------------------------------------
+# Critical events are never FIFO-evicted from the WS replay buffer — they MUST
+# reach the frontend (new subscribers see them on connect, even if 5000 normal
+# deltas were emitted in between). Normal events are best-effort (FIFO eviction
+# at buffer_size).
+#
+# Rule of thumb: "if a downstream consumer misses this event, will the UI be
+# permanently wrong?" → critical. "Can it be reconstructed from a later event
+# or refresh?" → normal.
+#
+# To add a new critical event type, append here. safe_emit/emit default to
+# priority=None, which auto-resolves via this set; explicit priority= overrides.
+CRITICAL_EVENT_TYPES: frozenset[str] = frozenset({
+    # Workflow lifecycle
+    "workflow.started",
+    "workflow.completed",
+    "workflow.error",
+    "workflow.cancelled",
+    "workflow.resumed",
+    "workflow.interrupted",
+    "workflow.waiting_for_guidance",
+    "workflow.audit",
+    # Node lifecycle
+    "node.started",
+    "node.completed",
+    "node.failed",
+    # Tool state changes (agent decisions hang on these — UI must show them)
+    "agent.tool_call",
+    "agent.tool_result",
+    "agent.tool_output_truncated",
+    # Async tool completion (run_in_background)
+    "bash.background_completed",
+    # Interactive prompts (refresh must not lose these — see PR-C)
+    "chat.question",
+    "chat.answer",
+    "chat.timeout",
+    # TODO planning (UI renders TodoStepList from these)
+    "todo.created",
+    "todo.updated",
+    # Followup lifecycle
+    "followup.started",
+    "followup.completed",
+    "followup.failed",
+    # Chart rendering (final render results — losing them drops a chart)
+    "chart.render",
+})
+
+
+def _resolve_priority(
+    event_type: str,
+    priority: str | None,
+) -> Literal["normal", "critical"]:
+    """Resolve effective priority: explicit > whitelist > normal default."""
+    if priority is not None:
+        return priority  # type: ignore[return-value]
+    return "critical" if event_type in CRITICAL_EVENT_TYPES else "normal"
+
+
 def _now() -> float:
     try:
         return asyncio.get_event_loop().time()
@@ -150,7 +210,7 @@ class Bus:
         async with self._lock:
             self._subscribers.pop(sub_id, None)
 
-    def emit(self, event_type: str, payload: dict, *, priority: Literal["normal", "critical"] = "normal") -> None:
+    def emit(self, event_type: str, payload: dict, *, priority: str | None = None) -> None:
         """Broadcast a WS event. Non-blocking. Safe from any context.
 
         Note: this is the legacy fire-and-forget WS path. Extension hooks
@@ -161,18 +221,21 @@ class Bus:
         Args:
             event_type: Event type string (e.g. "node.failed").
             payload: Event payload dict.
-            priority: "normal" (default, subject to FIFO eviction) or
-                      "critical" (never dropped from buffer).
+            priority: "normal" / "critical" / None (default).
+                None → auto-resolve via CRITICAL_EVENT_TYPES whitelist.
+                Explicit value overrides the whitelist.
         """
         # Auto-inject user_id from context if not already in payload
         payload = dict(payload)  # Copy to avoid modifying caller's dict
         if "user_id" not in payload and self._user_context.get("user_id"):
             payload["user_id"] = self._user_context["user_id"]
 
+        resolved = _resolve_priority(event_type, priority)
+
         event: dict[str, Any] = {"type": event_type, "ts": _now(), "seq": self._seq + 1, "payload": payload}
         self._seq += 1
 
-        if priority == "critical":
+        if resolved == "critical":
             event["priority"] = "critical"
             if len(self._critical_buffer) >= self._critical_buffer_max:
                 # Advisory only — never evict. See __init__ docstring for
@@ -192,7 +255,7 @@ class Bus:
             try:
                 queue.put_nowait(event)
             except asyncio.QueueFull:
-                if priority == "critical":
+                if resolved == "critical":
                     # For critical events, force into queue by dropping oldest
                     try:
                         queue.get_nowait()
@@ -213,8 +276,15 @@ class Bus:
 
     @property
     def buffer(self) -> list[dict]:
-        """Return a copy of the buffered events (critical first, then normal)."""
-        return list(self._critical_buffer) + list(self._buffer)
+        """Return a copy of the buffered events, sorted by seq.
+
+        Both critical and normal buffers are merged and returned in seq order
+        so consumers (collectors, replay) see events in their original emit
+        order — critical priority only affects *retention*, not *ordering*.
+        """
+        merged = list(self._critical_buffer) + list(self._buffer)
+        merged.sort(key=lambda e: e.get("seq", 0))
+        return merged
 
     def clear_buffer(self) -> None:
         self._buffer.clear()
@@ -355,7 +425,7 @@ def safe_emit(
     event_type: str,
     payload: dict | None = None,
     *,
-    priority: Literal["normal", "critical"] = "normal",
+    priority: str | None = None,
 ) -> None:
     """Emit event with full error handling. Never raises.
 
@@ -367,7 +437,9 @@ def safe_emit(
         bus: The Bus instance (or None).
         event_type: Event type string (e.g. "node.started").
         payload: Event payload dict. ``None`` becomes ``{}``.
-        priority: "normal" (default) or "critical" (never evicted from buffer).
+        priority: "normal" / "critical" / None (default).
+            None → auto-resolve via CRITICAL_EVENT_TYPES whitelist (see bus.py).
+            Explicit value overrides the whitelist.
     """
     if bus is None:
         return
