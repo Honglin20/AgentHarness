@@ -33,13 +33,19 @@ export const useViewStore = create<ViewState>()((set, get) => ({
     const manager = getWorkflowManager();
     manager.getOrCreate(run.run_id);
 
-    const doReplay = (chartGroups: RunRecord["chart_groups"], eventsData: RunRecord["events"]) => {
+    const doReplay = (
+      chartGroups: RunRecord["chart_groups"],
+      eventsData: RunRecord["events"],
+      conversationData: RunRecord["conversation"] | null,
+    ) => {
       if (seq !== _replaySeq) return;
       const wsEvents = eventsData as WSEvent[] | undefined;
+      const conv = conversationData ?? run.conversation ?? [];
       // PRIMARY: direct data restoration (not affected by buffer overflow)
-      const hasPersistedData = run.agent_io && run.conversation && run.dag && run.result?.trace;
+      const hasPersistedData = run.agent_io && conv && run.dag && run.result?.trace;
+      const merged = { ...run, chart_groups: chartGroups, conversation: conv };
       if (hasPersistedData) {
-        loadRunFromPersistedData(run.run_id, { ...run, chart_groups: chartGroups }, wsEvents);
+        loadRunFromPersistedData(run.run_id, merged, wsEvents);
       }
       // FALLBACK 1: event replay (runs with events but incomplete data)
       else if (wsEvents && wsEvents.length > 0) {
@@ -49,7 +55,7 @@ export const useViewStore = create<ViewState>()((set, get) => ({
       else {
         loadLegacyRunData(
           run.run_id,
-          run.conversation ?? [],
+          conv,
           chartGroups,
           run.dag,
           run.workflow_name,
@@ -57,28 +63,32 @@ export const useViewStore = create<ViewState>()((set, get) => ({
         );
       }
       set({
-        activeView: { type: "replay", runId: run.run_id, run: { ...run, chart_groups: chartGroups, events: eventsData ?? undefined } },
+        activeView: { type: "replay", runId: run.run_id, run: { ...merged, events: eventsData ?? undefined } },
         chartsLoading: false,
       });
     };
 
-    // Load charts/events lazily if sidecar data exists
-    const needsLazyLoad = (run._has_charts || run._has_events) && !run.chart_groups && !run.events;
-    if (needsLazyLoad) {
+    // Load charts/events/conversation lazily if sidecar data exists.
+    // Conversation was split out of the main /runs/{id} response to keep
+    // switching snappy on long workflows — see server/_helpers.py.
+    const needsLazyLoadCharts = (run._has_charts || run._has_events) && !run.chart_groups && !run.events;
+    const needsLazyLoadConv = run._has_conversation && (!run.conversation || run.conversation.length === 0);
+    if (needsLazyLoadCharts || needsLazyLoadConv) {
       set({ chartsLoading: true });
       const store = useRunHistoryStore.getState();
       Promise.all([
-        run._has_charts ? store.fetchRunCharts(run.run_id) : Promise.resolve(null),
-        run._has_events ? store.fetchRunEvents(run.run_id) : Promise.resolve(null),
-      ]).then(([charts, events]) => {
+        needsLazyLoadCharts && run._has_charts ? store.fetchRunCharts(run.run_id) : Promise.resolve(run.chart_groups ?? null),
+        needsLazyLoadCharts && run._has_events ? store.fetchRunEvents(run.run_id) : Promise.resolve(run.events ?? null),
+        needsLazyLoadConv ? store.fetchRunConversation(run.run_id) : Promise.resolve(run.conversation ?? null),
+      ]).then(([charts, events, conv]) => {
         if (seq !== _replaySeq) return;
-        doReplay(charts, events ?? undefined);
+        doReplay(charts, events ?? undefined, conv);
       }).catch(() => {
         if (seq !== _replaySeq) return;
-        doReplay(null, undefined);
+        doReplay(null, undefined, null);
       });
     } else {
-      doReplay(run.chart_groups ?? null, run.events ?? undefined as RunRecord["events"]);
+      doReplay(run.chart_groups ?? null, run.events ?? undefined as RunRecord["events"], run.conversation ?? null);
     }
   },
 }));

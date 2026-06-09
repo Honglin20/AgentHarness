@@ -77,6 +77,7 @@ export interface RunRecord {
   }>;
   _has_charts?: boolean;
   _has_events?: boolean;
+  _has_conversation?: boolean;
 }
 
 interface RunHistoryState {
@@ -92,6 +93,7 @@ interface RunHistoryState {
   fetchRun: (runId: string, signal?: AbortSignal) => Promise<RunRecord | null>;
   fetchRunCharts: (runId: string) => Promise<RunRecord["chart_groups"]>;
   fetchRunEvents: (runId: string) => Promise<RunRecord["events"]>;
+  fetchRunConversation: (runId: string) => Promise<RunRecord["conversation"] | null>;
   selectRun: (runId: string | null) => void;
   toggleSelectMode: () => void;
   toggleRunSelection: (runId: string) => void;
@@ -240,6 +242,14 @@ export const useRunHistoryStore = create<RunHistoryState>()((set, get) => ({
   fetchRunEvents: async (runId: string) => {
     try {
       const r = await fetchWithAuth(`/api/runs/${runId}/events`);
+      if (r.ok) return await r.json();
+    } catch {}
+    return null;
+  },
+
+  fetchRunConversation: async (runId: string) => {
+    try {
+      const r = await fetchWithAuth(`/api/runs/${runId}/conversation`);
       if (r.ok) return await r.json();
     } catch {}
     return null;

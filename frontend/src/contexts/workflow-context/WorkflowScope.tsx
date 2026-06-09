@@ -119,31 +119,39 @@ export function WorkflowScope({ workflowId, children }: WorkflowScopeProps) {
         // were fetching. Write only if stores are still empty.
         if (cancelled || stores.workflow.getState().dag) return;
 
-        // Lazy-load charts and events if stored in sidecar files.
-        const hasPersistedData = run.agent_io && run.conversation && run.dag && run.result?.trace;
-
+        // Lazy-load charts / events / conversation if stored in sidecar files.
+        // Conversation was split out of /runs/{id} to keep page-refresh snappy
+        // on long workflows — see server/_helpers.py.
+        let conv = run.conversation;
         let chartGroups = run.chart_groups;
         let eventsData: WSEvent[] | undefined;
+        const needsConv = run._has_conversation && (!conv || conv.length === 0);
 
-        if (run._has_charts || run._has_events) {
-          const [charts, events] = await Promise.all([
+        if (run._has_charts || run._has_events || needsConv) {
+          const [charts, events, convData] = await Promise.all([
             run._has_charts
               ? fetchWithAuth(`/api/runs/${workflowId}/charts`).then(async (r) => r.ok ? r.json() : null)
               : Promise.resolve(null),
             run._has_events
               ? fetchWithAuth(`/api/runs/${workflowId}/events`).then(async (r) => r.ok ? r.json() : null)
               : Promise.resolve(null),
+            needsConv
+              ? fetchWithAuth(`/api/runs/${workflowId}/conversation`).then(async (r) => r.ok ? r.json() : null)
+              : Promise.resolve(null),
           ]);
           if (cancelled) return;
           chartGroups = charts ?? chartGroups;
           eventsData = events ?? undefined;
+          conv = convData ?? conv;
         }
+
+        const hasPersistedData = run.agent_io && conv && conv.length > 0 && run.dag && run.result?.trace;
 
         // Final guard: stores may have been populated by WS in the meantime.
         if (cancelled || stores.workflow.getState().dag) return;
 
         if (hasPersistedData) {
-          loadRunFromPersistedData(workflowId, { ...run, chart_groups: chartGroups }, eventsData);
+          loadRunFromPersistedData(workflowId, { ...run, chart_groups: chartGroups, conversation: conv }, eventsData);
         } else if (eventsData && eventsData.length > 0) {
           // Fallback: event replay when persisted data is incomplete
           const { replayEventsToStores } = await import("./replayEvents");
