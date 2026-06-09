@@ -151,16 +151,15 @@ export const useRunHistoryStore = create<RunHistoryState>()((set, get) => ({
     const key = runsCacheKey(workflowName);
 
     // Cache hit: same key fetched within FETCH_DEDUP_MS and caller isn't
-    // asking for a new page → replay the cached result, no network.
+    // asking for a new page → no-op. We must NOT call set() here, even with
+    // identical values — set() triggers subscriber notifications and, with
+    // inline useShallow selectors that produce a new dict every render,
+    // causes every subscriber to re-render. That re-render can re-trigger
+    // the effect that called fetchRuns, producing an unbounded request
+    // storm (we observed 92 list_runs calls during one workflow run).
     if (!loadMore) {
       const cached = _runsCache.get(key);
       if (cached && Date.now() - cached.fetchedAt < FETCH_DEDUP_MS) {
-        set({
-          runs: cached.runs,
-          hasMore: cached.hasMore,
-          totalCount: cached.total,
-          loading: false,
-        });
         return;
       }
     }
