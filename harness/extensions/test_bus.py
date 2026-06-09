@@ -350,6 +350,17 @@ def test_resolve_priority_explicit_overrides_whitelist():
     assert _resolve_priority("agent.text_delta", "critical") == "critical"
 
 
+def test_resolve_priority_rejects_invalid_value():
+    """Typos like priority='critcal' must fail loud, not silently downgrade
+    a critical event to normal (which would lose the never-evicted guarantee)."""
+    with pytest.raises(ValueError, match="Invalid priority"):
+        _resolve_priority("node.completed", "critcal")  # typo
+    with pytest.raises(ValueError, match="Invalid priority"):
+        _resolve_priority("node.completed", "")
+    with pytest.raises(ValueError, match="Invalid priority"):
+        _resolve_priority("node.completed", "Critical")  # case-sensitive
+
+
 def test_emit_auto_resolves_priority_via_whitelist():
     """bus.emit without explicit priority should route via the whitelist."""
     bus = Bus()

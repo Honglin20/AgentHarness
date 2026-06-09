@@ -60,8 +60,13 @@ CRITICAL_EVENT_TYPES: frozenset[str] = frozenset({
     "workflow.error",
     "workflow.cancelled",
     "workflow.resumed",
+    # Reserved for interrupt-resume flows (LangGraph Command interrupt).
+    # Currently no emit caller, but kept here so any future emit is critical
+    # without needing to remember to whitelist it.
     "workflow.interrupted",
     "workflow.waiting_for_guidance",
+    # Reserved for admin audit events (ws_handler recognises this for authz
+    # broadcast but no emit caller yet — see PR-D error-classification plan).
     "workflow.audit",
     # Node lifecycle
     "node.started",
@@ -73,7 +78,10 @@ CRITICAL_EVENT_TYPES: frozenset[str] = frozenset({
     "agent.tool_output_truncated",
     # Async tool completion (run_in_background)
     "bash.background_completed",
-    # Interactive prompts (refresh must not lose these — see PR-C)
+    # Interactive prompts: chat.question is emitted by ask_user.py today.
+    # chat.answer / chat.timeout are reserved for PR-C — when ask_user starts
+    # emitting answer/timeout as Bus events (so late subscribers can replay
+    # them), they should already be critical. See harness/tools/_human_io.py.
     "chat.question",
     "chat.answer",
     "chat.timeout",
@@ -93,8 +101,17 @@ def _resolve_priority(
     event_type: str,
     priority: str | None,
 ) -> Literal["normal", "critical"]:
-    """Resolve effective priority: explicit > whitelist > normal default."""
+    """Resolve effective priority: explicit > whitelist > normal default.
+
+    Raises ValueError on typos so a misspelled priority='critcal' fails loud
+    at the call site instead of silently dropping the critical guarantee.
+    """
     if priority is not None:
+        if priority not in ("normal", "critical"):
+            raise ValueError(
+                f"Invalid priority={priority!r} for event {event_type!r}, "
+                "expected 'normal' or 'critical'"
+            )
         return priority  # type: ignore[return-value]
     return "critical" if event_type in CRITICAL_EVENT_TYPES else "normal"
 
@@ -240,10 +257,15 @@ class Bus:
             if len(self._critical_buffer) >= self._critical_buffer_max:
                 # Advisory only — never evict. See __init__ docstring for
                 # why we intentionally grow past the limit rather than drop.
+                # Include event_type + current size so operators can identify
+                # which event type is runaway-growing (e.g. an error storm).
                 logger.warning(
                     "Critical buffer exceeded advisory max (%d); appending anyway "
-                    "(critical events are never evicted by design)",
+                    "(critical events are never evicted by design) — "
+                    "event_type=%s current_size=%d",
                     self._critical_buffer_max,
+                    event_type,
+                    len(self._critical_buffer) + 1,
                 )
             self._critical_buffer.append(event)
         else:
