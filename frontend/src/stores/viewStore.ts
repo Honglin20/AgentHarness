@@ -14,8 +14,17 @@ export type ActiveView =
 
 interface ViewState {
   activeView: ActiveView;
+  /** True while a replay view is being hydrated (lazy fetch + store fill).
+   *  Consumed by ScopedCenterPanel to render a skeleton instead of stale
+   *  content from the previous run. The name is historical — it covers all
+   *  hydration, not just charts. */
   chartsLoading: boolean;
   showLive: () => void;
+  /** Switch to a replay view immediately with a minimal run record. UI will
+   *  render a skeleton while the caller fetches the full record and invokes
+   *  showReplay. Use this from sidebar handlers to avoid the "previous run
+   *  stays visible" feeling during fetch. */
+  beginReplay: (runId: string, workflowName: string) => void;
   showReplay: (run: RunRecord) => void;
 }
 
@@ -23,6 +32,16 @@ export const useViewStore = create<ViewState>()((set, get) => ({
   activeView: { type: "live" },
   chartsLoading: false,
   showLive: () => set({ activeView: { type: "live" } }),
+  beginReplay: (runId, workflowName) => set({
+    // Minimal run record — only the fields the UI needs to render header /
+    // breadcrumb. Full record arrives via showReplay after fetchRun.
+    activeView: {
+      type: "replay",
+      runId,
+      run: { run_id: runId, workflow_name: workflowName } as RunRecord,
+    },
+    chartsLoading: true,
+  }),
   showReplay: (run) => {
     const seq = ++_replaySeq;
 
@@ -32,6 +51,19 @@ export const useViewStore = create<ViewState>()((set, get) => ({
     // Ensure scoped stores exist for this workflow
     const manager = getWorkflowManager();
     manager.getOrCreate(run.run_id);
+
+    // Switch active view immediately if caller hasn't already (e.g. URL
+    // direct open). If beginReplay was called first, activeView is already
+    // on this run and we just bump chartsLoading to keep skeleton showing.
+    const current = get().activeView;
+    if (current.type !== "replay" || current.runId !== run.run_id) {
+      set({
+        activeView: { type: "replay", runId: run.run_id, run },
+        chartsLoading: true,
+      });
+    } else {
+      set({ chartsLoading: true });
+    }
 
     const doReplay = (
       chartGroups: RunRecord["chart_groups"],
@@ -74,7 +106,6 @@ export const useViewStore = create<ViewState>()((set, get) => ({
     const needsLazyLoadCharts = (run._has_charts || run._has_events) && !run.chart_groups && !run.events;
     const needsLazyLoadConv = run._has_conversation && (!run.conversation || run.conversation.length === 0);
     if (needsLazyLoadCharts || needsLazyLoadConv) {
-      set({ chartsLoading: true });
       const store = useRunHistoryStore.getState();
       Promise.all([
         needsLazyLoadCharts && run._has_charts ? store.fetchRunCharts(run.run_id) : Promise.resolve(run.chart_groups ?? null),

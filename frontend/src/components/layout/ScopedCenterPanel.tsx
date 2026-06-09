@@ -23,6 +23,7 @@ import { DomainPortal } from "@/components/portal/DomainPortal";
 import { DomainWorkflowsPage } from "@/components/portal/DomainWorkflowsPage";
 import { DomainTutorialPage } from "@/components/portal/DomainTutorialPage";
 import { ApiDocPage } from "@/components/portal/ApiDocPage";
+import { Skeleton } from "@/components/ui/skeleton";
 import { usePortalStore } from "@/stores/portalStore";
 import { useWSMethods } from "@/contexts/workflow-context/WorkflowScope";
 import {
@@ -84,6 +85,7 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
 
   // Global stores (shared state)
   const activeView = useViewStore((s) => s.activeView);
+  const chartsLoading = useViewStore((s) => s.chartsLoading);
   const activeBatchId = useBatchStore((s) => s.activeBatchId);
   const batchRunning = activeBatchId !== null;
   const portalView = usePortalStore((s) => s.portalView);
@@ -230,6 +232,13 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
   // ── Normal view — tabs + DAG preview ────────────────────────────────
   const showTabs = !isIdle || isReplay;
 
+  // Replay skeleton: while chartsLoading is true (fetchRun + lazy hydration
+  // in flight), show a placeholder so the user sees immediate feedback
+  // instead of the previous run's stale content. The previous behavior left
+  // the old conversation visible for hundreds of ms before snapping to the
+  // new run, which felt "stuck".
+  const showReplaySkeleton = isReplay && chartsLoading;
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg-primary">
       {showTabs && (
@@ -253,7 +262,32 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
       )}
 
       <div className="h-0 min-w-0 flex-1 overflow-hidden">
-        {isIdle && !isReplay ? (
+        {showReplaySkeleton ? (
+          <div className="flex h-full flex-col gap-3 p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-2 w-2 rounded-full" />
+                <Skeleton className="h-4 w-32" />
+              </div>
+              <Skeleton className="h-4 w-20" />
+            </div>
+            <Skeleton className="h-3 w-3/4" />
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-5/6" />
+            <Skeleton className="h-3 w-2/3" />
+            <div className="mt-3 rounded-lg border border-app-border p-3">
+              <Skeleton className="h-3 w-40 mb-2" />
+              <Skeleton className="h-3 w-full mb-1.5" />
+              <Skeleton className="h-3 w-3/4 mb-1.5" />
+              <Skeleton className="h-3 w-5/6" />
+            </div>
+            <Skeleton className="h-3 w-3/4 mt-2" />
+            <Skeleton className="h-3 w-full" />
+            <p className="mt-auto self-center text-xs text-muted-foreground">
+              Loading conversation…
+            </p>
+          </div>
+        ) : isIdle && !isReplay ? (
           dag ? (
             <div className="flex h-full flex-col">
               <div className="min-h-0 flex-1">

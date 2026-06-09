@@ -190,10 +190,11 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
     }))
   );
 
-  const { showLive, showReplay, activeView } = useViewStore(
+  const { showLive, showReplay, beginReplay, activeView } = useViewStore(
     useShallow((s) => ({
       showLive: s.showLive,
       showReplay: s.showReplay,
+      beginReplay: s.beginReplay,
       activeView: s.activeView,
     }))
   );
@@ -261,6 +262,12 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
     onLeaveBenchmark?.();
     selectRun(run.run_id);
 
+    // Immediately switch to replay view with a minimal run record so the
+    // center panel renders a skeleton instead of leaving the previous run
+    // visible during fetchRun. Full record + lazy conversation/charts/events
+    // hydration happens in showReplay once fetchRun returns.
+    beginReplay(run.run_id, run.workflow_name);
+
     // Abort previous fetch
     abortRef.current?.abort();
     const ac = new AbortController();
@@ -275,7 +282,7 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
       return;
     }
     showReplay(full);
-  }, [isSelectMode, toggleRunSelection, onLeaveBenchmark, selectRun, fetchRun, setWorkflow, showLive, showReplay]);
+  }, [isSelectMode, toggleRunSelection, onLeaveBenchmark, selectRun, fetchRun, setWorkflow, showLive, showReplay, beginReplay]);
 
   const handlePause = useCallback(async (e: React.MouseEvent, runId: string) => {
     e.stopPropagation();

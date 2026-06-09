@@ -193,6 +193,29 @@ const NodeBlockCard = React.memo(function NodeBlockCard({
     (item) => (item.type === "agent" && item.thinking) || item.type === "tool_call"
   );
 
+  // C2+: when collapsed, aggregate tool calls into a single one-line summary
+  // instead of one row per call. e.g. "🔧 6 calls: glob×2 · read_text_file · bash×3"
+  // Avoids the long vertical list "✓ glob\n✓ glob\n✓ read_text_file\n..." that
+  // makes node cards with many tool calls dominate the viewport.
+  const toolSummary = useMemo(() => {
+    if (detailsExpanded) return null;
+    const counts: Record<string, number> = {};
+    let total = 0;
+    let pending = 0;
+    for (const item of items) {
+      if (item.type === "tool_call" && item.toolName) {
+        counts[item.toolName] = (counts[item.toolName] ?? 0) + 1;
+        total++;
+        if (item.toolStatus !== "done") pending++;
+      }
+    }
+    if (total === 0) return null;
+    const summary = Object.entries(counts)
+      .map(([name, c]) => (c > 1 ? `${name}×${c}` : name))
+      .join(" · ");
+    return { total, pending, summary };
+  }, [items, detailsExpanded]);
+
   const preview = (() => {
     for (const line of (m.content ?? "").split("\n")) {
       const t = line.trim();
@@ -231,21 +254,20 @@ const NodeBlockCard = React.memo(function NodeBlockCard({
               {detailsExpanded ? "Hide details" : "Show details"}
             </button>
           )}
+          {/* Collapsed tool summary — one line for all tool_call items */}
+          {toolSummary && (
+            <div className="text-[11px] text-muted-foreground">
+              <span aria-hidden>🔧</span> {toolSummary.total} calls:{" "}
+              <span className="font-mono">{toolSummary.summary}</span>
+              {toolSummary.pending > 0 && (
+                <span className="ml-2 text-blue-500">({toolSummary.pending} running)</span>
+              )}
+            </div>
+          )}
           {items.map((item) => {
             if (item.type === "tool_call") {
-              if (!detailsExpanded) {
-                // Collapsed: show a one-line summary (tool name + status icon)
-                const done = item.toolStatus === "done";
-                return (
-                  <div
-                    key={item.id}
-                    className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
-                  >
-                    <span>{done ? "✓" : "…"}</span>
-                    <span className="font-mono">{item.toolName}</span>
-                  </div>
-                );
-              }
+              // Collapsed: skipped — aggregated in toolSummary above
+              if (!detailsExpanded) return null;
               return <ToolCallMessage key={item.id} message={item} />;
             }
             if (item.type === "question") {
@@ -310,11 +332,37 @@ function renderOtherBlock(
   return <ToolCallMessage key={m.id} message={m} />;
 }
 
+// C3 (Phase 8): lazy message rendering. Only the most recent N messages are
+// grouped + virtualized initially; user scrolls to top to load earlier batch.
+// Avoids一次性 setState of hundreds of messages blocking main thread on long
+// workflows. Threshold chosen so most runs render fully without the
+// "Load earlier" gate; only long ones (200+ messages) feel a difference.
+const VISIBLE_WINDOW = 50;
+const VISIBLE_TRIGGER = 200;
+const LOAD_EARLIER_BATCH = 50;
+
 export function ScopedConversationTab({ autoScroll = true }: ScopedConversationTabProps = {}) {
   const messages = useConversationMessages();
   const { sendStructuredAnswer } = useWSMethods();
   const conversationActions = useConversationActions();
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Lazy slice — show only the last `visibleCount` messages. Reset to default
+  // window when message array reference changes (i.e. a new run was loaded).
+  const prevMessagesRef = useRef(messages);
+  const [visibleCount, setVisibleCount] = useState(VISIBLE_WINDOW);
+  useEffect(() => {
+    if (prevMessagesRef.current !== messages) {
+      setVisibleCount(VISIBLE_WINDOW);
+      prevMessagesRef.current = messages;
+    }
+  }, [messages]);
+  // Slice only kicks in for long conversations; short ones render in full.
+  const visibleMessages = useMemo(() => {
+    if (messages.length <= VISIBLE_TRIGGER) return messages;
+    return messages.slice(Math.max(0, messages.length - visibleCount));
+  }, [messages, visibleCount]);
+  const hiddenEarlierCount = messages.length - visibleMessages.length;
 
   // Scoped store APIs for AgentNodeHeader props injection
   const agentIOStore = useScopedStore("agentIO");
@@ -355,12 +403,12 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
   const prevGroupingRef = useRef<{ messages: ConversationMessage[]; blocks: Block[] } | null>(null);
   const blocks = useMemo(() => {
     const prev = prevGroupingRef.current;
-    const next = (prev && prev.messages === messages)
+    const next = (prev && prev.messages === visibleMessages)
       ? prev.blocks
-      : groupMessages(messages, prev?.messages, prev?.blocks);
-    prevGroupingRef.current = { messages, blocks: next };
+      : groupMessages(visibleMessages, prev?.messages, prev?.blocks);
+    prevGroupingRef.current = { messages: visibleMessages, blocks: next };
     return next;
-  }, [messages]);
+  }, [visibleMessages]);
 
   const virtualizer = useVirtualizer({
     count: blocks.length,
@@ -400,6 +448,18 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
 
   return (
     <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto">
+      {/* Load-earlier gate — visible only when there are hidden messages above */}
+      {hiddenEarlierCount > 0 && (
+        <div className="sticky top-0 z-10 flex justify-center border-b border-app-border bg-background/80 backdrop-blur px-4 py-2">
+          <button
+            onClick={() => setVisibleCount((c) => c + LOAD_EARLIER_BATCH)}
+            className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground hover:bg-muted/70 hover:text-app-text-primary"
+          >
+            Load {Math.min(LOAD_EARLIER_BATCH, hiddenEarlierCount)} earlier messages
+            {" "}(↑ {hiddenEarlierCount} hidden)
+          </button>
+        </div>
+      )}
       <div
         style={{
           height: virtualizer.getTotalSize(),

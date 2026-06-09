@@ -113,6 +113,8 @@ interface RunHistoryState {
 // go through the in-flight dedup so two near-simultative "load more"
 // clicks don't double-fetch.
 const FETCH_DEDUP_MS = 3000;
+/** Initial sidebar page size — small for fast first paint, expandable via "Load more". */
+const INITIAL_PAGE_LIMIT = 5;
 interface CacheEntry {
   runs: RunSummary[];
   total: number;
@@ -176,7 +178,10 @@ export const useRunHistoryStore = create<RunHistoryState>()((set, get) => ({
       try {
         const { runs: currentRuns } = get();
         const offset = loadMore ? currentRuns.length : 0;
-        const limit = 50;
+        // Initial page is small (5) so sidebar first paint is snappy; user
+        // expands via "Load more runs" button. Subsequent pages can be larger
+        // since the user has signaled they want history.
+        const limit = loadMore ? 50 : INITIAL_PAGE_LIMIT;
         const params = new URLSearchParams();
         if (workflowName) params.set("workflow_name", workflowName);
         params.set("limit", String(limit));
