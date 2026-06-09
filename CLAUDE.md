@@ -86,10 +86,15 @@ harness/                        # 核心框架
 ├── compiler/                   # Markdown 解析 + DAG 构建
 │   ├── md_parser.py            # YAML frontmatter + prompt 提取
 │   └── dag_builder.py          # 依赖解析 + 拓扑排序 + 循环检测
-├── tools/                      # 工具系统
+├── tools/                      # 工具系统（**注意：包含两类来源，见下方"工具来源"**）
 │   ├── ask_user.py             # ask_user: 结构化提问（单选/多选/自由输入）
 │   ├── ask_human.py            # ask_human: 旧版薄壳，转调 ask_user
 │   ├── _human_io.py            # 共享 Future 注册表（ask_user/ask_human 共用）
+│   ├── bash.py                 # bash: 执行 shell 命令
+│   ├── todo.py                 # todo: agent 驱动的步骤规划
+│   ├── mcp_bridge.py           # MCP 桥接：把外部 MCP server 的工具适配进 Pydantic AI
+│   ├── catalog.py              # ToolCatalogService：启动时连接 MCP server，构建完整工具目录
+│   ├── defaults.py             # setup_default_mcp / setup_codegraph_mcp：默认 MCP server 配置
 │   ├── chart.py                # 图表渲染（非 tool，纯函数）
 │   └── tool_registry.py        # 工具注册表
 └── extensions/                 # 扩展系统
@@ -119,6 +124,39 @@ frontend/                       # Next.js 14 Web UI
 runs/                           # 运行记录持久化（{run_id}.json）
 benchmarks/                     # Benchmark 评测定义 + 结果
 ```
+
+---
+
+## 工具来源（重要，避免重复造轮子 / 误判"工具不存在"）
+
+项目的 agent 可用工具**来自两个来源**，不要只看 `harness/tools/*.py`：
+
+### 1. 内置 Python 工具（`harness/tools/*.py`）
+- `bash` — 执行 shell 命令
+- `ask_user` / `ask_human` — 结构化提问
+- `chart` — 图表渲染（非 tool，纯函数，由 agent 输出 `__HARNESS_CHART__:` 触发）
+- `todo` / `todo_reminder` — agent 驱动的步骤规划
+- `grep_glob` — 简化版 grep
+- `sub_agent` — 子 agent 调用
+
+### 2. MCP 远程工具（启动时由 `catalog.py` 连接，**不在 `harness/tools/` 里**）
+**默认连接两个 MCP server**（见 `harness/tools/defaults.py` 的 `setup_default_mcp` / `setup_codegraph_mcp`）：
+
+| MCP server | 包名 | 提供的工具 |
+|------------|------|-----------|
+| **filesystem** | `@modelcontextprotocol/server-filesystem` | `read_text_file`、`write_file`、`edit_file`、`create_directory`、`list_directory`、`directory_tree`、`move_file`、`search_files`、`get_file_info`、`list_allowed_directories` |
+| **codegraph** | `codegraph serve --mcp`（或 `@colbymchenry/codegraph`） | `codegraph_search`、`codegraph_context`、`codegraph_callers`、`codegraph_callees`、`codegraph_impact`、`codegraph_node`、`codegraph_explore`、`codegraph_trace`、`codegraph_files`、`codegraph_status` |
+
+> **判定工具是否存在的正确方式**：
+> 1. 看 `harness/tools/*.py`（内置工具）
+> 2. **还要**看 `harness/tools/defaults.py` 接入了哪些 MCP server，以及该 MCP server 的标准工具列表
+> 3. 启动后端时观察 `[tool-catalog]` 日志或调 `GET /api/tools/catalog` 拿到完整列表
+>
+> **历史教训**：曾有判断"项目没有 read_text_file" → 错。read_text_file 由 filesystem MCP 提供，agent 默认可用，只是不在 `harness/tools/` 里。设计 bash 截断时直接利用它（bash 写文件 → agent 调 `read_text_file` 按需读），不要新建工具。
+
+### 工具可用性约定
+- 内置工具：默认注册，但**单个 agent 是否能调用**取决于 `workflow.json` 里该 agent 的 `tools` 列表（不写 = 全部可用；写了 = 白名单）
+- MCP 工具：默认所有 agent 都可用，除非 `workflow.json` 里 `tools` 白名单未包含
 
 ---
 
@@ -184,3 +222,33 @@ HarnessState = TypedDict {
 10. Checkpoint after every significant step
 11. Match the codebase's conventions
 12. Fail loud
+
+---
+
+## 问题分类与质量标准（必须遵守）
+
+当遇到用户反馈或缺陷报告时，**先判定是 bug 还是架构问题**，再决定动手方式：
+
+- **Bug**：局部逻辑错误、状态丢失、渲染错位、边界条件未处理。修复方式 = 最小化 surgical fix，不动结构。
+- **架构问题**：跨模块的耦合、抽象层次错位、违反单一职责、缺少扩展点、数据流或事件流不合理、违反 SOLID 原则。修复方式 = 先提出设计方案（说明动机、权衡、迁移路径），与用户对齐后再改，不允许直接打补丁绕过。
+
+### 判定信号（出现任一即倾向"架构问题"）
+- 同一现象在多个模块复现
+- 修复需要改动 ≥3 个不相关文件
+- 现象背后是"职责越界"（例如工具直接污染对话结构、UI 状态散落在多处）
+- 现象背后是"事件/数据流断裂"（例如持久化层与内存状态不同步）
+- 用 hack/兼容代码才能让现有抽象跑通
+
+### 代码质量底线（任何改动必须满足）
+1. **整洁**：命名表达意图，函数职责单一，无注释解释 *what*，只在 *why* 非显然时注释。
+2. **可扩展**：新能力通过新增（策略/插件/注册项）而非修改核心路径实现（OCP）。
+3. **鲁棒**：边界条件、空值、失败路径显式处理；失败 **fail loud**，不静默吞错。
+4. **性能**：默认无 N+1、无全量重渲、无重复请求；大数据流式或分页。
+5. **易定位**：关键路径有结构化日志/事件；错误能追溯到一个明确的层（工具 / 引擎 / 事件 / UI）。
+
+### 报错处理与可观测性
+- 重试**必须显式**告知用户（UI 上能看到"重试中 / 第 N 次 / 失败原因"），不允许静默重试或静默失败。
+- LLM / 网络 / 工具失败要分层捕获：transport 层重试（网络抖动）→ 协议层重试（4xx 中可重试项）→ 业务层中断（不可恢复）。层与层之间不能互相吞错。
+- 限流（rate limit / request_limit）应走"退避重试 + 用户可见"，而不是直接中断 agent。
+
+> 违反上述任何一条时，优先写设计方案而不是打补丁。

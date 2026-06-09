@@ -9,6 +9,8 @@ import type {
   AgentToolResultPayload,
   AgentThinkingDeltaPayload,
   AgentToolOutputDeltaPayload,
+  AgentToolOutputTruncatedPayload,
+  BashBackgroundCompletedPayload,
 } from "@/types/events";
 import { payload } from "./utils";
 
@@ -74,6 +76,38 @@ export const agentHandlers: [string, EventHandler][] = [
       stores.conversation
         .getState()
         .appendToolOutput(p.node_id, p.tool_name, p.line, p.stream);
+    },
+  ],
+
+  [
+    "agent.tool_output_truncated",
+    (stores, event, _ctx) => {
+      // Tool output exceeded MAX_OUTPUT_CHARS and was spilled to disk.
+      // Surface as a system line in the conversation stream so the user can see
+      // the bash output was compressed (the agent gets the file path via the
+      // tool return value and can read_text_file it on demand).
+      const p = payload<AgentToolOutputTruncatedPayload>(event);
+      const note = `⚠️ ${p.tool_name} output truncated: ${p.total_chars.toLocaleString()} chars ` +
+        `(> ${p.max_chars.toLocaleString()} max) — full output saved to ${p.output_path}`;
+      stores.conversation
+        .getState()
+        .appendToolOutput(p.node_id, p.tool_name, note, "stdout");
+    },
+  ],
+
+  [
+    "bash.background_completed",
+    (_stores, event, _ctx) => {
+      // Background bash task finished (or timed out). Minimal handling for now —
+      // log to console so it's visible during dev. A future PR can render a toast
+      // or a status badge on the originating tool call.
+      const p = payload<BashBackgroundCompletedPayload>(event);
+      // eslint-disable-next-line no-console
+      console.info(
+        `[bash.background_completed] task=${p.task_id} exit=${p.exit_code} ` +
+        `chars=${p.output_chars} truncated=${p.truncated} timed_out=${p.timed_out} ` +
+        `monitor_error=${p.monitor_error ?? "none"}`,
+      );
     },
   ],
 ];

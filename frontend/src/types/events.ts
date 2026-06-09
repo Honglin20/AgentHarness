@@ -40,7 +40,9 @@ export type EventType =
   | "followup.completed"
   | "followup.failed"
   | "todo.created"
-  | "todo.updated";
+  | "todo.updated"
+  | "bash.background_completed"
+  | "agent.tool_output_truncated";
 
 // Workflow events
 export interface WorkflowAgentDef {
@@ -359,6 +361,45 @@ export interface EventPayloadMap {
   "followup.failed": { workflow_id: string; agent_name: string; error: string };
   "todo.created": TodoCreatedPayload;
   "todo.updated": TodoUpdatedPayload;
+  "bash.background_completed": BashBackgroundCompletedPayload;
+  "agent.tool_output_truncated": AgentToolOutputTruncatedPayload;
+}
+
+/**
+ * Bash background task completed (or timed out). Fires asynchronously after the
+ * agent called bash with run_in_background=true. The full output is at output_path;
+ * agent can read_text_file it on demand.
+ */
+export interface BashBackgroundCompletedPayload {
+  task_id: string;
+  command: string;
+  description?: string;
+  workflow_id: string;
+  node_id: string;
+  agent_name: string;
+  exit_code: number;
+  output_chars: number;
+  truncated: boolean;
+  output_path: string;
+  timed_out: boolean;
+  /** Repr of exception if the background monitor itself crashed (null on success). */
+  monitor_error: string | null;
+}
+
+/**
+ * Tool output exceeded MAX_OUTPUT_CHARS and was spilled to disk. Fired for the
+ * foreground bash path (and any other tool that adopts the same spill convention).
+ */
+export interface AgentToolOutputTruncatedPayload {
+  workflow_id: string;
+  node_id: string;
+  agent_name: string;
+  tool_name: string;
+  command: string;
+  output_path: string;
+  total_chars: number;
+  max_chars: number;
+  timed_out: boolean;
 }
 
 // Typed event helper
