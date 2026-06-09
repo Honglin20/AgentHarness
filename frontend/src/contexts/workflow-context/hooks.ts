@@ -16,19 +16,29 @@ import type {
 } from "@/stores/conversationStore";
 import type { OutputState } from "@/stores/outputStore";
 import type { WorkflowState, NodeState } from "@/stores/workflowStore";
+import { useWorkflowStore as useGlobalWorkflowStore } from "@/stores/workflowStore";
 import type { ChartState, ChartGroup } from "@/stores/chartStore";
 import type { ToolCallRecord, ToolCallState } from "@/stores/toolCallStore";
 import type { AgentIOData, AgentIOState } from "@/stores/agentIOStore";
 import type { ChatMessage, ChatState } from "@/stores/chatStore";
 import type { StoreApi } from "zustand/vanilla";
 
-// Dummy stores for when no workflow is active — keeps hooks unconditionally called
+// Dummy stores for when no workflow is active — keeps hooks unconditionally called.
+//
+// dummyWorkflowStore 在模块加载时从全局 workflowStore 拷贝初始状态并订阅其
+// 变化保持同步。原因：setSelectedTemplate / previewTemplate 等动作写入全局
+// useWorkflowStore（来自 DomainWorkflowsPage / DomainTutorialPage 等入口），
+// 启动页（无 active workflow）需要通过 dummy 读到这些值；如果 dummy 是静态
+// 默认值，ScopedCenterPanel 的 portal 判定会卡在原页面。
 function makeDummy<T>(initial: T): StoreApi<T> {
   return createStore<T>(() => initial);
 }
 const dummyConversationStore = makeDummy<ConversationState>({ messages: [], pendingQuestionId: null, pendingQuestionAgent: null, activeFollowupAgent: null } as unknown as ConversationState);
 const dummyOutputStore = makeDummy<OutputState>({ texts: {}, activeNodeId: null, workflowError: null } as unknown as OutputState);
-const dummyWorkflowStore = makeDummy<WorkflowState>({ status: "idle", nodes: {}, dag: null, workflowId: null, workflowName: null } as unknown as WorkflowState);
+const dummyWorkflowStore = makeDummy<WorkflowState>(useGlobalWorkflowStore.getState() as WorkflowState);
+useGlobalWorkflowStore.subscribe((state) => {
+  dummyWorkflowStore.setState(state as WorkflowState, true);
+});
 const dummyChartStore = makeDummy<ChartState>({ groups: {}, groupOrder: [] } as unknown as ChartState);
 const dummyChatStore = makeDummy<ChatState>({ messages: [], pendingQuestionId: null } as unknown as ChatState);
 
@@ -122,7 +132,14 @@ export function useNodeTexts(): Record<string, string> {
 /**
  * useScopedWorkflowStore
  *
- * 访问当前 workflow 的 workflow store
+ * 访问当前 workflow 的 workflow store。无 active workflow 时（启动页 / 选
+ * template 阶段）回退到 dummyWorkflowStore —— 该 store 在模块加载时镜像
+ * 全局 workflowStore，并订阅其变化保持同步。
+ *
+ * 这样设计是因为 setSelectedTemplate / previewTemplate 写入的是全局
+ * useWorkflowStore，启动页需要读到这些值；同时只让 useScopedWorkflowStore
+ * 订阅一个 store，避免 useShallow 的缓存 ref 在双 store 间被交替覆盖触发
+ * 死循环（React error #185）。
  */
 export function useScopedWorkflowStore<T>(selector: (state: WorkflowState) => T): T {
   const store = getWorkflowStoreApi("workflow") ?? dummyWorkflowStore;

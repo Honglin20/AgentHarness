@@ -13,6 +13,16 @@ interface AgentOption {
   model?: string | null;
 }
 
+// Stable inert selectors: returning a fresh literal inline (e.g. `() => []`)
+// from a zustand `useStore` call produces a new snapshot on every render,
+// which React's `useSyncExternalStore` treats as a state change — triggering
+// an infinite update loop (React error #185). Keep the constants at module
+// scope so reference equality holds across renders.
+const EMPTY_MESSAGES: ConversationMessage[] = [];
+const inertNull = (_s: unknown) => null;
+const inertIdle = (_s: unknown) => "idle";
+const inertEmptyMessages = (_s: unknown) => EMPTY_MESSAGES;
+
 interface ChatInputProps {
   sendAnswer: (questionId: string, answer: string) => void;
   sendStopAndRegenerate?: (agentName: string, partialOutput: string, userGuidance: string) => void;
@@ -49,22 +59,22 @@ function useChatInputState(props: {
   const hasScoped = props.pendingQuestionId !== undefined;
 
   const globalPendingId = useConversationStore(
-    hasScoped ? (_s: any) => null : (s: any) => s.pendingQuestionId,
+    hasScoped ? inertNull : (s: any) => s.pendingQuestionId,
   );
   const globalPendingAgent = useConversationStore(
-    hasScoped ? (_s: any) => null : (s: any) => s.pendingQuestionAgent,
+    hasScoped ? inertNull : (s: any) => s.pendingQuestionAgent,
   );
   const globalMessages = useConversationStore(
-    hasScoped ? (_s: any) => [] : (s: any) => s.messages,
+    hasScoped ? inertEmptyMessages : (s: any) => s.messages,
   );
   const globalStatus = useWorkflowStore(
-    hasScoped ? (_s: any) => "idle" : (s: any) => s.status,
+    hasScoped ? inertIdle : (s: any) => s.status,
   );
   const globalWid = useWorkflowStore(
-    hasScoped ? (_s: any) => null : (s: any) => s.workflowId,
+    hasScoped ? inertNull : (s: any) => s.workflowId,
   );
   const globalTemplate = useWorkflowStore(
-    hasScoped ? (_s: any) => null : (s: any) => s.selectedTemplate,
+    hasScoped ? inertNull : (s: any) => s.selectedTemplate,
   );
 
   return {
