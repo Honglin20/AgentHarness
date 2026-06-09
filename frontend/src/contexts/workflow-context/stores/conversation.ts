@@ -11,10 +11,36 @@ type ConversationCacheSnap = {
   pendingQuestionAgent: string | null;
 };
 
+export interface ConversationStoreOptions {
+  /**
+   * Called when a state mutation happens that should be flushed to the
+   * backend before workflow termination (so refresh doesn't lose state).
+   * The store debounces calls by 500ms to coalesce rapid mutations.
+   * Implementation is provided by WorkflowManager.
+   */
+  onPersist?: () => void;
+}
+
+const PERSIST_DEBOUNCE_MS = 500;
+
 export function createConversationStore(
   workflowId: string,
+  options: ConversationStoreOptions = {},
 ): StoreApi<ConversationState> {
   const msgCounter = createIdCounter("msg-");
+
+  // Debounced persist trigger — coalesces rapid mutations (e.g. user
+  // answering multiple questions in quick succession) into a single
+  // PATCH /api/runs/{id}/conversation call.
+  let persistTimer: ReturnType<typeof setTimeout> | null = null;
+  const schedulePersist = () => {
+    if (!options.onPersist) return;
+    if (persistTimer) clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => {
+      persistTimer = null;
+      options.onPersist?.();
+    }, PERSIST_DEBOUNCE_MS);
+  };
 
   // Cache helper is assigned after the store is created.
   let cache: StoreCache;
@@ -263,6 +289,7 @@ export function createConversationStore(
           status: "answered",
           questionAnswer: answer,
         };
+        schedulePersist();
         return { messages };
       }),
 
@@ -277,6 +304,7 @@ export function createConversationStore(
         const clear = state.pendingQuestionId === questionId
           ? { pendingQuestionId: null, pendingQuestionAgent: null }
           : {};
+        schedulePersist();
         return { messages, ...clear };
       }),
 

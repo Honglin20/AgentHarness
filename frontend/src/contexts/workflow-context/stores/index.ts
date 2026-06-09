@@ -64,9 +64,19 @@ export interface WorkflowStores {
   todo: StoreApi<import("./todo").TodoState>;
 }
 
-export function createWorkflowStores(workflowId: string): WorkflowStores {
+export interface CreateWorkflowStoresOptions {
+  /** Persist callback for conversation store; see ConversationStoreOptions.onPersist. */
+  onPersistConversation?: () => void;
+}
+
+export function createWorkflowStores(
+  workflowId: string,
+  options: CreateWorkflowStoresOptions = {},
+): WorkflowStores {
   return {
-    conversation: createConversationStore(workflowId),
+    conversation: createConversationStore(workflowId, {
+      onPersist: options.onPersistConversation,
+    }),
     output: createOutputStore(workflowId),
     workflow: createWorkflowStore(workflowId),
     chart: createChartStore(workflowId),

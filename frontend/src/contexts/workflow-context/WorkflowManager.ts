@@ -17,6 +17,7 @@ import type {
 import { createWorkflowStores } from "./workflowStores";
 import { cleanupSeqTracker } from "./routeEvent";
 import { resetAllStores } from "./routeEvent";
+import { fetchWithAuth } from "@/lib/api";
 
 /**
  * Workflow Entry - 管理 workflow 的状态和资源
@@ -79,7 +80,13 @@ class WorkflowManager {
       return existing;
     }
 
-    const stores = createWorkflowStores(workflowId);
+    const stores = createWorkflowStores(workflowId, {
+      // Inject persist callback so conversation store can flush state to
+      // backend BEFORE workflow termination. Without this, ask_user answers
+      // + follow-up user messages live only in memory until the workflow
+      // completes — refreshing the page loses them.
+      onPersistConversation: () => { void this._persistConversation(workflowId); },
+    });
     const entry: WorkflowEntry = {
       id: workflowId,
       lifecycle: "created",
@@ -163,6 +170,30 @@ class WorkflowManager {
   getStores(workflowId: string): WorkflowStores | null {
     const entry = this.workflows.get(workflowId);
     return entry?.stores ?? null;
+  }
+
+  /**
+   * Flush conversation state to backend. Called by conversation store's
+   * persist scheduler (debounced) when state changes that should survive
+   * a refresh occurs (ask_user answer / timeout / follow-up user message).
+   * Failure is silent — best-effort, same as the existing terminal-event
+   * persistence path in eventRouter.
+   */
+  private async _persistConversation(workflowId: string): Promise<void> {
+    const entry = this.workflows.get(workflowId);
+    if (!entry) return;
+    const messages = entry.stores.conversation.getState().messages;
+    if (messages.length === 0) return;
+    try {
+      await fetchWithAuth(`/api/runs/${workflowId}/conversation`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversation: messages }),
+      });
+    } catch {
+      // Silent — best-effort. WS will reconnect or workflow-completed will
+      // issue a final persist via the existing eventRouter path.
+    }
   }
 
   /**
