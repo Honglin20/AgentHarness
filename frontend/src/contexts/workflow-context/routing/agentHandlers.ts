@@ -11,8 +11,12 @@ import type {
   AgentToolOutputDeltaPayload,
   AgentToolOutputTruncatedPayload,
   BashBackgroundCompletedPayload,
+  AgentRetryAttemptedPayload,
+  AgentUsageUpdatePayload,
+  AgentFailedWithClassifiedReasonPayload,
 } from "@/types/events";
 import { payload } from "./utils";
+import { toast } from "sonner";
 
 export const agentHandlers: [string, EventHandler][] = [
   [
@@ -108,6 +112,63 @@ export const agentHandlers: [string, EventHandler][] = [
         `chars=${p.output_chars} truncated=${p.truncated} timed_out=${p.timed_out} ` +
         `monitor_error=${p.monitor_error ?? "none"}`,
       );
+    },
+  ],
+
+  [
+    "agent.retry_attempted",
+    (stores, event, _ctx) => {
+      // LLM call failed and will be retried. UI surfaces:
+      //   - toast (immediate feedback)
+      //   - inline retry status line on AgentMessage (persistent)
+      // We do NOT clear partial text here — Pydantic AI's iter() will replay
+      // from scratch and the new text stream will overwrite the old. (The
+      // failed attempt's partial text is usually corrupted anyway.)
+      const p = payload<AgentRetryAttemptedPayload>(event);
+      stores.workflow.getState().pushRetryAttempt(p.node_id, {
+        attempt: p.attempt,
+        maxAttempts: p.max_attempts,
+        category: p.category,
+        reason: p.reason,
+        delayS: p.delay_s,
+        retryAfterS: p.retry_after_s,
+        ts: event.ts,
+      });
+      toast.warning(
+        `Agent "${p.agent_name}" retrying (${p.attempt + 1}/${p.max_attempts}): ${p.category}`,
+        { description: p.reason },
+      );
+    },
+  ],
+
+  [
+    "agent.usage_update",
+    (stores, event, _ctx) => {
+      // Per-LLM-request usage snapshot — drives BudgetBar's "Requests" bar.
+      // High-frequency, normal priority. Just store the latest count.
+      const p = payload<AgentUsageUpdatePayload>(event);
+      stores.workflow.getState().setNodeUsage(
+        p.node_id, p.requests, p.input_tokens, p.output_tokens,
+      );
+    },
+  ],
+
+  [
+    "agent.failed_with_classified_reason",
+    (stores, event, _ctx) => {
+      // Final failure (retries exhausted OR classify said "don't retry").
+      // Per user preference: NO toast — show inline error card on AgentMessage
+      // so the failure reason stays visible (refresh-safe via critical event).
+      const p = payload<AgentFailedWithClassifiedReasonPayload>(event);
+      stores.workflow.getState().setClassifiedFailure(p.node_id, {
+        category: p.category,
+        reason: p.reason,
+        errorType: p.error_type,
+        message: p.message,
+        attemptsUsed: p.attempts_used,
+        maxAttempts: p.max_attempts,
+        ts: event.ts,
+      });
     },
   ],
 ];

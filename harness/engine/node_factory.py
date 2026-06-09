@@ -24,6 +24,7 @@ from harness.constants import STATE_ERRORS, STATE_INPUTS, STATE_METADATA, STATE_
 from harness.cost import calculate_cost
 from harness.engine.schema_utils import ReviewDecision, strip_schema, validate_output
 from harness.engine.llm_executor import LLMExecutor
+from harness.engine.llm_retry import execute_with_retry
 from harness.engine.node_phases import (
     build_extension_context,
     build_node_failed_payload,
@@ -306,8 +307,20 @@ def make_node_func(
                 cancel_fn=_get_cancel_fn(),
                 reminder_tracker=_reminder_tracker_holder[0],
                 token_aggregator=node_token_agg,
+                request_limit=getattr(builder_self, "request_limit", None),
             )
-            exec_result = await executor.run(context)
+            # Wrap executor.run with the LLM retry policy. On each failed
+            # attempt, execute_with_retry emits agent.retry_attempted (and the
+            # final agent.failed_with_classified_reason if exhausted). The
+            # run_fn lambda constructs a fresh iter() per attempt — Pydantic AI
+            # doesn't support single-step replay (see llm_retry.py docstring).
+            exec_result = await execute_with_retry(
+                lambda: executor.run(context),
+                bus=bus,
+                workflow_id=wid,
+                node_id=agent_def.name,
+                agent_name=agent_def.name,
+            )
             agent_run = exec_result.agent_run
             stop_regen = exec_result.stop_regen
             ttft_ms = exec_result.ttft_ms

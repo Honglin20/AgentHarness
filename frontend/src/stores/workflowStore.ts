@@ -29,6 +29,34 @@ export interface NodeState {
   ttftMs?: number;
   toolCallCount?: number;
   llmCallCount?: number;
+  /** Current-attempt LLM request count (resets on retry). Drives BudgetBar. */
+  requests?: number;
+  /** Cumulative retry attempts for this node (PR-D retry visibility). */
+  retryAttempts?: RetryAttempt[];
+  /** Final classified failure reason (set when all retries exhausted). */
+  classifiedFailure?: ClassifiedFailure;
+}
+
+/** A single retry attempt record (agent.retry_attempted payload). */
+export interface RetryAttempt {
+  attempt: number;
+  maxAttempts: number;
+  category: string;
+  reason: string;
+  delayS: number;
+  retryAfterS: number | null;
+  ts: number;
+}
+
+/** Final classified failure (agent.failed_with_classified_reason payload). */
+export interface ClassifiedFailure {
+  category: string;
+  reason: string;
+  errorType: string;
+  message: string;
+  attemptsUsed: number;
+  maxAttempts: number;
+  ts: number;
 }
 
 interface WorkflowSnapshot {
@@ -79,6 +107,13 @@ export interface WorkflowState {
   handleNodeStarted: (payload: NodeStartedPayload) => void;
   handleNodeCompleted: (payload: NodeCompletedPayload) => void;
   handleNodeFailed: (payload: NodeFailedPayload) => void;
+  /** Append a retry attempt record + flip node to "retrying" status (PR-D). */
+  pushRetryAttempt: (nodeId: string, attempt: RetryAttempt) => void;
+  /** Record a final classified failure on the node (PR-D). Does NOT auto-flip
+   * status — node.failed handler does that. */
+  setClassifiedFailure: (nodeId: string, failure: ClassifiedFailure) => void;
+  /** Update the per-node current-attempt request count from agent.usage_update. */
+  setNodeUsage: (nodeId: string, requests: number, inputTokens: number, outputTokens: number) => void;
 
   // Cache management for batch mode
   saveToCache: (wid: string) => void;
@@ -202,6 +237,54 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
           durationMs: payload.duration_ms,
           attempt: payload.attempt,
           willRetry: payload.will_retry,
+        },
+      },
+    })),
+
+  pushRetryAttempt: (nodeId, attempt) =>
+    set((state) => {
+      const existing = state.nodes[nodeId];
+      const retryAttempts = [...(existing?.retryAttempts ?? []), attempt];
+      return {
+        nodes: {
+          ...state.nodes,
+          [nodeId]: {
+            ...existing,
+            id: nodeId,
+            name: existing?.name ?? nodeId,
+            status: "retrying",
+            attempt: attempt.attempt,
+            retryAttempts,
+          },
+        },
+      };
+    }),
+
+  setClassifiedFailure: (nodeId, failure) =>
+    set((state) => ({
+      nodes: {
+        ...state.nodes,
+        [nodeId]: {
+          ...state.nodes[nodeId],
+          id: nodeId,
+          classifiedFailure: failure,
+        },
+      },
+    })),
+
+  setNodeUsage: (nodeId, requests, inputTokens, outputTokens) =>
+    set((state) => ({
+      nodes: {
+        ...state.nodes,
+        [nodeId]: {
+          ...state.nodes[nodeId],
+          id: nodeId,
+          requests,
+          tokenUsage: {
+            input: inputTokens,
+            output: outputTokens,
+            total: inputTokens + outputTokens,
+          },
         },
       },
     })),

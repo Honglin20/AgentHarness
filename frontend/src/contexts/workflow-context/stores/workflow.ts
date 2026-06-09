@@ -149,6 +149,54 @@ export function createWorkflowStore(
         },
       })),
 
+    pushRetryAttempt: (nodeId, attempt) =>
+      set((state) => {
+        const existing = state.nodes[nodeId];
+        const retryAttempts = [...(existing?.retryAttempts ?? []), attempt];
+        return {
+          nodes: {
+            ...state.nodes,
+            [nodeId]: {
+              ...existing,
+              id: nodeId,
+              name: existing?.name ?? nodeId,
+              status: "retrying",
+              attempt: attempt.attempt,
+              retryAttempts,
+            },
+          },
+        };
+      }),
+
+    setClassifiedFailure: (nodeId, failure) =>
+      set((state) => ({
+        nodes: {
+          ...state.nodes,
+          [nodeId]: {
+            ...state.nodes[nodeId],
+            id: nodeId,
+            classifiedFailure: failure,
+          },
+        },
+      })),
+
+    setNodeUsage: (nodeId, requests, inputTokens, outputTokens) =>
+      set((state) => ({
+        nodes: {
+          ...state.nodes,
+          [nodeId]: {
+            ...state.nodes[nodeId],
+            id: nodeId,
+            requests,
+            tokenUsage: {
+              input: inputTokens,
+              output: outputTokens,
+              total: inputTokens + outputTokens,
+            },
+          },
+        },
+      })),
+
     saveToCache: (wid) => cache.saveToCache(wid),
 
     restoreFromCache: (wid) => cache.restoreFromCache(wid),

@@ -42,7 +42,10 @@ export type EventType =
   | "todo.created"
   | "todo.updated"
   | "bash.background_completed"
-  | "agent.tool_output_truncated";
+  | "agent.tool_output_truncated"
+  | "agent.retry_attempted"
+  | "agent.usage_update"
+  | "agent.failed_with_classified_reason";
 
 // Workflow events
 export interface WorkflowAgentDef {
@@ -363,6 +366,9 @@ export interface EventPayloadMap {
   "todo.updated": TodoUpdatedPayload;
   "bash.background_completed": BashBackgroundCompletedPayload;
   "agent.tool_output_truncated": AgentToolOutputTruncatedPayload;
+  "agent.retry_attempted": AgentRetryAttemptedPayload;
+  "agent.usage_update": AgentUsageUpdatePayload;
+  "agent.failed_with_classified_reason": AgentFailedWithClassifiedReasonPayload;
 }
 
 /**
@@ -400,6 +406,55 @@ export interface AgentToolOutputTruncatedPayload {
   total_chars: number;
   max_chars: number;
   timed_out: boolean;
+}
+
+/**
+ * LLM call failed and will be retried. Fires after each failed attempt
+ * (attempt N → N+1). UI surfaces this as a toast + an inline retry status
+ * line on the agent message.
+ */
+export interface AgentRetryAttemptedPayload {
+  workflow_id: string;
+  node_id: string;
+  agent_name: string;
+  attempt: number;          // 1-based; attempt that just failed
+  max_attempts: number;     // total tries configured (default 3)
+  category: string;         // rate_limit | server_error | network_timeout | network_error | stream_truncated
+  reason: string;           // human-readable
+  delay_s: number;          // how long we'll sleep before the next attempt
+  retry_after_s: number | null;  // parsed from 429 body, if present
+}
+
+/**
+ * Per-LLM-request usage snapshot. Fires after every model_request_node
+ * completes (high-frequency). Drives BudgetBar's "Requests" progress bar.
+ * Frontend overwrites per (workflow_id, node_id, agent_name) — last write wins.
+ */
+export interface AgentUsageUpdatePayload {
+  workflow_id: string;
+  node_id: string;
+  agent_name: string;
+  requests: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+}
+
+/**
+ * All retries exhausted (or classify said "don't retry"). Final failure
+ * notification for the agent run. UI shows an inline error card on the
+ * agent message — NOT a toast (per user preference: silent + persistent).
+ */
+export interface AgentFailedWithClassifiedReasonPayload {
+  workflow_id: string;
+  node_id: string;
+  agent_name: string;
+  category: string;         // matches AgentRetryAttemptedPayload.category + "usage_exceeded" / "client_error" / "unknown"
+  reason: string;
+  error_type: string;       // Python exception class name
+  message: string;          // str(exc)
+  attempts_used: number;
+  max_attempts: number;
 }
 
 // Typed event helper

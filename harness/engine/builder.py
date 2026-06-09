@@ -43,11 +43,15 @@ class MacroGraphBuilder:
         event_bus: Any | None = None,
         max_iterations: int = 3,
         envelope: dict[str, int] | None = None,
+        request_limit: int | None = None,
     ):
         self.tool_registry = tool_registry or ToolRegistry()
         self.event_bus = event_bus
         self.max_iterations = max_iterations
         self.envelope = envelope
+        # Per-agent request budget (None → HARNESS_REQUEST_LIMIT env, default 200).
+        # Forwarded to micro_factory.create() inside node_factory.
+        self.request_limit = request_limit
         self.workflow_id: str | None = None  # Set by runner before execution
         self._workflow_name: str = ""  # Set by build()
         self.agent_io: dict[str, dict] = {}  # Collected per-node I/O for persistence

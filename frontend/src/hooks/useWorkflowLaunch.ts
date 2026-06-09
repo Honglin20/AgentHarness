@@ -49,6 +49,7 @@ export function useWorkflowLaunch(
             agents,
             inputs: { task },
             work_dir: useSettingsStore.getState().defaultWorkDir.trim() || undefined,
+            request_limit: useSettingsStore.getState().requestLimit,
           }),
         });
         if (!r.ok) throw new Error(await r.text());

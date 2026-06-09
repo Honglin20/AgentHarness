@@ -24,6 +24,7 @@ class CreateWorkflowRequest(BaseModel):
     workflow: str
     inputs: dict = Field(default_factory=dict)
     work_dir: str | None = None  # Working directory to execute in
+    request_limit: int | None = None  # Per-agent LLM request budget (None → env default 200)
 
 
 class CreateWorkflowResponse(BaseModel):

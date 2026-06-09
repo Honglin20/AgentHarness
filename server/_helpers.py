@@ -206,6 +206,7 @@ async def _create_and_start_workflow(
     batch_id: str | None = None,
     work_dir: str | None = None,
     user_id: str | None = None,
+    request_limit: int | None = None,
 ) -> CreateWorkflowResponse:
     """Core logic: create a Workflow, compile it, and submit to runner.
 
@@ -261,6 +262,7 @@ async def _create_and_start_workflow(
         tool_registry=ToolRegistry(),
         event_bus=event_bus,
         checkpointer=checkpointer,
+        request_limit=request_limit,
     )
 
     from harness.extensions.eval import EvalJudge

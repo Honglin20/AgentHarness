@@ -12,6 +12,7 @@ import {
   Folder,
   Brain,
   Wifi,
+  Gauge,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -87,6 +88,8 @@ export default function LlmProfileSettings({
   const setThinking = useSettingsStore((s) => s.setThinking);
   const setStopRegenTtl = useSettingsStore((s) => s.setStopRegenTtl);
   const setDefaultWorkDir = useSettingsStore((s) => s.setDefaultWorkDir);
+  const requestLimit = useSettingsStore((s) => s.requestLimit);
+  const setRequestLimit = useSettingsStore((s) => s.setRequestLimit);
 
   const loadProfiles = useCallback(async () => {
     try {
@@ -388,9 +391,11 @@ export default function LlmProfileSettings({
             thinking={thinking}
             stopRegenTtl={stopRegenTtl}
             defaultWorkDir={defaultWorkDir}
+            requestLimit={requestLimit}
             setThinking={setThinking}
             setStopRegenTtl={setStopRegenTtl}
             setDefaultWorkDir={setDefaultWorkDir}
+            setRequestLimit={setRequestLimit}
             onSave={saveGlobalSettings}
             message={message}
           />
@@ -651,18 +656,22 @@ function GeneralTab({
   thinking,
   stopRegenTtl,
   defaultWorkDir,
+  requestLimit,
   setThinking,
   setStopRegenTtl,
   setDefaultWorkDir,
+  setRequestLimit,
   onSave,
   message,
 }: {
   thinking: "auto" | "true" | "false";
   stopRegenTtl: string;
   defaultWorkDir: string;
+  requestLimit: number;
   setThinking: (v: "auto" | "true" | "false") => void;
   setStopRegenTtl: (v: string) => void;
   setDefaultWorkDir: (v: string) => void;
+  setRequestLimit: (v: number) => void;
   onSave: () => void;
   message: { type: "ok" | "err"; text: string } | null;
 }) {
@@ -724,6 +733,27 @@ function GeneralTab({
           placeholder="/path/to/code (留空 = 当前目录, / = 全盘访问)"
           className="h-8 text-xs"
         />
+      </div>
+
+      <div>
+        <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <Gauge className="h-3 w-3" /> Request Limit (per agent)
+        </label>
+        <Input
+          type="number"
+          min={1}
+          value={requestLimit}
+          onChange={(e) => {
+            const v = parseInt(e.target.value, 10);
+            if (Number.isFinite(v) && v > 0) setRequestLimit(v);
+          }}
+          placeholder="200"
+          className="h-8 text-xs max-w-[200px]"
+        />
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          每个 agent 单次运行允许的最大 LLM 请求数（默认 200，覆盖 env HARNESS_REQUEST_LIMIT）。
+          超过触发 graceful exit，agent 停止并显示分类失败原因。
+        </p>
       </div>
 
       {message && (

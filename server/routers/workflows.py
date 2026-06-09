@@ -94,6 +94,7 @@ async def create_workflow(
         inputs=request_obj.inputs,
         work_dir=request_obj.work_dir,
         user_id=user.user_id,
+        request_limit=request_obj.request_limit,
     )
 
 

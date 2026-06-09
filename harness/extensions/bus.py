@@ -76,6 +76,10 @@ CRITICAL_EVENT_TYPES: frozenset[str] = frozenset({
     "agent.tool_call",
     "agent.tool_result",
     "agent.tool_output_truncated",
+    # LLM retry/failure visibility (PR-D) — late subscribers MUST see these so
+    # they can reconstruct retry history and final classified failure reason.
+    "agent.retry_attempted",
+    "agent.failed_with_classified_reason",
     # Async tool completion (run_in_background)
     "bash.background_completed",
     # Interactive prompts: chat.question is emitted by ask_user.py today.

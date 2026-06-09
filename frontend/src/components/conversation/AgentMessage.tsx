@@ -321,14 +321,23 @@ interface AgentMessageProps {
   onToggleCollapse: () => void;
   sectionItemCount: number;
   getAgentIO?: (nodeId: string) => { inputPrompt?: string; outputResult?: unknown; systemPrompt?: string } | undefined;
-  getNodeState?: (nodeId: string) => { tokenUsage?: { input: number; output: number; total: number }; tools?: ToolBrief[]; model?: string } | undefined;
+  getNodeState?: (nodeId: string) => {
+    tokenUsage?: { input: number; output: number; total: number };
+    tools?: ToolBrief[];
+    model?: string;
+    retryAttempts?: import("@/stores/workflowStore").RetryAttempt[];
+    classifiedFailure?: import("@/stores/workflowStore").ClassifiedFailure;
+  } | undefined;
 }
 
 export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItemCount, getAgentIO, getNodeState }: AgentMessageProps) {
-  const { content, status, thinking } = message;
+  const { content, status, thinking, nodeId } = message;
   const text = content ?? "";
   const isStreaming = status === "streaming";
   const showCollapsed = collapsed && !isStreaming;
+  const nodeState = nodeId ? getNodeState?.(nodeId) : undefined;
+  const retryAttempts = nodeState?.retryAttempts ?? [];
+  const classifiedFailure = nodeState?.classifiedFailure;
 
   return (
     <div className="flex min-w-0 flex-col gap-1 py-1">
@@ -342,6 +351,37 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
       />
       {thinking && (
         <ThinkingBlock text={thinking} streaming={isStreaming} />
+      )}
+      {/* Retry status lines (PR-D) — accumulate visible above content */}
+      {retryAttempts.length > 0 && (
+        <div className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
+          {retryAttempts.map((r, i) => (
+            <div key={`${r.attempt}-${i}`} className="flex items-center gap-1.5">
+              <span className="text-amber-500">🔄</span>
+              <span>
+                Retrying ({r.attempt + 1}/{r.maxAttempts}):{" "}
+                <span className="font-medium">{r.category}</span>
+                {r.delayS > 0 && ` — sleeping ${r.delayS}s`}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {/* Final classified failure (PR-D) — inline error card, no toast */}
+      {classifiedFailure && (
+        <div className="rounded-md border border-red-500/40 bg-red-500/5 px-3 py-2 text-[11px]">
+          <div className="flex items-center gap-1.5 text-red-600 dark:text-red-400">
+            <span>❌</span>
+            <span className="font-medium">
+              Failed: {classifiedFailure.category}
+              {classifiedFailure.attemptsUsed > 1 && ` after ${classifiedFailure.attemptsUsed} attempts`}
+            </span>
+          </div>
+          <p className="mt-0.5 text-muted-foreground">{classifiedFailure.reason}</p>
+          <p className="mt-0.5 font-mono text-[10px] text-muted-foreground/70">
+            {classifiedFailure.errorType}: {classifiedFailure.message}
+          </p>
+        </div>
       )}
       {status === "error" && !text ? (
         <p className="text-sm text-red-500">An error occurred</p>
