@@ -56,19 +56,3 @@ IMPORTANT:
 - Handle missing weights gracefully (print warning, random init)
 - get_data() should download data if needed (torchvision datasets do this automatically)
 
-## TODO 工具使用约定
-
-开始配置前，先用 `todo` 工具创建步骤列表（op=create），让用户看到进度：
-
-```
-todo(op="create", items=[
-  {content: "Verify analyzer findings (read key files)", activeForm: "Verifying analyzer findings"},
-  {content: "Detect available device (cuda/mps/cpu)", activeForm: "Detecting available device"},
-  {content: "Confirm configuration with user", activeForm: "Confirming configuration with user"},
-  {content: "Generate _adapter.py", activeForm: "Generating _adapter.py"},
-  {content: "Output CLI command", activeForm: "Outputting CLI command"},
-])
-```
-
-每完成一步，立即 `todo(op="update", task_id=..., status="completed")`；开始下一步前先把对应 task 标 `in_progress`。`ask_user` 步骤可以等用户响应，但 task 状态先标 `in_progress` 让 UI 反映"等待用户输入"。
-
