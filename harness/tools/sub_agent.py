@@ -21,8 +21,12 @@ logger = logging.getLogger(__name__)
 _EXCLUDE_FROM_CHILD = {"sub_agent", "ask_user"}
 
 
-def _create_worktree(source_dir: str, task_id: str) -> str:
-    """Create an isolated git worktree for a sub-agent. Returns worktree path."""
+def _create_worktree(source_dir: str, task_id: str) -> tuple[str, bool]:
+    """Create an isolated git worktree for a sub-agent.
+
+    Returns (workdir, created) where created is True if a new worktree was
+    actually created, False if it fell back to the source directory.
+    """
     source = Path(source_dir).resolve()
     wt_path = source.parent / f".wt_{task_id}"
     try:
@@ -31,17 +35,16 @@ def _create_worktree(source_dir: str, task_id: str) -> str:
             capture_output=True, text=True, check=True,
             cwd=str(source),
         )
-        # Symlink data directories if they exist
         for data_dir in ("data", "checkpoints", "datasets"):
             target = source / data_dir
             if target.is_dir():
                 link = wt_path / data_dir
                 if not link.exists():
                     link.symlink_to(target)
-        return str(wt_path)
+        return str(wt_path), True
     except (subprocess.CalledProcessError, OSError) as e:
         logger.warning("Worktree creation failed (%s) — falling back to shared dir", e)
-        return source_dir
+        return source_dir, False
 
 
 def _cleanup_worktree(wt_path: str) -> None:
@@ -101,8 +104,7 @@ class SubAgentToolFactory(ToolFactory):
             wt_created = False
 
             if isolation == "worktree":
-                workdir = _create_worktree(workdir, task_id)
-                wt_created = workdir != getattr(ctx.deps, "workdir", None)
+                workdir, wt_created = _create_worktree(workdir, task_id)
 
             child_deps = AgentDeps(
                 workdir=workdir,
