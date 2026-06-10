@@ -60,6 +60,7 @@ def _save_incremental(builder: "MacroGraphBuilder", event_bus: Any) -> None:
             chart_groups=chart_groups,
             created_at=data.get("created_at"),
             work_dir=data.get("work_dir"),
+            todo_steps=dict(builder.todo_states) or None,
         )
     except Exception:
         logger.exception("Incremental save failed for workflow %s", wid)

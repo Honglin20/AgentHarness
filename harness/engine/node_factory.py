@@ -41,6 +41,7 @@ from harness.tools.deps import AgentDeps
 from harness.tools.todo_reminder import TodoReminderTracker
 
 from harness.engine.incremental_save import _save_incremental
+from harness.tools.todo import get_todo_state
 from harness.engine.routing import _extract_decision
 
 if TYPE_CHECKING:
@@ -48,6 +49,13 @@ if TYPE_CHECKING:
     from harness.engine.builder import MacroGraphBuilder
 
 logger = logging.getLogger(__name__)
+
+
+def _collect_todo_state(builder: "MacroGraphBuilder", deps: AgentDeps, node_id: str) -> None:
+    """Snapshot todo steps from deps onto the builder for later persistence."""
+    ts = get_todo_state(deps)
+    if ts and ts.steps:
+        builder.todo_states[node_id] = [s.model_dump() for s in ts.steps]
 
 
 def resolve_agent_config(
@@ -418,6 +426,7 @@ def make_node_func(
                             "output_result": output.model_dump() if isinstance(output, BaseModel) else str(output),
                         }
                         builder_self.agent_io[agent_def.name] = io_data
+                        _collect_todo_state(builder_self, deps, agent_def.name)
                         _save_incremental(builder_self, bus)
                         if bus:
                             safe_emit(bus, "node.completed", build_node_completed_payload(
@@ -441,6 +450,7 @@ def make_node_func(
                     "output_result": str(output),
                 }
                 builder_self.agent_io[agent_def.name] = io_data
+                _collect_todo_state(builder_self, deps, agent_def.name)
                 _save_incremental(builder_self, bus)
                 if bus:
                     safe_emit(bus, "node.completed", build_node_completed_payload(
@@ -585,6 +595,7 @@ def make_node_func(
             if hasattr(executor, "tool_calls") and executor.tool_calls:
                 io_data["tool_calls"] = executor.tool_calls
             builder_self.agent_io[agent_def.name] = io_data
+            _collect_todo_state(builder_self, deps, agent_def.name)
             # Incremental save: persist completed node data to disk
             _save_incremental(builder_self, bus)
             if bus:
@@ -615,6 +626,7 @@ def make_node_func(
             return result_dict
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
+            _collect_todo_state(builder_self, deps, agent_def.name)
             # pydantic-ai raises UnexpectedModelBehavior when output retry
             # budget is exhausted (covers step_gate ModelRetry retries +
             # schema validation failures). Translate to a more semantically

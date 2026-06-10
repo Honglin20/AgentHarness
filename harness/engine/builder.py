@@ -55,6 +55,7 @@ class MacroGraphBuilder:
         self.workflow_id: str | None = None  # Set by runner before execution
         self._workflow_name: str = ""  # Set by build()
         self.agent_io: dict[str, dict] = {}  # Collected per-node I/O for persistence
+        self.todo_states: dict[str, list[dict]] = {}  # Per-node todo step snapshots for persistence
 
         # Stop-and-regenerate signal management (delegated to StopSignalManager)
         self._signal_mgr = StopSignalManager()

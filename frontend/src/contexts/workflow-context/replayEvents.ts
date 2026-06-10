@@ -214,6 +214,10 @@ interface PersistedRunData {
   agents_snapshot?: Array<{ name: string; model: string | null; tools: string[] | null }>;
   workflow_name?: string;
   followup_sessions?: Record<string, { messages: Array<{ role: string; content: string; timestamp?: number }>; turn_count?: number }>;
+  todo_steps?: Record<string, Array<{
+    task_id: string; content: string; activeForm: string;
+    status: string; detail: string | null;
+  }>> | null;
 }
 
 /**
@@ -357,7 +361,7 @@ export function loadRunFromPersistedData(
   // Fallback: if todo_steps is absent (old runs or backend crash before
   // save), replay todo events from the events sidecar. This preserves
   // correctness for all runs.
-  const todoStepsSnapshot = (run as any).todo_steps as
+  const todoStepsSnapshot = run.todo_steps as
     | Record<string, Array<{ task_id: string; content: string; activeForm: string; status: string; detail: string | null }>>
     | undefined
     | null;

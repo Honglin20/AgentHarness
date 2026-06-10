@@ -39,8 +39,9 @@ export interface SidecarData {
 /**
  * Pick a hydration strategy based on what data is actually present.
  *
- * - persisted: agent_io + conversation + dag + trace all populated → the
+ * - persisted: conversation + dag + trace all populated → the
  *   fast path; direct store hydration that survives event buffer overflow.
+ *   agent_io is optional — some runs don't have IO records.
  * - events: persisted data incomplete, but ws events available → replay
  *   event-by-event.
  * - legacy: neither — bare-bones load (very old runs).
