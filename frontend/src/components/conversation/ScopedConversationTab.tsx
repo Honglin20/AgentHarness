@@ -590,10 +590,14 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
   const getNodeCollapsed = useCallback(
     (nodeId: string): boolean => {
       if (nodeId in userNodeCollapseOverride) return userNodeCollapseOverride[nodeId];
-      const status = workflowNodes[nodeId]?.status;
+      // Read from nodesRef instead of workflowNodes — ref is stable, so
+      // this callback's identity doesn't change on every node status
+      // update. Without this, estimateSize (which calls this) gets
+      // recreated on every status change → virtualizer invalidates.
+      const status = nodesRef.current[nodeId]?.status;
       return status === "success" || status === "failed";
     },
-    [userNodeCollapseOverride, workflowNodes],
+    [userNodeCollapseOverride],
   );
   const toggleNode = useCallback(
     (nodeId: string) => {
