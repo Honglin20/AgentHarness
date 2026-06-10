@@ -582,6 +582,7 @@ export function createConversationStore(
         return mutated ? { messages } : state;
       });
     },
+    { minIntervalMs: 33 },
   );
 
   thinkBatcher = createRafBatcher<string, { text: string; nodeId: string }>(
@@ -601,6 +602,7 @@ export function createConversationStore(
         return mutated ? { messages } : state;
       });
     },
+    { minIntervalMs: 33 },
   );
 
   flushTextBuf = () => textBatcher.flush();
