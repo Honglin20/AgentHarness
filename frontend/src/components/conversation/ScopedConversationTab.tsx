@@ -625,12 +625,21 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
       const b = blocks[i];
       if (b.kind === "other") return 60;
       if (getNodeCollapsed(b.nodeId)) return 80;
-      // Expanded NodeBlock: header + per-child estimate
+      // Expanded NodeBlock: header + per-child estimate.
+      // agent_msg uses content-length heuristic so estimate stays stable as
+      // content grows (no ResizeObserver churn). Cap to avoid pathological
+      // cases; tool_group defaults to collapsed height (32px).
       let h = 40;
       for (const c of b.children) {
-        if (c.kind === "agent_msg") h += 80;
-        else if (c.kind === "tool_group") h += 32;
-        else if (c.kind === "question") h += 120;
+        if (c.kind === "agent_msg") {
+          const len = c.message.content?.length ?? 0;
+          const thinking = c.message.thinking?.length ?? 0;
+          h += Math.min(800, Math.max(40, (len + thinking) * 0.6 + 24));
+        } else if (c.kind === "tool_group") {
+          h += 32;
+        } else if (c.kind === "question") {
+          h += 120;
+        }
       }
       return h;
     },
@@ -686,7 +695,6 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
             <div
               key={virtualRow.key}
               data-index={virtualRow.index}
-              ref={virtualizer.measureElement}
               style={{
                 position: "absolute",
                 top: 0,
