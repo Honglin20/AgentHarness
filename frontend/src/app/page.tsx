@@ -8,7 +8,7 @@ import { WorkflowCenterPanel } from "@/components/layout/WorkflowCenterPanel";
 import { Sidebar } from "@/components/sidebar/Sidebar";
 import { useBatchStore } from "@/stores/batchStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
-import { useViewStore } from "@/stores/viewStore";
+import { useViewStore, isReplayView, getActiveRunId } from "@/stores/viewStore";
 import { useUrlState } from "@/hooks/useUrlState";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { WorkflowScope } from "@/contexts/workflow-context/WorkflowScope";
@@ -27,7 +27,10 @@ function useActiveWorkflowId(): string | null {
   const selectedRunId = useBatchStore((s) => s.selectedRunId);
   const activeBatchId = useBatchStore((s) => s.activeBatchId);
 
-  if (activeView.type === "replay") return activeView.runId;
+  // Both skeleton and full replay should resolve to the replayed run id —
+  // the WS scope / scoped stores key off this, and the skeleton already
+  // represents "we are viewing this run, just not hydrated yet".
+  if (isReplayView(activeView)) return getActiveRunId(activeView);
   if (activeBatchId) return selectedRunId;
   return workflowId;
 }
@@ -39,7 +42,7 @@ function useIsPortalMode(): boolean {
   const activeView = useViewStore((s) => s.activeView);
   const activeBatchId = useBatchStore((s) => s.activeBatchId);
 
-  if (activeView.type === "replay") return false;
+  if (isReplayView(activeView)) return false;
   if (activeBatchId) return false;
   if (workflowId) return false;
   // No workflow running and no template selected = portal mode

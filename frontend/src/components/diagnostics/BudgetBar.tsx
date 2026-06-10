@@ -2,6 +2,7 @@
 
 import { useStore } from "zustand";
 import { useWorkflowStore } from "@/stores/workflowStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 import type { WorkflowStores } from "@/contexts/workflow-context/types";
 
 // ── Shared rendering ─────────────────────────────────────────────────
@@ -56,12 +57,25 @@ function ProgressBar({ label, current, max, fmt }: {
 }
 
 function BudgetBarInner({ envelope, nodes }: BudgetBarProps) {
+  // Per-agent request budget from settings (default 200). Each agent gets its
+  // own budget, so the workflow-wide ceiling is requestLimit × nodeCount.
+  const requestLimit = useSettingsStore((s) => s.requestLimit);
+
   // Accumulate metrics from all nodes
   let totalTokens = 0;
   let totalSteps = 0;
   let totalDuration = 0;
+  let totalRequests = 0;
+  let nodeCount = 0;
 
   for (const node of Object.values(nodes)) {
+    // Only count nodes that have actually started (status !== "idle") toward
+    // the request budget ceiling. Idle nodes haven't consumed their per-agent
+    // request_limit yet, so including them would inflate `max` and make the
+    // progress bar misleadingly low. Once a node starts, its budget is "in play"
+    // for the rest of the run (even after it completes/fails).
+    if (node.status === "idle") continue;
+    nodeCount += 1;
     if (node.tokenUsage) {
       totalTokens += node.tokenUsage.input + node.tokenUsage.output;
     }
@@ -71,16 +85,31 @@ function BudgetBarInner({ envelope, nodes }: BudgetBarProps) {
     if (node.durationMs) {
       totalDuration += node.durationMs;
     }
+    if (node.requests) {
+      totalRequests += node.requests;
+    }
   }
 
   const hasMaxTokens = envelope.max_tokens != null;
   const hasMaxSteps = envelope.max_steps != null;
   const hasMaxDuration = envelope.max_duration_ms != null;
+  // Show Requests bar whenever at least one agent has reported usage (even
+  // before any envelope exists) — request budget is a per-agent concept that
+  // doesn't depend on the workflow envelope.
+  const showRequestsBar = totalRequests > 0 && nodeCount > 0;
 
-  if (!hasMaxTokens && !hasMaxSteps && !hasMaxDuration) return null;
+  if (!hasMaxTokens && !hasMaxSteps && !hasMaxDuration && !showRequestsBar) return null;
 
   return (
     <div className="flex flex-col gap-1 px-2 py-1.5 border-b border-app-border">
+      {showRequestsBar && (
+        <ProgressBar
+          label="Reqs"
+          current={totalRequests}
+          max={requestLimit * nodeCount}
+          fmt={fmtNum}
+        />
+      )}
       {hasMaxTokens && (
         <ProgressBar label="Tokens" current={totalTokens} max={envelope.max_tokens!} fmt={fmtNum} />
       )}

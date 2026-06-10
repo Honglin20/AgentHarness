@@ -37,7 +37,6 @@ from server.schemas import (
 
 router = APIRouter()
 
-
 def _load_run_for_user(run_id: str, request: Request, store: RunStoreInterface):
     """Common loader: returns (store, run, user, is_admin). Raises 404/403.
 
@@ -55,7 +54,6 @@ def _load_run_for_user(run_id: str, request: Request, store: RunStoreInterface):
     if not is_admin and run.get("user_id", "default") != user.user_id:
         raise HTTPException(status_code=403, detail="Not your run")
     return store, run, user, is_admin
-
 
 @router.delete("/runs/{run_id}")
 async def delete_run(
@@ -84,7 +82,6 @@ async def delete_run(
     store.delete_run(run_id)
     repo.remove(run_id)
     return {"status": "ok", "deleted": run_id}
-
 
 @router.post("/runs/batch-delete")
 async def batch_delete_runs(
@@ -126,7 +123,6 @@ async def batch_delete_runs(
         deleted.append(rid)
 
     return {"status": "ok", "deleted": deleted, "errors": errors}
-
 
 @router.get("/runs")
 async def list_runs(
@@ -179,8 +175,7 @@ async def list_runs(
     # Live runs first (most recent), then persisted (sorted by created_at desc by RunStore)
     return {"runs": live_records + persisted, "total": result["total"] + len(live_records), "has_more": result["has_more"]}
 
-
-@router.get("/runs/{run_id}", response_model=RunDetail)
+@router.get("/runs/{run_id}", response_model=RunDetail, response_model_by_alias=True)
 async def get_run(
     run_id: str, request: Request,
     store: RunStoreInterface = Depends(get_run_store_dep),
@@ -235,7 +230,6 @@ async def get_run(
 
     raise HTTPException(status_code=404, detail="Run not found")
 
-
 @router.get("/runs/{run_id}/charts")
 async def get_run_charts(
     run_id: str, request: Request,
@@ -244,7 +238,6 @@ async def get_run_charts(
     """Load chart_groups sidecar data for a persisted run (lazy loading)."""
     store, run, user, is_admin = _load_run_for_user(run_id, request, store)
     return store.get_charts(run_id)
-
 
 @router.get("/runs/{run_id}/events")
 async def get_run_events(
@@ -255,6 +248,26 @@ async def get_run_events(
     store, run, user, is_admin = _load_run_for_user(run_id, request, store)
     return store.get_events(run_id)
 
+@router.get("/runs/{run_id}/conversation")
+async def get_run_conversation(
+    run_id: str, request: Request,
+    store: RunStoreInterface = Depends(get_run_store_dep),
+    repo: WorkflowRepository = Depends(get_repository_dep),
+) -> list[dict] | None:
+    """Conversation messages, split out of GET /runs/{id} so the main record stays small."""
+    user = get_current_user(request)
+    is_admin = get_user_manager().is_admin(user)
+    run = store.get_run(run_id)
+    if run:
+        if not is_admin and run.get("user_id", "default") != user.user_id:
+            raise HTTPException(status_code=403, detail="Not your run")
+        return run.get("conversation") or []
+    data = repo.get(run_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if not is_admin and data.get("user_id", "default") != user.user_id:
+        raise HTTPException(status_code=403, detail="Not your run")
+    return data.get("conversation") or []
 
 @router.patch("/runs/{run_id}/conversation")
 async def update_run_conversation(
@@ -287,7 +300,6 @@ async def update_run_conversation(
 
     raise HTTPException(status_code=404, detail="Run not found")
 
-
 @router.patch("/runs/{run_id}/charts")
 async def update_run_charts(
     run_id: str, body: UpdateRunChartsRequest, request: Request,
@@ -298,9 +310,7 @@ async def update_run_charts(
     store.save_charts(run_id, body.chart_groups)
     return {"status": "ok"}
 
-
 # ── Follow-up session persistence ────────────────────────────────────────
-
 
 @router.patch("/runs/{run_id}/followup")
 async def update_run_followup(
@@ -321,7 +331,6 @@ async def update_run_followup(
     store.update_followup(run_id, body.agent_name, session_data)
     return {"status": "ok"}
 
-
 @router.delete("/runs/{run_id}/followup/{agent_name}")
 async def delete_run_followup(
     run_id: str,
@@ -336,7 +345,6 @@ async def delete_run_followup(
     get_followup_manager().clear(run_id, agent_name)
     store.delete_followup(run_id, agent_name)
     return {"status": "ok"}
-
 
 @router.get("/runs/{run_id}/checkpoints", response_model=list[CheckpointInfo])
 async def list_checkpoints(
@@ -373,7 +381,6 @@ async def list_checkpoints(
         )
         for cp in checkpoints
     ]
-
 
 @router.post("/runs/{run_id}/resume")
 async def resume_run(
@@ -467,7 +474,6 @@ async def resume_run(
         "status": "running",
         "resumed_from": config["configurable"].get("checkpoint_id"),
     }
-
 
 @router.post("/runs/{run_id}/rerun", response_model=CreateWorkflowResponse)
 async def rerun(

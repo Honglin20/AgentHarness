@@ -314,3 +314,145 @@ async def test_run_hooks_multiple_side_effects_flush_in_order():
     assert e1["type"] == "chart.render"
     assert e2["type"] == "metric.report"
     assert ctx._side_effects == []
+
+
+# ---------- Event priority contract (PR-B) ----------
+
+from harness.extensions.bus import (
+    CRITICAL_EVENT_TYPES,
+    _resolve_priority,
+    safe_emit,
+)
+
+
+def test_resolve_priority_whitelist_membership():
+    """Whitelist members auto-resolve to critical; others to normal."""
+    assert _resolve_priority("node.completed", None) == "critical"
+    assert _resolve_priority("workflow.started", None) == "critical"
+    assert _resolve_priority("chat.question", None) == "critical"
+    assert _resolve_priority("todo.created", None) == "critical"
+    assert _resolve_priority("bash.background_completed", None) == "critical"
+
+    # Streaming deltas are normal (reconstructable from later state)
+    assert _resolve_priority("agent.text_delta", None) == "normal"
+    assert _resolve_priority("agent.thinking_delta", None) == "normal"
+    assert _resolve_priority("agent.tool_output_delta", None) == "normal"
+
+    # Unknown event types default to normal
+    assert _resolve_priority("some.new.event", None) == "normal"
+
+
+def test_resolve_priority_explicit_overrides_whitelist():
+    """Explicit priority= overrides the whitelist."""
+    # node.completed is whitelisted critical, but explicit "normal" wins
+    assert _resolve_priority("node.completed", "normal") == "normal"
+    # agent.text_delta is normally normal, but explicit "critical" wins
+    assert _resolve_priority("agent.text_delta", "critical") == "critical"
+
+
+def test_resolve_priority_rejects_invalid_value():
+    """Typos like priority='critcal' must fail loud, not silently downgrade
+    a critical event to normal (which would lose the never-evicted guarantee)."""
+    with pytest.raises(ValueError, match="Invalid priority"):
+        _resolve_priority("node.completed", "critcal")  # typo
+    with pytest.raises(ValueError, match="Invalid priority"):
+        _resolve_priority("node.completed", "")
+    with pytest.raises(ValueError, match="Invalid priority"):
+        _resolve_priority("node.completed", "Critical")  # case-sensitive
+
+
+def test_emit_auto_resolves_priority_via_whitelist():
+    """bus.emit without explicit priority should route via the whitelist."""
+    bus = Bus()
+    # node.completed → critical → lands in critical_buffer
+    bus.emit("node.completed", {"node_id": "x"})
+    assert len(bus._critical_buffer) == 1
+    assert bus._critical_buffer[0]["type"] == "node.completed"
+    assert bus._critical_buffer[0]["priority"] == "critical"
+
+    # agent.text_delta → normal → lands in normal buffer
+    bus.emit("agent.text_delta", {"text": "hi"})
+    assert len(bus._buffer) == 1
+    assert bus._buffer[0]["type"] == "agent.text_delta"
+    assert "priority" not in bus._buffer[0]
+
+
+def test_critical_event_survives_normal_buffer_eviction():
+    """The headline guarantee: a late subscriber connecting after a normal-buffer
+    storm still receives every critical event emitted during the storm.
+    """
+    bus = Bus(buffer_size=100)  # small buffer to force eviction
+
+    # Emit 200 normal events (well past buffer_size, so first ~100 are evicted)
+    for i in range(200):
+        bus.emit("agent.text_delta", {"i": i})
+
+    # Sprinkle critical events at various points
+    bus.emit("node.completed", {"node_id": "n1"})
+    bus.emit("workflow.completed", {"workflow_id": "wf"})
+    bus.emit("agent.tool_output_truncated", {"node_id": "n1"})
+
+    # Normal buffer is capped at 100 — older normals evicted
+    assert len(bus._buffer) == 100
+
+    # Critical buffer retains ALL critical events
+    crit_types = [e["type"] for e in bus._critical_buffer]
+    assert "node.completed" in crit_types
+    assert "workflow.completed" in crit_types
+    assert "agent.tool_output_truncated" in crit_types
+
+
+def test_late_subscriber_receives_critical_events():
+    """A subscriber connecting AFTER events are emitted still gets critical ones
+    via buffer replay (the original PR-B motivation: token usage displayed
+    wrong because late subscriber missed node.completed).
+    """
+    bus = Bus(buffer_size=10)
+
+    # Emit a flood of normal deltas + a couple of critical node.completed
+    for i in range(50):
+        bus.emit("agent.text_delta", {"i": i})
+    bus.emit("node.completed", {"node_id": "n1", "agent_name": "a1"})
+    bus.emit("node.completed", {"node_id": "n2", "agent_name": "a2"})
+
+    async def _run():
+        sub_id, queue = await bus.subscribe()
+        received: list[str] = []
+        # Drain everything currently queued
+        while not queue.empty():
+            received.append((await queue.get())["type"])
+        return received
+
+    received = asyncio.get_event_loop().run_until_complete(_run())
+
+    # Critical events MUST be in the replayed stream
+    completed_count = received.count("node.completed")
+    assert completed_count == 2, f"expected 2 node.completed in replay, got {completed_count}"
+
+
+def test_safe_emit_passes_priority_through():
+    """safe_emit(priority=...) should reach bus.emit unchanged."""
+    bus = Bus()
+    safe_emit(bus, "node.completed", {"node_id": "x"}, priority="normal")
+    # Explicit normal overrides whitelist
+    assert len(bus._critical_buffer) == 0
+    assert len(bus._buffer) == 1
+
+    bus2 = Bus()
+    safe_emit(bus2, "agent.text_delta", {"text": "hi"}, priority="critical")
+    assert len(bus2._critical_buffer) == 1
+    assert len(bus2._buffer) == 0
+
+
+def test_safe_emit_auto_resolves_when_priority_omitted():
+    """safe_emit without priority should auto-resolve via whitelist (default)."""
+    bus = Bus()
+    safe_emit(bus, "node.completed", {"node_id": "x"})
+    assert len(bus._critical_buffer) == 1
+    assert bus._critical_buffer[0]["type"] == "node.completed"
+
+
+def test_critical_event_types_is_frozen():
+    """The whitelist is a frozenset — accidental mutation should fail loud."""
+    with pytest.raises(AttributeError):
+        CRITICAL_EVENT_TYPES.add("foo")  # type: ignore[attr-defined]

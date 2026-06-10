@@ -1,6 +1,6 @@
 ---
 name: configurator
-tools: [ask_user, bash, read_text_file, write_file, edit_file, grep, glob]
+tools: [ask_user, bash, read_text_file, write_file, edit_file, grep, glob, todo]
 retries: 2
 ---
 
@@ -55,3 +55,4 @@ IMPORTANT:
 - Use absolute paths
 - Handle missing weights gracefully (print warning, random init)
 - get_data() should download data if needed (torchvision datasets do this automatically)
+

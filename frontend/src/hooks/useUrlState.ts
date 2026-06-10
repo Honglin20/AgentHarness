@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import { useWorkflowStore } from "@/stores/workflowStore";
-import { useViewStore } from "@/stores/viewStore";
 import { useRunHistoryStore } from "@/stores/runHistoryStore";
+import { useViewStore, isReplayView, getActiveRunId } from "@/stores/viewStore";
+
 import { useBatchStore } from "@/stores/batchStore";
 import { setActiveWorkflowId } from "@/lib/workflowNavigation";
 
@@ -86,8 +87,12 @@ export function useUrlState(activeBenchmark?: string | null): void {
     const unsubView = useViewStore.subscribe((state) => {
       const params = readParams();
 
-      if (state.activeView.type === "replay") {
-        params.set("run", state.activeView.runId);
+      // Both skeleton and full replay persist ?run=runId to the URL —
+      // skeleton is just the loading phase of the same logical view, so
+      // a refresh mid-load should land back on the same run.
+      if (isReplayView(state.activeView)) {
+        const runId = getActiveRunId(state.activeView);
+        if (runId) params.set("run", runId);
         params.delete("wid");
         params.delete("wf");
       } else {
@@ -106,7 +111,7 @@ export function useUrlState(activeBenchmark?: string | null): void {
     });
 
     const unsubWorkflow = useWorkflowStore.subscribe((state) => {
-      if (useViewStore.getState().activeView.type === "replay") return;
+      if (isReplayView(useViewStore.getState().activeView)) return;
 
       const params = readParams();
       params.delete("run");

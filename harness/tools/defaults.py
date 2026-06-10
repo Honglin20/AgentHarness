@@ -6,7 +6,7 @@ from pathlib import Path
 from harness.tools.bash import BashToolFactory
 from harness.tools.grep_glob import GrepToolFactory, GlobToolFactory
 from harness.tools.mcp_bridge import McpBridge, McpServerConfig
-from harness.tools.registry import ToolRegistry
+from harness.tools.registry import ToolRegistry, ToolTier
 from harness.tools.sub_agent import SubAgentToolFactory
 from harness.tools.chart import render_chart, RenderChartToolFactory
 
@@ -44,21 +44,65 @@ def _find_filesystem_server(
 
 
 def default_tool_registry(event_bus=None) -> ToolRegistry:
-    """创建默认工具注册表：sub_agent + bash 自建工具
+    """Create the default tool registry with three-tier classification.
+
+    Tier 1 (FORCED):   todo       — framework-mandated, always injected
+    Tier 2 (DEFAULT):  bash/grep/glob/sub_agent + ask_user
+                                   — loaded when agent.tools is null
+    Tier 3 (EXPLICIT): render_chart
+                                   — only when agent.tools lists it
+
+    Filesystem MCP and codegraph MCP tools are registered separately by
+    setup_default_mcp / setup_codegraph_mcp (filesystem → DEFAULT,
+    codegraph → EXPLICIT).
 
     Args:
-        event_bus: Optional EventBus. When provided, registers event-bus-dependent
-            tools (ask_user).
+        event_bus: Required for todo / ask_user / render_chart registration.
+            Without it, only Tier-2 non-bus tools (bash/grep/glob/sub_agent)
+            get registered.
     """
     registry = ToolRegistry()
-    registry.register("sub_agent", SubAgentToolFactory(registry=registry), source="built-in")
-    registry.register("bash", BashToolFactory(), source="built-in")
-    registry.register("grep", GrepToolFactory(), source="built-in")
-    registry.register("glob", GlobToolFactory(), source="built-in")
-    registry.register("render_chart", RenderChartToolFactory(event_bus=event_bus), source="built-in")
+
+    # ── Tier 1: FORCED ────────────────────────────────────────────────
+    # todo is mandatory because the reminder tracker (todo_reminder.py)
+    # emit <system-reminder> injections that assume the tool is available,
+    # and the tool description itself mandates "create before work".
+    if event_bus:
+        from harness.tools.todo import TodoToolFactory
+        registry.register(
+            "todo",
+            TodoToolFactory(event_bus=event_bus),
+            source="built-in",
+            tier=ToolTier.FORCED,
+        )
+
+    # ── Tier 2: DEFAULT ───────────────────────────────────────────────
+    registry.register(
+        "sub_agent",
+        SubAgentToolFactory(registry=registry),
+        source="built-in",
+        tier=ToolTier.DEFAULT,
+    )
+    registry.register("bash", BashToolFactory(), source="built-in", tier=ToolTier.DEFAULT)
+    registry.register("grep", GrepToolFactory(), source="built-in", tier=ToolTier.DEFAULT)
+    registry.register("glob", GlobToolFactory(), source="built-in", tier=ToolTier.DEFAULT)
     if event_bus:
         from harness.tools.ask_user import AskUserToolFactory
-        registry.register("ask_user", AskUserToolFactory(event_bus=event_bus), source="built-in")
+        registry.register(
+            "ask_user",
+            AskUserToolFactory(event_bus=event_bus),
+            source="built-in",
+            tier=ToolTier.DEFAULT,
+        )
+
+    # ── Tier 3: EXPLICIT ──────────────────────────────────────────────
+    if event_bus:
+        registry.register(
+            "render_chart",
+            RenderChartToolFactory(event_bus=event_bus),
+            source="built-in",
+            tier=ToolTier.EXPLICIT,
+        )
 
     from harness.tools.dedup_guard import configure_dedup
     configure_dedup(window_ms=5)
@@ -92,7 +136,12 @@ async def setup_default_mcp(
             args=["-y", "@modelcontextprotocol/server-filesystem", workdir],
         )
 
-    bridge = McpBridge(config, registry=registry, source="mcp_filesystem")
+    bridge = McpBridge(
+        config,
+        registry=registry,
+        source="mcp_filesystem",
+        tier=ToolTier.DEFAULT,
+    )
     await bridge.connect()
     await bridge.register_tools()
     return [bridge]
@@ -139,7 +188,12 @@ async def setup_codegraph_mcp(
             args=["-y", "@colbymchenry/codegraph", *base_args],
         )
 
-    bridge = McpBridge(config, registry=registry, source="mcp_codegraph")
+    bridge = McpBridge(
+        config,
+        registry=registry,
+        source="mcp_codegraph",
+        tier=ToolTier.EXPLICIT,
+    )
     await bridge.connect()
     await bridge.register_tools()
     return bridge

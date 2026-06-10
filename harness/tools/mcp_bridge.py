@@ -7,7 +7,7 @@ from mcp import ClientSession, StdioServerParameters
 from pydantic import BaseModel
 from pydantic_ai import RunContext, Tool as PydanticAITool
 
-from harness.tools.registry import ToolFactory
+from harness.tools.registry import ToolFactory, ToolTier
 
 if TYPE_CHECKING:
     from harness.tools.registry import ToolRegistry
@@ -82,10 +82,26 @@ class McpToolFactory(ToolFactory):
 class McpBridge:
     """连接 MCP Server，发现工具并注册到 ToolRegistry"""
 
-    def __init__(self, config: McpServerConfig, registry: ToolRegistry, source: str = "mcp_custom"):
+    def __init__(
+        self,
+        config: McpServerConfig,
+        registry: ToolRegistry,
+        source: str = "mcp_custom",
+        tier: ToolTier = ToolTier.EXPLICIT,
+    ):
+        """MCP bridge.
+
+        Args:
+            tier: Tier applied to all tools discovered from this server.
+                Defaults to EXPLICIT (MCP tools are heavyweight, must be
+                explicitly requested). Filesystem MCP overrides to DEFAULT
+                (file r/w is general-purpose infrastructure); codegraph
+                keeps EXPLICIT.
+        """
         self.config = config
         self.registry = registry
         self.source = source
+        self.tier = tier
         self._session: ClientSession | None = None
         self._session_cm: Any = None   # ClientSession context manager
         self._stdio_cm: Any = None     # stdio_client context manager
@@ -150,7 +166,7 @@ class McpBridge:
                 description=mcp_tool.description or "",
                 input_schema=mcp_tool.inputSchema or {},
             )
-            self.registry.register(registered_name, factory, source=self.source)
+            self.registry.register(registered_name, factory, source=self.source, tier=self.tier)
             self._tool_names.append(registered_name)
 
         return self._tool_names

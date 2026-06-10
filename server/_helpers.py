@@ -143,9 +143,11 @@ def _check_not_modified(request, mtime):
 def _persisted_run_detail(run: dict) -> dict:
     """Serialize a persisted run record into the RunDetail response shape.
 
-    chart_groups and events are intentionally None — they live in sidecars
-    and load lazily via /runs/{id}/charts and /runs/{id}/events.
+    chart_groups, events, and conversation are intentionally None — they can
+    be very large for long workflows, so they load lazily via dedicated GET
+    endpoints. _has_* flags tell the client whether to bother fetching.
     """
+    conv = run.get("conversation") or []
     return {
         "run_id": run.get("run_id"),
         "workflow_name": run.get("workflow_name"),
@@ -153,7 +155,7 @@ def _persisted_run_detail(run: dict) -> dict:
         "status": run.get("status"),
         "inputs": run.get("inputs", {}),
         "result": run.get("result"),
-        "conversation": run.get("conversation", []),
+        "conversation": None,
         "created_at": run.get("created_at", ""),
         "dag": run.get("dag"),
         "chart_groups": None,
@@ -165,12 +167,15 @@ def _persisted_run_detail(run: dict) -> dict:
         "followup_sessions": run.get("followup_sessions"),
         "_has_charts": run.get("_has_charts", False),
         "_has_events": run.get("_has_events", False),
+        "_has_conversation": len(conv) > 0,
+        "todo_steps": run.get("todo_steps"),
     }
 
 
 def _live_run_detail(run_id: str, data: dict, repo) -> dict:
     """Serialize an in-memory (live) workflow into the RunDetail shape."""
     workflow = data["workflow"]
+    conv = data.get("conversation") or []
     return {
         "run_id": run_id,
         "workflow_name": workflow.name,
@@ -178,7 +183,7 @@ def _live_run_detail(run_id: str, data: dict, repo) -> dict:
         "status": data["status"],
         "inputs": data.get("inputs", {}),
         "result": data.get("result"),
-        "conversation": data.get("conversation", []),
+        "conversation": None,
         "created_at": data.get("created_at", ""),
         "dag": repo.get_dag(run_id),
         "chart_groups": None,
@@ -190,6 +195,7 @@ def _live_run_detail(run_id: str, data: dict, repo) -> dict:
         "followup_sessions": None,
         "_has_charts": False,
         "_has_events": False,
+        "_has_conversation": len(conv) > 0,
     }
 
 
@@ -201,6 +207,7 @@ async def _create_and_start_workflow(
     batch_id: str | None = None,
     work_dir: str | None = None,
     user_id: str | None = None,
+    request_limit: int | None = None,
 ) -> CreateWorkflowResponse:
     """Core logic: create a Workflow, compile it, and submit to runner.
 
@@ -256,6 +263,7 @@ async def _create_and_start_workflow(
         tool_registry=ToolRegistry(),
         event_bus=event_bus,
         checkpointer=checkpointer,
+        request_limit=request_limit,
     )
 
     from harness.extensions.eval import EvalJudge

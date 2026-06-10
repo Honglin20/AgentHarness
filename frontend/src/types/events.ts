@@ -40,7 +40,14 @@ export type EventType =
   | "followup.completed"
   | "followup.failed"
   | "todo.created"
-  | "todo.updated";
+  | "todo.updated"
+  | "todo.bulk_completed"
+  | "todo.replaced"
+  | "bash.background_completed"
+  | "agent.tool_output_truncated"
+  | "agent.retry_attempted"
+  | "agent.usage_update"
+  | "agent.failed_with_classified_reason";
 
 // Workflow events
 export interface WorkflowAgentDef {
@@ -304,7 +311,7 @@ export interface TodoStepItem {
   task_id: string;
   content: string;
   activeForm: string;
-  status: "pending" | "in_progress" | "completed";
+  status: "pending" | "in_progress" | "completed" | "skipped";
   detail?: string | null;
 }
 
@@ -323,9 +330,31 @@ export interface TodoUpdatedPayload {
   node_id: string;
   agent_name: string;
   task_id: string;
-  status?: "in_progress" | "completed" | null;
+  status?: "in_progress" | "completed" | "skipped" | null;
   detail?: string | null;
   auto_advance?: TodoAutoAdvance | null;
+}
+
+/** Emitted by `todo op='complete_remaining'` — bulk-finish all non-terminal steps. */
+export interface TodoBulkCompletedPayload {
+  node_id: string;
+  agent_name: string;
+  /** Terminal status applied to all previously non-terminal steps. */
+  status: "completed" | "skipped";
+  /** Optional one-line reason (e.g. "goal achieved at step 5"). */
+  reason?: string | null;
+  /** All task_ids that were bulk-finished in this call. */
+  task_ids: string[];
+}
+
+/** Emitted by `todo op='replace'` — discard current plan and create new one. */
+export interface TodoReplacedPayload {
+  node_id: string;
+  agent_name: string;
+  items: TodoStepItem[];
+  reason?: string | null;
+  /** Count of steps that were discarded. */
+  replaced_count?: number | null;
 }
 
 // Event type to payload mapping
@@ -359,6 +388,99 @@ export interface EventPayloadMap {
   "followup.failed": { workflow_id: string; agent_name: string; error: string };
   "todo.created": TodoCreatedPayload;
   "todo.updated": TodoUpdatedPayload;
+  "todo.bulk_completed": TodoBulkCompletedPayload;
+  "todo.replaced": TodoReplacedPayload;
+  "bash.background_completed": BashBackgroundCompletedPayload;
+  "agent.tool_output_truncated": AgentToolOutputTruncatedPayload;
+  "agent.retry_attempted": AgentRetryAttemptedPayload;
+  "agent.usage_update": AgentUsageUpdatePayload;
+  "agent.failed_with_classified_reason": AgentFailedWithClassifiedReasonPayload;
+}
+
+/**
+ * Bash background task completed (or timed out). Fires asynchronously after the
+ * agent called bash with run_in_background=true. The full output is at output_path;
+ * agent can read_text_file it on demand.
+ */
+export interface BashBackgroundCompletedPayload {
+  task_id: string;
+  command: string;
+  description?: string;
+  workflow_id: string;
+  node_id: string;
+  agent_name: string;
+  exit_code: number;
+  output_chars: number;
+  truncated: boolean;
+  output_path: string;
+  timed_out: boolean;
+  /** Repr of exception if the background monitor itself crashed (null on success). */
+  monitor_error: string | null;
+}
+
+/**
+ * Tool output exceeded MAX_OUTPUT_CHARS and was spilled to disk. Fired for the
+ * foreground bash path (and any other tool that adopts the same spill convention).
+ */
+export interface AgentToolOutputTruncatedPayload {
+  workflow_id: string;
+  node_id: string;
+  agent_name: string;
+  tool_name: string;
+  command: string;
+  output_path: string;
+  total_chars: number;
+  max_chars: number;
+  timed_out: boolean;
+}
+
+/**
+ * LLM call failed and will be retried. Fires after each failed attempt
+ * (attempt N → N+1). UI surfaces this as a toast + an inline retry status
+ * line on the agent message.
+ */
+export interface AgentRetryAttemptedPayload {
+  workflow_id: string;
+  node_id: string;
+  agent_name: string;
+  attempt: number;          // 1-based; attempt that just failed
+  max_attempts: number;     // total tries configured (default 3)
+  category: string;         // rate_limit | server_error | network_timeout | network_error | stream_truncated
+  reason: string;           // human-readable
+  delay_s: number;          // how long we'll sleep before the next attempt
+  retry_after_s: number | null;  // parsed from 429 body, if present
+}
+
+/**
+ * Per-LLM-request usage snapshot. Fires after every model_request_node
+ * completes (high-frequency). Drives BudgetBar's "Requests" progress bar.
+ * Frontend overwrites per (workflow_id, node_id, agent_name) — last write wins.
+ */
+export interface AgentUsageUpdatePayload {
+  workflow_id: string;
+  node_id: string;
+  agent_name: string;
+  requests: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+}
+
+/**
+ * All retries exhausted (or classify said "don't retry"). Final failure
+ * notification for the agent run. UI shows an inline error card on the
+ * agent message — NOT a toast (per user preference: silent + persistent).
+ */
+export interface AgentFailedWithClassifiedReasonPayload {
+  workflow_id: string;
+  node_id: string;
+  agent_name: string;
+  category: string;         // matches AgentRetryAttemptedPayload.category + "usage_exceeded" / "client_error" / "unknown"
+  reason: string;
+  error_type: string;       // Python exception class name
+  message: string;          // str(exc)
+  attempts_used: number;
+  max_attempts: number;
 }
 
 // Typed event helper

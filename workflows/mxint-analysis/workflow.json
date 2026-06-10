@@ -8,7 +8,8 @@
         "bash",
         "grep",
         "glob",
-        "read_text_file"
+        "read_text_file",
+        "todo"
       ],
       "model": null,
       "retries": 3,
@@ -89,7 +90,8 @@
         "write_file",
         "edit_file",
         "grep",
-        "glob"
+        "glob",
+        "todo"
       ],
       "model": null,
       "retries": 3,

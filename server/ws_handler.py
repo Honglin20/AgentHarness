@@ -76,6 +76,11 @@ BROADCAST_RULES = {
     "agent.tool_call": "self",
     "agent.tool_result": "self",
     "agent.tool_output_delta": "self",
+    # Spill notice — output truncated and saved to disk (visible to user)
+    "agent.tool_output_truncated": "self",
+
+    # Bash tool: async completion of run_in_background tasks
+    "bash.background_completed": "self",
 
     # Hook-level: only initiator receives
     "trace.step": "self",

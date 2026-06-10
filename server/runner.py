@@ -341,6 +341,7 @@ class WorkflowRunner:
                 from harness.run_store import RunStore
                 from harness.extensions.collectors import ConversationCollector, ChartCollector
                 _agent_io = workflow._builder.agent_io if workflow._builder else {}
+                _todo_steps = dict(workflow._builder.todo_states) if workflow._builder else {}
                 data = repo.get(workflow_id)
 
                 if event_bus:
@@ -376,6 +377,7 @@ class WorkflowRunner:
                     events=events,
                     created_at=data.get("created_at") if data else None,
                     work_dir=work_dir,
+                    todo_steps=_todo_steps or None,
                 )
 
             except Exception as e:
@@ -412,6 +414,7 @@ class WorkflowRunner:
                 from harness.run_store import RunStore
                 from harness.extensions.collectors import ConversationCollector, ChartCollector
                 _agent_io = workflow._builder.agent_io if workflow._builder else {}
+                _todo_steps = dict(workflow._builder.todo_states) if workflow._builder else {}
                 data = repo.get(workflow_id)
 
                 if event_bus:
@@ -447,6 +450,7 @@ class WorkflowRunner:
                     events=events,
                     created_at=data.get("created_at") if data else None,
                     work_dir=work_dir,
+                    todo_steps=_todo_steps or None,
                 )
 
             finally:

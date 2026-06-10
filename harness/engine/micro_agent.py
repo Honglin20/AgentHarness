@@ -11,6 +11,7 @@ from harness.api import AgentResult
 from harness.tools.deps import AgentDeps
 from harness.constants import DEFAULT_MODEL
 from harness.engine.llm import LLMClient
+from harness.engine.step_gate import step_gate_validator
 from harness.tools.registry import ToolRegistry
 
 
@@ -55,13 +56,23 @@ class MicroAgentFactory:
 
         effective_result_type = result_type if result_type is not None else AgentResult
         client = LLMClient(model=agent_model) if model else LLMClient()
+        # retries as dict: tools budget from caller, output budget=1 for
+        # step_gate validator retry path (see ADR 2026-06-10-todo-step-gate-adr.md).
+        retries_dict = {"tools": retries, "output": 1}
         agent = client.agent(
             system_prompt=prompt,
             output_type=effective_result_type,
-            retries=retries,
+            retries=retries_dict,
             tools=resolved_tools,
             deps_type=AgentDeps,
         )
+
+        # Inject step completion gate as output_validator. On violation raises
+        # ModelRetry → pydantic-ai continues iter() with retry prompt in
+        # message_history (does NOT restart; preserves prior tool calls).
+        @agent.output_validator
+        async def _step_gate(ctx, data):
+            return await step_gate_validator(ctx, data)
 
         return agent
 

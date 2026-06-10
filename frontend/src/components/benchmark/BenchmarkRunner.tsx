@@ -3,6 +3,13 @@
 import { useState, useEffect, useCallback } from "react";
 import { Play, Loader2, CheckCircle, XCircle, Circle, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useBatchStore, type BatchRun } from "@/stores/batchStore";
 import { useRunHistoryStore } from "@/stores/runHistoryStore";
 import { getWorkflowManager } from "@/contexts/workflow-context/WorkflowManager";
@@ -88,7 +95,7 @@ export default function BenchmarkRunner({ benchmark, onBack }: Props) {
       );
 
       // Refresh sidebar to show the new batch runs
-      useRunHistoryStore.getState().fetchRuns();
+      useRunHistoryStore.getState().refreshRuns();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to start benchmark");
     } finally {
@@ -162,18 +169,27 @@ export default function BenchmarkRunner({ benchmark, onBack }: Props) {
       {/* Workflow selector + run button */}
       {!currentBatch && (
         <div className="flex gap-2">
-          <select
-            value={selectedWf}
-            onChange={(e) => setSelectedWf(e.target.value)}
-            className="h-9 flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+          {/* Radix Select doesn't allow empty string value, so use sentinel
+              "__none__" to represent "no workflow selected" and translate
+              at the boundary. Portal-based dropdown also fixes the
+              "menu jumps to top-left" issue seen with native <select>
+              under nested overflow-hidden containers. */}
+          <Select
+            value={selectedWf || "__none__"}
+            onValueChange={(v) => setSelectedWf(v === "__none__" ? "" : v)}
           >
-            <option value="">Select Workflow...</option>
-            {workflows.map((wf) => (
-              <option key={wf.name} value={wf.name}>
-                {wf.name} ({wf.agents.length} agents)
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="h-9 flex-1">
+              <SelectValue placeholder="Select Workflow..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">Select Workflow...</SelectItem>
+              {workflows.map((wf) => (
+                <SelectItem key={wf.name} value={wf.name}>
+                  {wf.name} ({wf.agents.length} agents)
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button
             onClick={runBenchmark}
             disabled={!selectedWf || running}

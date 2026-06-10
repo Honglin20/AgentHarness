@@ -169,6 +169,29 @@ export const TodoUpdatedPayloadSchema = z.object({
   status: z.string().optional(),
 }).passthrough();
 
+export const TodoBulkCompletedPayloadSchema = z.object({
+  node_id: nodeId,
+  agent_name: agentName.optional(),
+  status: z.string(),
+  reason: z.string().nullable().optional(),
+  task_ids: z.array(z.string()),
+}).passthrough();
+
+export const TodoReplacedPayloadSchema = z.object({
+  node_id: nodeId,
+  agent_name: agentName.optional(),
+  items: z.array(
+    z.object({
+      task_id: z.string().min(1),
+      content: z.string(),
+      activeForm: z.string(),
+      status: z.string(),
+    }).passthrough(),
+  ),
+  reason: z.string().nullable().optional(),
+  replaced_count: z.number().nullable().optional(),
+}).passthrough();
+
 // ── Span ────────────────────────────────────────────────────
 export const SpanStartPayloadSchema = z.object({
   span_id: z.string().min(1),
@@ -208,6 +231,8 @@ export const eventPayloadSchemas: Partial<Record<EventType, z.ZodTypeAny>> = {
   "chart.render": ChartRenderPayloadSchema,
   "todo.created": TodoCreatedPayloadSchema,
   "todo.updated": TodoUpdatedPayloadSchema,
+  "todo.bulk_completed": TodoBulkCompletedPayloadSchema,
+  "todo.replaced": TodoReplacedPayloadSchema,
   "span.start": SpanStartPayloadSchema,
   "span.end": SpanEndPayloadSchema,
 };

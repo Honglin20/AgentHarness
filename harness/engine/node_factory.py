@@ -22,8 +22,9 @@ from pydantic import BaseModel
 
 from harness.constants import STATE_ERRORS, STATE_INPUTS, STATE_METADATA, STATE_OUTPUTS
 from harness.cost import calculate_cost
-from harness.engine.schema_utils import ReviewDecision, strip_schema, validate_output
+from harness.engine.schema_utils import ReviewDecision, strip_schema
 from harness.engine.llm_executor import LLMExecutor
+from harness.engine.llm_retry import execute_with_retry
 from harness.engine.node_phases import (
     build_extension_context,
     build_node_failed_payload,
@@ -40,6 +41,7 @@ from harness.tools.deps import AgentDeps
 from harness.tools.todo_reminder import TodoReminderTracker
 
 from harness.engine.incremental_save import _save_incremental
+from harness.tools.todo import get_todo_state
 from harness.engine.routing import _extract_decision
 
 if TYPE_CHECKING:
@@ -47,6 +49,13 @@ if TYPE_CHECKING:
     from harness.engine.builder import MacroGraphBuilder
 
 logger = logging.getLogger(__name__)
+
+
+def _collect_todo_state(builder: "MacroGraphBuilder", deps: AgentDeps, node_id: str) -> None:
+    """Snapshot todo steps from deps onto the builder for later persistence."""
+    ts = get_todo_state(deps)
+    if ts and ts.steps:
+        builder.todo_states[node_id] = [s.model_dump() for s in ts.steps]
 
 
 def resolve_agent_config(
@@ -93,7 +102,15 @@ def make_node_func(
     builder_self = builder  # Capture for workflow_id access
     final_tool_names, model, retries, result_type = resolve_agent_config(builder, agent_def, parsed)
 
-    # Per-node reminder tracker (only when todo is available).
+    # Per-node reminder tracker (only when todo will be available to the agent).
+    #
+    # `todo` is FORCED-tier, so registry.resolve() injects it unless an
+    # exclude list removes it. The check below keeps the original semantics
+    # intact: when no whitelist is given (None) todo is always present;
+    # when a whitelist is given, todo is present iff it's listed (FORCED
+    # injection guarantees that). This also auto-adapts if exclude_tools
+    # ever flows into this layer (then "todo" would be absent from
+    # final_tool_names and the tracker correctly disables).
     # Tracker reads TodoState lazily from deps — the todo tool creates state
     # on first call, and the tracker reads it from there.  No registry mutation.
     todo_available = final_tool_names is None or "todo" in final_tool_names
@@ -306,8 +323,20 @@ def make_node_func(
                 cancel_fn=_get_cancel_fn(),
                 reminder_tracker=_reminder_tracker_holder[0],
                 token_aggregator=node_token_agg,
+                request_limit=getattr(builder_self, "request_limit", None),
             )
-            exec_result = await executor.run(context)
+            # Wrap executor.run with the LLM retry policy. On each failed
+            # attempt, execute_with_retry emits agent.retry_attempted (and the
+            # final agent.failed_with_classified_reason if exhausted). The
+            # run_fn lambda constructs a fresh iter() per attempt — Pydantic AI
+            # doesn't support single-step replay (see llm_retry.py docstring).
+            exec_result = await execute_with_retry(
+                lambda: executor.run(context),
+                bus=bus,
+                workflow_id=wid,
+                node_id=agent_def.name,
+                agent_name=agent_def.name,
+            )
             agent_run = exec_result.agent_run
             stop_regen = exec_result.stop_regen
             ttft_ms = exec_result.ttft_ms
@@ -397,6 +426,7 @@ def make_node_func(
                             "output_result": output.model_dump() if isinstance(output, BaseModel) else str(output),
                         }
                         builder_self.agent_io[agent_def.name] = io_data
+                        _collect_todo_state(builder_self, deps, agent_def.name)
                         _save_incremental(builder_self, bus)
                         if bus:
                             safe_emit(bus, "node.completed", build_node_completed_payload(
@@ -420,6 +450,7 @@ def make_node_func(
                     "output_result": str(output),
                 }
                 builder_self.agent_io[agent_def.name] = io_data
+                _collect_todo_state(builder_self, deps, agent_def.name)
                 _save_incremental(builder_self, bus)
                 if bus:
                     safe_emit(bus, "node.completed", build_node_completed_payload(
@@ -438,21 +469,14 @@ def make_node_func(
             # Record usage into the per-node aggregator (primary agent)
             executor.record_usage(usage_obj)
 
-            # === Output completeness validation gate ===
-            validation_error = validate_output(output, result_type)
-            if validation_error:
-                duration_ms = int((time.time() - start_time) * 1000)
-                if bus:
-                    safe_emit(bus, "node.failed", build_node_failed_payload(
-                        builder_self.workflow_id, agent_def.name, agent_def.name,
-                        validation_error, duration_ms,
-                        error_type="OutputValidationError",
-                    ))
-                return {
-                    STATE_OUTPUTS: {},
-                    STATE_ERRORS: {agent_def.name: validation_error},
-                    STATE_METADATA: {agent_def.name: {"duration_ms": duration_ms}},
-                }
+            # Schema validation is now handled by pydantic-ai's output_type
+            # mechanism + step_gate output_validator (injected in micro_agent.py).
+            # Both schema errors and step-gate violations raise ModelRetry,
+            # which pydantic-ai converts into a continued iter() with the retry
+            # prompt appended to message_history. After output_retries (budget=1)
+            # exhausted, pydantic-ai raises UnexpectedModelBehavior — caught by
+            # the except block below, which emits node.failed with the original
+            # error preserved. See ADR 2026-06-10-todo-step-gate-adr.md.
 
             duration_ms = int((time.time() - start_time) * 1000)
 
@@ -571,6 +595,7 @@ def make_node_func(
             if hasattr(executor, "tool_calls") and executor.tool_calls:
                 io_data["tool_calls"] = executor.tool_calls
             builder_self.agent_io[agent_def.name] = io_data
+            _collect_todo_state(builder_self, deps, agent_def.name)
             # Incremental save: persist completed node data to disk
             _save_incremental(builder_self, bus)
             if bus:
@@ -601,7 +626,15 @@ def make_node_func(
             return result_dict
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
-            error_type = type(e).__name__
+            _collect_todo_state(builder_self, deps, agent_def.name)
+            # pydantic-ai raises UnexpectedModelBehavior when output retry
+            # budget is exhausted (covers step_gate ModelRetry retries +
+            # schema validation failures). Translate to a more semantically
+            # meaningful error_type so frontend can classify display.
+            if type(e).__name__ == "UnexpectedModelBehavior":
+                error_type = "OutputValidationRetryExhausted"
+            else:
+                error_type = type(e).__name__
 
             tool_calls_before_failure = None
             try:

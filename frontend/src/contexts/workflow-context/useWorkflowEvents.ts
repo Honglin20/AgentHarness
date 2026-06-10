@@ -5,7 +5,7 @@
  * This hook is safe to use inside WorkflowScope which may remount.
  */
 import { useCallback } from "react";
-import { useConversationActions, useChatActions } from "./hooks";
+import { useConversationActions } from "./hooks";
 import { useWSMethods } from "./WorkflowScope";
 
 export interface ScopedWorkflowEventsReturn {
@@ -18,25 +18,24 @@ export interface ScopedWorkflowEventsReturn {
 export function useScopedWorkflowEvents(): ScopedWorkflowEventsReturn {
   const ws = useWSMethods();
   const conversationActions = useConversationActions();
-  const chatActions = useChatActions();
 
   const sendAnswer = useCallback(
     (questionId: string, answer: string) => {
       ws.sendAnswer(questionId, answer);
-      chatActions.addUserAnswer(questionId, answer);
+      // Previously also wrote chatStore.addUserAnswer; chatStore was removed
+      // in PR-F and conversationStore.addUserMessage below is the equivalent.
       conversationActions.addUserMessage(answer);
       conversationActions.clearPendingQuestion(questionId);
     },
-    [ws, chatActions, conversationActions],
+    [ws, conversationActions],
   );
 
   const sendStructuredAnswer = useCallback(
     (questionId: string, answer: { selected: string[]; customInput: string }) => {
       ws.sendStructuredAnswer(questionId, answer);
-      chatActions.addUserAnswer(questionId, answer.customInput || answer.selected.join(", "));
       conversationActions.answerUserQuestion(questionId, answer);
     },
-    [ws, chatActions, conversationActions],
+    [ws, conversationActions],
   );
 
   const sendStopAndRegenerate = useCallback(

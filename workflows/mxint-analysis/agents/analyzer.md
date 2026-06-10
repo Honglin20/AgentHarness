@@ -1,6 +1,6 @@
 ---
 name: analyzer
-tools: [bash, grep, glob, read_text_file]
+tools: [bash, grep, glob, read_text_file, todo]
 retries: 2
 ---
 
@@ -22,3 +22,4 @@ You are a PyTorch project analyzer. Analyze the target project and extract three
 Also check if an `_adapter.py` already exists — if it exports `get_model`, `get_eval_fn`, `get_data`, report that directly.
 
 If something is not found, write "NOT FOUND" with a brief explanation.
+

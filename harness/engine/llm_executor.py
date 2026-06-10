@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -70,6 +71,7 @@ class LLMExecutor:
         cancel_fn: Callable[[str], None] | None = None,
         reminder_tracker: Any | None = None,
         token_aggregator: TokenAggregator | None = None,
+        request_limit: int | None = None,
     ):
         self._agent = pydantic_agent
         self._deps = deps
@@ -82,6 +84,10 @@ class LLMExecutor:
         self._cancel_fn = cancel_fn
         self._reminder_tracker = reminder_tracker
         self._token_aggregator = token_aggregator
+        # Per-agent LLM request budget. None → resolve from HARNESS_REQUEST_LIMIT
+        # env (default 200). Forwarded to agent.iter(usage_limits=...) — controls
+        # when PydanticAI raises UsageLimitExceeded (see llm_retry.py classify).
+        self._request_limit = request_limit
         self.tool_calls: list[dict[str, Any]] = []
         self._span_seq = 0
         self._last_ttft_ms: int | None = None
@@ -119,8 +125,22 @@ class LLMExecutor:
 
         stop_regen: dict[str, Any] | None = None
 
+        # Resolve per-agent request_limit: explicit > env (default 200). Wrapped
+        # in UsageLimits and passed to agent.iter(). PydanticAI raises
+        # UsageLimitExceeded mid-stream when exceeded — caught and re-classified
+        # by llm_retry.execute_with_retry (category="usage_exceeded", no retry).
+        from pydantic_ai.usage import UsageLimits
+        effective_request_limit = (
+            self._request_limit
+            if self._request_limit is not None
+            else int(os.environ.get("HARNESS_REQUEST_LIMIT", "200"))
+        )
+        usage_limits = UsageLimits(request_limit=effective_request_limit)
+
         try:
-            async with self._agent.iter(context, deps=self._deps) as agent_run:
+            async with self._agent.iter(
+                context, deps=self._deps, usage_limits=usage_limits,
+            ) as agent_run:
                 node = agent_run.next_node
 
                 while not isinstance(node, End):
@@ -248,6 +268,25 @@ class LLMExecutor:
                 "span_type": "llm",
                 "ts": int(time.time() * 1000),
             })
+
+            # Per-LLM-request usage snapshot — drives the BudgetBar "Requests"
+            # progress bar in real time. ctx.state.usage accumulates within
+            # the current iter() run (resets on retry since execute_with_retry
+            # replays the whole iter). Frontend overwrites per (wf, node, agent).
+            try:
+                u = ctx.state.usage
+                safe_emit(self._bus, "agent.usage_update", {
+                    "workflow_id": self._wid,
+                    "node_id": self._node_id,
+                    "agent_name": self._agent_name,
+                    "requests": getattr(u, "requests", 0) or 0,
+                    "input_tokens": getattr(u, "input_tokens", 0) or 0,
+                    "output_tokens": getattr(u, "output_tokens", 0) or 0,
+                    "total_tokens": (getattr(u, "input_tokens", 0) or 0)
+                                    + (getattr(u, "output_tokens", 0) or 0),
+                }, priority="normal")  # high-frequency, normal priority (FIFO-evictable)
+            except Exception:
+                logger.debug("Failed to emit agent.usage_update", exc_info=True)
 
         return None
 

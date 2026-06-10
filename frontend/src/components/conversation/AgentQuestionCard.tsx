@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { CheckCircle2, Clock, HelpCircle } from "lucide-react";
+import { CheckCircle2, Clock, HelpCircle, PauseCircle } from "lucide-react";
 
 import { MarkdownText } from "@/components/conversation/MarkdownText";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,18 @@ import type { ConversationMessage, QuestionOption } from "@/stores/conversationS
 interface AgentQuestionCardProps {
   message: ConversationMessage;
   onSubmit: (answer: { selected: string[]; customInput: string }) => void;
+  /**
+   * Compact read-only rendering. When true, the card shows only the
+   * header row (icon + agent + question first line + status badge) and
+   * skips interactive controls, full options, and the answer detail
+   * block.
+   *
+   * Defaults to ``false`` (always expanded) so users can see ask_user
+   * calls even after they have been answered — R7 fix, see ADR
+   * ``docs/plans/2026-06-10-todo-step-gate-adr.md``. Callers may pass
+   * ``true`` to force compact (e.g. inside a collapsed NodeBlock).
+   */
+  collapsed?: boolean | "auto";
 }
 
 function optionValue(opt: QuestionOption): string {
@@ -31,7 +43,7 @@ function answerSummary(
   return left || answer.customInput;
 }
 
-export const AgentQuestionCard = React.memo(function AgentQuestionCard({ message, onSubmit }: AgentQuestionCardProps) {
+export const AgentQuestionCard = React.memo(function AgentQuestionCard({ message, onSubmit, collapsed = false }: AgentQuestionCardProps) {
   const {
     questionOptions: options,
     questionMultiSelect: multiSelect = false,
@@ -48,6 +60,7 @@ export const AgentQuestionCard = React.memo(function AgentQuestionCard({ message
   const isAnswered = status === "answered";
   const isTimeout = status === "timeout";
   const isPending = status === "pending";
+  const isInterrupted = status === "interrupted";
 
   const [selected, setSelected] = useState<string[]>([]);
   const [customInput, setCustomInput] = useState("");
@@ -81,12 +94,44 @@ export const AgentQuestionCard = React.memo(function AgentQuestionCard({ message
     });
   };
 
-  const Icon = isAnswered ? CheckCircle2 : isTimeout ? Clock : HelpCircle;
+  const Icon = isAnswered ? CheckCircle2 : isTimeout ? Clock : isInterrupted ? PauseCircle : HelpCircle;
   const accent = isAnswered
     ? "border-emerald-500/40 bg-emerald-500/5"
     : isTimeout
     ? "border-muted-foreground/30 bg-muted/30"
+    : isInterrupted
+    ? "border-muted-foreground/30 bg-muted/30"
     : "border-amber-500/50 bg-amber-500/5";
+
+  // Compact mode = explicit `true` OR auto + non-pending. Renders a single
+  // line (icon + first line of question + trailing status / answer summary)
+  // and skips the full options / custom input / detail blocks.
+  const isCompact = collapsed === true || (collapsed === "auto" && !isPending);
+
+  if (isCompact) {
+    const firstLine = (question ?? "").split("\n").find((l) => l.trim()) ?? "(empty question)";
+    const tail = isAnswered && questionAnswer
+      ? `→ ${answerSummary(options, questionAnswer) || "(空)"}`
+      : isTimeout
+      ? "→ 已超时"
+      : isInterrupted
+      ? "→ 未回答"
+      : "";
+    return (
+      <div className={cn("rounded-xl border-l-4 px-3 py-1.5", accent)}>
+        <div className="flex items-center gap-2 text-xs">
+          <Icon
+            className={cn(
+              "h-3.5 w-3.5 shrink-0",
+              isAnswered ? "text-emerald-500" : isTimeout ? "text-muted-foreground" : "text-amber-500",
+            )}
+          />
+          <span className="min-w-0 flex-1 truncate font-medium">{firstLine}</span>
+          {tail && <span className="shrink-0 text-muted-foreground">{tail}</span>}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={cn("rounded-xl border-l-4 p-4", accent)}>
@@ -107,6 +152,7 @@ export const AgentQuestionCard = React.memo(function AgentQuestionCard({ message
             <span>{agentName ?? "agent"} 想请你确认</span>
             {isAnswered && <span className="text-emerald-600">已回答</span>}
             {isTimeout && <span>已超时</span>}
+            {isInterrupted && <span>运行已结束，未回答</span>}
           </div>
           <MarkdownText className="font-medium leading-snug">{question}</MarkdownText>
         </div>
@@ -120,7 +166,9 @@ export const AgentQuestionCard = React.memo(function AgentQuestionCard({ message
         </div>
       )}
 
-      {/* Pending state — interactive controls */}
+      {/* Pending state — interactive controls. Below the early compact-mode
+       * return, we only get here when collapsed is false or auto+pending,
+       * so the original `!collapsed` guard is implied. */}
       {isPending && (
         <div className="ml-7 space-y-3">
           {hasOptions && (

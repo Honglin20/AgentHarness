@@ -11,10 +11,36 @@ type ConversationCacheSnap = {
   pendingQuestionAgent: string | null;
 };
 
+export interface ConversationStoreOptions {
+  /**
+   * Called when a state mutation happens that should be flushed to the
+   * backend before workflow termination (so refresh doesn't lose state).
+   * The store debounces calls by 500ms to coalesce rapid mutations.
+   * Implementation is provided by WorkflowManager.
+   */
+  onPersist?: () => void;
+}
+
+const PERSIST_DEBOUNCE_MS = 500;
+
 export function createConversationStore(
   workflowId: string,
+  options: ConversationStoreOptions = {},
 ): StoreApi<ConversationState> {
   const msgCounter = createIdCounter("msg-");
+
+  // Debounced persist trigger — coalesces rapid mutations (e.g. user
+  // answering multiple questions in quick succession) into a single
+  // PATCH /api/runs/{id}/conversation call.
+  let persistTimer: ReturnType<typeof setTimeout> | null = null;
+  const schedulePersist = () => {
+    if (!options.onPersist) return;
+    if (persistTimer) clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => {
+      persistTimer = null;
+      options.onPersist?.();
+    }, PERSIST_DEBOUNCE_MS);
+  };
 
   // Cache helper is assigned after the store is created.
   let cache: StoreCache;
@@ -32,6 +58,7 @@ export function createConversationStore(
     pendingQuestionId: null as string | null,
     pendingQuestionAgent: null as string | null,
     activeFollowupAgent: null as string | null,
+    currentStepIdByNode: {} as Record<string, string>,
 
     // Cache management (保留用于 batch 模式兼容)
     _cache: {} as ConversationState["_cache"],
@@ -74,6 +101,7 @@ export function createConversationStore(
               content: "",
               status: "streaming",
               timestamp: Date.now(),
+              stepId: state.currentStepIdByNode[nodeId],
             },
           ],
         };
@@ -163,6 +191,7 @@ export function createConversationStore(
               toolArgs,
               toolStatus: "running",
               timestamp: Date.now(),
+              stepId: state.currentStepIdByNode[nodeId],
             },
           ],
         };
@@ -206,28 +235,6 @@ export function createConversationStore(
         return { messages };
       }),
 
-    addAgentQuestion: (questionId, question, agentName) =>
-      set((state) => ({
-        messages: [
-          ...state.messages,
-          {
-            id: `msg-${msgCounter.next()}`,
-            type: "question",
-            content: question,
-            agentName,
-            status: "pending",
-            timestamp: Date.now(),
-            questionId,
-            questionHeader: null,
-            questionOptions: null,
-            questionMultiSelect: false,
-            questionAllowCustomInput: true,
-            questionInputType: "textarea",
-            questionInputPlaceholder: null,
-          },
-        ],
-      })),
-
     addUserQuestion: (payload) =>
       set((state) => ({
         messages: [
@@ -247,6 +254,7 @@ export function createConversationStore(
             questionAllowCustomInput: payload.allow_custom_input ?? true,
             questionInputType: payload.input_type ?? "text",
             questionInputPlaceholder: payload.input_placeholder ?? null,
+            stepId: payload.node_id ? state.currentStepIdByNode[payload.node_id] : undefined,
           },
         ],
       })),
@@ -263,6 +271,7 @@ export function createConversationStore(
           status: "answered",
           questionAnswer: answer,
         };
+        schedulePersist();
         return { messages };
       }),
 
@@ -277,7 +286,27 @@ export function createConversationStore(
         const clear = state.pendingQuestionId === questionId
           ? { pendingQuestionId: null, pendingQuestionAgent: null }
           : {};
+        schedulePersist();
         return { messages, ...clear };
+      }),
+
+    markAllPendingQuestionsInterrupted: () =>
+      set((state) => {
+        let touched = false;
+        const messages = state.messages.map((m) => {
+          if (m.type === "question" && m.status === "pending") {
+            touched = true;
+            return { ...m, status: "interrupted" as const };
+          }
+          return m;
+        });
+        if (!touched && state.pendingQuestionId === null) return state;
+        schedulePersist();
+        return {
+          messages,
+          pendingQuestionId: null,
+          pendingQuestionAgent: null,
+        };
       }),
 
     addUserMessage: (content) =>
@@ -325,7 +354,27 @@ export function createConversationStore(
       }),
 
     reset: () =>
-      set({ messages: [], pendingQuestionId: null, pendingQuestionAgent: null, activeFollowupAgent: null }),
+      set({
+        messages: [],
+        pendingQuestionId: null,
+        pendingQuestionAgent: null,
+        activeFollowupAgent: null,
+        currentStepIdByNode: {},
+      }),
+
+    setCurrentStep: (nodeId, stepId) =>
+      set((state) => {
+        if (stepId === null) {
+          if (!(nodeId in state.currentStepIdByNode)) return state;
+          const next = { ...state.currentStepIdByNode };
+          delete next[nodeId];
+          return { currentStepIdByNode: next };
+        }
+        if (state.currentStepIdByNode[nodeId] === stepId) return state;
+        return {
+          currentStepIdByNode: { ...state.currentStepIdByNode, [nodeId]: stepId },
+        };
+      }),
 
     saveToCache: (wid) => cache.saveToCache(wid),
 
@@ -424,20 +473,26 @@ export function createConversationStore(
     setActiveFollowupAgent: (name) => set({ activeFollowupAgent: name }),
 
     addFollowupUserMessage: (agentName, content) =>
-      set((state) => ({
-        messages: [
-          ...state.messages,
-          {
-            id: `msg-${msgCounter.next()}`,
-            type: "user",
-            content,
-            agentName,
-            nodeId: `followup-${agentName}`,
-            followup: true,
-            timestamp: Date.now(),
-          },
-        ],
-      })),
+      set((state) => {
+        const nodeId = `followup-${agentName}`;
+        return {
+          messages: [
+            ...state.messages,
+            {
+              id: `msg-${msgCounter.next()}`,
+              type: "user",
+              content,
+              agentName,
+              nodeId,
+              followup: true,
+              timestamp: Date.now(),
+              // isNodeMsg excludes user-type messages, so this never lands in
+              // a NodeBlock; stepId is set purely for consistency.
+              stepId: state.currentStepIdByNode[nodeId],
+            },
+          ],
+        };
+      }),
 
     addFollowupAgentMessage: (agentName) =>
       set((state) => {
@@ -459,6 +514,7 @@ export function createConversationStore(
               status: "streaming",
               followup: true,
               timestamp: Date.now(),
+              stepId: state.currentStepIdByNode[nodeId],
             },
           ],
         };
@@ -518,6 +574,7 @@ export function createConversationStore(
               content: t,
               status: "streaming",
               timestamp: Date.now(),
+              stepId: state.currentStepIdByNode[nid],
             });
             mutated = true;
           }
@@ -525,6 +582,7 @@ export function createConversationStore(
         return mutated ? { messages } : state;
       });
     },
+    { minIntervalMs: 33 },
   );
 
   thinkBatcher = createRafBatcher<string, { text: string; nodeId: string }>(
@@ -544,6 +602,7 @@ export function createConversationStore(
         return mutated ? { messages } : state;
       });
     },
+    { minIntervalMs: 33 },
   );
 
   flushTextBuf = () => textBatcher.flush();

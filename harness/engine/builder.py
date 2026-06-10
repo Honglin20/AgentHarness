@@ -43,14 +43,19 @@ class MacroGraphBuilder:
         event_bus: Any | None = None,
         max_iterations: int = 3,
         envelope: dict[str, int] | None = None,
+        request_limit: int | None = None,
     ):
         self.tool_registry = tool_registry or ToolRegistry()
         self.event_bus = event_bus
         self.max_iterations = max_iterations
         self.envelope = envelope
+        # Per-agent request budget (None → HARNESS_REQUEST_LIMIT env, default 200).
+        # Forwarded to micro_factory.create() inside node_factory.
+        self.request_limit = request_limit
         self.workflow_id: str | None = None  # Set by runner before execution
         self._workflow_name: str = ""  # Set by build()
         self.agent_io: dict[str, dict] = {}  # Collected per-node I/O for persistence
+        self.todo_states: dict[str, list[dict]] = {}  # Per-node todo step snapshots for persistence
 
         # Stop-and-regenerate signal management (delegated to StopSignalManager)
         self._signal_mgr = StopSignalManager()
@@ -62,14 +67,33 @@ class MacroGraphBuilder:
         # workflow.waiting_for_guidance and awaits this event.
         # When user submits guidance, provide_guidance() sets it.
 
-        # Register event-bus-dependent tools when event_bus is available
+        # Defensive fallback registration for event-bus-dependent tools.
+        # default_tool_registry(event_bus=...) already registers these with
+        # correct tiers; this block covers callers that pass a bare registry.
+        # See harness/tools/registry.py:ToolTier for the tier model.
         if event_bus:
+            from harness.tools.registry import ToolTier
+            if "todo" not in self.tool_registry.list_tools():
+                from harness.tools.todo import TodoToolFactory
+                self.tool_registry.register(
+                    "todo",
+                    TodoToolFactory(event_bus=event_bus),
+                    tier=ToolTier.FORCED,
+                )
             if "ask_user" not in self.tool_registry.list_tools():
                 from harness.tools.ask_user import AskUserToolFactory
-                self.tool_registry.register("ask_user", AskUserToolFactory(event_bus=event_bus))
+                self.tool_registry.register(
+                    "ask_user",
+                    AskUserToolFactory(event_bus=event_bus),
+                    tier=ToolTier.DEFAULT,
+                )
             if "render_chart" not in self.tool_registry.list_tools():
                 from harness.tools.chart import RenderChartToolFactory
-                self.tool_registry.register("render_chart", RenderChartToolFactory(event_bus=event_bus))
+                self.tool_registry.register(
+                    "render_chart",
+                    RenderChartToolFactory(event_bus=event_bus),
+                    tier=ToolTier.EXPLICIT,
+                )
 
         self.micro_factory = MicroAgentFactory(tool_registry=self.tool_registry)
 

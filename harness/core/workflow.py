@@ -51,6 +51,7 @@ class Workflow:
         enable_filesystem_mcp: bool = True,
         enable_codegraph_mcp: bool = True,
         codegraph_path: str | None = None,
+        request_limit: int | None = None,
     ):
         self.name = name
         self.agents = agents
@@ -78,6 +79,9 @@ class Workflow:
         self.enable_filesystem_mcp = enable_filesystem_mcp
         self.enable_codegraph_mcp = enable_codegraph_mcp
         self.codegraph_path = codegraph_path
+        # Per-agent LLM request budget (None → resolve from HARNESS_REQUEST_LIMIT env,
+        # default 200). See llm.py:LLMClient.agent().
+        self.request_limit = request_limit
         self._compiled = None
         self._builder: Any | None = None  # MacroGraphBuilder, set by compile()
         self._mcp_setup_done = False
@@ -142,6 +146,7 @@ class Workflow:
             event_bus=self._event_bus,
             max_iterations=self.max_iterations,
             envelope=self.envelope,
+            request_limit=self.request_limit,
         )
         graph = builder.build(self)
         self._builder = builder

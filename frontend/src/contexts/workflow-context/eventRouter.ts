@@ -114,10 +114,10 @@ export function dispatchSingleEvent(event: WSEvent, currentWorkflowId: string | 
   routeEventToStores(event);
 
   if (TERMINAL_EVENT_TYPES.has(event.type)) {
-    // Bust the cache so the next fetchRuns actually pulls fresh data —
+    // Bust the cache so the next refresh actually pulls fresh data —
     // the run that just terminated needs to show its new status immediately.
     invalidateRunsCache();
-    useRunHistoryStore.getState().fetchRuns();
+    useRunHistoryStore.getState().refreshRuns();
   }
 }
 
@@ -142,7 +142,7 @@ export function dispatchBatchEvent(event: WSEvent): void {
 
   if (event.type === "batch.completed") {
     invalidateRunsCache();
-    useRunHistoryStore.getState().fetchRuns();
+    useRunHistoryStore.getState().refreshRuns();
     return;
   }
 
@@ -166,6 +166,6 @@ export function dispatchBatchEvent(event: WSEvent): void {
 
   if (TERMINAL_EVENT_TYPES.has(event.type)) {
     invalidateRunsCache();
-    useRunHistoryStore.getState().fetchRuns();
+    useRunHistoryStore.getState().refreshRuns();
   }
 }

@@ -78,9 +78,12 @@ def test_throttle_skips_every_other_when_buffer_over_threshold():
     bus = Bus(buffer_size=10)  # 80% threshold = 8 entries
     executor = _make_executor(bus)
 
-    # Pre-fill the buffer to push usage above 0.8
+    # Pre-fill the NORMAL buffer to push usage above 0.8.
+    # node.started is whitelisted critical (PR-B) and would land in the
+    # separate critical_buffer — explicit priority="normal" overrides that
+    # so these events count toward buffer_usage (which only tracks _buffer).
     for i in range(9):
-        bus.emit("node.started", {"i": i})
+        bus.emit("node.started", {"i": i}, priority="normal")
     assert bus.buffer_usage() > 0.8, f"precondition failed: usage={bus.buffer_usage()}"
 
     emitted_before = _count_emits(bus, "agent.text_delta")
@@ -101,8 +104,10 @@ def test_throttle_counter_starts_skipping_on_first_over_threshold_call():
     bus = Bus(buffer_size=10)
     executor = _make_executor(bus)
 
+    # See note above: node.started is critical by default, force normal so
+    # buffer_usage reflects it.
     for i in range(9):
-        bus.emit("node.started", {"i": i})
+        bus.emit("node.started", {"i": i}, priority="normal")
     assert bus.buffer_usage() > 0.8
 
     # Track which deltas actually get emitted by inspecting payload text.
@@ -143,8 +148,10 @@ def test_counter_is_per_instance_not_class_level():
     assert exec_b._delta_skip_counter == 0
 
     # Push a's buffer over threshold; keep b's empty.
+    # node.started defaults to critical (PR-B); force normal so it counts
+    # toward buffer_usage.
     for i in range(9):
-        bus_a.emit("node.started", {"i": i})
+        bus_a.emit("node.started", {"i": i}, priority="normal")
     assert bus_a.buffer_usage() > 0.8
     assert bus_b.buffer_usage() == 0.0
 

@@ -61,6 +61,7 @@ class RunStoreInterface(ABC):
         events: list[dict] | None = None,
         created_at: str | None = None,
         work_dir: str | None = None,
+        todo_steps: dict | None = None,
     ) -> Path:
         """Persist a complete run record.
 

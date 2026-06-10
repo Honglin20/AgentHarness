@@ -1,12 +1,48 @@
 "use client";
 
 import { useEffect } from "react";
-import { ArrowRight, Lock } from "lucide-react";
+import { Lock } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePortalStore, type WorkflowDef } from "@/stores/portalStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { COLOR_MAP } from "./colors";
 import { Breadcrumb } from "./Breadcrumb";
+import type { WorkflowRef } from "@/types/domains";
+
+function WorkflowGrid({
+  workflows,
+  defMap,
+  onSelect,
+}: {
+  workflows: WorkflowRef[];
+  defMap: Map<string, WorkflowDef>;
+  onSelect: (name: string) => void;
+}) {
+  if (workflows.length === 0) return null;
+  return (
+    <div className="grid grid-cols-3 gap-3">
+      {workflows.map((wf) => {
+        const def = defMap.get(wf.name);
+        const agentCount = def?.agents.length ?? 0;
+        return (
+          <button
+            key={wf.name}
+            onClick={() => onSelect(wf.name)}
+            className="flex flex-col gap-1.5 rounded-lg border border-app-border bg-background p-4 text-left transition-all hover:shadow-sm hover:border-gray-300 dark:hover:border-gray-600"
+          >
+            <span className="text-sm font-medium text-app-text-primary">{wf.name}</span>
+            <span className="text-xs text-muted-foreground">{wf.description}</span>
+            {def && (
+              <span className="text-[11px] text-muted-foreground">
+                {agentCount} agents · {def.dag.nodes.length} nodes
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 export function DomainWorkflowsPage() {
   const { activeDomain, goHome } = usePortalStore();
@@ -84,64 +120,36 @@ export function DomainWorkflowsPage() {
 
       <div className="flex-1 overflow-y-auto px-6 py-8">
         <div className="w-full max-w-4xl mx-auto">
-          {/* Active domain workflows */}
+          {/* Active domain — header styled larger as the "primary" section. */}
           {domain.status === "active" && domain.workflows.length > 0 && (
             <div className="mb-6">
               <div className={`flex items-center gap-2.5 mb-3 border-l-[3px] pl-3 py-0.5 ${c.accent}`}>
                 <span className="text-sm font-semibold text-app-text-primary">{domain.title}</span>
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                {domain.workflows.map((wf) => {
-                  const def = defMap.get(wf.name);
-                  const agentCount = def?.agents.length ?? 0;
-                  return (
-                    <button
-                      key={wf.name}
-                      onClick={() => handleSelect(wf.name)}
-                      className="flex flex-col gap-1.5 rounded-lg border border-app-border bg-background p-4 text-left transition-all hover:shadow-sm hover:border-gray-300 dark:hover:border-gray-600"
-                    >
-                      <span className="text-sm font-medium text-app-text-primary">{wf.name}</span>
-                      <span className="text-xs text-muted-foreground">{wf.description}</span>
-                      {def && (
-                        <span className="text-[11px] text-muted-foreground">
-                          {agentCount} agents · {def.dag.nodes.length} nodes
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
+              <WorkflowGrid workflows={domain.workflows} defMap={defMap} onSelect={handleSelect} />
             </div>
           )}
 
-          {/* Other domains */}
+          {/* Other domains — all expanded so users can browse every active
+              workflow without bouncing between pages. Coming-soon domains
+              stay collapsed. */}
           {domains
             .filter((d) => d.id !== activeDomain)
             .map((otherDomain) => {
               const oc = COLOR_MAP[otherDomain.color] || COLOR_MAP.blue;
-              const isComingSoon = otherDomain.status === "coming_soon";
+              const isComingSoon = otherDomain.status === "coming_soon" || otherDomain.workflows.length === 0;
               return (
                 <div key={otherDomain.id} className="mb-4">
                   <div className={`flex items-center gap-2.5 mb-2 border-l-[3px] pl-3 py-0.5 ${oc.accent}`}>
                     <span className="text-xs font-semibold text-app-text-primary">{otherDomain.title}</span>
                   </div>
-                  {isComingSoon || otherDomain.workflows.length === 0 ? (
+                  {isComingSoon ? (
                     <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-dashed border-app-border bg-muted/30">
                       <Lock className="h-3 w-3 text-muted-foreground" />
                       <span className="text-xs text-muted-foreground">Coming soon</span>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">
-                        {otherDomain.workflows.length} workflows
-                      </span>
-                      <button
-                        onClick={() => usePortalStore.getState().showWorkflows(otherDomain.id)}
-                        className="flex items-center gap-0.5 text-xs text-muted-foreground hover:text-app-text-primary transition-colors"
-                      >
-                        View <ArrowRight className="h-3 w-3" />
-                      </button>
-                    </div>
+                    <WorkflowGrid workflows={otherDomain.workflows} defMap={defMap} onSelect={handleSelect} />
                   )}
                 </div>
               );

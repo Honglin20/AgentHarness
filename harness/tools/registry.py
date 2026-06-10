@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from asyncio import iscoroutinefunction
+from enum import Enum
 from fnmatch import fnmatchcase
 from functools import wraps
 from typing import Any
@@ -20,6 +21,29 @@ class ToolCatalogEntry(BaseModel):
 
 class ToolNotFoundError(Exception):
     pass
+
+
+class ToolTier(Enum):
+    """Three-tier tool loading model.
+
+    FORCED   — always injected into every agent's tool list, even when the
+               agent has an explicit `tools` whitelist. Excluded only by an
+               explicit `exclude=[...]` entry. Use for framework-mandated
+               tools (currently: `todo`).
+
+    DEFAULT  — loaded when `tools=None` (the common case). Replaced by the
+               whitelist when the agent specifies one. Use for general-
+               purpose infrastructure every agent is likely to need (bash,
+               filesystem, etc.).
+
+    EXPLICIT — never auto-loaded. The agent must list the tool by name
+               (or via glob like `codegraph_*`) to receive it. Use for
+               heavyweight or scenario-specific tools (codegraph,
+               render_chart).
+    """
+    FORCED = "forced"
+    DEFAULT = "default"
+    EXPLICIT = "explicit"
 
 
 class ToolFactory(ABC):
@@ -64,10 +88,25 @@ class ToolRegistry:
     def __init__(self):
         self._factories: dict[str, ToolFactory] = {}
         self._sources: dict[str, str] = {}  # tool_name → source tag
+        self._tiers: dict[str, ToolTier] = {}  # tool_name → tier
 
-    def register(self, name: str, factory: ToolFactory, source: str = "built-in") -> None:
+    def register(
+        self,
+        name: str,
+        factory: ToolFactory,
+        source: str = "built-in",
+        tier: ToolTier = ToolTier.EXPLICIT,
+    ) -> None:
+        """Register a tool factory.
+
+        Default tier is EXPLICIT (fail-safe): if a caller forgets to specify
+        tier, the tool won't auto-load — protects against accidentally
+        exposing heavyweight tools to every agent. Internal tools that
+        should auto-load must explicitly pass tier=DEFAULT / FORCED.
+        """
         self._factories[name] = factory
         self._sources[name] = source
+        self._tiers[name] = tier
 
     def expand_globs(self, patterns: list[str], strict: bool = True) -> list[str]:
         """Expand glob patterns and ``!`` exclusions against the registry.
@@ -123,15 +162,45 @@ class ToolRegistry:
         tool_names: list[str] | None = None,
         exclude: list[str] | None = None,
     ) -> list[PydanticAITool]:
+        """Resolve to concrete Pydantic AI tools, applying the tier model.
+
+        Semantics:
+          - tool_names=None → load all Tier1 (FORCED) + Tier2 (DEFAULT)
+            tools, minus exclude.
+          - tool_names=["bash", ...] → user list + Tier1 (FORCED) tools
+            (so framework-mandated tools always accompany the agent),
+            minus exclude. Deduped.
+          - exclude is the final authority — even FORCED tools are removed
+            when listed in exclude.
+
+        Raises ToolNotFoundError if a tool_names entry isn't registered.
+        """
         exclude_set = set(exclude or [])
 
         if tool_names is None:
-            names = [n for n in self._factories if n not in exclude_set]
+            # Default load: Tier1 + Tier2, minus exclude
+            names = [
+                n for n, t in self._tiers.items()
+                if t in (ToolTier.FORCED, ToolTier.DEFAULT)
+                and n not in exclude_set
+            ]
         else:
             for name in tool_names:
                 if name not in self._factories:
                     raise ToolNotFoundError(f"Tool '{name}' not registered")
-            names = [n for n in tool_names if n not in exclude_set]
+            # User whitelist + forced tools, deduped, minus exclude
+            user_set = set(tool_names)
+            forced_extra = [
+                n for n, t in self._tiers.items()
+                if t == ToolTier.FORCED and n not in user_set and n not in exclude_set
+            ]
+            seen: set[str] = set()
+            names: list[str] = []
+            for n in [*tool_names, *forced_extra]:
+                if n in exclude_set or n in seen:
+                    continue
+                seen.add(n)
+                names.append(n)
 
         return [self._factories[n].create() for n in names]
 

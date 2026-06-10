@@ -3,7 +3,7 @@
 import json
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 
 class AgentDef(BaseModel):
@@ -24,6 +24,7 @@ class CreateWorkflowRequest(BaseModel):
     workflow: str
     inputs: dict = Field(default_factory=dict)
     work_dir: str | None = None  # Working directory to execute in
+    request_limit: int | None = None  # Per-agent LLM request budget (None → env default 200)
 
 
 class CreateWorkflowResponse(BaseModel):
@@ -79,14 +80,23 @@ class AgentSnapshot(BaseModel):
 
 
 class RunDetail(BaseModel):
-    """Full persisted workflow run record."""
+    """Full persisted workflow run record.
+
+    Note: has_* fields use "_has_*" alias so the JSON wire format stays
+    backward-compatible (frontend reads run._has_charts). Without alias,
+    pydantic v2 treats underscore-prefixed fields as private attributes
+    and silently drops them from the response — which is why the old
+    `_has_charts: bool = False` form never actually serialized.
+    """
+    model_config = ConfigDict(populate_by_name=True)
+
     run_id: str
     workflow_name: str
     agents_snapshot: list[AgentSnapshot] = []
     status: str
     inputs: dict = {}
     result: dict[str, Any] | None = None
-    conversation: list[dict] = []
+    conversation: list[dict] | None = None  # null — loaded lazily via GET /runs/{id}/conversation (run record can be 10s of MB for long workflows)
     created_at: str
     dag: dict | None = None  # {nodes, edges, conditional_edges} — needed so replay view can render the DAG identically to live view
     chart_groups: dict | None = None  # null — loaded lazily via GET /runs/{id}/charts
@@ -96,8 +106,9 @@ class RunDetail(BaseModel):
     batch_id: str | None = None
     user_id: str | None = None
     followup_sessions: dict | None = None  # {agent_name: {model, messages, turn_count, ...}} — persisted follow-up conversations
-    _has_charts: bool = False  # True when chart sidecar exists
-    _has_events: bool = False  # True when events sidecar exists
+    has_charts: bool = Field(default=False, alias="_has_charts")  # True when chart sidecar exists
+    has_events: bool = Field(default=False, alias="_has_events")  # True when events sidecar exists
+    has_conversation: bool = Field(default=False, alias="_has_conversation")  # True when conversation exists; body loaded lazily
 
 
 class RunSummary(BaseModel):

@@ -16,7 +16,6 @@ export const chatHandlers: [string, EventHandler][] = [
         (m) => m.type === "question" && m.questionId === p.question_id
       );
       if (alreadyExists) return;
-      stores.chat.getState().addAgentQuestion(p.question_id, p.question);
       const conv = stores.conversation.getState();
       const lastStreaming = [...conv.messages]
         .reverse()

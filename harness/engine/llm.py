@@ -132,11 +132,21 @@ class LLMClient:
         self,
         system_prompt: str,
         output_type: type = str,
-        retries: int = 3,
+        retries: int | dict = 3,
         tools: list | None = None,
         deps_type: type | None = None,
     ) -> PydanticAgent:
-        """Create a configured PydanticAgent from this client."""
+        """Create a configured PydanticAgent from this client.
+
+        ``retries`` accepts int (applies to both tools and output) or dict
+        ``{'tools': N, 'output': M}`` for per-budget control. Output budget
+        is typically 1 to support the step_gate validator retry path.
+
+        Note: ``usage_limits`` is NOT set here — PydanticAgent doesn't accept
+        it at construction. The per-agent request budget is passed to
+        ``agent.iter()`` at run time by LLMExecutor (which receives it from
+        builder.request_limit, falling back to HARNESS_REQUEST_LIMIT env).
+        """
         model_settings = None
         if _should_enable_thinking(self._model_name):
             model_settings = ModelSettings(thinking=True)
