@@ -590,12 +590,31 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
 
   // Single-expand: only one step expanded at a time. Clicking the same step
   // collapses it; clicking a different step collapses the previous one.
-  const [stepExpanded, setStepExpanded] = useState<Record<string, boolean>>({});
+  // Persisted to sessionStorage so the expanded step survives re-renders and
+  // tab switches within the same workflow run (P2-R8). Key is scoped by
+  // workflowId (UUID per run), so stale entries from old runs don't collide.
+  const workflowId = useStore(workflowStoreApi!, (s) => s.workflowId);
+  const storageKey = workflowId ? `stepExpanded:${workflowId}` : null;
+  const [stepExpanded, setStepExpanded] = useState<Record<string, boolean>>(() => {
+    if (!storageKey) return {};
+    try {
+      const stored = sessionStorage.getItem(storageKey);
+      return stored ? { [stored]: true } : {};
+    } catch { return {}; }
+  });
   const toggleStep = useCallback((stepKey: string) => {
-    setStepExpanded((prev) =>
-      prev[stepKey] ? {} : { [stepKey]: true },
-    );
-  }, []);
+    setStepExpanded((prev) => {
+      const next = prev[stepKey] ? {} : { [stepKey]: true };
+      try {
+        if (storageKey) {
+          const active = Object.keys(next)[0];
+          if (active) sessionStorage.setItem(storageKey, active);
+          else sessionStorage.removeItem(storageKey);
+        }
+      } catch { /* quota exceeded — ignore */ }
+      return next;
+    });
+  }, [storageKey]);
 
   // Refs for estimateSize (stable reads without re-creating the callback)
   const todosRef = useRef(todoStore?.getState().todos ?? {});
