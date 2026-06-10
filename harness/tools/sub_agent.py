@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import logging
+import subprocess
+import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pydantic_ai import RunContext, Tool as PydanticAITool
@@ -15,12 +18,45 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Tools that require event_bus / user interaction — not usable by sub-agents.
 _EXCLUDE_FROM_CHILD = {"sub_agent", "ask_user"}
 
 
+def _create_worktree(source_dir: str, task_id: str) -> str:
+    """Create an isolated git worktree for a sub-agent. Returns worktree path."""
+    source = Path(source_dir).resolve()
+    wt_path = source.parent / f".wt_{task_id}"
+    try:
+        subprocess.run(
+            ["git", "worktree", "add", str(wt_path), "HEAD"],
+            capture_output=True, text=True, check=True,
+            cwd=str(source),
+        )
+        # Symlink data directories if they exist
+        for data_dir in ("data", "checkpoints", "datasets"):
+            target = source / data_dir
+            if target.is_dir():
+                link = wt_path / data_dir
+                if not link.exists():
+                    link.symlink_to(target)
+        return str(wt_path)
+    except (subprocess.CalledProcessError, OSError) as e:
+        logger.warning("Worktree creation failed (%s) — falling back to shared dir", e)
+        return source_dir
+
+
+def _cleanup_worktree(wt_path: str) -> None:
+    """Remove a git worktree created by _create_worktree."""
+    try:
+        subprocess.run(
+            ["git", "worktree", "remove", wt_path, "--force"],
+            capture_output=True, text=True, check=True,
+        )
+    except (subprocess.CalledProcessError, OSError) as e:
+        logger.warning("Worktree cleanup failed for %s: %s", wt_path, e)
+
+
 class SubAgentToolFactory(ToolFactory):
-    """sub_agent 工具 — 委托子任务给临时 agent，最多一层，不可嵌套"""
+    """sub_agent 工具 — 委托子任务给临时 agent，支持并行和 worktree 隔离。"""
 
     name = "sub_agent"
     description = (
@@ -28,7 +64,10 @@ class SubAgentToolFactory(ToolFactory):
         "Provide the task description and any relevant context. "
         "The sub-agent executes independently and returns its result. "
         "Sub-agents cannot spawn further sub-agents. "
-        "Use for focused work that benefits from dedicated attention."
+        "Use for focused work that benefits from dedicated attention. "
+        "When running multiple sub-agents in parallel, issue all calls "
+        "in a single response — they execute concurrently. "
+        "Use isolation='worktree' when sub-agents modify code to prevent conflicts."
     )
 
     def __init__(
@@ -46,21 +85,31 @@ class SubAgentToolFactory(ToolFactory):
         model = self.model
         max_depth = self.max_depth
 
-        async def sub_agent(ctx: RunContext, task: str) -> str:
+        async def sub_agent(
+            ctx: RunContext,
+            task: str,
+            isolation: str = "none",
+        ) -> str:
             if depth >= max_depth:
                 return "Error: maximum sub-agent depth reached"
 
-            # Resolve safe tools: exclude sub_agent + context-dependent tools
             exclude = list(_EXCLUDE_FROM_CHILD)
             resolved_tools = registry.resolve(None, exclude=exclude)
 
+            workdir = getattr(ctx.deps, "workdir", None) or "."
+            task_id = f"sa_{uuid.uuid4().hex[:8]}"
+            wt_created = False
+
+            if isolation == "worktree":
+                workdir = _create_worktree(workdir, task_id)
+                wt_created = workdir != getattr(ctx.deps, "workdir", None)
+
             child_deps = AgentDeps(
-                workdir=ctx.deps.workdir,
+                workdir=workdir,
                 agent_name="sub_agent",
                 depth=depth + 1,
             )
 
-            # Propagate parent's token aggregator so sub-agent usage is tracked
             parent_agg = getattr(ctx.deps, "token_aggregator", None)
             parent_name = getattr(ctx.deps, "agent_name", "unknown")
 
@@ -75,7 +124,6 @@ class SubAgentToolFactory(ToolFactory):
 
                 result = await child.run(task, deps=child_deps)
 
-                # Record sub-agent token usage into parent's aggregator
                 if parent_agg is not None:
                     usage_obj = getattr(result, "usage", None)
                     if usage_obj is not None:
@@ -94,5 +142,7 @@ class SubAgentToolFactory(ToolFactory):
                 return f"Error: sub-agent failed — {type(e).__name__}: {e}"
             finally:
                 await client.aclose()
+                if wt_created:
+                    _cleanup_worktree(workdir)
 
         return PydanticAITool(self._wrap_fn(sub_agent, self.name), takes_ctx=True)
