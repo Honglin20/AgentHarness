@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { fetchWithAuth } from "@/lib/api";
 import type { ChartGroup } from "./chartStore";
+import type { ConversationMessageDTO } from "@/lib/conversion/dtoToMessage";
 
 export interface AgentSnapshot {
   name: string;
@@ -9,20 +10,6 @@ export interface AgentSnapshot {
   tools: string[] | null;
   model: string | null;
   retries: number;
-}
-
-export interface ConversationMessage {
-  id: string;
-  type: "agent" | "user" | "tool_call" | "system";
-  nodeId?: string;
-  content?: string;
-  agentName?: string;
-  toolName?: string;
-  toolArgs?: Record<string, unknown>;
-  toolResult?: string;
-  status?: string;
-  durationMs?: number;
-  timestamp?: number;
 }
 
 export interface AgentIORecord {
@@ -59,7 +46,7 @@ export interface RunRecord {
       token_usage?: { input: number; output: number; total: number } | null;
     }>;
   } | null;
-  conversation: ConversationMessage[];
+  conversation: ConversationMessageDTO[];
   created_at: string;
   dag: {
     nodes: string[];
@@ -89,7 +76,35 @@ interface RunHistoryState {
   hasMore: boolean;
   totalCount: number;
 
-  fetchRuns: (workflowName?: string, loadMore?: boolean) => Promise<void>;
+  /**
+   * Initial load / explicit reset. Replaces `runs` with the first page
+   * (INITIAL_PAGE_LIMIT) and writes the cache. Use for: mount, user switch,
+   * workflow switch where a fresh slate is desired. **Do not** use for
+   * polling — that's what `refreshRuns` is for, since fetchRuns would
+   * truncate a list the user has expanded via loadMore.
+   */
+  fetchRuns: (workflowName?: string) => Promise<void>;
+
+  /**
+   * User clicked "Load more". Appends the next page (limit=50) to `runs`
+   * and updates the cache with the merged list. Bypasses the cache check
+   * (a loadMore always needs fresh data) but still participates in
+   * in-flight dedup so rapid clicks coalesce.
+   */
+  loadMoreRuns: (workflowName?: string) => Promise<void>;
+
+  /**
+   * Polling-friendly refresh. Fetches with `limit = max(current.length,
+   * INITIAL_PAGE_LIMIT)` so a list the user expanded via loadMore is
+   * preserved at its current length instead of being truncated back to
+   * the first page. Result replaces `runs` (status / icon updates flow
+   * through naturally; newly-created runs appear at the top; the oldest
+   * visible run scrolls off the window).
+   *
+   * Respects the cache TTL — if a refresh fired <3s ago, this is a no-op.
+   */
+  refreshRuns: (workflowName?: string) => Promise<void>;
+
   fetchRun: (runId: string, signal?: AbortSignal) => Promise<RunRecord | null>;
   fetchRunCharts: (runId: string) => Promise<RunRecord["chart_groups"]>;
   fetchRunEvents: (runId: string) => Promise<RunRecord["events"]>;
@@ -103,18 +118,21 @@ interface RunHistoryState {
 
 // ── In-memory cache + dedup ─────────────────────────────────────────────
 //
-// Sidebar refreshes hit fetchRuns from many sources: terminal lifecycle
+// The sidebar hits the runs endpoint from many sources: terminal lifecycle
 // events, manual refresh, mount, polling. Without dedup we'd fire 3-5x
 // the needed requests on every workflow completion. The cache holds the
-// last successful fetch per key (workflowName) for ~3s; within that window
-// repeat calls are no-ops.
+// last successful fetch per key (workflowName) for FETCH_DEDUP_MS; within
+// that window repeat calls of the same flavour are no-ops.
 //
-// loadMore calls bypass the cache (always fetch the next page) but still
-// go through the in-flight dedup so two near-simultative "load more"
+// loadMore calls bypass the cache check (always fetch the next page) but
+// still go through in-flight dedup so two near-simultaneous "load more"
 // clicks don't double-fetch.
 const FETCH_DEDUP_MS = 3000;
 /** Initial sidebar page size — small for fast first paint, expandable via "Load more". */
 const INITIAL_PAGE_LIMIT = 5;
+/** Page size used when the user explicitly asks for more history. */
+const LOAD_MORE_PAGE_LIMIT = 50;
+
 interface CacheEntry {
   runs: RunSummary[];
   total: number;
@@ -138,6 +156,216 @@ export function invalidateRunsCache(workflowName?: string): void {
   _runsCache.delete(runsCacheKey(workflowName));
 }
 
+// ── Per-run Last-Modified cache ─────────────────────────────────────────
+//
+// The backend's GET /api/runs/{id} honours If-Modified-Since and returns
+// 304 when the run's persisted file mtime hasn't advanced. We pair that
+// with a client-side cache so a 304 yields the previously-fetched body
+// instead of `null` — otherwise the sidebar's click handler silently
+// swallowed the second click on the same run.
+//
+// Lifecycle: entries live until invalidated. Call invalidateRunCache(runId)
+// when a run is known to have changed (delete, rerun, resume).
+interface RunCacheEntry {
+  run: RunRecord;
+  /** HTTP-date string from the server's Last-Modified response header. */
+  lastModified: string | null;
+}
+const _runCache = new Map<string, RunCacheEntry>();
+
+export function invalidateRunCache(runId?: string): void {
+  if (runId === undefined) {
+    _runCache.clear();
+    return;
+  }
+  _runCache.delete(runId);
+}
+
+// ── Private: shared fetch engine ────────────────────────────────────────
+//
+// Three fetch flavours (initial / append / refresh) share the same cache,
+// in-flight dedup, and setState plumbing. Each flavour supplies its own
+// limit/offset strategy and merge function; the engine handles the rest.
+
+interface FetchFlavour {
+  /** Skip the cache check entirely (loadMore always wants the network). */
+  bypassCache?: boolean;
+  /** Compute request limit based on current state (e.g. current list length). */
+  getLimit: (currentCount: number) => number;
+  /** Compute request offset based on current state. */
+  getOffset: (currentCount: number) => number;
+  /** Combine the current list with the freshly-fetched page. */
+  merge: (current: RunSummary[], fetched: RunSummary[]) => RunSummary[];
+}
+
+const FETCH_FLAVOURS: Record<"initial" | "append" | "refresh", FetchFlavour> = {
+  initial: {
+    getLimit: () => INITIAL_PAGE_LIMIT,
+    getOffset: () => 0,
+    merge: (_current, fetched) => fetched,
+  },
+  append: {
+    bypassCache: true,
+    getLimit: () => LOAD_MORE_PAGE_LIMIT,
+    getOffset: (currentCount) => currentCount,
+    merge: (current, fetched) => [...current, ...fetched],
+  },
+  refresh: {
+    // Preserve list length: if user has loaded 55 runs, refresh fetches
+    // 55 (not 5) so the expanded list isn't truncated by polling.
+    getLimit: (currentCount) => Math.max(currentCount, INITIAL_PAGE_LIMIT),
+    getOffset: () => 0,
+    // The fetched slice IS the new state — server returns newest-first,
+    // so a refresh naturally surfaces new runs at the top and scrolls the
+    // oldest visible run off the window.
+    merge: (_current, fetched) => fetched,
+  },
+};
+
+interface PageData {
+  runs: RunSummary[];
+  total: number;
+  has_more: boolean;
+}
+
+async function _fetchPage(
+  workflowName: string | undefined,
+  limit: number,
+  offset: number,
+): Promise<PageData | null> {
+  const params = new URLSearchParams();
+  if (workflowName) params.set("workflow_name", workflowName);
+  params.set("limit", String(limit));
+  params.set("offset", String(offset));
+  try {
+    const r = await fetchWithAuth(`/api/runs?${params}`);
+    if (!r.ok) {
+      console.error(`fetchRuns: ${r.status} ${r.statusText}`);
+      return null;
+    }
+    return (await r.json()) as PageData;
+  } catch (e) {
+    console.error("fetchRuns failed:", e);
+    return null;
+  }
+}
+
+type StoreSet = (partial: Partial<RunHistoryState> | ((s: RunHistoryState) => Partial<RunHistoryState>)) => void;
+type StoreGet = () => RunHistoryState;
+
+/**
+ * Defensive fallback: server returned 304 to a request that didn't carry
+ * If-Modified-Since (e.g. first fetch, or the cache was wiped between the
+ * conditional check and the response). Should not happen in normal flow,
+ * but we mustn't deadlock the caller — re-fetch unconditionally and cache
+ * the result.
+ */
+async function _fetchRunUnconditional(runId: string, signal?: AbortSignal): Promise<RunRecord | null> {
+  try {
+    const r = await fetchWithAuth(`/api/runs/${runId}`, { signal });
+    if (!r.ok) return null;
+    const run = (await r.json()) as RunRecord;
+    _runCache.set(runId, {
+      run,
+      lastModified: r.headers.get("Last-Modified"),
+    });
+    return run;
+  } catch (e: any) {
+    if (e?.name === "AbortError") return null;
+    return null;
+  }
+}
+
+/**
+ * Cache + in-flight dedup + setState plumbing, shared across the three
+ * public methods. Each call site picks a flavour; the engine decides
+ * whether to short-circuit on cache, await an in-flight request, or
+ * fire a new one.
+ *
+ * The cache entry stores the post-merge `runs` list, so once any flavour
+ * succeeds the cache reflects what's in the store — subsequent cache hits
+ * (within TTL) skip both the network AND setState, which is what keeps
+ * polling cheap.
+ */
+async function _executeFetch(
+  set: StoreSet,
+  get: StoreGet,
+  flavourName: "initial" | "append" | "refresh",
+  workflowName?: string,
+): Promise<void> {
+  const key = runsCacheKey(workflowName);
+  const flavour = FETCH_FLAVOURS[flavourName];
+
+  // Cache check (skipped for loadMore).
+  if (!flavour.bypassCache) {
+    const cached = _runsCache.get(key);
+    if (cached && Date.now() - cached.fetchedAt < FETCH_DEDUP_MS) {
+      return;
+    }
+  }
+
+  // In-flight dedup: don't fire a second request for the same key while
+  // the first is still pending — wait for it, then re-evaluate. The
+  // second caller either hits the now-populated cache (no-op) or proceeds
+  // if the first one failed / cleared the inflight slot.
+  const pending = _inflight.get(key);
+  if (pending) {
+    await pending;
+    // Re-check cache after awaiting — the in-flight request may have just
+    // populated it. Avoids a redundant network call in the common "two
+    // effects fired at once" case.
+    if (!flavour.bypassCache) {
+      const cached = _runsCache.get(key);
+      if (cached && Date.now() - cached.fetchedAt < FETCH_DEDUP_MS) {
+        return;
+      }
+    }
+    // Cache miss after awaiting → fall through and fetch.
+  }
+
+  const promise = (async () => {
+    set({ loading: true });
+    try {
+      const currentCount = get().runs.length;
+      const data = await _fetchPage(
+        workflowName,
+        flavour.getLimit(currentCount),
+        flavour.getOffset(currentCount),
+      );
+      if (!data) {
+        set({ loading: false });
+        return;
+      }
+      const current = get().runs;
+      const merged = flavour.merge(current, data.runs);
+      set({
+        runs: merged,
+        hasMore: data.has_more,
+        totalCount: data.total,
+        loading: false,
+      });
+      _runsCache.set(key, {
+        runs: merged,
+        total: data.total,
+        hasMore: data.has_more,
+        fetchedAt: Date.now(),
+      });
+    } catch (e) {
+      console.error("fetchRuns failed:", e);
+      set({ loading: false });
+    }
+  })();
+
+  _inflight.set(key, promise);
+  try {
+    await promise;
+  } finally {
+    _inflight.delete(key);
+  }
+}
+
+
+
 export const useRunHistoryStore = create<RunHistoryState>()((set, get) => ({
   runs: [],
   loading: false,
@@ -147,88 +375,44 @@ export const useRunHistoryStore = create<RunHistoryState>()((set, get) => ({
   hasMore: false,
   totalCount: 0,
 
-  fetchRuns: async (workflowName?: string, loadMore = false) => {
-    const key = runsCacheKey(workflowName);
-
-    // Cache hit: same key fetched within FETCH_DEDUP_MS and caller isn't
-    // asking for a new page → no-op. We must NOT call set() here, even with
-    // identical values — set() triggers subscriber notifications and, with
-    // inline useShallow selectors that produce a new dict every render,
-    // causes every subscriber to re-render. That re-render can re-trigger
-    // the effect that called fetchRuns, producing an unbounded request
-    // storm (we observed 92 list_runs calls during one workflow run).
-    if (!loadMore) {
-      const cached = _runsCache.get(key);
-      if (cached && Date.now() - cached.fetchedAt < FETCH_DEDUP_MS) {
-        return;
-      }
-    }
-
-    // In-flight dedup: don't fire a second request for the same key while
-    // the first is still pending — wait for it instead.
-    const pending = _inflight.get(key);
-    if (pending) {
-      await pending;
-      return;
-    }
-
-    const promise = (async () => {
-      set({ loading: true });
-      try {
-        const { runs: currentRuns } = get();
-        const offset = loadMore ? currentRuns.length : 0;
-        // Initial page is small (5) so sidebar first paint is snappy; user
-        // expands via "Load more runs" button. Subsequent pages can be larger
-        // since the user has signaled they want history.
-        const limit = loadMore ? 50 : INITIAL_PAGE_LIMIT;
-        const params = new URLSearchParams();
-        if (workflowName) params.set("workflow_name", workflowName);
-        params.set("limit", String(limit));
-        params.set("offset", String(offset));
-        const r = await fetchWithAuth(`/api/runs?${params}`);
-        if (r.ok) {
-          const data = await r.json();
-          const newRuns: RunSummary[] = data.runs;
-          const merged = loadMore ? [...currentRuns, ...newRuns] : newRuns;
-          set({
-            runs: merged,
-            hasMore: data.has_more,
-            totalCount: data.total,
-            loading: false,
-          });
-          // Cache first-page results (loadMore appends; can't cache without
-          // a stable shape, so leave the existing entry alone).
-          if (!loadMore) {
-            _runsCache.set(key, {
-              runs: merged,
-              total: data.total,
-              hasMore: data.has_more,
-              fetchedAt: Date.now(),
-            });
-          }
-        } else {
-          console.error(`fetchRuns: ${r.status} ${r.statusText}`);
-          set({ loading: false });
-        }
-      } catch (e) {
-        console.error("fetchRuns failed:", e);
-        set({ loading: false });
-      }
-    })();
-
-    _inflight.set(key, promise);
-    try {
-      await promise;
-    } finally {
-      _inflight.delete(key);
-    }
-  },
+  /**
+   * Shared engine — see FETCH_FLAVOURS for per-mode strategy. Encapsulates
+   * the cache + in-flight dedup so the three public methods stay tiny and
+   * each mode's intent is self-documenting at the call site.
+   *
+   * Cache hit policy: return WITHOUT calling set(). set() triggers
+   * subscriber notifications; combined with inline useShallow selectors
+   * (which return a fresh dict every render) it caused an unbounded
+   * request loop — observed 92 list_runs calls during one workflow run
+   * before this rule was added.
+   */
+  fetchRuns: (workflowName) => _executeFetch(set, get, "initial", workflowName),
+  loadMoreRuns: (workflowName) => _executeFetch(set, get, "append", workflowName),
+  refreshRuns: (workflowName) => _executeFetch(set, get, "refresh", workflowName),
 
   fetchRun: async (runId: string, signal?: AbortSignal) => {
+    const cached = _runCache.get(runId);
+    const headers: Record<string, string> = {};
+    if (cached?.lastModified) {
+      headers["If-Modified-Since"] = cached.lastModified;
+    }
     try {
-      const r = await fetchWithAuth(`/api/runs/${runId}`, { signal });
-      if (r.status === 304) return null; // caller can keep its cached run
-      if (r.ok) return await r.json();
+      const r = await fetchWithAuth(`/api/runs/${runId}`, { headers, signal });
+      // 304 = server says "your cache is still fresh". The previous code
+      // returned null here, which the click handler treated as failure —
+      // the user clicked but nothing happened. Now we surface the cached
+      // body so the click is responsive.
+      if (r.status === 304) {
+        return cached ? cached.run : _fetchRunUnconditional(runId, signal);
+      }
+      if (r.ok) {
+        const run = (await r.json()) as RunRecord;
+        _runCache.set(runId, {
+          run,
+          lastModified: r.headers.get("Last-Modified"),
+        });
+        return run;
+      }
     } catch (e: any) {
       if (e?.name === "AbortError") return null;
     }

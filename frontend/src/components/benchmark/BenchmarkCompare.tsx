@@ -94,7 +94,7 @@ export default function BenchmarkCompare({ benchmarkName }: Props) {
     if (allDone && !prevAllDoneRef.current) {
       fetchResults();
       // Also refresh run history sidebar once after batch completes
-      useRunHistoryStore.getState().fetchRuns();
+      useRunHistoryStore.getState().refreshRuns();
       // Clear activeBatchId so the sidebar's own fetchRuns effects unblock
       useBatchStore.getState().setActiveBatch(null);
     }

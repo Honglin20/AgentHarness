@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle, XCircle, X, Trash2, Play, RotateCcw, Pause, CheckSquare, Square } from "lucide-react";
-import { useRunHistoryStore, type RunSummary, type RunRecord } from "@/stores/runHistoryStore";
+import { useRunHistoryStore, invalidateRunCache, type RunSummary, type RunRecord } from "@/stores/runHistoryStore";
 import { useViewStore } from "@/stores/viewStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useBatchStore } from "@/stores/batchStore";
@@ -170,7 +170,7 @@ const RunHistoryItem = React.memo(function RunHistoryItem({
 
 export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => void }) {
   const {
-    runs, selectedRunId, fetchRuns, fetchRun, selectRun,
+    runs, selectedRunId, fetchRuns, loadMoreRuns, refreshRuns, fetchRun, selectRun,
     isSelectMode, selectedRunIds, toggleSelectMode, toggleRunSelection,
     clearSelection, hasMore, loading,
   } = useRunHistoryStore(
@@ -179,6 +179,8 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
       loading: s.loading,
       selectedRunId: s.selectedRunId,
       fetchRuns: s.fetchRuns,
+      loadMoreRuns: s.loadMoreRuns,
+      refreshRuns: s.refreshRuns,
       fetchRun: s.fetchRun,
       selectRun: s.selectRun,
       isSelectMode: s.isSelectMode,
@@ -221,6 +223,8 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
 
   // Refresh only on meaningful status transitions (not every node status change).
   // WS events already handle terminal state updates via eventRouter.
+  // Uses refreshRuns (not fetchRuns) so a list the user expanded via
+  // "Load more" is not truncated back to the first page.
   const prevStatusRef = useRef(workflowStatus);
   useEffect(() => {
     if (activeBatchId) return;
@@ -232,17 +236,17 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
     );
     const started = prev !== "running" && workflowStatus === "running";
     if (wentTerminal || started) {
-      fetchRuns();
+      refreshRuns();
     }
-  }, [workflowStatus, activeBatchId, fetchRuns]);
+  }, [workflowStatus, activeBatchId, refreshRuns]);
 
   // Conservative fallback: refresh every 30s in case WS events were missed.
   // This is a safety net, not the primary update mechanism.
   useEffect(() => {
     if (activeBatchId) return;
-    const id = setInterval(() => fetchRuns(), 30_000);
+    const id = setInterval(() => refreshRuns(), 30_000);
     return () => clearInterval(id);
-  }, [activeBatchId, fetchRuns]);
+  }, [activeBatchId, refreshRuns]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, RunSummary[]>();
@@ -287,8 +291,8 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
   const handlePause = useCallback(async (e: React.MouseEvent, runId: string) => {
     e.stopPropagation();
     await pauseWorkflow(runId);
-    await fetchRuns();
-  }, [fetchRuns]);
+    await refreshRuns();
+  }, [refreshRuns]);
 
   const handleResume = useCallback(async (e: React.MouseEvent, runId: string) => {
     e.stopPropagation();
@@ -314,8 +318,8 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
       setActiveWorkflowId(data.workflow_id ?? runId);
       showLive();
     } catch {}
-    await fetchRuns();
-  }, [fetchRun, showLive, fetchRuns]);
+    await refreshRuns();
+  }, [fetchRun, showLive, refreshRuns]);
 
   const handleRerun = useCallback(async (e: React.MouseEvent, runId: string) => {
     e.stopPropagation();
@@ -327,27 +331,31 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
       setWorkflow(data.workflow_id, "", data.dag);
       showLive();
     } catch {}
-    await fetchRuns();
-  }, [setWorkflow, showLive, fetchRuns]);
+    await refreshRuns();
+  }, [setWorkflow, showLive, refreshRuns]);
 
   const handleDeleteRun = useCallback(async (runId: string) => {
     await fetchWithAuth(`/api/runs/${runId}`, { method: "DELETE" });
+    invalidateRunCache(runId);
     setConfirmDeleteId(null);
-    await fetchRuns();
-  }, [fetchRuns]);
+    await refreshRuns();
+  }, [refreshRuns]);
 
   const handleConfirmDelete = useCallback((id: string | null) => {
     setConfirmDeleteId(id);
   }, []);
 
   const handleLoadMore = () => {
-    fetchRuns(undefined, true);
+    loadMoreRuns();
   };
 
   const handleBatchDelete = async () => {
     const ids = Array.from(selectedRunIds);
     if (ids.length === 0) return;
     try {
+      // Invalidate per-run cache for every selected id so the next click
+      // doesn't return a stale (deleted) record from the Last-Modified cache.
+      ids.forEach((id) => invalidateRunCache(id));
       const r = await fetchWithAuth("/api/runs/batch-delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -371,7 +379,7 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
     setConfirmBatchDelete(false);
     clearSelection();
     toggleSelectMode();
-    await fetchRuns();
+    await refreshRuns();
   };
 
   const initialLoading = loading && runs.length === 0;
@@ -439,9 +447,16 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
             {wfName}
           </div>
           {wfRuns.map((run) => {
+            // Highlight the run that's currently being replayed. Both
+            // skeleton and full-replay variants point at the same run id;
+            // skeleton represents the loading phase so the highlight should
+            // appear immediately on click, not after hydration.
+            const replayRunId = activeView.type === "replay" ? activeView.runId
+              : activeView.type === "replay-skeleton" ? activeView.runId
+              : null;
             const isSelected =
               (activeView.type === "live" && run.status === "running" && run.run_id === liveWorkflowId) ||
-              (activeView.type === "replay" && activeView.runId === run.run_id) ||
+              (replayRunId !== null && replayRunId === run.run_id) ||
               selectedRunId === run.run_id;
 
             return (

@@ -13,7 +13,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useViewStore } from "@/stores/viewStore";
+import { useViewStore, isReplayView, getActiveRunId } from "@/stores/viewStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useBatchStore } from "@/stores/batchStore";
 import { WSMethodProvider } from "@/contexts/workflow-context/WorkflowScope";
@@ -37,8 +37,8 @@ function useActiveWorkflowId(): string | null {
   const selectedRunId = useBatchStore((s) => s.selectedRunId);
   const activeBatchId = useBatchStore((s) => s.activeBatchId);
 
-  if (activeView.type === "replay") {
-    return activeView.runId;
+  if (isReplayView(activeView)) {
+    return getActiveRunId(activeView);
   }
 
   if (activeBatchId) {
@@ -51,7 +51,7 @@ function useActiveWorkflowId(): string | null {
 export function WorkflowCenterPanel({ activeBenchmark }: WorkflowCenterPanelProps) {
   const workflowId = useActiveWorkflowId();
   const activeView = useViewStore((s) => s.activeView);
-  const isReplay = activeView.type === "replay";
+  const isReplay = isReplayView(activeView);
 
   // WebSocket managed at this stable level — survives workflow switches.
   // Replay mode skips WS connection (read-only).
