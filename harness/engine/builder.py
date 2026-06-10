@@ -66,14 +66,33 @@ class MacroGraphBuilder:
         # workflow.waiting_for_guidance and awaits this event.
         # When user submits guidance, provide_guidance() sets it.
 
-        # Register event-bus-dependent tools when event_bus is available
+        # Defensive fallback registration for event-bus-dependent tools.
+        # default_tool_registry(event_bus=...) already registers these with
+        # correct tiers; this block covers callers that pass a bare registry.
+        # See harness/tools/registry.py:ToolTier for the tier model.
         if event_bus:
+            from harness.tools.registry import ToolTier
+            if "todo" not in self.tool_registry.list_tools():
+                from harness.tools.todo import TodoToolFactory
+                self.tool_registry.register(
+                    "todo",
+                    TodoToolFactory(event_bus=event_bus),
+                    tier=ToolTier.FORCED,
+                )
             if "ask_user" not in self.tool_registry.list_tools():
                 from harness.tools.ask_user import AskUserToolFactory
-                self.tool_registry.register("ask_user", AskUserToolFactory(event_bus=event_bus))
+                self.tool_registry.register(
+                    "ask_user",
+                    AskUserToolFactory(event_bus=event_bus),
+                    tier=ToolTier.DEFAULT,
+                )
             if "render_chart" not in self.tool_registry.list_tools():
                 from harness.tools.chart import RenderChartToolFactory
-                self.tool_registry.register("render_chart", RenderChartToolFactory(event_bus=event_bus))
+                self.tool_registry.register(
+                    "render_chart",
+                    RenderChartToolFactory(event_bus=event_bus),
+                    tier=ToolTier.EXPLICIT,
+                )
 
         self.micro_factory = MicroAgentFactory(tool_registry=self.tool_registry)
 

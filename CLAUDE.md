@@ -154,9 +154,28 @@ benchmarks/                     # Benchmark 评测定义 + 结果
 >
 > **历史教训**：曾有判断"项目没有 read_text_file" → 错。read_text_file 由 filesystem MCP 提供，agent 默认可用，只是不在 `harness/tools/` 里。设计 bash 截断时直接利用它（bash 写文件 → agent 调 `read_text_file` 按需读），不要新建工具。
 
-### 工具可用性约定
-- 内置工具：默认注册，但**单个 agent 是否能调用**取决于 `workflow.json` 里该 agent 的 `tools` 列表（不写 = 全部可用；写了 = 白名单）
-- MCP 工具：默认所有 agent 都可用，除非 `workflow.json` 里 `tools` 白名单未包含
+### 工具可用性约定（3 层分级模型）
+
+工具按 `ToolTier`（`harness/tools/registry.py`）分 3 层：
+
+| Tier | 行为 | 当前工具 |
+|---|---|---|
+| **FORCED** | 始终注入到每个 agent 的工具列表，写白名单也会强制加上；只有 `exclude=[...]` 才能去掉 | `todo` |
+| **DEFAULT** | `tools=None`（默认）时自动加载；agent 写 `tools=[...]` 白名单时被替换 | `bash` `grep` `glob` `sub_agent` `ask_user` + filesystem MCP ×10 |
+| **EXPLICIT** | 不会自动加载，agent 必须在 `tools=[...]` 显式列入（或用 glob 如 `codegraph_*`） | `render_chart` + codegraph MCP ×10 |
+
+**典型场景**：
+- `tools` 字段缺省 → 自动获得 FORCED + DEFAULT（共 15 个）
+- `tools=["bash"]` → bash + todo（FORCED 强制注入）
+- `tools=["bash"], exclude=["todo"]` → 只有 bash（强制层也能 exclude）
+- `tools=["codegraph_search"]` → codegraph_search + todo（用户显式列 + 强制注入）
+
+**判断工具分级的指引**：
+- 是否框架级硬要求（有 reminder 强制注入 / description 强制行为）→ FORCED
+- 是否绝大多数 agent 都需要（基础设施 / 文件操作 / 通用查询）→ DEFAULT
+- 是否高成本或场景化（启动慢 / 占资源 / 仅特定 agent 类型用）→ EXPLICIT
+
+> **历史教训**：曾有判断"项目没有 read_text_file" → 错。read_text_file 由 filesystem MCP 提供，DEFAULT tier 自动加载，agent 默认可用，只是不在 `harness/tools/` 里。
 
 ---
 
