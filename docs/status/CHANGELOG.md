@@ -2,6 +2,58 @@
 
 ---
 
+## 2026-06-10 TODO step gate + Replay 修复 + Snapshot-first hydration
+
+**Commits:** `a3c4c1b` `238e223` `a09da7b` `16da809` `bacb592` `1583020` `9e69640` `8cd2efe` `22dc2b3` `1dcdb29` `19aa718` `86ec5c1`
+
+### TODO step gate + 联动
+- **新增** `harness/engine/step_gate.py` — output_validator 注入到 pydantic-ai，验证 agent 输出是否满足 todo 约束（in_progress step 有对应输出段）
+- **修改** `harness/tools/todo.py` — 新增 `complete_remaining` / `replace` 操作；step 联动：complete/complete_remaining 自动 advance next step
+- **修改** `harness/engine/micro_agent.py` — 自动注入 step_gate output_validator
+- **修改** 前端 todo event handler — `todo.updated` 事件驱动自动 advance + step 联动渲染
+- **修改** ask_user 渲染 — 默认展开，options 按钮样式优化
+
+### P0: Replay 数据累加 + 虚拟化修复
+- **修复** viewStore: showReplay 在 set(activeView) 之前调用 resetAllStores — replay 数据不再被后续 reset 清空
+- **修复** isReplayView() 覆盖 replay-skeleton 类型 — skeleton 阶段正确显示
+- **修复** StepRow 固定高度（36/400/600px）消除 ResizeObserver 级联 — 虚拟化列表无重叠
+- **修复** Step inline expand（600px cap，单步展开）— 展开一个自动收起其他
+- **修复** showLive() 离开 replay 时 reset scoped stores — 防止跨 run 数据泄漏
+
+### P1: Per-step token 归属
+- **新增** `accumulateStepTokens()` — delta-based token 累积到 TodoStep.tokenUsage
+- **修改** `agent.usage_update` handler — 计算累计 delta，归属到 active step
+- **修改** StepRow — 折叠态显示 token badge（`formatStepTokens` 紧凑格式）
+- **修复** delta 用 `total_tokens` 替代 `input + output`（避免缓存 token 双计）
+- **修复** delta components 用 `Math.max(0, ...)` 防止 retry reset 导致负值
+
+### P2-R8: stepExpanded 持久化
+- **新增** stepExpanded 状态持久化到 sessionStorage（scoped by workflowId）
+- 页面刷新后保持 step 展开状态
+
+### P2-R345 Phase 1: Snapshot-first hydration
+- **修改** `decideStrategy()` — 放宽条件：agent_io 非必需，conversation + dag + trace 即走 persisted 快路径
+- **新增** `MacroGraphBuilder.todo_states` — 节点执行后从 deps 快照 todo steps（复刻 agent_io 模式）
+- **新增** `_collect_todo_state()` — node_factory 中 3 个 exit path + except path 均收集
+- **修改** `server/runner.py` — 从 builder.todo_states 读取（替代已损坏的 deps 迭代）
+- **修改** `incremental_save.py` — 增量持久化写入 todo_steps
+- **修改** RunRecord 类型 — 新增 `todo_steps?` 字段
+- **修改** PersistedRunData 类型 — 新增 `todo_steps?` 字段
+- **修改** `loadRunFromPersistedData` — snapshot-first: 优先从 run.todo_steps 直接 setState，fallback 到 events 回放
+- **修改** `_persisted_run_detail()` — API 响应包含 todo_steps
+- **修复** P0 bug: runner.py 使用不存在的 `builder.agents` 和永远返回 None 的 `getattr(agent, "deps")`
+- **修复** `(run as any).todo_steps` 类型断言 → 使用正确的 PersistedRunData 类型字段
+
+### runHistoryStore 重构
+- **重构** fetchRuns/loadMoreRuns/refreshRuns — 三种 fetch flavor 共享 engine，cache + in-flight dedup
+- **重构** fetchRun — 304 If-Modified-Since 支持 + per-run cache
+- **提取** hydration module — `hydrateReplay.ts`（decideStrategy / loadSidecars / applyHydration）
+
+### 已知限制
+- Per-step tokenUsage 不持久化（前端 delta 累积，刷新后丢失；node-level token 正确）
+
+---
+
 ## 2026-05-31 Grep/Glob 内置工具
 
 ### 新增工具
