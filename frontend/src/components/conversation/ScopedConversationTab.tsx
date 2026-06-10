@@ -400,14 +400,17 @@ const StepRow = React.memo(function StepRow({
         }`}>
           {label || "(empty step)"}
         </span>
-        {formatStepTokens(step.tokenUsage) && (
-          <span
-            className="shrink-0 text-[10px] text-amber-600/70 tabular-nums"
-            title={`${step.tokenUsage!.input} in / ${step.tokenUsage!.output} out`}
-          >
-            {formatStepTokens(step.tokenUsage)}
-          </span>
-        )}
+        {(() => {
+          const tok = formatStepTokens(step.tokenUsage);
+          return tok ? (
+            <span
+              className="shrink-0 text-[10px] text-amber-600/70 tabular-nums"
+              title={`${step.tokenUsage!.input} in / ${step.tokenUsage!.output} out`}
+            >
+              {tok}
+            </span>
+          ) : null;
+        })()}
         {step.detail && !showDetails && (
           <span className="truncate text-[10px] text-muted-foreground/60" title={step.detail}>
             {step.detail}

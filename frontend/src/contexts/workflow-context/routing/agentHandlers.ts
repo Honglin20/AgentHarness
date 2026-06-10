@@ -161,13 +161,13 @@ export const agentHandlers: [string, EventHandler][] = [
       // Per-step token attribution: compute delta from previous cumulative,
       // attribute to the active step (currentStepIdByNode).
       const prevUsage = stores.workflow.getState().nodes[p.node_id]?.tokenUsage;
-      const newTotal = p.input_tokens + p.output_tokens;
+      const newTotal = p.total_tokens;
       const prevTotal = prevUsage?.total ?? 0;
 
       if (newTotal > prevTotal) {
         const delta = {
-          input: p.input_tokens - (prevUsage?.input ?? 0),
-          output: p.output_tokens - (prevUsage?.output ?? 0),
+          input: Math.max(0, p.input_tokens - (prevUsage?.input ?? 0)),
+          output: Math.max(0, p.output_tokens - (prevUsage?.output ?? 0)),
           total: newTotal - prevTotal,
         };
         const activeStepId = stores.conversation.getState().currentStepIdByNode[p.node_id];
