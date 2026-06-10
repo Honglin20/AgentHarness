@@ -3,6 +3,7 @@
  */
 
 import type { EventHandler } from "./types";
+import { accumulateStepTokens } from "../workflowStores";
 import type {
   AgentTextDeltaPayload,
   AgentToolCallPayload,
@@ -153,13 +154,28 @@ export const agentHandlers: [string, EventHandler][] = [
   [
     "agent.usage_update",
     (stores, event, _ctx) => {
-      // Per-LLM-request usage snapshot — drives BudgetBar's "Requests" bar.
-      // High-frequency, normal priority. Just store the latest count.
-      // Workflow filter: see agent.retry_attempted above — only update the
-      // active workflow's nodes (avoid polluting other scoped stores).
       const p = payload<AgentUsageUpdatePayload>(event);
       const currentWid = stores.workflow.getState().workflowId;
       if (currentWid && p.workflow_id !== currentWid) return;
+
+      // Per-step token attribution: compute delta from previous cumulative,
+      // attribute to the active step (currentStepIdByNode).
+      const prevUsage = stores.workflow.getState().nodes[p.node_id]?.tokenUsage;
+      const newTotal = p.input_tokens + p.output_tokens;
+      const prevTotal = prevUsage?.total ?? 0;
+
+      if (newTotal > prevTotal) {
+        const delta = {
+          input: p.input_tokens - (prevUsage?.input ?? 0),
+          output: p.output_tokens - (prevUsage?.output ?? 0),
+          total: newTotal - prevTotal,
+        };
+        const activeStepId = stores.conversation.getState().currentStepIdByNode[p.node_id];
+        if (activeStepId) {
+          accumulateStepTokens(stores.todo, p.node_id, activeStepId, delta);
+        }
+      }
+
       stores.workflow.getState().setNodeUsage(
         p.node_id, p.requests, p.input_tokens, p.output_tokens,
       );

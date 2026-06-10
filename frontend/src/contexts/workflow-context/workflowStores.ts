@@ -17,6 +17,7 @@ export {
   handleTodoUpdated,
   handleTodoBulkCompleted,
   handleTodoReplaced,
+  accumulateStepTokens,
   createWorkflowStores,
   getMessageCounter,
 } from "./stores/index";

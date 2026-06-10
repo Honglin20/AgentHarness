@@ -27,6 +27,7 @@ import {
   handleTodoUpdated,
   handleTodoBulkCompleted,
   handleTodoReplaced,
+  accumulateStepTokens,
 } from "./todo";
 
 // Re-export all imports
@@ -44,6 +45,7 @@ export {
   handleTodoUpdated,
   handleTodoBulkCompleted,
   handleTodoReplaced,
+  accumulateStepTokens,
 };
 
 // Re-export types

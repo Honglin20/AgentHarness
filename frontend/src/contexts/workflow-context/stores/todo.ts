@@ -17,6 +17,8 @@ export interface TodoStep {
   activeForm: string;
   status: TodoStepStatus;
   detail: string | null;
+  /** Per-step token accumulation, attributed from agent.usage_update deltas. */
+  tokenUsage?: { input: number; output: number; total: number };
 }
 
 export interface TodoState {
@@ -149,6 +151,37 @@ export function handleTodoReplaced(
         [nodeId]: newSteps,
       },
     };
+  });
+}
+
+/**
+ * Attribute a token delta to a specific step. Called from the agent.usage_update
+ * handler after computing the delta between consecutive cumulative totals.
+ */
+export function accumulateStepTokens(
+  store: StoreApi<TodoState>,
+  nodeId: string,
+  taskId: string,
+  delta: { input: number; output: number; total: number },
+): void {
+  store.setState((state) => {
+    const steps = state.todos[nodeId];
+    if (!steps) return state;
+    const updated = steps.map((s) => {
+      if (s.taskId !== taskId) return s;
+      const prev = s.tokenUsage;
+      return {
+        ...s,
+        tokenUsage: prev
+          ? {
+              input: prev.input + delta.input,
+              output: prev.output + delta.output,
+              total: prev.total + delta.total,
+            }
+          : { ...delta },
+      };
+    });
+    return { todos: { ...state.todos, [nodeId]: updated } };
   });
 }
 
