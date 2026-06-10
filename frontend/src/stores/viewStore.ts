@@ -1,16 +1,65 @@
 import { create } from "zustand";
 import type { RunRecord } from "./runHistoryStore";
-import type { WSEvent } from "@/types/events";
 import { useAgentIOStore } from "./agentIOStore";
-import { useRunHistoryStore } from "./runHistoryStore";
 import { getWorkflowManager } from "@/contexts/workflow-context/WorkflowManager";
-import { replayEventsToStores, loadLegacyRunData, loadRunFromPersistedData } from "@/contexts/workflow-context/replayEvents";
+import { resetAllStores } from "@/contexts/workflow-context/routing/utils";
+import {
+  applyHydration,
+  decideStrategy,
+  loadSidecars,
+  type SidecarData,
+} from "./hydration/hydrateReplay";
 
 let _replaySeq = 0;
 
+/**
+ * The currently-active center panel view.
+ *
+ * Three variants — kept as a discriminated union so consumers must narrow
+ * before accessing run-specific fields. Previously `beginReplay` produced
+ * a partial `{ run_id, workflow_name } as RunRecord` which lied to the
+ * type system; the skeleton variant makes that "we know the run id and
+ * name but not the full record yet" state explicit and type-safe.
+ */
 export type ActiveView =
   | { type: "live" }
+  | {
+      type: "replay-skeleton";
+      runId: string;
+      /** Workflow name from the sidebar entry — enough for header / breadcrumb rendering. */
+      workflowName: string;
+    }
   | { type: "replay"; runId: string; run: RunRecord };
+
+/** True for both skeleton and full replay — anything that isn't "live". */
+export function isReplayView(view: ActiveView): boolean {
+  return view.type === "replay" || view.type === "replay-skeleton";
+}
+
+/** The run id when replaying (skeleton or full), else null. */
+export function getActiveRunId(view: ActiveView): string | null {
+  return view.type === "live" ? null : view.runId;
+}
+
+/**
+ * Workflow name when replaying. Skeleton has it directly; full replay
+ * reads from the run record. Returns null for live view.
+ */
+export function getActiveWorkflowName(view: ActiveView): string | null {
+  if (view.type === "live") return null;
+  if (view.type === "replay-skeleton") return view.workflowName;
+  return view.run.workflow_name;
+}
+
+/**
+ * The full RunRecord, only available after `showReplay` has hydrated.
+ * Returns null for skeleton and live. Use this when the consumer needs
+ * `agents_snapshot` / `result` / `dag` / etc — those fields don't exist
+ * on the skeleton.
+ */
+export function getActiveRun(view: ActiveView): RunRecord | null {
+  return view.type === "replay" ? view.run : null;
+}
 
 interface ViewState {
   activeView: ActiveView;
@@ -33,13 +82,10 @@ export const useViewStore = create<ViewState>()((set, get) => ({
   chartsLoading: false,
   showLive: () => set({ activeView: { type: "live" } }),
   beginReplay: (runId, workflowName) => set({
-    // Minimal run record — only the fields the UI needs to render header /
-    // breadcrumb. Full record arrives via showReplay after fetchRun.
-    activeView: {
-      type: "replay",
-      runId,
-      run: { run_id: runId, workflow_name: workflowName } as RunRecord,
-    },
+    // Skeleton view — we know the run id and workflow name (from the
+    // sidebar entry) but haven't fetched the full record yet. The UI
+    // renders a loading skeleton while showReplay hydrates.
+    activeView: { type: "replay-skeleton", runId, workflowName },
     chartsLoading: true,
   }),
   showReplay: (run) => {
@@ -48,78 +94,55 @@ export const useViewStore = create<ViewState>()((set, get) => ({
     // Clear stale global agentIO data from previous runs
     useAgentIOStore.getState().reset();
 
-    // Ensure scoped stores exist for this workflow
+    // Ensure scoped stores exist for this workflow, then RESET them
+    // synchronously BEFORE the UI switches. Without this, the previous
+    // run's conversation/workflow/etc data leaks into the new run during
+    // the async hydration window (loadSidecars → applyHydration runs
+    // after the set() below). P0-A fix.
     const manager = getWorkflowManager();
-    manager.getOrCreate(run.run_id);
+    const scoped = manager.getOrCreate(run.run_id);
+    resetAllStores(scoped.stores);
 
-    // Switch active view immediately if caller hasn't already (e.g. URL
-    // direct open). If beginReplay was called first, activeView is already
-    // on this run and we just bump chartsLoading to keep skeleton showing.
-    const current = get().activeView;
-    if (current.type !== "replay" || current.runId !== run.run_id) {
-      set({
-        activeView: { type: "replay", runId: run.run_id, run },
-        chartsLoading: true,
-      });
-    } else {
-      set({ chartsLoading: true });
-    }
+    // Promote skeleton → full replay immediately. The UI switches off the
+    // skeleton placeholder as soon as the run record is in hand; lazy
+    // sidecar hydration continues in the background and the final
+    // setState (with merged data) lands when it completes.
+    set({
+      activeView: { type: "replay", runId: run.run_id, run },
+      chartsLoading: true,
+    });
 
-    const doReplay = (
-      chartGroups: RunRecord["chart_groups"],
-      eventsData: RunRecord["events"],
-      conversationData: RunRecord["conversation"] | null,
-    ) => {
-      if (seq !== _replaySeq) return;
-      const wsEvents = eventsData as WSEvent[] | undefined;
-      const conv = conversationData ?? run.conversation ?? [];
-      // PRIMARY: direct data restoration (not affected by buffer overflow)
-      const hasPersistedData = run.agent_io && conv && run.dag && run.result?.trace;
-      const merged = { ...run, chart_groups: chartGroups, conversation: conv };
-      if (hasPersistedData) {
-        loadRunFromPersistedData(run.run_id, merged, wsEvents);
-      }
-      // FALLBACK 1: event replay (runs with events but incomplete data)
-      else if (wsEvents && wsEvents.length > 0) {
-        replayEventsToStores(run.run_id, wsEvents);
-      }
-      // FALLBACK 2: legacy runs without events
-      else {
-        loadLegacyRunData(
-          run.run_id,
-          conv,
-          chartGroups,
-          run.dag,
-          run.workflow_name,
-          run.result,
-        );
-      }
-      set({
-        activeView: { type: "replay", runId: run.run_id, run: { ...merged, events: eventsData ?? undefined } },
-        chartsLoading: false,
-      });
-    };
-
-    // Load charts/events/conversation lazily if sidecar data exists.
-    // Conversation was split out of the main /runs/{id} response to keep
-    // switching snappy on long workflows — see server/_helpers.py.
-    const needsLazyLoadCharts = (run._has_charts || run._has_events) && !run.chart_groups && !run.events;
-    const needsLazyLoadConv = run._has_conversation && (!run.conversation || run.conversation.length === 0);
-    if (needsLazyLoadCharts || needsLazyLoadConv) {
-      const store = useRunHistoryStore.getState();
-      Promise.all([
-        needsLazyLoadCharts && run._has_charts ? store.fetchRunCharts(run.run_id) : Promise.resolve(run.chart_groups ?? null),
-        needsLazyLoadCharts && run._has_events ? store.fetchRunEvents(run.run_id) : Promise.resolve(run.events ?? null),
-        needsLazyLoadConv ? store.fetchRunConversation(run.run_id) : Promise.resolve(run.conversation ?? null),
-      ]).then(([charts, events, conv]) => {
+    // Hydration pipeline (see stores/hydration/hydrateReplay.ts):
+    //   loadSidecars → decideStrategy → applyHydration
+    // The seq guard at each await point discards stale results if a newer
+    // showReplay call supersedes this one.
+    loadSidecars(run)
+      .then((sidecars: SidecarData) => {
         if (seq !== _replaySeq) return;
-        doReplay(charts, events ?? undefined, conv);
-      }).catch(() => {
+        const strategy = decideStrategy(run, sidecars);
+        const merged = applyHydration(run.run_id, run, sidecars, strategy);
         if (seq !== _replaySeq) return;
-        doReplay(null, undefined, null);
+        set({
+          activeView: { type: "replay", runId: run.run_id, run: merged },
+          chartsLoading: false,
+        });
+      })
+      .catch(() => {
+        // Sidecar load or hydration threw — fall back to whatever we have
+        // inline. Don't leave the UI stuck on the skeleton forever.
+        if (seq !== _replaySeq) return;
+        const fallbackSidecars: SidecarData = {
+          charts: run.chart_groups ?? null,
+          events: run.events,
+          conversation: run.conversation ?? null,
+        };
+        const strategy = decideStrategy(run, fallbackSidecars);
+        const merged = applyHydration(run.run_id, run, fallbackSidecars, strategy);
+        if (seq !== _replaySeq) return;
+        set({
+          activeView: { type: "replay", runId: run.run_id, run: merged },
+          chartsLoading: false,
+        });
       });
-    } else {
-      doReplay(run.chart_groups ?? null, run.events ?? undefined as RunRecord["events"], run.conversation ?? null);
-    }
   },
 }));

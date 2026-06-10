@@ -89,7 +89,10 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
   const batchRunning = activeBatchId !== null;
   const portalView = usePortalStore((s) => s.portalView);
 
-  const isReplay = isReplayProp ?? activeView.type === "replay";
+  // Use isReplayView (covers both "replay" and "replay-skeleton"). Without
+  // this, clicking a history entry while in the live view shows the idle
+  // landing page for the brief skeleton phase before hydration completes.
+  const isReplay = isReplayProp ?? isReplayView(activeView);
   const isIdle = !isReplay && status === "idle" && nodeCount === 0;
   const effectiveWorkflowName = workflowName ?? ((selectedTemplate as any)?.name as string | undefined);
 
