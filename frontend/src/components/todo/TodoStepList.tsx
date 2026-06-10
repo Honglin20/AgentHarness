@@ -13,6 +13,7 @@ const STATUS_ICONS: Record<TodoStep["status"], { symbol: string; className: stri
   pending: { symbol: "⬜", className: "text-gray-400" },
   in_progress: { symbol: "🔵", className: "text-blue-500 todo-pulse" },
   completed: { symbol: "✅", className: "text-green-500" },
+  interrupted: { symbol: "⏸", className: "text-amber-500" },
 };
 
 export default function TodoStepList({ nodeId, todoStore }: TodoStepListProps) {

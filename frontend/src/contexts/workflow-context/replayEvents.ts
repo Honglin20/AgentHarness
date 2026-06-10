@@ -19,7 +19,11 @@ import { computeRunSummary } from "@/lib/summary/runSummary";
 import { getWorkflowManager } from "./WorkflowManager";
 import { getToolCallCounter } from "./workflowStores";
 import { routeEvent, resetAllStores } from "./routeEvent";
-import { handleTodoCreated, handleTodoUpdated } from "./stores/todo";
+import {
+  handleTodoCreated,
+  handleTodoUpdated,
+  forceTerminalSteps,
+} from "./stores/todo";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -382,6 +386,22 @@ export function loadRunFromPersistedData(
         );
       }
     }
+  }
+
+  // -- 7.6. Force-terminal in_progress steps ------------------------------
+  //
+  // If the workflow is already finished (we're loading from a persisted
+  // run, not a live one) but some steps are still in_progress in the
+  // replayed state, force them to a terminal status. Without this, the
+  // UI shows a perpetual ▶ icon and spinner on those steps after refresh.
+  const workflowHadError = !!run.result?.errors &&
+    Object.values(run.result.errors).some((e) => !!e);
+  const finalStatus: "completed" | "interrupted" = workflowHadError
+    ? "interrupted"
+    : "completed";
+  const todoState = stores.todo.getState();
+  for (const nodeId of Object.keys(todoState.todos)) {
+    forceTerminalSteps(stores.todo, nodeId, finalStatus);
   }
 
   // -- 8.5. followup sessions ---------------------------------------------

@@ -2,11 +2,13 @@ import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
 import type { TodoStepItem, TodoAutoAdvance } from "@/types/events";
 
+export type TodoStepStatus = "pending" | "in_progress" | "completed" | "interrupted";
+
 export interface TodoStep {
   taskId: string;
   content: string;
   activeForm: string;
-  status: "pending" | "in_progress" | "completed";
+  status: TodoStepStatus;
   detail: string | null;
 }
 
@@ -78,6 +80,34 @@ export function handleTodoUpdated(
       return s;
     });
 
+    return {
+      todos: { ...state.todos, [nodeId]: updated },
+    };
+  });
+}
+
+/**
+ * Force all in_progress steps for a node to a terminal status. Used during
+ * hydration when the workflow is already finished but the persisted todo
+ * events show some steps stuck in_progress (workflow was killed mid-step,
+ * or trailing todo.updated events weren't captured in the buffer).
+ *
+ * Without this, the UI shows a perpetual spinner on those steps after a
+ * page refresh.
+ */
+export function forceTerminalSteps(
+  store: StoreApi<TodoState>,
+  nodeId: string,
+  finalStatus: "completed" | "interrupted",
+): void {
+  store.setState((state) => {
+    const steps = state.todos[nodeId];
+    if (!steps) return state;
+    const hasInProgress = steps.some((s) => s.status === "in_progress");
+    if (!hasInProgress) return state;
+    const updated = steps.map((s) =>
+      s.status === "in_progress" ? { ...s, status: finalStatus } : s,
+    );
     return {
       todos: { ...state.todos, [nodeId]: updated },
     };

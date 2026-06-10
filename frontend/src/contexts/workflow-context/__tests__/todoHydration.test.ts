@@ -74,3 +74,77 @@ describe("loadRunFromPersistedData — todoStore hydration", () => {
     expect(Object.keys(todos)).toHaveLength(0);
   });
 });
+
+describe("forceTerminalSteps via loadRunFromPersistedData", () => {
+  beforeEach(() => {
+    getWorkflowManager().reset();
+  });
+
+  it("marks in_progress steps as completed when workflow succeeded", () => {
+    const workflowId = "test-wf-3";
+    const run = {
+      conversation: [],
+      dag: { nodes: ["agent1"], edges: [] },
+      result: {
+        outputs: {},
+        errors: {},  // ← no errors
+        trace: [
+          { agent_name: "agent1", status: "success", duration_ms: 100, error: null },
+        ],
+      },
+      chart_groups: null,
+    } as any;
+    const events = [
+      {
+        type: "todo.created",
+        payload: {
+          workflow_id: workflowId,
+          node_id: "agent1",
+          items: [
+            { task_id: "t1", content: "Done", active_form: "", status: "completed", detail: null },
+            { task_id: "t2", content: "Killed mid-step", active_form: "Working", status: "in_progress", detail: null },
+          ],
+        },
+      },
+      // No todo.updated for t2 — workflow was killed mid-step
+    ] as any[];
+
+    loadRunFromPersistedData(workflowId, run, events);
+
+    const todos = getWorkflowManager().getStores(workflowId)!.todo.getState().todos;
+    expect(todos["agent1"][1].status).toBe("completed");
+  });
+
+  it("marks in_progress steps as interrupted when workflow errored", () => {
+    const workflowId = "test-wf-4";
+    const run = {
+      conversation: [],
+      dag: { nodes: ["agent1"], edges: [] },
+      result: {
+        outputs: {},
+        errors: { agent1: "Boom" },  // ← has errors
+        trace: [
+          { agent_name: "agent1", status: "failed", duration_ms: 100, error: "Boom" },
+        ],
+      },
+      chart_groups: null,
+    } as any;
+    const events = [
+      {
+        type: "todo.created",
+        payload: {
+          workflow_id: workflowId,
+          node_id: "agent1",
+          items: [
+            { task_id: "t1", content: "Working", active_form: "Doing", status: "in_progress", detail: null },
+          ],
+        },
+      },
+    ] as any[];
+
+    loadRunFromPersistedData(workflowId, run, events);
+
+    const todos = getWorkflowManager().getStores(workflowId)!.todo.getState().todos;
+    expect(todos["agent1"][0].status).toBe("interrupted");
+  });
+});
