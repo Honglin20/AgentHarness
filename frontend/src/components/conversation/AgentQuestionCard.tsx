@@ -11,6 +11,16 @@ import type { ConversationMessage, QuestionOption } from "@/stores/conversationS
 interface AgentQuestionCardProps {
   message: ConversationMessage;
   onSubmit: (answer: { selected: string[]; customInput: string }) => void;
+  /**
+   * Compact read-only rendering. When true, the card shows only the
+   * header row (icon + agent + question first line + status badge) and
+   * skips interactive controls, full options, and the answer detail
+   * block. Defaults to "auto" — collapsed when the question is no
+   * longer pending (answered / timeout / interrupted), expanded while
+   * the user can still act on it. Callers may pass an explicit boolean
+   * to override.
+   */
+  collapsed?: boolean | "auto";
 }
 
 function optionValue(opt: QuestionOption): string {
@@ -31,7 +41,7 @@ function answerSummary(
   return left || answer.customInput;
 }
 
-export const AgentQuestionCard = React.memo(function AgentQuestionCard({ message, onSubmit }: AgentQuestionCardProps) {
+export const AgentQuestionCard = React.memo(function AgentQuestionCard({ message, onSubmit, collapsed = "auto" }: AgentQuestionCardProps) {
   const {
     questionOptions: options,
     questionMultiSelect: multiSelect = false,
@@ -91,6 +101,36 @@ export const AgentQuestionCard = React.memo(function AgentQuestionCard({ message
     ? "border-muted-foreground/30 bg-muted/30"
     : "border-amber-500/50 bg-amber-500/5";
 
+  // Compact mode = explicit `true` OR auto + non-pending. Renders a single
+  // line (icon + first line of question + trailing status / answer summary)
+  // and skips the full options / custom input / detail blocks.
+  const isCompact = collapsed === true || (collapsed === "auto" && !isPending);
+
+  if (isCompact) {
+    const firstLine = (question ?? "").split("\n").find((l) => l.trim()) ?? "(empty question)";
+    const tail = isAnswered && questionAnswer
+      ? `→ ${answerSummary(options, questionAnswer) || "(空)"}`
+      : isTimeout
+      ? "→ 已超时"
+      : isInterrupted
+      ? "→ 未回答"
+      : "";
+    return (
+      <div className={cn("rounded-xl border-l-4 px-3 py-1.5", accent)}>
+        <div className="flex items-center gap-2 text-xs">
+          <Icon
+            className={cn(
+              "h-3.5 w-3.5 shrink-0",
+              isAnswered ? "text-emerald-500" : isTimeout ? "text-muted-foreground" : "text-amber-500",
+            )}
+          />
+          <span className="min-w-0 flex-1 truncate font-medium">{firstLine}</span>
+          {tail && <span className="shrink-0 text-muted-foreground">{tail}</span>}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={cn("rounded-xl border-l-4 p-4", accent)}>
       <div className="mb-2 flex items-start gap-3">
@@ -124,7 +164,9 @@ export const AgentQuestionCard = React.memo(function AgentQuestionCard({ message
         </div>
       )}
 
-      {/* Pending state — interactive controls */}
+      {/* Pending state — interactive controls. Below the early compact-mode
+       * return, we only get here when collapsed is false or auto+pending,
+       * so the original `!collapsed` guard is implied. */}
       {isPending && (
         <div className="ml-7 space-y-3">
           {hasOptions && (

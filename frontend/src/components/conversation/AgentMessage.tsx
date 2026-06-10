@@ -145,13 +145,22 @@ export function ThinkingBlock({ text, streaming }: { text: string; streaming: bo
 
 type IOTab = "input" | "output";
 
+/** Shared so callers (e.g. ScopedConversationTab.NodeBlockCard) can pass
+ *  these through to AgentNodeHeader without redeclaring the shape. */
+export type AgentNodeGetAgentIO = (nodeId: string) =>
+  | { inputPrompt?: string; outputResult?: unknown; systemPrompt?: string }
+  | undefined;
+export type AgentNodeGetNodeState = (nodeId: string) =>
+  | { tokenUsage?: { input: number; output: number; total: number }; tools?: ToolBrief[]; model?: string }
+  | undefined;
+
 interface AgentNodeHeaderProps {
   message: ConversationMessage;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
   sectionItemCount?: number;
-  getAgentIO?: (nodeId: string) => { inputPrompt?: string; outputResult?: unknown; systemPrompt?: string } | undefined;
-  getNodeState?: (nodeId: string) => { tokenUsage?: { input: number; output: number; total: number }; tools?: ToolBrief[]; model?: string } | undefined;
+  getAgentIO?: AgentNodeGetAgentIO;
+  getNodeState?: AgentNodeGetNodeState;
 }
 
 // ---------------------------------------------------------------------------
@@ -312,7 +321,9 @@ export function AgentNodeHeader({
 
 // ---------------------------------------------------------------------------
 // AgentMessage — backward-compatible: header + content
-// Used by ConversationTab (non-scoped).
+// Used by callers that render a single agent message outside a NodeBlock
+// (e.g. legacy / non-scoped contexts). ScopedConversationTab uses the
+// internal NodeBlockCard + AgentMsgItem path instead.
 // ---------------------------------------------------------------------------
 
 interface AgentMessageProps {

@@ -9,13 +9,12 @@
 
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { fetchWithAuth } from "@/lib/api";
-import { useViewStore } from "@/stores/viewStore";
+import { useViewStore, getActiveWorkflowName, isReplayView } from "@/stores/viewStore";
 import { useBatchStore } from "@/stores/batchStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { ScopedConversationTab } from "@/components/conversation/ScopedConversationTab";
 import { ScopedResultsTab } from "@/components/results/ScopedResultsTab";
 import { ScopedAnalysisTab } from "@/components/analysis/ScopedAnalysisTab";
-import { ScopedOutlineTab } from "@/components/conversation/ScopedOutlineTab";
 import ChatInput from "@/components/chat/ChatInput";
 import { DAGPreview } from "@/components/dag/DAGPreview";
 import { AgentEditorModal } from "@/components/agent/AgentEditorModal";
@@ -50,7 +49,7 @@ import { useWorkflowLaunch } from "@/hooks/useWorkflowLaunch";
 import { TabBar } from "@/components/center-panel/TabBar";
 import { BenchmarkView } from "@/components/center-panel/BenchmarkView";
 
-type Tab = "outline" | "conversation" | "results" | "analysis";
+type Tab = "conversation" | "results" | "analysis";
 
 interface Props {
   activeBenchmark?: string | null;
@@ -244,7 +243,6 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
       {showTabs && (
         <TabBar
           tabs={[
-            { key: "outline", label: "Outline" },
             { key: "conversation", label: "Conversation" },
             { key: "results", label: `Results${resultCount > 0 ? ` ·${resultCount}` : ""}` },
             { key: "analysis", label: `Analysis${analysisCount > 0 ? ` ·${analysisCount}` : ""}` },
@@ -252,9 +250,9 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           trailing={
-            isReplay && activeView.type === "replay" ? (
+            isReplayView(activeView) ? (
               <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                REPLAY · {activeView.run.workflow_name}
+                REPLAY · {getActiveWorkflowName(activeView) ?? ""}
               </span>
             ) : undefined
           }
@@ -304,10 +302,6 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
               </div>
             </div>
           ) : null
-        ) : activeTab === "outline" ? (
-          <ErrorBoundary module="OutlineTab">
-            <ScopedOutlineTab />
-          </ErrorBoundary>
         ) : activeTab === "conversation" ? (
           <ErrorBoundary module="ConversationTab">
             <ScopedConversationTab />

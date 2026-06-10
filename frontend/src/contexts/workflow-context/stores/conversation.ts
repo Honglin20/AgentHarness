@@ -58,6 +58,7 @@ export function createConversationStore(
     pendingQuestionId: null as string | null,
     pendingQuestionAgent: null as string | null,
     activeFollowupAgent: null as string | null,
+    currentStepIdByNode: {} as Record<string, string>,
 
     // Cache management (保留用于 batch 模式兼容)
     _cache: {} as ConversationState["_cache"],
@@ -100,6 +101,7 @@ export function createConversationStore(
               content: "",
               status: "streaming",
               timestamp: Date.now(),
+              stepId: state.currentStepIdByNode[nodeId],
             },
           ],
         };
@@ -189,6 +191,7 @@ export function createConversationStore(
               toolArgs,
               toolStatus: "running",
               timestamp: Date.now(),
+              stepId: state.currentStepIdByNode[nodeId],
             },
           ],
         };
@@ -232,6 +235,11 @@ export function createConversationStore(
         return { messages };
       }),
 
+    // TODO(PR-F): this action is dead in the conversation store — chatHandlers
+    // routes through stores.chat.addAgentQuestion (the chat-store variant),
+    // not this one. The signature also lacks nodeId, so we can't stamp
+    // stepId. Will be removed alongside chatStore in PR-F; left in for now
+    // to keep ConversationState contract stable.
     addAgentQuestion: (questionId, question, agentName) =>
       set((state) => ({
         messages: [
@@ -273,6 +281,7 @@ export function createConversationStore(
             questionAllowCustomInput: payload.allow_custom_input ?? true,
             questionInputType: payload.input_type ?? "text",
             questionInputPlaceholder: payload.input_placeholder ?? null,
+            stepId: payload.node_id ? state.currentStepIdByNode[payload.node_id] : undefined,
           },
         ],
       })),
@@ -372,7 +381,27 @@ export function createConversationStore(
       }),
 
     reset: () =>
-      set({ messages: [], pendingQuestionId: null, pendingQuestionAgent: null, activeFollowupAgent: null }),
+      set({
+        messages: [],
+        pendingQuestionId: null,
+        pendingQuestionAgent: null,
+        activeFollowupAgent: null,
+        currentStepIdByNode: {},
+      }),
+
+    setCurrentStep: (nodeId, stepId) =>
+      set((state) => {
+        if (stepId === null) {
+          if (!(nodeId in state.currentStepIdByNode)) return state;
+          const next = { ...state.currentStepIdByNode };
+          delete next[nodeId];
+          return { currentStepIdByNode: next };
+        }
+        if (state.currentStepIdByNode[nodeId] === stepId) return state;
+        return {
+          currentStepIdByNode: { ...state.currentStepIdByNode, [nodeId]: stepId },
+        };
+      }),
 
     saveToCache: (wid) => cache.saveToCache(wid),
 
@@ -471,20 +500,26 @@ export function createConversationStore(
     setActiveFollowupAgent: (name) => set({ activeFollowupAgent: name }),
 
     addFollowupUserMessage: (agentName, content) =>
-      set((state) => ({
-        messages: [
-          ...state.messages,
-          {
-            id: `msg-${msgCounter.next()}`,
-            type: "user",
-            content,
-            agentName,
-            nodeId: `followup-${agentName}`,
-            followup: true,
-            timestamp: Date.now(),
-          },
-        ],
-      })),
+      set((state) => {
+        const nodeId = `followup-${agentName}`;
+        return {
+          messages: [
+            ...state.messages,
+            {
+              id: `msg-${msgCounter.next()}`,
+              type: "user",
+              content,
+              agentName,
+              nodeId,
+              followup: true,
+              timestamp: Date.now(),
+              // isNodeMsg excludes user-type messages, so this never lands in
+              // a NodeBlock; stepId is set purely for consistency.
+              stepId: state.currentStepIdByNode[nodeId],
+            },
+          ],
+        };
+      }),
 
     addFollowupAgentMessage: (agentName) =>
       set((state) => {
@@ -506,6 +541,7 @@ export function createConversationStore(
               status: "streaming",
               followup: true,
               timestamp: Date.now(),
+              stepId: state.currentStepIdByNode[nodeId],
             },
           ],
         };
@@ -565,6 +601,7 @@ export function createConversationStore(
               content: t,
               status: "streaming",
               timestamp: Date.now(),
+              stepId: state.currentStepIdByNode[nid],
             });
             mutated = true;
           }

@@ -30,6 +30,15 @@ export interface ConversationMessage {
   thinking?: string;
   durationMs?: number;
   timestamp: number;
+  /**
+   * ID of the TODO step this message belongs to. Set when the message is
+   * created by reading `currentStepIdByNode[nodeId]` — i.e. the most
+   * recent step that went `in_progress` on this node. Undefined when the
+   * node has no active step (no todo tool usage, or step not yet started).
+   *
+   * Used by the conversation UI to group agent details under StepRows.
+   */
+  stepId?: string;
 
   // ── question-specific fields (type === "question") ──
   questionId?: string;
@@ -64,6 +73,23 @@ export interface ConversationState {
   pendingQuestionAgent: string | null;
   activeFollowupAgent: string | null;
 
+  /**
+   * nodeId → most recent TODO step that entered `in_progress` on this node.
+   * Read by all add* actions to stamp `stepId` onto newly-created messages
+   * so the conversation UI can group agent details under the right StepRow.
+   *
+   * Updated by `setCurrentStep` (called from todoHandlers on todo.updated
+   * status=in_progress or auto_advance). **Never explicitly cleared** —
+   * not on status=completed (so trailing agent output still tags to the
+   * last step), not on node termination. The map is wiped only by
+   * `reset()` (workflow switch / new run).
+   *
+   * Low-risk leak: if a DAG reuses a nodeId across instances (rare), the
+   * second instance would inherit the first's stepId. Acceptable because
+   * nodeId is typically unique per node instance in current architecture.
+   */
+  currentStepIdByNode: Record<string, string>;
+
   // Per-workflow cache for batch mode
   _cache: Record<string, { messages: ConversationMessage[]; pendingQuestionId: string | null; pendingQuestionAgent: string | null }>;
   _activeWid: string | null;
@@ -81,6 +107,12 @@ export interface ConversationState {
   addAgentQuestion: (questionId: string, question: string, agentName: string) => void;
   addUserQuestion: (payload: AgentQuestionPayload) => void;
   answerUserQuestion: (questionId: string, answer: QuestionAnswer) => void;
+  /**
+   * Mark `stepId` as the active step for `nodeId`. Subsequent messages on
+   * that node will be tagged with this stepId. Pass null to clear (used
+   * on node termination / reset).
+   */
+  setCurrentStep: (nodeId: string, stepId: string | null) => void;
   markQuestionTimeout: (questionId: string) => void;
   /**
    * Mark every still-pending question as "interrupted". Called when the
@@ -122,6 +154,7 @@ const initialState = {
   pendingQuestionId: null as string | null,
   pendingQuestionAgent: null as string | null,
   activeFollowupAgent: null as string | null,
+  currentStepIdByNode: {} as Record<string, string>,
   _cache: {} as Record<string, { messages: ConversationMessage[]; pendingQuestionId: string | null; pendingQuestionAgent: string | null }>,
   _activeWid: null as string | null,
 };
@@ -489,8 +522,22 @@ export const useConversationStore = create<ConversationState>()((set) => ({
 
   reset: () => {
     msgCounter = 0;
-    return set({ ...initialState, _cache: {}, _activeWid: null });
+    return set({ ...initialState, _cache: {}, _activeWid: null, currentStepIdByNode: {} });
   },
+
+  setCurrentStep: (nodeId, stepId) =>
+    set((state) => {
+      if (stepId === null) {
+        if (!(nodeId in state.currentStepIdByNode)) return state;
+        const next = { ...state.currentStepIdByNode };
+        delete next[nodeId];
+        return { currentStepIdByNode: next };
+      }
+      if (state.currentStepIdByNode[nodeId] === stepId) return state;
+      return {
+        currentStepIdByNode: { ...state.currentStepIdByNode, [nodeId]: stepId },
+      };
+    }),
 
   setActiveFollowupAgent: (name) => set({ activeFollowupAgent: name }),
 
