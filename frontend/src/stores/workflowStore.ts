@@ -244,7 +244,12 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
   pushRetryAttempt: (nodeId, attempt) =>
     set((state) => {
       const existing = state.nodes[nodeId];
-      const retryAttempts = [...(existing?.retryAttempts ?? []), attempt];
+      // Sanity cap: default max_attempts=3 → at most 2 entries per node, but
+      // future config increases shouldn't let this array grow unbounded and
+      // cause AgentMessage to render hundreds of retry lines.
+      const MAX_RETRY_ATTEMPTS_LOGGED = 20;
+      const prev = existing?.retryAttempts ?? [];
+      const retryAttempts = [...prev, attempt].slice(-MAX_RETRY_ATTEMPTS_LOGGED);
       return {
         nodes: {
           ...state.nodes,

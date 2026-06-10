@@ -124,7 +124,16 @@ export const agentHandlers: [string, EventHandler][] = [
       // We do NOT clear partial text here — Pydantic AI's iter() will replay
       // from scratch and the new text stream will overwrite the old. (The
       // failed attempt's partial text is usually corrupted anyway.)
+      //
+      // Workflow filter: only act on the active workflow. If the user switched
+      // away from a background workflow that's retrying, we don't pollute the
+      // current view or toast-spam. The event is critical (never FIFO-evicted),
+      // so when the user switches back, WS replay re-routes it through here
+      // with the matching workflow_id.
       const p = payload<AgentRetryAttemptedPayload>(event);
+      const currentWid = stores.workflow.getState().workflowId;
+      if (currentWid && p.workflow_id !== currentWid) return;
+
       stores.workflow.getState().pushRetryAttempt(p.node_id, {
         attempt: p.attempt,
         maxAttempts: p.max_attempts,
@@ -146,7 +155,11 @@ export const agentHandlers: [string, EventHandler][] = [
     (stores, event, _ctx) => {
       // Per-LLM-request usage snapshot — drives BudgetBar's "Requests" bar.
       // High-frequency, normal priority. Just store the latest count.
+      // Workflow filter: see agent.retry_attempted above — only update the
+      // active workflow's nodes (avoid polluting other scoped stores).
       const p = payload<AgentUsageUpdatePayload>(event);
+      const currentWid = stores.workflow.getState().workflowId;
+      if (currentWid && p.workflow_id !== currentWid) return;
       stores.workflow.getState().setNodeUsage(
         p.node_id, p.requests, p.input_tokens, p.output_tokens,
       );
@@ -159,7 +172,10 @@ export const agentHandlers: [string, EventHandler][] = [
       // Final failure (retries exhausted OR classify said "don't retry").
       // Per user preference: NO toast — show inline error card on AgentMessage
       // so the failure reason stays visible (refresh-safe via critical event).
+      // Workflow filter: same as the other two PR-D handlers.
       const p = payload<AgentFailedWithClassifiedReasonPayload>(event);
+      const currentWid = stores.workflow.getState().workflowId;
+      if (currentWid && p.workflow_id !== currentWid) return;
       stores.workflow.getState().setClassifiedFailure(p.node_id, {
         category: p.category,
         reason: p.reason,

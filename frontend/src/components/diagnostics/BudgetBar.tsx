@@ -69,6 +69,12 @@ function BudgetBarInner({ envelope, nodes }: BudgetBarProps) {
   let nodeCount = 0;
 
   for (const node of Object.values(nodes)) {
+    // Only count nodes that have actually started (status !== "idle") toward
+    // the request budget ceiling. Idle nodes haven't consumed their per-agent
+    // request_limit yet, so including them would inflate `max` and make the
+    // progress bar misleadingly low. Once a node starts, its budget is "in play"
+    // for the rest of the run (even after it completes/fails).
+    if (node.status === "idle") continue;
     nodeCount += 1;
     if (node.tokenUsage) {
       totalTokens += node.tokenUsage.input + node.tokenUsage.output;

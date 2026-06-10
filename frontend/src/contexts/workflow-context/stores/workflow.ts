@@ -152,7 +152,10 @@ export function createWorkflowStore(
     pushRetryAttempt: (nodeId, attempt) =>
       set((state) => {
         const existing = state.nodes[nodeId];
-        const retryAttempts = [...(existing?.retryAttempts ?? []), attempt];
+        // Sanity cap (see stores/workflowStore.ts): prevent unbounded growth.
+        const MAX_RETRY_ATTEMPTS_LOGGED = 20;
+        const prev = existing?.retryAttempts ?? [];
+        const retryAttempts = [...prev, attempt].slice(-MAX_RETRY_ATTEMPTS_LOGGED);
         return {
           nodes: {
             ...state.nodes,
