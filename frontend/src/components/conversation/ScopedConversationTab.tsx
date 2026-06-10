@@ -318,10 +318,19 @@ const STEP_TONE: Record<TodoStep["status"], string> = {
   interrupted: "text-amber-500",
 };
 
+// Fixed heights for virtualization stability (P0-B). Each state has a known
+// height so estimateSize matches the actual rendered height exactly.
+const STEP_COLLAPSED_H = 36;
+const STEP_STREAMING_H = 400;
+const STEP_EXPANDED_H = 600;
+
 /**
- * One row in the step list. When expanded, renders the agent details that
- * were tagged with this step's id (stepId stamped at message-creation time
- * by currentStepIdByNode in the conversation store).
+ * One row in the step list. Three fixed-height states:
+ *   - pending: 36px (title only, disabled)
+ *   - in_progress: 400px fixed, auto-expanded content with internal scroll
+ *   - completed/skipped/interrupted: 36px collapsed, click → 600px expanded
+ *
+ * Only one step expanded at a time (enforced by parent's toggleStep).
  */
 const StepRow = React.memo(function StepRow({
   step,
@@ -338,33 +347,61 @@ const StepRow = React.memo(function StepRow({
   sendStructuredAnswer: (id: string, answer: QuestionAnswer) => void;
   conversationActions: { answerUserQuestion: (id: string, answer: QuestionAnswer) => void };
 }) {
-  const label = step.status === "in_progress" ? (step.activeForm || step.content) : step.content;
-  const hasDetails = details.length > 0;
+  const isStreaming = step.status === "in_progress";
+  const showDetails = (isStreaming || expanded) && details.length > 0;
+  const containerH = isStreaming
+    ? STEP_STREAMING_H
+    : expanded && details.length > 0
+      ? STEP_EXPANDED_H
+      : STEP_COLLAPSED_H;
+
+  const label = isStreaming ? (step.activeForm || step.content) : step.content;
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll streaming step to bottom (only when user is near bottom)
+  useEffect(() => {
+    if (isStreaming && contentRef.current) {
+      const el = contentRef.current;
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+      if (nearBottom) el.scrollTop = el.scrollHeight;
+    }
+  });
+
   return (
-    <div className="rounded-md border border-app-border/40">
+    <div
+      className="flex flex-col overflow-hidden rounded-md border border-app-border/40"
+      style={{ height: containerH }}
+    >
       <button
         type="button"
         onClick={onToggle}
-        disabled={!hasDetails && step.status !== "in_progress"}
-        className="flex w-full items-center gap-2 px-2 py-1 text-left text-xs hover:bg-muted/40 disabled:cursor-default disabled:hover:bg-transparent"
+        disabled={step.status === "pending"}
+        className="flex shrink-0 w-full items-center gap-2 px-2 py-1.5 text-left text-xs hover:bg-muted/40 disabled:cursor-default disabled:hover:bg-transparent disabled:opacity-60"
       >
-        <span aria-hidden className={`w-3 ${hasDetails ? "" : "opacity-0"}`}>
-          {expanded ? "▾" : "▸"}
+        <span aria-hidden className={`w-3 ${showDetails ? "" : "opacity-0"}`}>
+          {showDetails ? "▾" : "▸"}
         </span>
         <span aria-hidden className={STEP_TONE[step.status]}>
           {STEP_ICON[step.status]}
         </span>
-        <span className={`min-w-0 flex-1 truncate ${step.status === "completed" ? "text-muted-foreground line-through" : ""}`}>
+        <span className={`min-w-0 flex-1 truncate ${
+          step.status === "completed" || step.status === "skipped"
+            ? "text-muted-foreground line-through"
+            : ""
+        }`}>
           {label || "(empty step)"}
         </span>
-        {step.detail && (
+        {step.detail && !showDetails && (
           <span className="truncate text-[10px] text-muted-foreground/60" title={step.detail}>
             {step.detail}
           </span>
         )}
       </button>
-      {expanded && hasDetails && (
-        <div className="space-y-1.5 border-t border-app-border/40 px-2 py-1.5">
+      {showDetails && (
+        <div
+          ref={contentRef}
+          className="min-h-0 flex-1 overflow-y-auto border-t border-app-border/40 px-2 py-1.5"
+        >
           <DetailsList
             items={details}
             sendStructuredAnswer={sendStructuredAnswer}
@@ -380,10 +417,8 @@ const StepRow = React.memo(function StepRow({
 
 interface NodeBlockCardProps {
   block: NodeBlock;
-  nodeCollapsed: boolean;
   /** keys are `${nodeId}::${stepId}` — see toggleStep */
   stepExpanded: Record<string, boolean>;
-  onToggleNode: () => void;
   onToggleStep: (stepKey: string) => void;
   getAgentIO: AgentNodeGetAgentIO;
   getNodeState: AgentNodeGetNodeState;
@@ -394,9 +429,7 @@ interface NodeBlockCardProps {
 
 const NodeBlockCard = React.memo(function NodeBlockCard({
   block,
-  nodeCollapsed,
   stepExpanded,
-  onToggleNode,
   onToggleStep,
   getAgentIO,
   getNodeState,
@@ -407,10 +440,6 @@ const NodeBlockCard = React.memo(function NodeBlockCard({
   const { mainMessage: m, children, nodeId } = block;
   const todos = useStore(todoStore!, (s) => s.todos[nodeId]);
 
-  // Partition children by stepId for L3 rendering. stepId-tagged children
-  // go under their StepRow; unkeyed children (no todo in use, or emitted
-  // before the first step started) go in a fallback bucket rendered after
-  // the step list (or as the entire body when there are no todos).
   const { byStep, unkeyed } = useMemo(() => {
     const map = new Map<string, NodeChild[]>();
     const unkeyed: NodeChild[] = [];
@@ -426,14 +455,6 @@ const NodeBlockCard = React.memo(function NodeBlockCard({
     return { byStep: map, unkeyed };
   }, [children]);
 
-  const preview = useMemo(() => {
-    for (const line of (m.content ?? "").split("\n")) {
-      const t = line.trim();
-      if (t) return t;
-    }
-    return "";
-  }, [m.content]);
-
   const sectionItemCount = todos?.length ?? children.length;
   const hasTodos = !!todos && todos.length > 0;
 
@@ -441,83 +462,46 @@ const NodeBlockCard = React.memo(function NodeBlockCard({
     <div className="rounded-lg border border-app-border bg-background p-3">
       <AgentNodeHeader
         message={m}
-        collapsed={nodeCollapsed}
-        onToggleCollapse={onToggleNode}
         sectionItemCount={sectionItemCount}
         getAgentIO={getAgentIO}
         getNodeState={getNodeState}
       />
 
-      {nodeCollapsed ? (
-        /* L2: step progress list (if todos), else a one-line preview */
-        hasTodos ? (
-          <div className="mt-2 space-y-1">
-            {todos!.map((step) => (
-              <div
-                key={step.taskId}
-                className="flex items-center gap-2 px-1 text-xs text-muted-foreground"
-              >
-                <span aria-hidden className={`w-3 ${STEP_TONE[step.status]}`}>
-                  {STEP_ICON[step.status]}
-                </span>
-                <span
-                  className={`min-w-0 flex-1 truncate ${
-                    step.status === "completed" ? "line-through" : ""
-                  }`}
-                >
-                  {step.status === "in_progress" ? (step.activeForm || step.content) : step.content}
-                </span>
+      <div className="mt-2 flex flex-col gap-1.5">
+        {hasTodos ? (
+          <>
+            {todos!.map((step) => {
+              const stepKey = `${nodeId}::${step.taskId}`;
+              return (
+                <StepRow
+                  key={step.taskId}
+                  step={step}
+                  expanded={!!stepExpanded[stepKey]}
+                  onToggle={() => onToggleStep(stepKey)}
+                  details={byStep.get(step.taskId) ?? []}
+                  sendStructuredAnswer={sendStructuredAnswer}
+                  conversationActions={conversationActions}
+                />
+              );
+            })}
+            {unkeyed.length > 0 && (
+              <div className="space-y-1.5 border-t border-app-border/40 pt-1.5">
+                <DetailsList
+                  items={unkeyed}
+                  sendStructuredAnswer={sendStructuredAnswer}
+                  conversationActions={conversationActions}
+                />
               </div>
-            ))}
-          </div>
+            )}
+          </>
         ) : (
-          <button
-            type="button"
-            onClick={onToggleNode}
-            className="mt-1 block w-full min-w-0 truncate text-left text-sm text-muted-foreground hover:text-app-text-primary"
-          >
-            {preview || "(empty output)"}
-          </button>
-        )
-      ) : (
-        /* L3: each step is independently expandable; unkeyed children (if
-         * any) render after the step list as a fallback bucket. */
-        <div className="mt-2 flex flex-col gap-1.5">
-          {hasTodos ? (
-            <>
-              {todos!.map((step) => {
-                const stepKey = `${nodeId}::${step.taskId}`;
-                return (
-                  <StepRow
-                    key={step.taskId}
-                    step={step}
-                    expanded={!!stepExpanded[stepKey]}
-                    onToggle={() => onToggleStep(stepKey)}
-                    details={byStep.get(step.taskId) ?? []}
-                    sendStructuredAnswer={sendStructuredAnswer}
-                    conversationActions={conversationActions}
-                  />
-                );
-              })}
-              {unkeyed.length > 0 && (
-                <div className="space-y-1.5 border-t border-app-border/40 pt-1.5">
-                  <DetailsList
-                    items={unkeyed}
-                    sendStructuredAnswer={sendStructuredAnswer}
-                    conversationActions={conversationActions}
-                  />
-                </div>
-              )}
-            </>
-          ) : (
-            <DetailsList
-              items={children}
-              sendStructuredAnswer={sendStructuredAnswer}
-              conversationActions={conversationActions}
-            />
-          )}
-        </div>
-      )}
+          <DetailsList
+            items={children}
+            sendStructuredAnswer={sendStructuredAnswer}
+            conversationActions={conversationActions}
+          />
+        )}
+      </div>
     </div>
   );
 });
@@ -584,37 +568,20 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
   const getAgentIO = useCallback((nodeId: string) => agentIORef.current[nodeId], []);
   const getNodeState = useCallback((nodeId: string) => nodesRef.current[nodeId], []);
 
-  // Two independent flat collapse dictionaries (Plan §challenge 3 — option Y).
-  //   - nodeCollapsed: per-NodeBlock "show step list / details" toggle.
-  //     Defaults to true for success/failed nodes; user override sticks.
-  //   - stepExpanded: per-step "show this step's details" toggle, only
-  //     meaningful when the parent NodeBlock is expanded.
-  const [userNodeCollapseOverride, setUserNodeCollapseOverride] = useState<Record<string, boolean>>({});
+  // Single-expand: only one step expanded at a time. Clicking the same step
+  // collapses it; clicking a different step collapses the previous one.
   const [stepExpanded, setStepExpanded] = useState<Record<string, boolean>>({});
-  const getNodeCollapsed = useCallback(
-    (nodeId: string): boolean => {
-      if (nodeId in userNodeCollapseOverride) return userNodeCollapseOverride[nodeId];
-      // Read from nodesRef instead of workflowNodes — ref is stable, so
-      // this callback's identity doesn't change on every node status
-      // update. Without this, estimateSize (which calls this) gets
-      // recreated on every status change → virtualizer invalidates.
-      const status = nodesRef.current[nodeId]?.status;
-      return status === "success" || status === "failed";
-    },
-    [userNodeCollapseOverride],
-  );
-  const toggleNode = useCallback(
-    (nodeId: string) => {
-      setUserNodeCollapseOverride((prev) => ({ ...prev, [nodeId]: !getNodeCollapsed(nodeId) }));
-    },
-    [getNodeCollapsed],
-  );
-  // Composite key `${nodeId}::${stepId}` — taskId is unique per node, but
-  // defensively namespacing by nodeId prevents state bleed if a future
-  // DAG ever reuses a taskId across nodes.
   const toggleStep = useCallback((stepKey: string) => {
-    setStepExpanded((prev) => ({ ...prev, [stepKey]: !prev[stepKey] }));
+    setStepExpanded((prev) =>
+      prev[stepKey] ? {} : { [stepKey]: true },
+    );
   }, []);
+
+  // Refs for estimateSize (stable reads without re-creating the callback)
+  const todosRef = useRef(todoStore?.getState().todos ?? {});
+  if (todoStore) todosRef.current = todoStore.getState().todos;
+  const stepExpandedRef = useRef(stepExpanded);
+  stepExpandedRef.current = stepExpanded;
 
   const prevGroupingRef = useRef<{ messages: ConversationMessage[]; blocks: Block[] } | null>(null);
   const blocks = useMemo(() => {
@@ -632,23 +599,35 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
     estimateSize: (i) => {
       const b = blocks[i];
       if (b.kind === "other") return 60;
-      if (getNodeCollapsed(b.nodeId)) return 80;
-      // Expanded NodeBlock: header + per-child estimate.
-      // agent_msg uses content-length heuristic so estimate stays stable as
-      // content grows (no ResizeObserver churn). Cap to avoid pathological
-      // cases; tool_group defaults to collapsed height (32px).
-      let h = 40;
-      for (const c of b.children) {
-        if (c.kind === "agent_msg") {
-          const len = c.message.content?.length ?? 0;
-          const thinking = c.message.thinking?.length ?? 0;
-          h += Math.min(800, Math.max(40, (len + thinking) * 0.6 + 24));
-        } else if (c.kind === "tool_group") {
-          h += 32;
-        } else if (c.kind === "question") {
-          h += 120;
+
+      const todos = todosRef.current?.[b.nodeId];
+      const expanded = stepExpandedRef.current;
+
+      // Header (AgentNodeHeader) + outer padding (p-3) + gap
+      let h = 60;
+
+      if (todos && todos.length > 0) {
+        h += (todos.length - 1) * 6; // gap-1.5 between steps
+        for (const step of todos) {
+          const stepKey = `${b.nodeId}::${step.taskId}`;
+          if (step.status === "in_progress") h += STEP_STREAMING_H;
+          else if (expanded[stepKey]) h += STEP_EXPANDED_H;
+          else h += STEP_COLLAPSED_H;
+        }
+      } else {
+        // Non-todo fallback: content-length heuristic
+        for (const c of b.children) {
+          if (c.kind === "agent_msg") {
+            const len = c.message.content?.length ?? 0;
+            h += Math.min(800, Math.max(40, len * 0.6 + 24));
+          } else if (c.kind === "tool_group") {
+            h += 32;
+          } else if (c.kind === "question") {
+            h += 120;
+          }
         }
       }
+
       return h;
     },
     overscan: 5,
@@ -721,9 +700,7 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
                   ) : (
                     <NodeBlockCard
                       block={b}
-                      nodeCollapsed={getNodeCollapsed(b.nodeId)}
                       stepExpanded={stepExpanded}
-                      onToggleNode={() => toggleNode(b.nodeId)}
                       onToggleStep={toggleStep}
                       getAgentIO={getAgentIO}
                       getNodeState={getNodeState}
