@@ -8,6 +8,7 @@
  */
 
 import type { WSEvent } from "@/types/events";
+import type { TodoStepItem, TodoAutoAdvance } from "@/types/events";
 import type { ConversationMessage } from "@/stores/conversationStore";
 import type { AgentIOData } from "@/stores/agentIOStore";
 import { dtoListToMessages, type ConversationMessageDTO } from "@/lib/conversion/dtoToMessage";
@@ -18,6 +19,7 @@ import { computeRunSummary } from "@/lib/summary/runSummary";
 import { getWorkflowManager } from "./WorkflowManager";
 import { getToolCallCounter } from "./workflowStores";
 import { routeEvent, resetAllStores } from "./routeEvent";
+import { handleTodoCreated, handleTodoUpdated } from "./stores/todo";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -342,6 +344,45 @@ export function loadRunFromPersistedData(
   // -- 8. chartStore ------------------------------------------------------
 
   loadChartsFromGroups(stores.chart, run.chart_groups);
+
+  // -- 7.5. todoStore (replay from events) --------------------------------
+  //
+  // todoStore has no equivalent of "agent_io" or "trace" in the persisted
+  // run record — the canonical source is the ws event stream. We scan the
+  // events array for todo.created / todo.updated and apply them in order.
+  //
+  // Without this section, refreshing a run that uses the TODO tool leaves
+  // todoStore empty, and ScopedConversationTab falls into its "no todos"
+  // branch — rendering every agent_msg / tool_call inline instead of
+  // under step rows. Both a UX regression (no step list) and a perf
+  // regression (more items in the virtualizer).
+  if (events && events.length > 0) {
+    for (const event of events) {
+      if (event.type === "todo.created") {
+        const p = event.payload as {
+          node_id: string;
+          items: TodoStepItem[];
+        };
+        handleTodoCreated(stores.todo, p.node_id, p.items);
+      } else if (event.type === "todo.updated") {
+        const p = event.payload as {
+          node_id: string;
+          task_id: string;
+          status?: "in_progress" | "completed" | null;
+          detail?: string | null;
+          auto_advance?: TodoAutoAdvance | null;
+        };
+        handleTodoUpdated(
+          stores.todo,
+          p.node_id,
+          p.task_id,
+          p.status ?? undefined,
+          p.detail,
+          p.auto_advance ?? null,
+        );
+      }
+    }
+  }
 
   // -- 8.5. followup sessions ---------------------------------------------
 
