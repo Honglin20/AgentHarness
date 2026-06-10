@@ -50,7 +50,6 @@ function makeStores(activeWorkflowId: string | null): WorkflowStores {
     toolCall: noopStore,
     output: noopStore,
     chart: noopStore,
-    chat: noopStore,
     todo: noopStore,
     span: noopStore,
     agentIO: noopStore,

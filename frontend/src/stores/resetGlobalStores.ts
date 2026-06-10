@@ -11,7 +11,6 @@ import { setActiveWorkflowId } from "@/lib/workflowNavigation";
 import { getWorkflowManager } from "@/contexts/workflow-context/WorkflowManager";
 import { useWorkflowStore } from "./workflowStore";
 import { useOutputStore } from "./outputStore";
-import { useChatStore } from "./chatStore";
 import { useChartStore } from "./chartStore";
 import { useToolCallStore } from "./toolCallStore";
 import { useConversationStore } from "./conversationStore";
@@ -28,7 +27,6 @@ export function resetAllGlobalStores(): void {
   setActiveWorkflowId(null);
   useWorkflowStore.getState().reset();
   useOutputStore.getState().reset();
-  useChatStore.getState().reset();
   useChartStore.getState().reset();
   useToolCallStore.getState().reset();
   useConversationStore.getState().reset();

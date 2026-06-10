@@ -45,7 +45,6 @@ export interface WorkflowStores {
   chart: StoreApi<import("@/stores/chartStore").ChartState>;
   toolCall: StoreApi<import("@/stores/toolCallStore").ToolCallState>;
   agentIO: StoreApi<import("@/stores/agentIOStore").AgentIOState>;
-  chat: StoreApi<import("@/stores/chatStore").ChatState>;
   span: StoreApi<import("@/stores/spanStore").SpanState>;
   todo: StoreApi<import("./stores/todo").TodoState>;
 }
@@ -93,8 +92,8 @@ export const EVENT_TO_STORES: Record<string, (keyof WorkflowStores)[]> = {
   "agent.tool_result": ["toolCall", "conversation"],
   "agent.tool_output_delta": ["conversation"],
 
-  "chat.question": ["chat", "conversation"],
-  "chat.answer": ["chat", "conversation"],
+  "chat.question": ["conversation"],
+  "chat.answer": ["conversation"],
 
   "chart.render": ["chart"],
 } as const;

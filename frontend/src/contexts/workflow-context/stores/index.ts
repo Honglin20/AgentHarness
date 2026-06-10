@@ -11,7 +11,6 @@ import type { WorkflowState } from "@/stores/workflowStore";
 import type { ChartState } from "@/stores/chartStore";
 import type { ToolCallState } from "@/stores/toolCallStore";
 import type { AgentIOState } from "@/stores/agentIOStore";
-import type { ChatState } from "@/stores/chatStore";
 import type { SpanState } from "@/stores/spanStore";
 import type { IdCounter } from "@/lib/idCounter";
 
@@ -21,7 +20,6 @@ import { createWorkflowStore } from "./workflow";
 import { createChartStore } from "./chart";
 import { createToolCallStore, getToolCallCounter } from "./toolCall";
 import { createAgentIOStore } from "./agentIO";
-import { createChatStore } from "./chat";
 import { createSpanStore } from "./span";
 import {
   createTodoStore,
@@ -38,7 +36,6 @@ export {
   createToolCallStore,
   getToolCallCounter,
   createAgentIOStore,
-  createChatStore,
   createSpanStore,
   createTodoStore,
   handleTodoCreated,
@@ -59,7 +56,6 @@ export interface WorkflowStores {
   chart: StoreApi<ChartState>;
   toolCall: StoreApi<ToolCallState>;
   agentIO: StoreApi<AgentIOState>;
-  chat: StoreApi<ChatState>;
   span: StoreApi<SpanState>;
   todo: StoreApi<import("./todo").TodoState>;
 }
@@ -82,7 +78,6 @@ export function createWorkflowStores(
     chart: createChartStore(workflowId),
     toolCall: createToolCallStore(workflowId),
     agentIO: createAgentIOStore(workflowId),
-    chat: createChatStore(workflowId),
     span: createSpanStore(workflowId),
     todo: createTodoStore(workflowId),
   };

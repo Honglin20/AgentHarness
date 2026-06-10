@@ -23,8 +23,6 @@ export {
   useWorkflowError,
   useActiveNodeId,
   useNodeTexts,
-  useScopedChatStore,
-  useChatMessages,
   useScopedChartStore,
   useChartGroups,
   useLiveResultCount,
@@ -45,12 +43,10 @@ export {
   getChartActions,
   getToolCallActions,
   getAgentIOActions,
-  getChatActions,
   useWorkflowActions,
   useOutputActions,
   useConversationActions,
   useChartActions,
-  useChatActions,
 } from "./hooks";
 
 // Event routing (Phase 2)
@@ -78,7 +74,6 @@ export {
   createChartStore,
   createToolCallStore,
   createAgentIOStore,
-  createChatStore,
   getMessageCounter,
   getToolCallCounter,
 } from "./workflowStores";

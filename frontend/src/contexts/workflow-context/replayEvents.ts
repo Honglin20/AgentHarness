@@ -10,8 +10,8 @@
 import type { WSEvent } from "@/types/events";
 import type { ConversationMessage } from "@/stores/conversationStore";
 import type { AgentIOData } from "@/stores/agentIOStore";
+import { dtoListToMessages, type ConversationMessageDTO } from "@/lib/conversion/dtoToMessage";
 import type { ToolCallRecord } from "@/stores/toolCallStore";
-import type { ChatMessage } from "@/stores/chatStore";
 import type { NodeState } from "@/stores/workflowStore";
 import type { ChartState } from "@/stores/chartStore";
 import { computeRunSummary } from "@/lib/summary/runSummary";
@@ -168,23 +168,7 @@ export function loadLegacyRunData(
   });
 
   if (conversation && conversation.length > 0) {
-    const messages = conversation.map((m: any, i: number) => ({
-      id: m.id ?? `legacy-${i}`,
-      type: m.type as "agent" | "user" | "tool_call" | "system",
-      nodeId: m.nodeId,
-      content: m.content ?? "",
-      agentName: m.agentName,
-      thinking: m.thinking,
-      toolName: m.toolName,
-      toolArgs: m.toolArgs,
-      toolResult: m.toolResult,
-      toolStatus: m.toolStatus,
-      toolDurationMs: m.toolDurationMs,
-      toolStreamingOutput: m.toolStreamingOutput,
-      status: (m.status as "streaming" | "done" | "error" | "interrupted") ?? "done",
-      durationMs: m.durationMs,
-      timestamp: m.timestamp ?? 0,
-    }));
+    const messages = dtoListToMessages(conversation as ConversationMessageDTO[]);
     stores.conversation.setState({ messages });
   }
 
@@ -297,31 +281,9 @@ export function loadRunFromPersistedData(
   // -- 3. conversationStore -----------------------------------------------
 
   if (run.conversation && run.conversation.length > 0) {
-    const messages: ConversationMessage[] = run.conversation.map((m: any, i: number) => ({
-      id: m.id ?? `replay-${i}`,
-      type: m.type ?? "agent",
-      nodeId: m.nodeId,
-      content: m.content ?? "",
-      agentName: m.agentName,
-      thinking: m.thinking,
-      toolName: m.toolName,
-      toolArgs: m.toolArgs,
-      toolResult: m.toolResult,
-      toolStatus: m.toolStatus,
-      toolDurationMs: m.toolDurationMs,
-      toolStreamingOutput: m.toolStreamingOutput,
-      status: m.status ?? "done",
-      durationMs: m.durationMs,
-      timestamp: m.timestamp ?? 0,
-      questionId: m.questionId,
-      questionHeader: m.questionHeader,
-      questionOptions: m.questionOptions,
-      questionMultiSelect: m.questionMultiSelect,
-      questionAllowCustomInput: m.questionAllowCustomInput,
-      questionInputType: m.questionInputType,
-      questionInputPlaceholder: m.questionInputPlaceholder,
-      questionAnswer: m.questionAnswer,
-    }));
+    const messages: ConversationMessage[] = dtoListToMessages(
+      run.conversation as ConversationMessageDTO[],
+    );
     stores.conversation.setState({ messages });
   }
 
@@ -375,34 +337,7 @@ export function loadRunFromPersistedData(
   }
   stores.toolCall.setState({ records, order });
 
-  // -- 7. chatStore -------------------------------------------------------
-
-  const chatMessages: ChatMessage[] = [];
-  if (run.conversation) {
-    for (const m of run.conversation as any[]) {
-      if (m.type === "question" && m.questionId) {
-        chatMessages.push({
-          id: `agent-${m.questionId}`,
-          role: "agent",
-          content: m.content ?? "",
-          questionId: m.questionId,
-          timestamp: m.timestamp ?? 0,
-        });
-        if (m.questionAnswer) {
-          const ans = m.questionAnswer;
-          const answerText = ans.customInput || (ans.selected ? ans.selected.join(", ") : "");
-          chatMessages.push({
-            id: `user-${m.questionId}`,
-            role: "user",
-            content: answerText,
-            questionId: m.questionId,
-            timestamp: (m.timestamp ?? 0) + 1,
-          });
-        }
-      }
-    }
-  }
-  stores.chat.setState({ messages: chatMessages, pendingQuestionId: null });
+  // chatStore removed; question replay lives entirely in conversationStore above.
 
   // -- 8. chartStore ------------------------------------------------------
 

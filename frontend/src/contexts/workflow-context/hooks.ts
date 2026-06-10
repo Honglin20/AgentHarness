@@ -20,7 +20,6 @@ import { useWorkflowStore as useGlobalWorkflowStore } from "@/stores/workflowSto
 import type { ChartState, ChartGroup } from "@/stores/chartStore";
 import type { ToolCallRecord, ToolCallState } from "@/stores/toolCallStore";
 import type { AgentIOData, AgentIOState } from "@/stores/agentIOStore";
-import type { ChatMessage, ChatState } from "@/stores/chatStore";
 import type { StoreApi } from "zustand/vanilla";
 
 // Dummy stores for when no workflow is active — keeps hooks unconditionally called.
@@ -40,7 +39,6 @@ useGlobalWorkflowStore.subscribe((state) => {
   dummyWorkflowStore.setState(state as WorkflowState, true);
 });
 const dummyChartStore = makeDummy<ChartState>({ groups: {}, groupOrder: [] } as unknown as ChartState);
-const dummyChatStore = makeDummy<ChatState>({ messages: [], pendingQuestionId: null } as unknown as ChatState);
 
 // ============================================================
 // Conversation Store Hooks
@@ -275,25 +273,6 @@ export function useLiveAnalysisCount(): number {
 // Chat Store Hooks
 // ============================================================
 
-/**
- * useScopedChatStore
- *
- * 访问当前 workflow 的 chat store
- */
-export function useScopedChatStore<T>(selector: (state: ChatState) => T): T {
-  const store = getWorkflowStoreApi("chat") ?? dummyChatStore;
-  return useStore(store, selector);
-}
-
-/**
- * useChatMessages
- *
- * 快捷 hook：获取 chat 消息列表
- */
-export function useChatMessages(): ChatMessage[] {
-  return useScopedChatStore((s) => s.messages);
-}
-
 // ============================================================
 // Workflow Context Hooks
 // ============================================================
@@ -367,13 +346,6 @@ export function getAgentIOActions(store: StoreApi<AgentIOState>) {
 }
 
 /**
- * 获取 chat store 的 actions（用于事件处理）
- */
-export function getChatActions(store: StoreApi<ChatState>) {
-  return store.getState();
-}
-
-/**
  * Cache store action objects by store reference.
  * Zustand actions are stable function references defined once in the creator.
  * Stores are created once per workflow (useMemo in WorkflowScope), so the
@@ -433,12 +405,7 @@ export function useChartActions() {
 }
 
 /**
- * useChatActions
- *
- * 获取当前 chat store 的 actions（用于调用方法）
+ * useChatActions was removed alongside chatStore. The last caller
+ * (useScopedWorkflowEvents) was migrated to call conversationActions
+ * directly.
  */
-export function useChatActions() {
-  const store = getWorkflowStoreApi("chat");
-  if (!store) return {} as ReturnType<typeof getStableActions<ChatState>>;
-  return getStableActions(store);
-}

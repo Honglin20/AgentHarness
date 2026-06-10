@@ -104,7 +104,6 @@ export interface ConversationState {
   addToolCall: (nodeId: string, agentName: string, toolName: string, toolArgs: Record<string, unknown>) => void;
   addToolResult: (nodeId: string, toolName: string, result: string) => void;
   appendToolOutput: (nodeId: string, toolName: string, line: string, stream: string) => void;
-  addAgentQuestion: (questionId: string, question: string, agentName: string) => void;
   addUserQuestion: (payload: AgentQuestionPayload) => void;
   answerUserQuestion: (questionId: string, answer: QuestionAnswer) => void;
   /**
@@ -386,28 +385,6 @@ export const useConversationStore = create<ConversationState>()((set) => ({
       messages[idx] = { ...msg, toolStreamingOutput: prev + text + "\n" };
       return { messages };
     }),
-
-  addAgentQuestion: (questionId, question, agentName) =>
-    set((state) => ({
-      messages: [
-        ...state.messages,
-        {
-          id: `msg-${++msgCounter}`,
-          type: "question",
-          content: question,
-          agentName,
-          status: "pending",
-          timestamp: Date.now(),
-          questionId,
-          questionHeader: null,
-          questionOptions: null,
-          questionMultiSelect: false,
-          questionAllowCustomInput: true,
-          questionInputType: "textarea",
-          questionInputPlaceholder: null,
-        },
-      ],
-    })),
 
   addUserQuestion: (payload) =>
     set((state) => ({

@@ -5,6 +5,13 @@ import { Play, Loader2, ChevronDown, Folder } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useViewStore } from "@/stores/viewStore";
 import { setActiveWorkflowId } from "@/lib/workflowNavigation";
@@ -131,20 +138,22 @@ export default function WorkflowLauncher() {
             No saved workflows. Use <code className="rounded bg-muted px-1">wf.save()</code> to save one.
           </p>
         ) : (
-          <div className="relative">
-            <select
-              value={selectedWf}
-              onChange={(e) => setSelectedWf(e.target.value)}
-              className="h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            >
-              <option value="">— Custom (pick agents below) —</option>
+          <Select
+            value={selectedWf || "__none__"}
+            onValueChange={(v) => setSelectedWf(v === "__none__" ? "" : v)}
+          >
+            <SelectTrigger className="h-9 w-full">
+              <SelectValue placeholder="— Custom (pick agents below) —" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">— Custom (pick agents below) —</SelectItem>
               {saved.map((s) => (
-                <option key={s.name} value={s.name}>
+                <SelectItem key={s.name} value={s.name}>
                   {s.name} ({s.dag.nodes.length} agents)
-                </option>
+                </SelectItem>
               ))}
-            </select>
-          </div>
+            </SelectContent>
+          </Select>
         )}
         {selectedWfData && (
           <p className="mt-1.5 text-xs text-muted-foreground">

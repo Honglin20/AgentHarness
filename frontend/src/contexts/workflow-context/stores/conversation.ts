@@ -235,33 +235,6 @@ export function createConversationStore(
         return { messages };
       }),
 
-    // TODO(PR-F): this action is dead in the conversation store — chatHandlers
-    // routes through stores.chat.addAgentQuestion (the chat-store variant),
-    // not this one. The signature also lacks nodeId, so we can't stamp
-    // stepId. Will be removed alongside chatStore in PR-F; left in for now
-    // to keep ConversationState contract stable.
-    addAgentQuestion: (questionId, question, agentName) =>
-      set((state) => ({
-        messages: [
-          ...state.messages,
-          {
-            id: `msg-${msgCounter.next()}`,
-            type: "question",
-            content: question,
-            agentName,
-            status: "pending",
-            timestamp: Date.now(),
-            questionId,
-            questionHeader: null,
-            questionOptions: null,
-            questionMultiSelect: false,
-            questionAllowCustomInput: true,
-            questionInputType: "textarea",
-            questionInputPlaceholder: null,
-          },
-        ],
-      })),
-
     addUserQuestion: (payload) =>
       set((state) => ({
         messages: [

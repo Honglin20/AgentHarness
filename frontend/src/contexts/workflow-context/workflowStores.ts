@@ -11,7 +11,6 @@ export {
   createToolCallStore,
   getToolCallCounter,
   createAgentIOStore,
-  createChatStore,
   createSpanStore,
   createTodoStore,
   handleTodoCreated,
