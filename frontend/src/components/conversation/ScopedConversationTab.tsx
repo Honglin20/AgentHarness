@@ -42,6 +42,7 @@ import {
 } from "./groupNodes";
 import { useWSMethods } from "@/contexts/workflow-context/WorkflowScope";
 import { useConversationActions } from "@/contexts/workflow-context/hooks";
+import { useStableVisibleCount } from "@/hooks/useStableVisibleCount";
 
 interface ScopedConversationTabProps {
   autoScroll?: boolean;
@@ -553,23 +554,21 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
   const conversationActions = useConversationActions();
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const prevMessagesRef = useRef(messages);
-  const [visibleCount, setVisibleCount] = useState(VISIBLE_WINDOW);
-  useEffect(() => {
-    if (prevMessagesRef.current !== messages) {
-      setVisibleCount(VISIBLE_WINDOW);
-      prevMessagesRef.current = messages;
-    }
-  }, [messages]);
+  const agentIOStore = useScopedStore("agentIO");
+  const workflowStoreApi = useScopedStore("workflow");
+  const todoStore = useScopedStore("todo");
+
+  const [visibleCount, setVisibleCount] = useStableVisibleCount(
+    VISIBLE_WINDOW,
+    // workflowId is the "run identity" signal — streaming chunks grow
+    // messages but don't change workflowId; switching runs does.
+    useStore(workflowStoreApi!, (s) => s.workflowId),
+  );
   const visibleMessages = useMemo(() => {
     if (messages.length <= VISIBLE_TRIGGER) return messages;
     return messages.slice(Math.max(0, messages.length - visibleCount));
   }, [messages, visibleCount]);
   const hiddenEarlierCount = messages.length - visibleMessages.length;
-
-  const agentIOStore = useScopedStore("agentIO");
-  const workflowStoreApi = useScopedStore("workflow");
-  const todoStore = useScopedStore("todo");
   const agentIOData = useStore(agentIOStore!, (s) => s.data);
   const workflowNodes = useStore(workflowStoreApi!, (s) => s.nodes);
 
