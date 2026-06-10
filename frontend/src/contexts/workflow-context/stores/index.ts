@@ -25,6 +25,8 @@ import {
   createTodoStore,
   handleTodoCreated,
   handleTodoUpdated,
+  handleTodoBulkCompleted,
+  handleTodoReplaced,
 } from "./todo";
 
 // Re-export all imports
@@ -40,6 +42,8 @@ export {
   createTodoStore,
   handleTodoCreated,
   handleTodoUpdated,
+  handleTodoBulkCompleted,
+  handleTodoReplaced,
 };
 
 // Re-export types

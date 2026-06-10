@@ -1,8 +1,15 @@
 import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
 import type { TodoStepItem, TodoAutoAdvance } from "@/types/events";
+// Re-export for callers that still need hydration fallback (legacy runs).
+export type { TodoStepItem } from "@/types/events";
 
-export type TodoStepStatus = "pending" | "in_progress" | "completed" | "interrupted";
+export type TodoStepStatus =
+  | "pending"
+  | "in_progress"
+  | "completed"
+  | "skipped"
+  | "interrupted";
 
 export interface TodoStep {
   taskId: string;
@@ -58,7 +65,7 @@ export function handleTodoUpdated(
   store: StoreApi<TodoState>,
   nodeId: string,
   taskId: string,
-  status?: "in_progress" | "completed" | null,
+  status?: "in_progress" | "completed" | "skipped" | null,
   detail?: string | null,
   autoAdvance?: TodoAutoAdvance | null,
 ) {
@@ -87,10 +94,74 @@ export function handleTodoUpdated(
 }
 
 /**
+ * Bulk-finish all non-terminal steps for a node. Server-side this is
+ * triggered by `todo op='complete_remaining'` (e.g. agent finished goal
+ * early and bulk-completed remaining steps).
+ *
+ * After this call, currentStepIdByNode[nodeId] should be cleared by the
+ * event handler — there is no "current" step anymore.
+ */
+export function handleTodoBulkCompleted(
+  store: StoreApi<TodoState>,
+  nodeId: string,
+  finalStatus: "completed" | "skipped",
+  taskIds: string[],
+  reason?: string | null,
+): void {
+  const idSet = new Set(taskIds);
+  store.setState((state) => {
+    const steps = state.todos[nodeId];
+    if (!steps) return state;
+    const updated = steps.map((s) =>
+      idSet.has(s.taskId)
+        ? { ...s, status: finalStatus, detail: reason ?? s.detail }
+        : s,
+    );
+    return {
+      todos: { ...state.todos, [nodeId]: updated },
+    };
+  });
+}
+
+/**
+ * Replace the entire step list for a node. Server-side this is triggered by
+ * `todo op='replace'` when the agent discovers the original plan was wrong.
+ *
+ * The old steps are discarded entirely (no merge); new step ids are
+ * generated server-side.
+ */
+export function handleTodoReplaced(
+  store: StoreApi<TodoState>,
+  nodeId: string,
+  items: TodoStepItem[],
+): void {
+  store.setState((state) => {
+    const newSteps: TodoStep[] = items.map((item) => ({
+      taskId: item.task_id,
+      content: item.content,
+      activeForm: item.activeForm,
+      status: item.status,
+      detail: item.detail ?? null,
+    }));
+    return {
+      todos: {
+        ...state.todos,
+        [nodeId]: newSteps,
+      },
+    };
+  });
+}
+
+/**
  * Force all in_progress steps for a node to a terminal status. Used during
  * hydration when the workflow is already finished but the persisted todo
  * events show some steps stuck in_progress (workflow was killed mid-step,
  * or trailing todo.updated events weren't captured in the buffer).
+ *
+ * NOTE: After ADR 2026-06-10-todo-step-gate-adr.md, normal-completion runs
+ * no longer need this (step_gate validator enforces all-terminal at output
+ * time). Kept as a defensive hydration fallback for legacy runs and for
+ * workflows that errored mid-step.
  *
  * Without this, the UI shows a perpetual spinner on those steps after a
  * page refresh.

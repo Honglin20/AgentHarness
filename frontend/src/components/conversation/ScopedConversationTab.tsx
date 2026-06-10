@@ -306,6 +306,7 @@ const STEP_ICON: Record<TodoStep["status"], string> = {
   pending: "⬜",
   in_progress: "▶",
   completed: "✓",
+  skipped: "⏭",
   interrupted: "⏸",
 };
 
@@ -313,6 +314,7 @@ const STEP_TONE: Record<TodoStep["status"], string> = {
   pending: "text-muted-foreground",
   in_progress: "text-blue-500",
   completed: "text-emerald-500",
+  skipped: "text-zinc-400",
   interrupted: "text-amber-500",
 };
 

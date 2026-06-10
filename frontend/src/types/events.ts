@@ -41,6 +41,8 @@ export type EventType =
   | "followup.failed"
   | "todo.created"
   | "todo.updated"
+  | "todo.bulk_completed"
+  | "todo.replaced"
   | "bash.background_completed"
   | "agent.tool_output_truncated"
   | "agent.retry_attempted"
@@ -309,7 +311,7 @@ export interface TodoStepItem {
   task_id: string;
   content: string;
   activeForm: string;
-  status: "pending" | "in_progress" | "completed";
+  status: "pending" | "in_progress" | "completed" | "skipped";
   detail?: string | null;
 }
 
@@ -328,9 +330,31 @@ export interface TodoUpdatedPayload {
   node_id: string;
   agent_name: string;
   task_id: string;
-  status?: "in_progress" | "completed" | null;
+  status?: "in_progress" | "completed" | "skipped" | null;
   detail?: string | null;
   auto_advance?: TodoAutoAdvance | null;
+}
+
+/** Emitted by `todo op='complete_remaining'` — bulk-finish all non-terminal steps. */
+export interface TodoBulkCompletedPayload {
+  node_id: string;
+  agent_name: string;
+  /** Terminal status applied to all previously non-terminal steps. */
+  status: "completed" | "skipped";
+  /** Optional one-line reason (e.g. "goal achieved at step 5"). */
+  reason?: string | null;
+  /** All task_ids that were bulk-finished in this call. */
+  task_ids: string[];
+}
+
+/** Emitted by `todo op='replace'` — discard current plan and create new one. */
+export interface TodoReplacedPayload {
+  node_id: string;
+  agent_name: string;
+  items: TodoStepItem[];
+  reason?: string | null;
+  /** Count of steps that were discarded. */
+  replaced_count?: number | null;
 }
 
 // Event type to payload mapping
@@ -364,6 +388,8 @@ export interface EventPayloadMap {
   "followup.failed": { workflow_id: string; agent_name: string; error: string };
   "todo.created": TodoCreatedPayload;
   "todo.updated": TodoUpdatedPayload;
+  "todo.bulk_completed": TodoBulkCompletedPayload;
+  "todo.replaced": TodoReplacedPayload;
   "bash.background_completed": BashBackgroundCompletedPayload;
   "agent.tool_output_truncated": AgentToolOutputTruncatedPayload;
   "agent.retry_attempted": AgentRetryAttemptedPayload;

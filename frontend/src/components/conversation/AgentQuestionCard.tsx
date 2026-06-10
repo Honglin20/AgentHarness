@@ -15,10 +15,12 @@ interface AgentQuestionCardProps {
    * Compact read-only rendering. When true, the card shows only the
    * header row (icon + agent + question first line + status badge) and
    * skips interactive controls, full options, and the answer detail
-   * block. Defaults to "auto" — collapsed when the question is no
-   * longer pending (answered / timeout / interrupted), expanded while
-   * the user can still act on it. Callers may pass an explicit boolean
-   * to override.
+   * block.
+   *
+   * Defaults to ``false`` (always expanded) so users can see ask_user
+   * calls even after they have been answered — R7 fix, see ADR
+   * ``docs/plans/2026-06-10-todo-step-gate-adr.md``. Callers may pass
+   * ``true`` to force compact (e.g. inside a collapsed NodeBlock).
    */
   collapsed?: boolean | "auto";
 }
@@ -41,7 +43,7 @@ function answerSummary(
   return left || answer.customInput;
 }
 
-export const AgentQuestionCard = React.memo(function AgentQuestionCard({ message, onSubmit, collapsed = "auto" }: AgentQuestionCardProps) {
+export const AgentQuestionCard = React.memo(function AgentQuestionCard({ message, onSubmit, collapsed = false }: AgentQuestionCardProps) {
   const {
     questionOptions: options,
     questionMultiSelect: multiSelect = false,
