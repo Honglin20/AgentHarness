@@ -36,7 +36,7 @@ class StepEntry(BaseModel):
     task_id: str
     content: str
     activeForm: str
-    status: Literal["pending", "in_progress", "completed"] = "pending"
+    status: Literal["pending", "in_progress", "completed", "skipped"] = "pending"
     detail: str | None = None
 
 
@@ -87,7 +87,12 @@ class TodoToolFactory(ToolFactory):
         "You MUST call this with op='create' to define your step list BEFORE starting any work, "
         "even for single-step tasks. "
         "Update step status with op='update' as you progress. "
-        "Use op='list' to view current steps."
+        "Use op='complete_remaining' to bulk-finish all remaining steps when the goal is achieved early "
+        "(status='completed' if you actually did the work, or 'skipped' if not needed). "
+        "Use op='replace' to discard the current plan and create a new one when you discover the original plan was wrong. "
+        "Use op='list' to view current steps. "
+        "ALL steps MUST be terminal (completed or skipped) before the agent can finish — "
+        "the framework will reject your final output otherwise."
     )
 
     def __init__(self, event_bus: Any | None = None):
@@ -98,11 +103,12 @@ class TodoToolFactory(ToolFactory):
 
         async def todo(
             ctx: RunContext,
-            op: Literal["create", "update", "list"],
+            op: Literal["create", "update", "list", "complete_remaining", "replace"],
             items: list[TodoItem] | None = None,
             task_id: str | None = None,
-            status: Literal["in_progress", "completed"] | None = None,
+            status: Literal["in_progress", "completed", "skipped"] | None = None,
             detail: str | None = None,
+            reason: str | None = None,
         ) -> str:
             deps = ctx.deps
             agent_name = deps.agent_name if isinstance(deps, AgentDeps) else ""
@@ -116,6 +122,12 @@ class TodoToolFactory(ToolFactory):
 
             # --- create ---
             if op == "create":
+                if state.has_plan:
+                    return (
+                        "Error: plan already exists. "
+                        "Use op='replace' to revise the plan, or "
+                        "op='complete_remaining' to finish the current plan."
+                    )
                 if not items:
                     return "Error: items is required for op='create'."
                 new_steps: list[StepEntry] = []
@@ -189,15 +201,91 @@ class TodoToolFactory(ToolFactory):
                     parts.append(f" Auto-advanced to '{next_pending.content}'.")
                 return "".join(parts)
 
+            # --- complete_remaining ---
+            if op == "complete_remaining":
+                if status not in ("completed", "skipped"):
+                    return (
+                        "Error: for op='complete_remaining', status must be "
+                        "'completed' or 'skipped'."
+                    )
+                if not state.has_plan:
+                    return "Error: no plan exists. Call op='create' first."
+                affected: list[StepEntry] = [
+                    s for s in state.steps if s.status in ("pending", "in_progress")
+                ]
+                if not affected:
+                    return "All steps are already terminal. Nothing to do."
+                for s in affected:
+                    s.status = status
+                    if reason:
+                        s.detail = reason
+                # No auto-advance: every step is terminal, so currentStepIdByNode
+                # is cleared downstream by the frontend handler (todo.bulk_completed).
+                if bus:
+                    payload_bulk: dict[str, Any] = {
+                        "node_id": node_id,
+                        "agent_name": agent_name,
+                        "status": status,
+                        "reason": reason,
+                        "task_ids": [s.task_id for s in affected],
+                    }
+                    if workflow_id:
+                        payload_bulk["workflow_id"] = workflow_id
+                    bus.emit("todo.bulk_completed", payload_bulk)
+                return (
+                    f"Bulk-finished {len(affected)} step(s) as '{status}'. "
+                    f"All steps now terminal."
+                )
+
+            # --- replace ---
+            if op == "replace":
+                if not items:
+                    return "Error: items is required for op='replace'."
+                old_count = len(state.steps)
+                state.steps = []
+                new_steps_replace: list[StepEntry] = []
+                for i, item in enumerate(items):
+                    entry = StepEntry(
+                        task_id=state.next_task_id(),
+                        content=item.content,
+                        activeForm=item.activeForm,
+                        status="in_progress" if i == 0 else "pending",
+                    )
+                    new_steps_replace.append(entry)
+                state.steps.extend(new_steps_replace)
+                # has_plan stays True (plan already existed; we're revising it)
+                if bus:
+                    payload_replaced: dict[str, Any] = {
+                        "node_id": node_id,
+                        "agent_name": agent_name,
+                        "items": [e.model_dump() for e in new_steps_replace],
+                        "reason": reason,
+                        "replaced_count": old_count,
+                    }
+                    if workflow_id:
+                        payload_replaced["workflow_id"] = workflow_id
+                    bus.emit("todo.replaced", payload_replaced)
+                first = new_steps_replace[0]
+                return (
+                    f"Replaced plan ({old_count} old step(s) discarded). "
+                    f"Created {len(new_steps_replace)} new step(s). "
+                    f"'{first.content}' is now active."
+                )
+
             # --- list ---
             if op == "list":
                 if not state.steps:
                     return "No steps created yet. Call todo(op='create', items=[...]) first."
                 total = len(state.steps)
-                symbols = {"pending": "⬜", "in_progress": "\U0001f535", "completed": "✅"}
+                symbols = {
+                    "pending": "⬜",
+                    "in_progress": "\U0001f535",
+                    "completed": "✅",
+                    "skipped": "⏭",
+                }
                 lines = []
                 for i, s in enumerate(state.steps, 1):
-                    sym = symbols.get(s.status, "⬜")
+                    sym = symbols.get(s.status, "?")
                     label = s.activeForm if s.status == "in_progress" else s.content
                     lines.append(f"[{i}/{total}] {sym} {label}")
                 return "\n".join(lines)

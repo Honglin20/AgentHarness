@@ -22,7 +22,7 @@ from pydantic import BaseModel
 
 from harness.constants import STATE_ERRORS, STATE_INPUTS, STATE_METADATA, STATE_OUTPUTS
 from harness.cost import calculate_cost
-from harness.engine.schema_utils import ReviewDecision, strip_schema, validate_output
+from harness.engine.schema_utils import ReviewDecision, strip_schema
 from harness.engine.llm_executor import LLMExecutor
 from harness.engine.llm_retry import execute_with_retry
 from harness.engine.node_phases import (
@@ -459,21 +459,14 @@ def make_node_func(
             # Record usage into the per-node aggregator (primary agent)
             executor.record_usage(usage_obj)
 
-            # === Output completeness validation gate ===
-            validation_error = validate_output(output, result_type)
-            if validation_error:
-                duration_ms = int((time.time() - start_time) * 1000)
-                if bus:
-                    safe_emit(bus, "node.failed", build_node_failed_payload(
-                        builder_self.workflow_id, agent_def.name, agent_def.name,
-                        validation_error, duration_ms,
-                        error_type="OutputValidationError",
-                    ))
-                return {
-                    STATE_OUTPUTS: {},
-                    STATE_ERRORS: {agent_def.name: validation_error},
-                    STATE_METADATA: {agent_def.name: {"duration_ms": duration_ms}},
-                }
+            # Schema validation is now handled by pydantic-ai's output_type
+            # mechanism + step_gate output_validator (injected in micro_agent.py).
+            # Both schema errors and step-gate violations raise ModelRetry,
+            # which pydantic-ai converts into a continued iter() with the retry
+            # prompt appended to message_history. After output_retries (budget=1)
+            # exhausted, pydantic-ai raises UnexpectedModelBehavior — caught by
+            # the except block below, which emits node.failed with the original
+            # error preserved. See ADR 2026-06-10-todo-step-gate-adr.md.
 
             duration_ms = int((time.time() - start_time) * 1000)
 
@@ -622,7 +615,14 @@ def make_node_func(
             return result_dict
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
-            error_type = type(e).__name__
+            # pydantic-ai raises UnexpectedModelBehavior when output retry
+            # budget is exhausted (covers step_gate ModelRetry retries +
+            # schema validation failures). Translate to a more semantically
+            # meaningful error_type so frontend can classify display.
+            if type(e).__name__ == "UnexpectedModelBehavior":
+                error_type = "OutputValidationRetryExhausted"
+            else:
+                error_type = type(e).__name__
 
             tool_calls_before_failure = None
             try:

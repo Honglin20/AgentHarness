@@ -92,6 +92,8 @@ CRITICAL_EVENT_TYPES: frozenset[str] = frozenset({
     # TODO planning (UI renders TodoStepList from these)
     "todo.created",
     "todo.updated",
+    "todo.bulk_completed",  # complete_remaining — bulk finish all non-terminal steps
+    "todo.replaced",        # replace — discard current plan and create new one
     # Followup lifecycle
     "followup.started",
     "followup.completed",
