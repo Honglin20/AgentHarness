@@ -198,6 +198,7 @@ class RunStore(RunStoreInterface):
         events: list[dict] | None = None,
         created_at: str | None = None,
         work_dir: str | None = None,
+        todo_steps: dict | None = None,
     ) -> Path:
         record = {
             "run_id": run_id,
@@ -216,6 +217,7 @@ class RunStore(RunStoreInterface):
         record["conversation"] = conversation if conversation is not None else []
         record["work_dir"] = work_dir or None
         record["followup_sessions"] = None
+        record["todo_steps"] = todo_steps or None
         # Main record does NOT contain chart_groups or events — they go to sidecars.
         # A flag tells the frontend whether sidecar data exists.
         record["_has_charts"] = bool(chart_groups and chart_groups.get("groupOrder"))

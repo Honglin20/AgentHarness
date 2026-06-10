@@ -349,18 +349,34 @@ export function loadRunFromPersistedData(
 
   loadChartsFromGroups(stores.chart, run.chart_groups);
 
-  // -- 7.5. todoStore (replay from events) --------------------------------
+  // -- 7.5. todoStore ------------------------------------------------------
   //
-  // todoStore has no equivalent of "agent_io" or "trace" in the persisted
-  // run record — the canonical source is the ws event stream. We scan the
-  // events array for todo.created / todo.updated and apply them in order.
+  // Primary: use todo_steps snapshot from run record (saved at workflow
+  // completion by the backend). Direct setState — no event iteration needed.
   //
-  // Without this section, refreshing a run that uses the TODO tool leaves
-  // todoStore empty, and ScopedConversationTab falls into its "no todos"
-  // branch — rendering every agent_msg / tool_call inline instead of
-  // under step rows. Both a UX regression (no step list) and a perf
-  // regression (more items in the virtualizer).
-  if (events && events.length > 0) {
+  // Fallback: if todo_steps is absent (old runs or backend crash before
+  // save), replay todo events from the events sidecar. This preserves
+  // correctness for all runs.
+  const todoStepsSnapshot = (run as any).todo_steps as
+    | Record<string, Array<{ task_id: string; content: string; activeForm: string; status: string; detail: string | null }>>
+    | undefined
+    | null;
+
+  if (todoStepsSnapshot && Object.keys(todoStepsSnapshot).length > 0) {
+    // Snapshot path — direct setState per node
+    const todosMap: Record<string, import("./stores/todo").TodoStep[]> = {};
+    for (const [nodeId, steps] of Object.entries(todoStepsSnapshot)) {
+      todosMap[nodeId] = steps.map((s) => ({
+        taskId: s.task_id,
+        content: s.content,
+        activeForm: s.activeForm,
+        status: s.status as import("./stores/todo").TodoStepStatus,
+        detail: s.detail ?? null,
+      }));
+    }
+    stores.todo.setState({ todos: todosMap });
+  } else if (events && events.length > 0) {
+    // Event fallback — replay todo.created / todo.updated
     for (const event of events) {
       if (event.type === "todo.created") {
         const p = event.payload as {

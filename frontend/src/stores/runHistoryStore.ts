@@ -65,6 +65,14 @@ export interface RunRecord {
   _has_charts?: boolean;
   _has_events?: boolean;
   _has_conversation?: boolean;
+  /** Per-node TODO steps snapshot, saved at workflow completion. */
+  todo_steps?: Record<string, Array<{
+    task_id: string;
+    content: string;
+    activeForm: string;
+    status: string;
+    detail: string | null;
+  }>> | null;
 }
 
 interface RunHistoryState {

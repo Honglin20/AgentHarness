@@ -343,6 +343,18 @@ class WorkflowRunner:
                 _agent_io = workflow._builder.agent_io if workflow._builder else {}
                 data = repo.get(workflow_id)
 
+                # Collect todo steps snapshot from all agent deps
+                _todo_steps: dict[str, list[dict]] = {}
+                if workflow._builder:
+                    from harness.tools.todo import get_todo_state
+                    for node_id, agent in workflow._builder.agents.items():
+                        deps = getattr(agent, "deps", None)
+                        if deps is None:
+                            continue
+                        ts = get_todo_state(deps)
+                        if ts and ts.steps:
+                            _todo_steps[node_id] = [s.model_dump() for s in ts.steps]
+
                 if event_bus:
                     conv_collector = ConversationCollector(event_bus)
                     conv_collector.collect_from_buffer()
@@ -376,6 +388,7 @@ class WorkflowRunner:
                     events=events,
                     created_at=data.get("created_at") if data else None,
                     work_dir=work_dir,
+                    todo_steps=_todo_steps or None,
                 )
 
             except Exception as e:
@@ -414,6 +427,18 @@ class WorkflowRunner:
                 _agent_io = workflow._builder.agent_io if workflow._builder else {}
                 data = repo.get(workflow_id)
 
+                # Collect todo steps snapshot from all agent deps
+                _todo_steps_fail: dict[str, list[dict]] = {}
+                if workflow._builder:
+                    from harness.tools.todo import get_todo_state
+                    for node_id, agent in workflow._builder.agents.items():
+                        deps = getattr(agent, "deps", None)
+                        if deps is None:
+                            continue
+                        ts = get_todo_state(deps)
+                        if ts and ts.steps:
+                            _todo_steps_fail[node_id] = [s.model_dump() for s in ts.steps]
+
                 if event_bus:
                     conv_collector = ConversationCollector(event_bus)
                     conv_collector.collect_from_buffer()
@@ -447,6 +472,7 @@ class WorkflowRunner:
                     events=events,
                     created_at=data.get("created_at") if data else None,
                     work_dir=work_dir,
+                    todo_steps=_todo_steps_fail or None,
                 )
 
             finally:

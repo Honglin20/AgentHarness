@@ -168,6 +168,7 @@ def _persisted_run_detail(run: dict) -> dict:
         "_has_charts": run.get("_has_charts", False),
         "_has_events": run.get("_has_events", False),
         "_has_conversation": len(conv) > 0,
+        "todo_steps": run.get("todo_steps"),
     }
 
 

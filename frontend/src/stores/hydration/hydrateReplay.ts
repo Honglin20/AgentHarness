@@ -47,7 +47,9 @@ export interface SidecarData {
  */
 export function decideStrategy(run: RunRecord, sidecars: SidecarData): HydrationStrategy {
   const conv = sidecars.conversation ?? run.conversation ?? [];
-  const hasPersistedData = Boolean(run.agent_io && conv && run.dag && run.result?.trace);
+  // agent_io is optional — some runs don't have IO records. The persisted
+  // path handles missing agent_io gracefully (agentIO store stays empty).
+  const hasPersistedData = Boolean(conv && conv.length > 0 && run.dag && run.result?.trace);
   if (hasPersistedData) return "persisted";
 
   const wsEvents = sidecars.events as WSEvent[] | undefined;
