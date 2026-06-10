@@ -315,25 +315,51 @@ Agent("writer", after=[])                          # 无工具限制（默认）
 Agent("analyst", after=[], tools=[])               # 不使用任何工具
 ```
 
+### 工具 3 层分级（ToolTier）
+
+所有工具按 `ToolTier`（`harness/tools/registry.py`）分 3 层，决定 Agent `tools` 字段不同写法下的加载行为：
+
+| Tier | 加载行为 | 当前工具 |
+|---|---|---|
+| **FORCED** | 始终注入；写白名单也会强制加上，只有 `exclude=[...]` 才能去掉 | `todo` |
+| **DEFAULT** | `tools=None`（默认）时自动加载；写白名单时被替换 | `bash` `grep` `glob` `sub_agent` `ask_user` + filesystem MCP ×10 |
+| **EXPLICIT** | 不会自动加载；agent 必须显式列入 `tools=[...]` | `render_chart` + codegraph MCP ×10 |
+
+**典型场景**：
+
+| 写法 | 加载的工具集 |
+|---|---|
+| `tools` 缺省 | FORCED + DEFAULT（共 15 个） |
+| `tools=["bash"]` | `bash` + `todo`（FORCED 强制注入） |
+| `tools=["bash"], exclude=["todo"]` | 只有 `bash`（强制层也能 exclude） |
+| `tools=["codegraph_search"]` | `codegraph_search` + `todo`（显式列 + 强制注入） |
+| `tools=["*"]`（glob） | 所有已注册工具 + `todo` |
+
+**分级判断指引**（新增工具时参考）：
+- 是否框架级硬要求（有 reminder 强制注入 / description 强制行为）→ FORCED
+- 是否绝大多数 agent 都需要（基础设施 / 文件操作 / 通用查询）→ DEFAULT
+- 是否高成本或场景化（启动慢 / 占资源 / 仅特定 agent 类型用）→ EXPLICIT
+
 ### 内置工具
 
-| 工具 | 说明 |
-|------|------|
-| `bash` | 执行 shell 命令 |
-| `grep` | 基于 ripgrep 的内容搜索，结构化输出 + token 预算控制 |
-| `glob` | 基于 ripgrep 的文件模式匹配，按修改时间排序 |
-| `sub_agent` | 委托子 Agent 执行任务（最大深度 1） |
-| `ask_user` | 向用户提问（单选/多选/自由输入），等待回答（需要 UI） |
-| `render_chart` | 渲染图表到前端（13 种图表类型），Agent 可直接调用，无需 bash |
+| 工具 | Tier | 说明 |
+|------|------|------|
+| `todo` | FORCED | agent 驱动的步骤规划（带 reminder 强制提醒机制） |
+| `bash` | DEFAULT | 执行 shell 命令 |
+| `grep` | DEFAULT | 基于 ripgrep 的内容搜索，结构化输出 + token 预算控制 |
+| `glob` | DEFAULT | 基于 ripgrep 的文件模式匹配，按修改时间排序 |
+| `sub_agent` | DEFAULT | 委托子 Agent 执行任务（最大深度 1） |
+| `ask_user` | DEFAULT | 向用户提问（单选/多选/自由输入），等待回答（需要 UI） |
+| `render_chart` | EXPLICIT | 渲染图表到前端（13 种图表类型），Agent 可直接调用，无需 bash |
 
 ### MCP 工具
 
-通过 MCP Server 提供的工具，默认自动加载：
+通过 MCP Server 提供的工具：
 
-| 工具组 | 工具 | 说明 |
-|--------|------|------|
-| **文件系统** | `read_file`, `write_file`, `edit_file`, `list_directory` 等 | 文件读写操作 |
-| **codegraph** | `codegraph_status`, `codegraph_search`, `codegraph_callers`, `codegraph_callees`, `codegraph_impact`, `codegraph_node`, `codegraph_explore`, `codegraph_trace`, `codegraph_context`, `codegraph_files` | 代码搜索、调用图、影响分析 |
+| 工具组 | Tier | 工具 | 说明 |
+|--------|------|------|------|
+| **文件系统** | DEFAULT | `read_file`, `write_file`, `edit_file`, `list_directory` 等 | 文件读写操作（默认加载） |
+| **codegraph** | EXPLICIT | `codegraph_status`, `codegraph_search`, `codegraph_callers`, `codegraph_callees`, `codegraph_impact`, `codegraph_node`, `codegraph_explore`, `codegraph_trace`, `codegraph_context`, `codegraph_files` | 代码搜索、调用图、影响分析（必须显式列入） |
 
 MCP Server 需要安装对应的 npm 包（见安装部分）。
 

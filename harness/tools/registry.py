@@ -95,23 +95,18 @@ class ToolRegistry:
         name: str,
         factory: ToolFactory,
         source: str = "built-in",
-        tier: ToolTier = ToolTier.DEFAULT,
+        tier: ToolTier = ToolTier.EXPLICIT,
     ) -> None:
+        """Register a tool factory.
+
+        Default tier is EXPLICIT (fail-safe): if a caller forgets to specify
+        tier, the tool won't auto-load — protects against accidentally
+        exposing heavyweight tools to every agent. Internal tools that
+        should auto-load must explicitly pass tier=DEFAULT / FORCED.
+        """
         self._factories[name] = factory
         self._sources[name] = source
         self._tiers[name] = tier
-
-    def set_tier(self, names: list[str], tier: ToolTier) -> None:
-        """Batch-set tier for already-registered tools (MCP 用).
-
-        MCP tools are discovered at connect time, so callers like
-        setup_default_mcp / setup_codegraph_mcp can't pass tier through
-        register(). They register first, then call set_tier([...], tier)
-        on the discovered names.
-        """
-        for n in names:
-            if n in self._factories:
-                self._tiers[n] = tier
 
     def expand_globs(self, patterns: list[str], strict: bool = True) -> list[str]:
         """Expand glob patterns and ``!`` exclusions against the registry.

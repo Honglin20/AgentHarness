@@ -94,16 +94,18 @@ def make_node_func(
     builder_self = builder  # Capture for workflow_id access
     final_tool_names, model, retries, result_type = resolve_agent_config(builder, agent_def, parsed)
 
-    # Per-node reminder tracker. As of the tool-tier refactor, `todo` is
-    # FORCED-tier — registry.resolve() always injects it (unless an explicit
-    # exclude is wired through, which currently isn't surfaced at this
-    # layer). The reminder tracker therefore always hooks on, ensuring the
-    # framework-level "create-before-work" reminder fires for every agent.
+    # Per-node reminder tracker (only when todo will be available to the agent).
+    #
+    # `todo` is FORCED-tier, so registry.resolve() injects it unless an
+    # exclude list removes it. The check below keeps the original semantics
+    # intact: when no whitelist is given (None) todo is always present;
+    # when a whitelist is given, todo is present iff it's listed (FORCED
+    # injection guarantees that). This also auto-adapts if exclude_tools
+    # ever flows into this layer (then "todo" would be absent from
+    # final_tool_names and the tracker correctly disables).
     # Tracker reads TodoState lazily from deps — the todo tool creates state
     # on first call, and the tracker reads it from there.  No registry mutation.
-    # TODO: if exclude_tools ever flows into make_node_func, gate this on
-    # `"todo" not in exclude_tools` to honor explicit opt-out.
-    todo_available = True
+    todo_available = final_tool_names is None or "todo" in final_tool_names
     # Will be set inside nodeFunc after deps is created
     _reminder_tracker_holder: list[TodoReminderTracker | None] = [None]
 
