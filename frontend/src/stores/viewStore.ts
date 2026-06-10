@@ -32,7 +32,8 @@ export type ActiveView =
   | { type: "replay"; runId: string; run: RunRecord };
 
 /** True for both skeleton and full replay — anything that isn't "live". */
-export function isReplayView(view: ActiveView): boolean {
+type ReplayView = Extract<ActiveView, { runId: string }>;
+export function isReplayView(view: ActiveView): view is ReplayView {
   return view.type === "replay" || view.type === "replay-skeleton";
 }
 
@@ -80,7 +81,15 @@ interface ViewState {
 export const useViewStore = create<ViewState>()((set, get) => ({
   activeView: { type: "live" },
   chartsLoading: false,
-  showLive: () => set({ activeView: { type: "live" } }),
+  showLive: () => {
+    const current = get().activeView;
+    if (isReplayView(current)) {
+      const manager = getWorkflowManager();
+      const scoped = manager.getOrCreate(current.runId);
+      resetAllStores(scoped.stores);
+    }
+    set({ activeView: { type: "live" } });
+  },
   beginReplay: (runId, workflowName) => set({
     // Skeleton view — we know the run id and workflow name (from the
     // sidebar entry) but haven't fetched the full record yet. The UI
@@ -127,9 +136,10 @@ export const useViewStore = create<ViewState>()((set, get) => ({
           chartsLoading: false,
         });
       })
-      .catch(() => {
+      .catch((err) => {
         // Sidecar load or hydration threw — fall back to whatever we have
         // inline. Don't leave the UI stuck on the skeleton forever.
+        console.error("[viewStore] Sidecar hydration failed:", err);
         if (seq !== _replaySeq) return;
         const fallbackSidecars: SidecarData = {
           charts: run.chart_groups ?? null,

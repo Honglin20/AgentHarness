@@ -358,13 +358,15 @@ const StepRow = React.memo(function StepRow({
   const label = isStreaming ? (step.activeForm || step.content) : step.content;
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll streaming step to bottom (only when user is near bottom)
+  // Auto-scroll streaming step to bottom (deferred to avoid layout thrash)
   useEffect(() => {
-    if (isStreaming && contentRef.current) {
-      const el = contentRef.current;
+    if (!isStreaming || !contentRef.current) return;
+    const el = contentRef.current;
+    const raf = requestAnimationFrame(() => {
       const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
       if (nearBottom) el.scrollTop = el.scrollHeight;
-    }
+    });
+    return () => cancelAnimationFrame(raf);
   });
 
   return (
@@ -603,8 +605,8 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
       const todos = todosRef.current?.[b.nodeId];
       const expanded = stepExpandedRef.current;
 
-      // Header (AgentNodeHeader) + outer padding (p-3) + gap
-      let h = 60;
+      // Header (AgentNodeHeader) + outer padding (p-3 + px-6 py-2 wrapper) + gap
+      let h = 76;
 
       if (todos && todos.length > 0) {
         h += (todos.length - 1) * 6; // gap-1.5 between steps
@@ -613,6 +615,17 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
           if (step.status === "in_progress") h += STEP_STREAMING_H;
           else if (expanded[stepKey]) h += STEP_EXPANDED_H;
           else h += STEP_COLLAPSED_H;
+        }
+        // Unkeyed children (messages before first step, or non-tagged)
+        const unkeyed = b.children.filter((c) => !c.stepId);
+        if (unkeyed.length > 0) {
+          h += 20; // border separator + padding
+          for (const c of unkeyed) {
+            if (c.kind === "agent_msg") {
+              h += Math.min(400, Math.max(40, (c.message.content?.length ?? 0) * 0.6 + 24));
+            } else if (c.kind === "tool_group") h += 32;
+            else if (c.kind === "question") h += 120;
+          }
         }
       } else {
         // Non-todo fallback: content-length heuristic
