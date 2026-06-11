@@ -178,6 +178,7 @@ const initialState = {
   pendingQuestionAgent: null as string | null,
   activeFollowupAgent: null as string | null,
   currentStepIdByNode: {} as Record<string, string>,
+  currentIterationByNode: {} as Record<string, number>,
   _cache: {} as Record<string, { messages: ConversationMessage[]; pendingQuestionId: string | null; pendingQuestionAgent: string | null }>,
   _activeWid: null as string | null,
 };
@@ -523,7 +524,7 @@ export const useConversationStore = create<ConversationState>()((set) => ({
 
   reset: () => {
     msgCounter = 0;
-    return set({ ...initialState, _cache: {}, _activeWid: null, currentStepIdByNode: {} });
+    return set({ ...initialState, _cache: {}, _activeWid: null, currentStepIdByNode: {}, currentIterationByNode: {} });
   },
 
   setCurrentStep: (nodeId, stepId) =>
@@ -537,6 +538,14 @@ export const useConversationStore = create<ConversationState>()((set) => ({
       if (state.currentStepIdByNode[nodeId] === stepId) return state;
       return {
         currentStepIdByNode: { ...state.currentStepIdByNode, [nodeId]: stepId },
+      };
+    }),
+
+  setCurrentIteration: (nodeId, iteration) =>
+    set((state) => {
+      if (state.currentIterationByNode[nodeId] === iteration) return state;
+      return {
+        currentIterationByNode: { ...state.currentIterationByNode, [nodeId]: iteration },
       };
     }),
 
