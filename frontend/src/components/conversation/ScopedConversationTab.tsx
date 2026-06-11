@@ -181,7 +181,7 @@ const AgentMsgItem = React.memo(function AgentMsgItem({ message: m }: { message:
         </button>
       )}
       {showThinking && m.thinking && (
-        <ThinkingBlock text={m.thinking} streaming={isStreaming} />
+        <ThinkingBlock text={m.thinking} streaming={isStreaming} defaultOpen={true} />
       )}
       {m.content.trim() && (
         <div className="text-sm">
