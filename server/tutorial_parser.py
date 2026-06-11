@@ -1,8 +1,8 @@
 """Parse tutorials/ directory into domain metadata for the portal API.
 
 Usage:
-    python -m scripts.parse_tutorials          # print JSON to stdout
-    python -c "from scripts.parse_tutorials import parse_tutorials; ..."
+    python -m server.tutorial_parser          # print JSON to stdout
+    python -c "from server.tutorial_parser import parse_tutorials; ..."
 """
 from __future__ import annotations
 

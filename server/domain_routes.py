@@ -17,7 +17,7 @@ async def list_domains(request: Request) -> list[dict]:
     cached = getattr(request.app.state, "domain_data", None)
     if cached is not None:
         return cached
-    from scripts.parse_tutorials import parse_tutorials
+    from server.tutorial_parser import parse_tutorials
     return parse_tutorials()
 
 
@@ -123,7 +123,7 @@ async def get_api_doc(domain_id: str, api_name: str, request: Request) -> dict:
 @router.post("/domains/refresh")
 async def refresh_domains(request: Request) -> dict:
     """Force re-parse of tutorials directory."""
-    from scripts.parse_tutorials import parse_tutorials
+    from server.tutorial_parser import parse_tutorials
     data = parse_tutorials()
     request.app.state.domain_data = data
     return {"status": "ok", "count": len(data)}

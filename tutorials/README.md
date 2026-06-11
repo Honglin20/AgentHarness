@@ -324,7 +324,7 @@ workflows/new_workflow/
 
 ```bash
 # 查看解析结果
-python -c "from scripts.parse_tutorials import parse_tutorials; import json; json.dump(parse_tutorials(), sys.stdout, indent=2, ensure_ascii=False)"
+python -c "from server.tutorial_parser import parse_tutorials; import json; json.dump(parse_tutorials(), sys.stdout, indent=2, ensure_ascii=False)"
 
 # 检查 API 响应
 curl -s http://localhost:8000/api/domains | python3 -m json.tool

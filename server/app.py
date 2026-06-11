@@ -71,7 +71,7 @@ async def lifespan(app: FastAPI):
     app.state.tool_catalog = catalog
 
     # Parse and cache domain/tutorial data
-    from scripts.parse_tutorials import parse_tutorials
+    from .tutorial_parser import parse_tutorials
     try:
         domain_data = parse_tutorials()
         print(f"  Domain portal:    {len(domain_data)} domains loaded")
