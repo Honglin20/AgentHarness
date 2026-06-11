@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect } from "react";
 import { useAgentOutline } from "./useAgentOutline";
 import { useAutoFollowSelection } from "./useAutoFollowSelection";
 import { useOutlineStore } from "./outlineStore";
@@ -23,6 +23,29 @@ export function AgentOutline() {
   const setAutoFollow = useOutlineStore((s) => s.setAutoFollow);
 
   const handleSelect = useCallback((key: string) => select(key, false), [select]);
+
+  // j/k vim-style navigation. Guard against INPUT/TEXTAREA/contentEditable
+  // so typing in ChatInput isn't hijacked.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        return;
+      }
+      if (e.key !== "j" && e.key !== "k") return;
+
+      const idx = items.findIndex((i) => i.key === selectedKey);
+      let nextIdx: number;
+      if (e.key === "j") nextIdx = Math.min(items.length - 1, (idx < 0 ? -1 : idx) + 1);
+      else nextIdx = Math.max(0, (idx < 0 ? items.length : idx) - 1);
+      if (nextIdx === idx) return;
+
+      e.preventDefault();
+      select(items[nextIdx].key, false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [items, selectedKey, select]);
 
   if (items.length === 0) {
     return (
