@@ -40,6 +40,16 @@ export interface ConversationMessage {
    */
   stepId?: string;
 
+  /**
+   * Which loop iteration of this node produced the message. 1-indexed.
+   * Undefined for legacy data (treated as iteration 1 by consumers) and
+   * for messages that aren't part of a node (system, user-typed).
+   *
+   * Stamped at creation time from `currentIterationByNode[nodeId]` — same
+   * pattern as `stepId`. See `setCurrentIteration` action.
+   */
+  iteration?: number;
+
   // ── question-specific fields (type === "question") ──
   questionId?: string;
   questionHeader?: string | null;
