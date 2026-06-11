@@ -46,7 +46,9 @@ export interface ConversationMessage {
    * for messages that aren't part of a node (system, user-typed).
    *
    * Stamped at creation time from `currentIterationByNode[nodeId]` — same
-   * pattern as `stepId`. See `setCurrentIteration` action.
+   * pattern as `stepId`. The state map + `setCurrentIteration` action
+   * arrive in later tasks of the same plan; this field is the type-level
+   * foundation that lets them stamp without further interface changes.
    */
   iteration?: number;
 
