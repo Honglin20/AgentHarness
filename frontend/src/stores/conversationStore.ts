@@ -102,6 +102,17 @@ export interface ConversationState {
    */
   currentStepIdByNode: Record<string, string>;
 
+  /**
+   * nodeId → current loop iteration count for that node. 1-indexed.
+   * Incremented by `setCurrentIteration` (called from nodeHandlers on
+   * node.started — same place that calls `handleNodeStarted`). Each new
+   * message created on this node stamps `iteration` from this map.
+   *
+   * Never cleared per-iteration — only wiped by `reset()`. A nodeId that
+   * executes N times ends up with iteration=N at the end of the run.
+   */
+  currentIterationByNode: Record<string, number>;
+
   // Per-workflow cache for batch mode
   _cache: Record<string, { messages: ConversationMessage[]; pendingQuestionId: string | null; pendingQuestionAgent: string | null }>;
   _activeWid: string | null;
@@ -124,6 +135,7 @@ export interface ConversationState {
    * on node termination / reset).
    */
   setCurrentStep: (nodeId: string, stepId: string | null) => void;
+  setCurrentIteration: (nodeId: string, iteration: number) => void;
   markQuestionTimeout: (questionId: string) => void;
   /**
    * Mark every still-pending question as "interrupted". Called when the

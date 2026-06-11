@@ -59,6 +59,7 @@ export function createConversationStore(
     pendingQuestionAgent: null as string | null,
     activeFollowupAgent: null as string | null,
     currentStepIdByNode: {} as Record<string, string>,
+    currentIterationByNode: {} as Record<string, number>,
 
     // Cache management (保留用于 batch 模式兼容)
     _cache: {} as ConversationState["_cache"],
@@ -360,6 +361,7 @@ export function createConversationStore(
         pendingQuestionAgent: null,
         activeFollowupAgent: null,
         currentStepIdByNode: {},
+        currentIterationByNode: {},
       }),
 
     setCurrentStep: (nodeId, stepId) =>
@@ -373,6 +375,17 @@ export function createConversationStore(
         if (state.currentStepIdByNode[nodeId] === stepId) return state;
         return {
           currentStepIdByNode: { ...state.currentStepIdByNode, [nodeId]: stepId },
+        };
+      }),
+
+    setCurrentIteration: (nodeId, iteration) =>
+      set((state) => {
+        if (state.currentIterationByNode[nodeId] === iteration) return state;
+        return {
+          currentIterationByNode: {
+            ...state.currentIterationByNode,
+            [nodeId]: iteration,
+          },
         };
       }),
 
