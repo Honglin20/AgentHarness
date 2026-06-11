@@ -273,6 +273,7 @@ def render_chart(
     pareto_y_direction: str | None = None,
     optimal_line: str | None = None,
     node_id: str = "",
+    bus: Any | None = None,
 ) -> str:
     """Render a chart or table visualization to the frontend.
 
@@ -354,10 +355,10 @@ def render_chart(
 
     rendered_msg = f"Chart rendered: {chart_type} | label='{label}' | title='{title or chart_type}'"
 
-    # Channel 1: EventBus (same-process — only if active server instance)
-    bus = _try_get_event_bus()
-    if bus and bus.subscriber_count > 0:
-        bus.emit("chart.render", event_payload)
+    # Channel 1: EventBus (direct per-workflow bus, or fallback to singleton)
+    active_bus = bus or _try_get_event_bus()
+    if active_bus:
+        active_bus.emit("chart.render", event_payload)
         return rendered_msg
 
     # Channel 2: Stdout capture — bash tool _reader detects __HARNESS_CHART__:
@@ -437,6 +438,7 @@ class RenderChartToolFactory(ToolFactory):
                 pareto_direction=pareto_direction,
                 optimal_line=optimal_line,
                 node_id=node_id,
+                bus=self.event_bus,
             )
 
         from pydantic_ai import Tool as PydanticAITool

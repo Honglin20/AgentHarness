@@ -22,6 +22,7 @@ import { getWorkflowManager } from "./WorkflowManager";
 import { loadRunFromPersistedData } from "./replayEvents";
 import { fetchWithAuth } from "@/lib/api";
 import type { WSEvent } from "@/types/events";
+import { useViewStore } from "@/stores/viewStore";
 
 // ============================================================
 // WSMethodContext — React context for WebSocket send methods
@@ -95,17 +96,31 @@ export function WorkflowScope({ workflowId, children }: WorkflowScopeProps) {
     manager.setActiveWorkflowId(workflowId);
   }, [manager, workflowId]);
 
-  // REST pre-populate: on refresh, scoped stores are empty. Fetch persisted
-  // run data via REST and populate stores BEFORE WS events arrive, so the UI
-  // is never blank even when the server event buffer has overflowed.
+  // ── REST pre-populate on page refresh ────────────────────────────────
+  //
+  // On full-page refresh, scoped stores are empty. This effect fetches
+  // persisted run data via REST and populates stores so the UI is never
+  // blank, even when the server event buffer has overflowed.
+  //
+  // Coordination with showReplay (sidebar click / URL restore):
+  //   chartsLoading is a reactive dependency. When showReplay activates
+  //   (sets chartsLoading = true), React's effect cleanup automatically
+  //   cancels any in-flight fetch via the `cancelled` flag. The guard
+  //   at the top also prevents new fetches from starting. This eliminates
+  //   the race where both paths call resetAllStores() concurrently and
+  //   one clears the other's populated data.
+  const chartsLoading = useViewStore((s) => s.chartsLoading);
   const prepopulatedRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!workflowId || !stores) return;
 
-    // Already pre-populated for this workflowId (or stores have data from
-    // showReplay / batch setup / a prior WS cycle).
+    // Already pre-populated (showReplay / batch / prior WS cycle).
     if (prepopulatedRef.current === workflowId) return;
     if (stores.workflow.getState().dag) return;
+
+    // showReplay owns hydration — do not race with it.
+    if (chartsLoading) return;
 
     let cancelled = false;
 
@@ -115,13 +130,9 @@ export function WorkflowScope({ workflowId, children }: WorkflowScopeProps) {
         if (!res.ok || cancelled) return;
         const run = await res.json();
 
-        // Double-check: WS may have connected and populated stores while we
-        // were fetching. Write only if stores are still empty.
         if (cancelled || stores.workflow.getState().dag) return;
 
         // Lazy-load charts / events / conversation if stored in sidecar files.
-        // Conversation was split out of /runs/{id} to keep page-refresh snappy
-        // on long workflows — see server/_helpers.py.
         let conv = run.conversation;
         let chartGroups = run.chart_groups;
         let eventsData: WSEvent[] | undefined;
@@ -147,24 +158,33 @@ export function WorkflowScope({ workflowId, children }: WorkflowScopeProps) {
 
         const hasPersistedData = run.agent_io && conv && conv.length > 0 && run.dag && run.result?.trace;
 
-        // Final guard: stores may have been populated by WS in the meantime.
         if (cancelled || stores.workflow.getState().dag) return;
 
         if (hasPersistedData) {
           loadRunFromPersistedData(workflowId, { ...run, chart_groups: chartGroups, conversation: conv }, eventsData);
         } else if (eventsData && eventsData.length > 0) {
-          // Fallback: event replay when persisted data is incomplete
           const { replayEventsToStores } = await import("./replayEvents");
           if (!cancelled) replayEventsToStores(workflowId, eventsData);
         }
 
         if (!cancelled) prepopulatedRef.current = workflowId;
-      } catch {
-        // Silent: WS will handle it as fallback.
+      } catch (err) {
+        // For completed runs there is no WS fallback — log so the blank
+        // panel is traceable instead of silently swallowed.
+        console.warn("[WorkflowScope] pre-populate failed for", workflowId, err);
       }
     })();
 
     return () => { cancelled = true; };
+  }, [workflowId, stores, chartsLoading]);
+
+  // Mark prepopulated when stores get data from an external source
+  // (showReplay, WS events), so the pre-populate effect doesn't re-fire.
+  useEffect(() => {
+    if (!workflowId || !stores) return;
+    if (stores.workflow.getState().dag && prepopulatedRef.current !== workflowId) {
+      prepopulatedRef.current = workflowId;
+    }
   }, [workflowId, stores]);
 
   if (!stores) {

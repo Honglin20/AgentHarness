@@ -278,7 +278,10 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
     abortRef.current = ac;
 
     const full = await fetchRun(run.run_id, ac.signal);
-    if (!full || ac.signal.aborted) return;
+    if (!full || ac.signal.aborted) {
+      showLive(); // fall back — don't leave UI stuck on skeleton
+      return;
+    }
 
     if (full.status === "running") {
       setWorkflow(full.run_id, full.workflow_name, full.dag ?? null);

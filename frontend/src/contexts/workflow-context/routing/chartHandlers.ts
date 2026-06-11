@@ -11,11 +11,13 @@ export const chartHandlers: [string, EventHandler][] = [
     "chart.render",
     (stores, event, _ctx) => {
       const p = payload<ChartRenderPayload>(event);
-      // Accept both shapes:
+      // Accept three shapes:
       //   - nested: { chart: {label, title, chart_type, ...} }  (harness/tools/chart.py)
       //   - flat:   { label, title, chart_type, ... }            (plugins like perf_metrics)
+      //   - ref:    { chart_ref: {label, title, chart_type} }    (deduped events sidecar)
+      // Ref payloads lack full data — skip them (charts sidecar is the authoritative source).
       const chart = (p as any).chart ?? p;
-      if (chart && (chart as any).label) {
+      if (chart && (chart as any).label && !(p as any).chart_ref) {
         stores.chart.getState().addChart(chart as any);
       }
     },
