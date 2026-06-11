@@ -503,8 +503,9 @@ export function createConversationStore(
               followup: true,
               timestamp: Date.now(),
               // isNodeMsg excludes user-type messages, so this never lands in
-              // a NodeBlock; stepId is set purely for consistency.
+              // a NodeBlock; stepId/iteration are set purely for consistency.
               stepId: state.currentStepIdByNode[nodeId],
+              iteration: state.currentIterationByNode[nodeId] ?? 1,
             },
           ],
         };
