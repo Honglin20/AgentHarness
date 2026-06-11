@@ -18,6 +18,15 @@ export const nodeHandlers: [string, EventHandler][] = [
       // Idempotent: skip if node is already tracked and running
       const existingNode = stores.workflow.getState().nodes[p.node_id];
       if (existingNode && existingNode.status === "running") return;
+
+      // Increment loop iteration counter for this nodeId BEFORE creating
+      // the agent message, so the message stamps the new iteration. Mirrors
+      // the existing stepId pattern: state setter first, message creator
+      // reads from state.
+      const conv = stores.conversation.getState();
+      const nextIter = (conv.currentIterationByNode[p.node_id] ?? 0) + 1;
+      conv.setCurrentIteration(p.node_id, nextIter);
+
       stores.workflow.getState().handleNodeStarted(p);
       stores.output.getState().setActiveNode(p.node_id);
       stores.conversation.getState().addAgentMessage(p.node_id, p.agent_name);
