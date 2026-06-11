@@ -103,6 +103,7 @@ export function createConversationStore(
               status: "streaming",
               timestamp: Date.now(),
               stepId: state.currentStepIdByNode[nodeId],
+              iteration: state.currentIterationByNode[nodeId] ?? 1,
             },
           ],
         };
@@ -193,6 +194,7 @@ export function createConversationStore(
               toolStatus: "running",
               timestamp: Date.now(),
               stepId: state.currentStepIdByNode[nodeId],
+              iteration: state.currentIterationByNode[nodeId] ?? 1,
             },
           ],
         };
@@ -256,6 +258,7 @@ export function createConversationStore(
             questionInputType: payload.input_type ?? "text",
             questionInputPlaceholder: payload.input_placeholder ?? null,
             stepId: payload.node_id ? state.currentStepIdByNode[payload.node_id] : undefined,
+            iteration: payload.node_id ? (state.currentIterationByNode[payload.node_id] ?? 1) : undefined,
           },
         ],
       })),
@@ -528,6 +531,7 @@ export function createConversationStore(
               followup: true,
               timestamp: Date.now(),
               stepId: state.currentStepIdByNode[nodeId],
+              iteration: state.currentIterationByNode[nodeId] ?? 1,
             },
           ],
         };
@@ -588,6 +592,7 @@ export function createConversationStore(
               status: "streaming",
               timestamp: Date.now(),
               stepId: state.currentStepIdByNode[nid],
+              iteration: state.currentIterationByNode[nid] ?? 1,
             });
             mutated = true;
           }
