@@ -381,7 +381,7 @@ interface NodeBlockCardProps {
   todoStore: StoreApi<TodoState> | null;
 }
 
-const NodeBlockCard = React.memo(function NodeBlockCard({
+export const NodeBlockCard = React.memo(function NodeBlockCard({
   block,
   getAgentIO,
   getNodeState,
