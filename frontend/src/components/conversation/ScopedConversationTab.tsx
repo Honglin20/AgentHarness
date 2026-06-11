@@ -1,17 +1,14 @@
 /**
  * ScopedConversationTab - conversation view, scoped to the active workflow.
  *
- * Each agent node renders as a NodeBlockCard with three information-density
- * layers (L1 reserved for future agent-generated summaries):
- *   - L2 (collapsed): step progress list (if the agent uses the todo tool)
- *     or a one-line preview fallback
- *   - L3 (expanded): every step is independently collapsible; expanding a
- *     step reveals the agent details (text / tool_group / question) that
- *     were emitted while that step was in_progress
+ * Each agent node renders as a NodeBlockCard:
+ *   - Step indicator bar: compact progress list showing todo step statuses
+ *     (if the agent uses the todo tool). Pure display — no expand/collapse.
+ *   - Flat content area: all agent messages, tool calls, and questions
+ *     rendered in chronological order below the indicator bar.
  *
  * Children grouping: messages with the same nodeId are collected into one
- * NodeBlock; within it, adjacent tool_calls merge into tool_group children,
- * and each child carries the stepId of the active step when it was created.
+ * NodeBlock; within it, adjacent tool_calls merge into tool_group children.
  * The grouping algorithm lives in ./groupNodes — shared with any future
  * consumer that needs the same NodeBlock/NodeChild shape.
  */
@@ -318,11 +315,10 @@ const STEP_TONE: Record<TodoStep["status"], string> = {
   interrupted: "text-amber-500",
 };
 
-// Fixed heights for virtualization stability (P0-B). Each state has a known
-// height so estimateSize matches the actual rendered height exactly.
+// Height constants for collapsed steps and virtualizer size estimation.
+// Streaming/expanded steps now use CSS auto-sizing (min/max-height) instead
+// of fixed values — the virtualizer's measureElement tracks actual size.
 const STEP_COLLAPSED_H = 36;
-const STEP_STREAMING_H = 400;
-const STEP_EXPANDED_H = 600;
 
 /** Compact token count for step badges. */
 function formatStepTokens(n?: { input: number; output: number; total: number }): string | null {
@@ -331,103 +327,44 @@ function formatStepTokens(n?: { input: number; output: number; total: number }):
   return String(n.total);
 }
 
-/**
- * One row in the step list. Three fixed-height states:
- *   - pending: 36px (title only, disabled)
- *   - in_progress: 400px fixed, auto-expanded content with internal scroll
- *   - completed/skipped/interrupted: 36px collapsed, click → 600px expanded
- *
- * Only one step expanded at a time (enforced by parent's toggleStep).
- */
-const StepRow = React.memo(function StepRow({
-  step,
-  expanded,
-  onToggle,
-  details,
-  sendStructuredAnswer,
-  conversationActions,
-}: {
-  step: TodoStep;
-  expanded: boolean;
-  onToggle: () => void;
-  details: NodeChild[];
-  sendStructuredAnswer: (id: string, answer: QuestionAnswer) => void;
-  conversationActions: { answerUserQuestion: (id: string, answer: QuestionAnswer) => void };
-}) {
+/** Compact step indicator row — status icon + label, no expand/collapse. */
+const StepIndicator = React.memo(function StepIndicator({ step }: { step: TodoStep }) {
   const isStreaming = step.status === "in_progress";
-  const showDetails = (isStreaming || expanded) && details.length > 0;
-  const containerH = isStreaming
-    ? STEP_STREAMING_H
-    : expanded && details.length > 0
-      ? STEP_EXPANDED_H
-      : STEP_COLLAPSED_H;
-
   const label = isStreaming ? (step.activeForm || step.content) : step.content;
-  const contentRef = useRef<HTMLDivElement>(null);
-
-  // Auto-scroll streaming step to bottom (deferred to avoid layout thrash)
-  useEffect(() => {
-    if (!isStreaming || !contentRef.current) return;
-    const el = contentRef.current;
-    const raf = requestAnimationFrame(() => {
-      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
-      if (nearBottom) el.scrollTop = el.scrollHeight;
-    });
-    return () => cancelAnimationFrame(raf);
-  });
 
   return (
     <div
-      className="flex flex-col overflow-hidden rounded-md border border-app-border/40"
-      style={{ height: containerH }}
+      className="flex items-center gap-2 px-2 py-1 text-xs rounded-sm"
+      style={{ height: STEP_COLLAPSED_H }}
     >
-      <button
-        type="button"
-        onClick={onToggle}
-        disabled={step.status === "pending"}
-        className="flex shrink-0 w-full items-center gap-2 px-2 py-1.5 text-left text-xs hover:bg-muted/40 disabled:cursor-default disabled:hover:bg-transparent disabled:opacity-60"
-      >
-        <span aria-hidden className={`w-3 ${showDetails ? "" : "opacity-0"}`}>
-          {showDetails ? "▾" : "▸"}
-        </span>
-        <span aria-hidden className={STEP_TONE[step.status]}>
-          {STEP_ICON[step.status]}
-        </span>
-        <span className={`min-w-0 flex-1 truncate ${
-          step.status === "completed" || step.status === "skipped"
-            ? "text-muted-foreground line-through"
-            : ""
-        }`}>
-          {label || "(empty step)"}
-        </span>
-        {(() => {
-          const tok = formatStepTokens(step.tokenUsage);
-          return tok ? (
-            <span
-              className="shrink-0 text-[10px] text-amber-600/70 tabular-nums"
-              title={`${step.tokenUsage!.input} in / ${step.tokenUsage!.output} out`}
-            >
-              {tok}
-            </span>
-          ) : null;
-        })()}
-        {step.detail && !showDetails && (
-          <span className="truncate text-[10px] text-muted-foreground/60" title={step.detail}>
-            {step.detail}
+      <span aria-hidden className={STEP_TONE[step.status]}>
+        {STEP_ICON[step.status]}
+      </span>
+      <span className={`min-w-0 flex-1 truncate ${
+        step.status === "completed" || step.status === "skipped"
+          ? "text-muted-foreground line-through"
+          : ""
+      }`}>
+        {label || "(empty step)"}
+      </span>
+      {step.status === "skipped" && (
+        <span className="shrink-0 text-[10px] text-muted-foreground/50">(skipped)</span>
+      )}
+      {(() => {
+        const tok = formatStepTokens(step.tokenUsage);
+        return tok ? (
+          <span
+            className="shrink-0 text-[10px] text-amber-600/70 tabular-nums"
+            title={`${step.tokenUsage!.input} in / ${step.tokenUsage!.output} out`}
+          >
+            {tok}
           </span>
-        )}
-      </button>
-      {showDetails && (
-        <div
-          ref={contentRef}
-          className="min-h-0 flex-1 overflow-y-auto border-t border-app-border/40 px-2 py-1.5"
-        >
-          <DetailsList
-            items={details}
-            sendStructuredAnswer={sendStructuredAnswer}
-            conversationActions={conversationActions}
-          />
-        </div>
+        ) : null;
+      })()}
+      {step.detail && (
+        <span className="truncate text-[10px] text-muted-foreground/60" title={step.detail}>
+          {step.detail}
+        </span>
       )}
     </div>
   );
@@ -437,9 +374,6 @@ const StepRow = React.memo(function StepRow({
 
 interface NodeBlockCardProps {
   block: NodeBlock;
-  /** keys are `${nodeId}::${stepId}` — see toggleStep */
-  stepExpanded: Record<string, boolean>;
-  onToggleStep: (stepKey: string) => void;
   getAgentIO: AgentNodeGetAgentIO;
   getNodeState: AgentNodeGetNodeState;
   sendStructuredAnswer: (id: string, answer: QuestionAnswer) => void;
@@ -449,8 +383,6 @@ interface NodeBlockCardProps {
 
 const NodeBlockCard = React.memo(function NodeBlockCard({
   block,
-  stepExpanded,
-  onToggleStep,
   getAgentIO,
   getNodeState,
   sendStructuredAnswer,
@@ -459,68 +391,31 @@ const NodeBlockCard = React.memo(function NodeBlockCard({
 }: NodeBlockCardProps) {
   const { mainMessage: m, children, nodeId } = block;
   const todos = useStore(todoStore!, (s) => s.todos[nodeId]);
-
-  const { byStep, unkeyed } = useMemo(() => {
-    const map = new Map<string, NodeChild[]>();
-    const unkeyed: NodeChild[] = [];
-    for (const c of children) {
-      if (c.stepId) {
-        const list = map.get(c.stepId);
-        if (list) list.push(c);
-        else map.set(c.stepId, [c]);
-      } else {
-        unkeyed.push(c);
-      }
-    }
-    return { byStep: map, unkeyed };
-  }, [children]);
-
-  const sectionItemCount = todos?.length ?? children.length;
   const hasTodos = !!todos && todos.length > 0;
 
   return (
     <div className="rounded-lg border border-app-border bg-background p-3">
       <AgentNodeHeader
         message={m}
-        sectionItemCount={sectionItemCount}
+        sectionItemCount={todos?.length ?? children.length}
         getAgentIO={getAgentIO}
         getNodeState={getNodeState}
       />
 
+      {hasTodos && (
+        <div className="mt-2 flex flex-col gap-0.5 rounded-md border border-app-border/40 bg-muted/20 p-1">
+          {todos!.map((step) => (
+            <StepIndicator key={step.taskId} step={step} />
+          ))}
+        </div>
+      )}
+
       <div className="mt-2 flex flex-col gap-1.5">
-        {hasTodos ? (
-          <>
-            {todos!.map((step) => {
-              const stepKey = `${nodeId}::${step.taskId}`;
-              return (
-                <StepRow
-                  key={step.taskId}
-                  step={step}
-                  expanded={!!stepExpanded[stepKey]}
-                  onToggle={() => onToggleStep(stepKey)}
-                  details={byStep.get(step.taskId) ?? []}
-                  sendStructuredAnswer={sendStructuredAnswer}
-                  conversationActions={conversationActions}
-                />
-              );
-            })}
-            {unkeyed.length > 0 && (
-              <div className="space-y-1.5 border-t border-app-border/40 pt-1.5">
-                <DetailsList
-                  items={unkeyed}
-                  sendStructuredAnswer={sendStructuredAnswer}
-                  conversationActions={conversationActions}
-                />
-              </div>
-            )}
-          </>
-        ) : (
-          <DetailsList
-            items={children}
-            sendStructuredAnswer={sendStructuredAnswer}
-            conversationActions={conversationActions}
-          />
-        )}
+        <DetailsList
+          items={children}
+          sendStructuredAnswer={sendStructuredAnswer}
+          conversationActions={conversationActions}
+        />
       </div>
     </div>
   );
@@ -588,39 +483,9 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
   const getAgentIO = useCallback((nodeId: string) => agentIORef.current[nodeId], []);
   const getNodeState = useCallback((nodeId: string) => nodesRef.current[nodeId], []);
 
-  // Single-expand: only one step expanded at a time. Clicking the same step
-  // collapses it; clicking a different step collapses the previous one.
-  // Persisted to sessionStorage so the expanded step survives re-renders and
-  // tab switches within the same workflow run (P2-R8). Key is scoped by
-  // workflowId (UUID per run), so stale entries from old runs don't collide.
-  const workflowId = useStore(workflowStoreApi!, (s) => s.workflowId);
-  const storageKey = workflowId ? `stepExpanded:${workflowId}` : null;
-  const [stepExpanded, setStepExpanded] = useState<Record<string, boolean>>(() => {
-    if (!storageKey) return {};
-    try {
-      const stored = sessionStorage.getItem(storageKey);
-      return stored ? { [stored]: true } : {};
-    } catch { return {}; }
-  });
-  const toggleStep = useCallback((stepKey: string) => {
-    setStepExpanded((prev) => {
-      const next = prev[stepKey] ? {} : { [stepKey]: true };
-      try {
-        if (storageKey) {
-          const active = Object.keys(next)[0];
-          if (active) sessionStorage.setItem(storageKey, active);
-          else sessionStorage.removeItem(storageKey);
-        }
-      } catch { /* quota exceeded — ignore */ }
-      return next;
-    });
-  }, [storageKey]);
-
   // Refs for estimateSize (stable reads without re-creating the callback)
   const todosRef = useRef(todoStore?.getState().todos ?? {});
   if (todoStore) todosRef.current = todoStore.getState().todos;
-  const stepExpandedRef = useRef(stepExpanded);
-  stepExpandedRef.current = stepExpanded;
 
   const prevGroupingRef = useRef<{ messages: ConversationMessage[]; blocks: Block[] } | null>(null);
   const blocks = useMemo(() => {
@@ -640,46 +505,31 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
       if (b.kind === "other") return 60;
 
       const todos = todosRef.current?.[b.nodeId];
-      const expanded = stepExpandedRef.current;
 
       // Header (AgentNodeHeader) + outer padding (p-3 + px-6 py-2 wrapper) + gap
       let h = 76;
 
+      // Step indicator bar (all steps are fixed 36px)
       if (todos && todos.length > 0) {
-        h += (todos.length - 1) * 6; // gap-1.5 between steps
-        for (const step of todos) {
-          const stepKey = `${b.nodeId}::${step.taskId}`;
-          if (step.status === "in_progress") h += STEP_STREAMING_H;
-          else if (expanded[stepKey]) h += STEP_EXPANDED_H;
-          else h += STEP_COLLAPSED_H;
-        }
-        // Unkeyed children (messages before first step, or non-tagged)
-        const unkeyed = b.children.filter((c) => !c.stepId);
-        if (unkeyed.length > 0) {
-          h += 20; // border separator + padding
-          for (const c of unkeyed) {
-            if (c.kind === "agent_msg") {
-              h += Math.min(400, Math.max(40, (c.message.content?.length ?? 0) * 0.6 + 24));
-            } else if (c.kind === "tool_group") h += 32;
-            else if (c.kind === "question") h += 120;
-          }
-        }
-      } else {
-        // Non-todo fallback: content-length heuristic
-        for (const c of b.children) {
-          if (c.kind === "agent_msg") {
-            const len = c.message.content?.length ?? 0;
-            h += Math.min(800, Math.max(40, len * 0.6 + 24));
-          } else if (c.kind === "tool_group") {
-            h += 32;
-          } else if (c.kind === "question") {
-            h += 120;
-          }
+        h += 8; // container padding + border
+        h += todos.length * STEP_COLLAPSED_H;
+        h += 8; // mt-2 gap between indicator and content
+      }
+
+      // Content (all children rendered flat)
+      for (const c of b.children) {
+        if (c.kind === "agent_msg") {
+          h += Math.min(800, Math.max(40, (c.message.content?.length ?? 0) * 0.6 + 24));
+        } else if (c.kind === "tool_group") {
+          h += 32;
+        } else if (c.kind === "question") {
+          h += 120;
         }
       }
 
       return h;
     },
+    measureElement: (el) => el?.getBoundingClientRect().height ?? 0,
     overscan: 5,
   });
 
@@ -732,6 +582,7 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
             <div
               key={virtualRow.key}
               data-index={virtualRow.index}
+              ref={virtualizer.measureElement}
               style={{
                 position: "absolute",
                 top: 0,
@@ -750,8 +601,6 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
                   ) : (
                     <NodeBlockCard
                       block={b}
-                      stepExpanded={stepExpanded}
-                      onToggleStep={toggleStep}
                       getAgentIO={getAgentIO}
                       getNodeState={getNodeState}
                       sendStructuredAnswer={sendStructuredAnswer}
