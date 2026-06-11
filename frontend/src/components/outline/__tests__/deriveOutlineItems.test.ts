@@ -148,4 +148,23 @@ describe("deriveOutlineItems", () => {
     expect(items).toHaveLength(1);
     expect(items[0].iteration).toBe(1);
   });
+
+  it("skips synthetic followup-* nodeIds (they aren't real DAG nodes)", () => {
+    // ChatInput creates `followup-${agentName}` entries for @mention
+    // multi-turn convos. They never fire node.started, so they must NOT
+    // appear as outline rows — otherwise users see phantom agents detached
+    // from the original.
+    const nodes = {
+      analyzer: node({ id: "analyzer", name: "analyzer", status: "success" }),
+    };
+    const messages = [
+      msg({ id: "1", nodeId: "analyzer", agentName: "analyzer", timestamp: 100, iteration: 1 }),
+      msg({ id: "2", nodeId: "followup-analyzer", agentName: "analyzer", timestamp: 200, iteration: 1, type: "user" as any, followup: true }),
+      msg({ id: "3", nodeId: "followup-analyzer", agentName: "analyzer", timestamp: 300, iteration: 1 }),
+    ];
+    const items = deriveOutlineItems(nodes, messages, emptyTodo);
+    expect(items).toHaveLength(1);
+    expect(items[0].nodeId).toBe("analyzer");
+    expect(items.find((i) => i.nodeId.startsWith("followup-"))).toBeUndefined();
+  });
 });

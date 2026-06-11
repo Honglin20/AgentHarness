@@ -37,6 +37,12 @@ export function deriveOutlineItems(
   const iterSet = new Map<string, { nodeId: string; iteration: number; firstTs: number }>();
   for (const m of messages) {
     if (!m.nodeId) continue;
+    // Skip synthetic followup nodeIds — ChatInput creates `followup-${agent}`
+    // entries for @mention multi-turn conversations (addFollowupUserMessage /
+    // addFollowupAgentMessage in conversation.ts). These never fire
+    // node.started, so they're not real DAG nodes and would otherwise appear
+    // as phantom outline rows detached from the original agent.
+    if (m.nodeId.startsWith("followup-")) continue;
     const iter = m.iteration ?? 1;
     const key = `${m.nodeId}__iter${iter}`;
     const existing = iterSet.get(key);
