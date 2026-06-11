@@ -6,7 +6,9 @@
  *
  * Properties guaranteed by this function:
  *   - Stable order: items sorted by first-message timestamp ascending;
- *     idle nodes (no messages) sort last, preserving DAG declaration order.
+ *     idle nodes (no messages) sort last, preserving DAG declaration order
+ *     (the order keys appear in the `nodes` Record, which mirrors the
+ *     order the engine registered them).
  *   - Loop expansion: a nodeId with messages across N iterations produces
  *     N items, keyed `${nodeId}__iter${n}`.
  *   - Deterministic: identical inputs always yield identical output. Safe
@@ -23,6 +25,14 @@ export function deriveOutlineItems(
   messages: ConversationMessage[],
   todos: Record<string, TodoStep[]>,
 ): OutlineItem[] {
+  // DAG declaration order — index of each nodeId as it appears in the
+  // `nodes` Record. Used as the stable secondary sort key for idle nodes
+  // (which all share firstTs = Infinity). Mirrors how the engine registers
+  // nodes; JS object string keys preserve insertion order, so this is the
+  // order users see in the workflow definition.
+  const nodeDagOrder = new Map<string, number>();
+  Object.keys(nodes).forEach((id, idx) => nodeDagOrder.set(id, idx));
+
   // 1. Collect (nodeId, iteration) pairs seen in messages.
   const iterSet = new Map<string, { nodeId: string; iteration: number; firstTs: number }>();
   for (const m of messages) {
@@ -51,10 +61,14 @@ export function deriveOutlineItems(
     iterCountByNode.set(entry.nodeId, (iterCountByNode.get(entry.nodeId) ?? 0) + 1);
   }
 
-  // 4. Sort by firstTs ascending, with stable secondary sort on nodeId+iter.
+  // 4. Sort by firstTs ascending; tiebreak on DAG declaration order, then
+  //    iteration number. Avoids localeCompare so idle nodes follow the
+  //    workflow's declared topology instead of alphabetical order.
   const sorted = Array.from(iterSet.values()).sort((a, b) => {
     if (a.firstTs !== b.firstTs) return a.firstTs - b.firstTs;
-    if (a.nodeId !== b.nodeId) return a.nodeId.localeCompare(b.nodeId);
+    const dagA = nodeDagOrder.get(a.nodeId) ?? Number.POSITIVE_INFINITY;
+    const dagB = nodeDagOrder.get(b.nodeId) ?? Number.POSITIVE_INFINITY;
+    if (dagA !== dagB) return dagA - dagB;
     return a.iteration - b.iteration;
   });
 
@@ -127,9 +141,11 @@ function computeActivity(
   if (!node) return { kind: "idle" };
   if (node.status === "retrying" && node.retryAttempts?.length) {
     const last = node.retryAttempts[node.retryAttempts.length - 1];
-    // RetryAttempt.attempt is 1-indexed (payload.attempt counts current attempt),
-    // so the displayed attempt equals the record's `attempt` value directly.
-    return { kind: "retrying", attempt: last.attempt, maxAttempts: last.maxAttempts };
+    // RetryAttempt.attempt is 1-indexed for the attempt that JUST FAILED.
+    // UI displays the upcoming attempt number (attempt + 1) to match the
+    // toast at agentHandlers.ts and the inline retry card at AgentMessage.tsx.
+    // All three surfaces must agree; do not "fix" one without the others.
+    return { kind: "retrying", attempt: last.attempt + 1, maxAttempts: last.maxAttempts };
   }
   if (node.status === "failed") {
     return { kind: "failed", errorSummary: node.classifiedFailure?.category ?? node.error ?? "Failed" };
@@ -158,11 +174,13 @@ function computeBadges(
   }
   if (node?.retryAttempts?.length) {
     const last = node.retryAttempts[node.retryAttempts.length - 1];
-    // RetryAttempt.attempt is 1-indexed — display value matches the record directly.
+    // Display upcoming attempt (attempt + 1) — matches toast at
+    // agentHandlers.ts:148 and inline card at AgentMessage.tsx:388.
+    // See computeActivity comment: all three surfaces must agree.
     badges.push({
       kind: "retry",
-      text: `${last.attempt}/${last.maxAttempts}`,
-      title: `Retry attempt ${last.attempt} of ${last.maxAttempts}`,
+      text: `${last.attempt + 1}/${last.maxAttempts}`,
+      title: `Retry attempt ${last.attempt + 1} of ${last.maxAttempts}`,
     });
   }
   if (node?.tokenUsage && node.tokenUsage.total > 0) {

@@ -105,7 +105,11 @@ describe("deriveOutlineItems", () => {
     expect(items[0].activity).toMatchObject({ kind: "running", currentStepContent: "exploring files" });
   });
 
-  it("retryAttempts produce a retry badge", () => {
+  it("retryAttempts produce a retry badge showing the upcoming attempt", () => {
+    // RetryAttempt.attempt=1 means "attempt 1 just failed". The badge
+    // displays the upcoming retry number (2), matching the toast at
+    // agentHandlers.ts:148 and inline card at AgentMessage.tsx:388.
+    // All three surfaces must agree — do not change one in isolation.
     const nodes = {
       a: node({
         id: "a",
@@ -119,7 +123,8 @@ describe("deriveOutlineItems", () => {
     const items = deriveOutlineItems(nodes, [], emptyTodo);
     expect(items[0].status).toBe("retrying");
     const retryBadge = items[0].badges.find((b) => b.kind === "retry");
-    expect(retryBadge?.text).toBe("1/3");
+    expect(retryBadge?.text).toBe("2/3");
+    expect(items[0].activity).toMatchObject({ kind: "retrying", attempt: 2, maxAttempts: 3 });
   });
 
   it("tokens badge appears when total > 0", () => {
