@@ -103,13 +103,21 @@ export interface ConversationState {
   currentStepIdByNode: Record<string, string>;
 
   /**
-   * nodeId → current loop iteration count for that node. 1-indexed.
-   * Incremented by `setCurrentIteration` (called from nodeHandlers on
-   * node.started — same place that calls `handleNodeStarted`). Each new
-   * message created on this node stamps `iteration` from this map.
+   * nodeId → current loop iteration for that node. 1-indexed.
    *
-   * Never cleared per-iteration — only wiped by `reset()`. A nodeId that
-   * executes N times ends up with iteration=N at the end of the run.
+   * **Cache, not counter** (Plan F): the value is hydrated from the
+   * `node.started` event payload (backend-owned `node_invocation_counts`
+   * state field). Frontend `setCurrentIteration` writes whatever the
+   * event carried — no `+ 1` increment on the frontend.
+   *
+   * Each new message created on this node stamps `iteration` from this
+   * cache at message-creation time. Pre-Plan-F replays (events without
+   * `iteration`) default to 1 via the `?? 1` fallback in nodeHandlers.
+   *
+   * Not restored by `restoreFromCache` — acceptable because a restored
+   * workflow's existing messages already carry their stamped `iteration`,
+   * and the cache only matters for stamping *new* messages (which require
+   * a fresh `node.started` to repopulate the cache anyway).
    */
   currentIterationByNode: Record<string, number>;
 
