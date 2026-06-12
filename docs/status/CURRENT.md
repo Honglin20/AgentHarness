@@ -1,48 +1,38 @@
 # Current Task
 
-**当前任务**: outline review 全部修复完成（Batch A + B），等待 browser 烟测 + 选 next focus
-**状态**: Plan G 已合入 main；浏览器手测待跑（Bug 2 / toast 行为）
+**当前任务**: AppView + Hydration 重构已完成代码，等待用户浏览器手测验收
+**状态**: 6 phase 全部完成；typecheck/lint/build/单测全绿；dev server 启动 OK
 **日期**: 2026-06-12
-**分支**: `main` (HEAD: `df5f406`)
+**分支**: `main`
 
 ## 必读文件
 
-- `docs/releases/2026-06-12-outline-toast-hook-split.md` — Plan G 实际产出
-- `docs/releases/2026-06-12-outline-review-batch-a.md` — Batch A 产出
+- `docs/releases/2026-06-12-appview-hydration-refactor.md` — 详细 release note
+- `docs/plans/2026-06-12-appview-hydration-refactor.md` — 完整方案
 - `CLAUDE.md` — 协作规则 + CHANGELOG 规则
 
-## 待办（不阻塞，需用户配合）
+## 待办：浏览器手测（5 场景）
 
-### Browser 烟测 Plan G Task 1.4 / 3.2
+代码层验证已全部通过（typecheck/lint/build/单测 221/221/dev server 启动）。需要用户在浏览器里验证以下场景：
 
-dev server 起来后，在含 ask_user 的 workflow 里验证：
+- [ ] 刷新运行页面 → 立即 skeleton（不闪 portal）→ 内容无缝替换
+- [ ] 首次点 history → 立即 skeleton → hydrate 完成
+- [ ] 点 running 状态的 history → skeleton → WS 实时进度
+- [ ] 双击 history → 第二次激活生效，第一次副作用取消
+- [ ] 老 URL `/?wid=R&wf=name` → 自动迁移到 `/?view=run&id=R` 并加载
 
-- [ ] 第一次 ask: toast 出现 + outline 自动 select（autoFollow 默认 on）
-- [ ] 答完
-- [ ] **同一 agent** 第二次 ask: toast 再次出现（Bug 2 核心 case）
-- [ ] toggle autoFollow off (Pinned)：第三次 ask 来自不同 agent → toast 仍出现，但 selection 不变
+启动 dev server：`cd frontend && npm run dev`，访问 http://localhost:3000
 
-如果某项行为异常，回头看 `useWaitingAgentToast.ts` 的 questionId 边沿逻辑。
+## 已知 follow-up（不阻塞）
+
+- **`dummyWorkflowStore` mirror 删除** —— 仍负载 template-preview 的 selectedTemplate 读取，需重构 scoped store hook 模式
+- **`viewStore.activeView` 与 `runMode` 收敛** —— 两套机制当前共存，可后续统一
+- **代码提交** —— 全部改动尚未 commit，等手测通过后由用户决定 commit/push 节奏
 
 ## 候选 next focus
 
 | 选项 | 说明 |
 |------|------|
-| **A. 浏览器手测 outline** | 5 场景：NAS loop / Replay / Timeline / 单 iter / interrupted（含 Plan G toast 验证） |
-| **B. NAS 任务 4** | NAS Orchestrator Agent MD（待实现） |
-| **C. NAS 任务 5** | 3 层 MD 历史写入（待实现） |
-| **D. Outline 二轮 review** | Arch 4（AgentDetailView ref 桥接清理） + j/k 导航组件测试 |
-
-## 已知 follow-up（小，不阻塞）
-
-- **Arch 4 · AgentDetailView ref 桥接 pattern** — 旧 pattern 复用，可作单独清理任务
-- **j/k 导航无组件测试** — listener 重构已完成，逻辑被 derive 测试覆盖，缺组件级 e2e
-- **`NodeCompletedPayload.iteration` 未加** — LangGraph 不 pipeline 同 node，实际不触发；可加 invariant 测试 pin
-
-## NAS 待做（项目级）
-
-| # | 任务 | 状态 |
-|---|------|------|
-| 3 | 代码隔离方案独立测试 | 待验证 |
-| 4 | NAS Orchestrator Agent MD | 待实现 |
-| 5 | 3 层 MD 历史写入 | 待实现 |
+| **A. 浏览器手测** | 跑上面 5 场景；若 OK 则 commit |
+| **B. 删 dummyWorkflowStore** | 重构 scoped store hook 模式 |
+| **C. NAS 任务 4** | NAS Orchestrator Agent MD（待实现） |
