@@ -362,12 +362,14 @@ export function loadRunFromPersistedData(
   // save), replay todo events from the events sidecar. This preserves
   // correctness for all runs.
   const todoStepsSnapshot = run.todo_steps as
-    | Record<string, Array<{ task_id: string; content: string; activeForm: string; status: string; detail: string | null }>>
+    | Record<string, Array<{ task_id: string; content: string; activeForm: string; status: string; detail: string | null; iteration?: number }>>
     | undefined
     | null;
 
   if (todoStepsSnapshot && Object.keys(todoStepsSnapshot).length > 0) {
-    // Snapshot path — direct setState per node
+    // Snapshot path — direct setState per node. Reads `iteration` persisted
+    // by backend since Plan F; legacy snapshots (pre-Plan-F) omit it and
+    // the field stays undefined → consumers treat as iter=1.
     const todosMap: Record<string, import("./stores/todo").TodoStep[]> = {};
     for (const [nodeId, steps] of Object.entries(todoStepsSnapshot)) {
       todosMap[nodeId] = steps.map((s) => ({
@@ -376,18 +378,33 @@ export function loadRunFromPersistedData(
         activeForm: s.activeForm,
         status: s.status as import("./stores/todo").TodoStepStatus,
         detail: s.detail ?? null,
+        iteration: s.iteration,
       }));
     }
     stores.todo.setState({ todos: todosMap });
   } else if (events && events.length > 0) {
-    // Event fallback — replay todo.created / todo.updated
+    // Event fallback — replay todo.created / todo.updated. Since Plan F,
+    // node.started events in this stream carry `iteration`; we walk events
+    // in order, tracking the current iteration per node as node.started
+    // events arrive, and stamp each todo.created with the iteration that
+    // was active *at that point in the stream*. A two-pass pre-scan would
+    // lose earlier iterations for loop nodes (only the last node.started's
+    // iter would survive). Pre-Plan-F replays lack iter on node.started →
+    // fallback to 1.
+    const convByNode: Record<string, number> = {};
     for (const event of events) {
-      if (event.type === "todo.created") {
+      if (event.type === "node.started") {
+        const p = event.payload as { node_id?: string; iteration?: number };
+        if (p.node_id) {
+          convByNode[p.node_id] = p.iteration ?? convByNode[p.node_id] ?? 1;
+        }
+      } else if (event.type === "todo.created") {
         const p = event.payload as {
           node_id: string;
           items: TodoStepItem[];
         };
-        handleTodoCreated(stores.todo, p.node_id, p.items);
+        const iter = convByNode[p.node_id] ?? 1;
+        handleTodoCreated(stores.todo, p.node_id, p.items, iter);
       } else if (event.type === "todo.updated") {
         const p = event.payload as {
           node_id: string;

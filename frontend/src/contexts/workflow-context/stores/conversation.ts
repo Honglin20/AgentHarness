@@ -59,6 +59,7 @@ export function createConversationStore(
     pendingQuestionAgent: null as string | null,
     activeFollowupAgent: null as string | null,
     currentStepIdByNode: {} as Record<string, string>,
+    currentIterationByNode: {} as Record<string, number>,
 
     // Cache management (保留用于 batch 模式兼容)
     _cache: {} as ConversationState["_cache"],
@@ -102,6 +103,7 @@ export function createConversationStore(
               status: "streaming",
               timestamp: Date.now(),
               stepId: state.currentStepIdByNode[nodeId],
+              iteration: state.currentIterationByNode[nodeId] ?? 1,
             },
           ],
         };
@@ -192,6 +194,7 @@ export function createConversationStore(
               toolStatus: "running",
               timestamp: Date.now(),
               stepId: state.currentStepIdByNode[nodeId],
+              iteration: state.currentIterationByNode[nodeId] ?? 1,
             },
           ],
         };
@@ -255,6 +258,7 @@ export function createConversationStore(
             questionInputType: payload.input_type ?? "text",
             questionInputPlaceholder: payload.input_placeholder ?? null,
             stepId: payload.node_id ? state.currentStepIdByNode[payload.node_id] : undefined,
+            iteration: payload.node_id ? (state.currentIterationByNode[payload.node_id] ?? 1) : undefined,
           },
         ],
       })),
@@ -360,6 +364,7 @@ export function createConversationStore(
         pendingQuestionAgent: null,
         activeFollowupAgent: null,
         currentStepIdByNode: {},
+        currentIterationByNode: {},
       }),
 
     setCurrentStep: (nodeId, stepId) =>
@@ -373,6 +378,17 @@ export function createConversationStore(
         if (state.currentStepIdByNode[nodeId] === stepId) return state;
         return {
           currentStepIdByNode: { ...state.currentStepIdByNode, [nodeId]: stepId },
+        };
+      }),
+
+    setCurrentIteration: (nodeId, iteration) =>
+      set((state) => {
+        if (state.currentIterationByNode[nodeId] === iteration) return state;
+        return {
+          currentIterationByNode: {
+            ...state.currentIterationByNode,
+            [nodeId]: iteration,
+          },
         };
       }),
 
@@ -487,8 +503,9 @@ export function createConversationStore(
               followup: true,
               timestamp: Date.now(),
               // isNodeMsg excludes user-type messages, so this never lands in
-              // a NodeBlock; stepId is set purely for consistency.
+              // a NodeBlock; stepId/iteration are set purely for consistency.
               stepId: state.currentStepIdByNode[nodeId],
+              iteration: state.currentIterationByNode[nodeId] ?? 1,
             },
           ],
         };
@@ -515,6 +532,7 @@ export function createConversationStore(
               followup: true,
               timestamp: Date.now(),
               stepId: state.currentStepIdByNode[nodeId],
+              iteration: state.currentIterationByNode[nodeId] ?? 1,
             },
           ],
         };
@@ -575,6 +593,7 @@ export function createConversationStore(
               status: "streaming",
               timestamp: Date.now(),
               stepId: state.currentStepIdByNode[nid],
+              iteration: state.currentIterationByNode[nid] ?? 1,
             });
             mutated = true;
           }

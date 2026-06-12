@@ -89,6 +89,13 @@ export interface NodeStartedPayload {
   attempt: number;
   tools?: ToolBrief[];
   model?: string;
+  /**
+   * Universal invocation counter for this node (1-indexed). Source of truth
+   * since Plan F — backend stamps it via build_node_started_payload. Frontend
+   * `currentIterationByNode` is now a cache of this value. Absent on events
+   * emitted before Plan F backend deploy → consumers treat as 1.
+   */
+  iteration?: number;
 }
 
 export interface TokenUsage {

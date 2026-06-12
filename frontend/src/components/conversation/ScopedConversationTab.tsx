@@ -17,6 +17,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
+import { useShallow } from "zustand/shallow";
 import type { StoreApi } from "zustand/vanilla";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { InlineErrorBoundary } from "@/components/ErrorBoundary";
@@ -181,7 +182,7 @@ const AgentMsgItem = React.memo(function AgentMsgItem({ message: m }: { message:
         </button>
       )}
       {showThinking && m.thinking && (
-        <ThinkingBlock text={m.thinking} streaming={isStreaming} />
+        <ThinkingBlock text={m.thinking} streaming={isStreaming} defaultOpen={true} />
       )}
       {m.content.trim() && (
         <div className="text-sm">
@@ -379,18 +380,39 @@ interface NodeBlockCardProps {
   sendStructuredAnswer: (id: string, answer: QuestionAnswer) => void;
   conversationActions: { answerUserQuestion: (id: string, answer: QuestionAnswer) => void };
   todoStore: StoreApi<TodoState> | null;
+  /** When set, filters the displayed todo list to this iteration.
+   *  Undefined (Timeline view) shows all steps regardless of iter —
+   *  preserves the legacy "full history" timeline behavior. */
+  iteration?: number;
 }
 
-const NodeBlockCard = React.memo(function NodeBlockCard({
+export const NodeBlockCard = React.memo(function NodeBlockCard({
   block,
   getAgentIO,
   getNodeState,
   sendStructuredAnswer,
   conversationActions,
   todoStore,
+  iteration,
 }: NodeBlockCardProps) {
   const { mainMessage: m, children, nodeId } = block;
-  const todos = useStore(todoStore!, (s) => s.todos[nodeId]);
+  // Subscribe with iter filter inside the selector. useShallow ensures
+  // that if the filtered result is value-equal to the previous render's
+  // result, the same array reference is returned → no spurious re-render
+  // when an unrelated iter's step mutates (e.g. iter=2 tokenUsage delta
+  // while this card shows iter=1).
+  //
+  // Timeline view passes iteration=undefined → selector returns rawTodos
+  // unchanged (no filter), preserving the legacy "show all steps" behavior.
+  const todos = useStore(
+    todoStore!,
+    useShallow((s: TodoState) => {
+      const all = s.todos[nodeId];
+      if (!all) return all;
+      if (iteration === undefined) return all;
+      return all.filter((t) => (t.iteration ?? 1) === iteration);
+    }),
+  );
   const hasTodos = !!todos && todos.length > 0;
 
   return (

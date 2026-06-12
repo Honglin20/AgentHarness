@@ -2,6 +2,141 @@
 
 ---
 
+## 2026-06-12 Outline Iter Isolation Hardening (Plan F)
+
+**Branch:** `worktree-outline-master-detail`
+**Plan:** `docs/plans/2026-06-12-outline-iter-hardening.md`
+
+修复 Plan E review 中的所有 findings，把 `iteration` 概念从前端 counter 下沉到后端权威源。
+
+### 改动概要
+
+**后端（Phase 4）**：
+- `HarnessState.node_invocation_counts` 新字段（universal invocation counter，与 conditional_edge 的 `iteration_counts` 区分）
+- `node_func` 启动时自增 counter；8 个 return path 全部包含更新（AST 守卫测试防回归）
+- `build_node_started_payload` 加 `iteration` 参数 + payload 字段
+- `StepEntry.iteration` 字段，create/replace 时从 `deps.iteration` 注入
+- `AgentDeps.iteration: int = 1` 显式字段（消除 silent failure 风险）
+
+**前端（Phase 5）**：
+- `node.started` handler 从 payload 读 iteration（cache 不是 counter）
+- `replayEvents` snapshot 路径读持久化 `iteration` 字段
+- `replayEvents` event-fallback 路径用 single-pass（发现并修复 plan 的 two-pass pre-scan bug，multi-iter loop 场景会丢 iter）
+- `NodeStartedPayload.iteration?: number` 类型字段
+
+**Bug fixes（Phase 1-3）**：
+- B1: `computeStatus` 历史 iter 推断把 `interrupted` 视为 `failed`（cancelled iter 不再显示 idle）
+- D2: `pendingQuestionCount` 检查移入 `isLatestIter` 分支（历史 iter 不再错误显示 waiting-for-user）
+- D1: NodeBlockCard 改用 `useShallow` 履约 Plan E 的 Performance Contract
+
+**测试（Phase 6）**：
+- T3: stamp misalignment 降级行为文档化
+- I1: out-of-order event-fallback 防御性测试
+- 修复 2 处 pre-existing TS 错误（TodoStep fixture 类型）
+
+### Commits
+
+后端：1788be0, 3910767, 9a7b357, 7d39afb, 5b20d32, 1fb6689, 238fef1, de03b19, 1917028
+前端：6f23952, f82a68e, b3498c8, b41ee4c, 9961745, 58cfab2, f0bdc05, 6e073bd, c23ba0e, a10f95f
+
+### 验证
+
+- 前端：164/164 vitest 通过；tsc 零错误；build 通过
+- 后端：6/6 pytest 通过（含 AST 守卫 + reducer + StepEntry stamping）
+
+### 已知降级 / Follow-up
+
+- Task 6.2（NodeBlockCard 组件级测试）跳过 — `@testing-library/react` 未安装
+- `NodeCompletedPayload.iteration` 未加（I2）—— LangGraph 不 pipeline 同 node，实际不触发，建议作为 invariant 测试 pin
+
+---
+
+## 2026-06-12 Outline Iter Isolation (Plan E)
+
+**Branch:** `worktree-outline-master-detail`
+**Plan:** `docs/plans/2026-06-12-outline-iter-isolation.md`
+
+修复 outline review 中发现的 iter 维度错配问题。会话/活动数据 iter-aware（message + todo），节点元数据（token/retry/duration/status）通过 `isLatestIter` UI 降级处理。
+
+### 改动概要
+
+- **`TodoStep.iteration?: number`** — 新字段，handler 层从 `currentIterationByNode` stamp，与 `ConversationMessage.iteration` 同模式
+- **`handleTodoCreated/Replaced`** — 加 `iteration` 参数（必传，explicit）
+- **`todoHandlers.ts`** — `todo.created` / `todo.replaced` 读 conversation store stamp iter
+- **`replayEvents.ts`** — 事件回放路径显式 fallback iter=1（持久化事件不带 iter）
+- **`OutlineItem.isLatestIter`** — 新派生字段，决定 badge/status 走节点级还是降级
+- **`computeBadges`** — token / retry badge 只在 latest iter 显示；iteration badge 所有 row 都显示
+- **`computeStatus`** — latest iter 用 NodeState；历史 iter 从 messages 推断（done→completed, error→failed, else→idle）
+- **`computeActivity`** — 历史 iter 返回 completed（duration 省略）
+- **`NodeBlockCard`** — 加 `iteration?` prop，`useMemo` 按 iter 过滤 todos；Timeline 不传 → 显示全部
+- **`AgentDetailView`** — 透传 `iteration` 到 NodeBlockCard
+
+### 测试
+
+- `deriveOutlineItems.test.ts` +7 case（todos 过滤、isLatestIter、badge 降级、status 推断、legacy fallback）
+- 新建 `todo.iteration.test.ts`（6 case — stamping + 更新不破坏 iter + legacy 数据）
+- 新建 `todoHandlers.iteration.test.ts`（3 case — handler 层 stamping + 边缘 ordering）
+- 全量 155/155 通过
+
+---
+
+## 2026-06-11 Outline + Master-Detail Conversation View
+
+**Branch:** `worktree-outline-master-detail`
+**Plan:** `docs/plans/2026-06-11-outline-master-detail.md`
+**Commits:** `f5b9e33` `5f5feba` `91bd792` `9dda70f` `d90e3b8` `4cb50ed` `67b65bd` `4b62044` `87923cb` `caaca61` `2a61339` `cc7f17d` `3a41179` `46b51ec` `9e7a09f` `f6f2a45` `fb8eb37` `08c7dc5` `0f5974f` `f4ad522`
+
+### Problem 2 (Show thinking 双击→单击)
+- **修改** `AgentMessage.tsx` `ThinkingBlock` — 加 `defaultOpen` prop
+- **修改** `ScopedConversationTab.tsx` `AgentMsgItem` — 传 `defaultOpen={true}`，单击即展开
+
+### Phase 1: Iteration tracking (loop disambiguation foundation)
+- **新增** `ConversationMessage.iteration?: number` — 1-indexed 循环迭代编号
+- **新增** `ConversationState.currentIterationByNode` + `setCurrentIteration` action
+- **修改** `nodeHandlers.ts` — `node.started` 时递增迭代计数（在 `addAgentMessage` 之前）
+- **修改** `conversation.ts` — 5 个 message-creating action 戳记 `iteration` 字段
+- **修改** `conversationStore.ts` legacy `useConversationStore` — 同步加入 state + setter
+- **测试** `conversationStore.iteration.test.ts` + `nodeHandlers.iteration.test.ts` + `conversationMessage.types.test.ts`
+
+### Phase 2: Outline 派生层
+- **新增** `outline/types.ts` — discriminated union `OutlineItem` / `AgentActivity` / `OutlineStatus` / `OutlineBadge`
+- **新增** `outline/deriveOutlineItems.ts` — 纯派生函数（store snapshot → ordered OutlineItem[]）
+- **新增** `outline/useAgentOutline.ts` — React hook + memoize
+- **测试** 9 个 derivation 测试覆盖：empty/ordering/idle/loop/waiting-for-user/running+step/retry/tokens/legacy
+
+### Phase 3: 选择状态
+- **新增** `outline/outlineStore.ts` — `selectedKey` / `autoFollow` / `viewMode`
+- **新增** `outline/useAutoFollowSelection.ts` — 优先级 waiting-for-user > running
+- **测试** 6 个 store 测试
+
+### Phase 4: UI 组件
+- **新增** `outline/OutlineItemRow.tsx` — Linear-style 紧凑行 + 状态图标 + badge
+- **新增** `outline/AgentOutline.tsx` — 列表容器 + header + autoFollow toggle
+- **新增** `outline/AgentDetailView.tsx` — 单 agent 对话视图（复用 NodeBlockCard + virtualizer）
+- **新增** `outline/OutlineMode.tsx` — split-pane 容器（outline 240px + detail flex-1）
+
+### Phase 5: 集成
+- **修改** `ScopedConversationTab.tsx` — 导出 `NodeBlockCard` 供 AgentDetailView 复用
+- **修改** `ScopedCenterPanel.tsx` — 新增 `ConversationPanel` 包装，Outline/Timeline toggle
+- **修改** `viewStore.ts` — `showReplay` / `showLive` 时 reset outlineStore（保留 viewMode 偏好）
+- **新增** AgentOutline `j/k` 键盘导航（输入框聚焦时不拦截）
+- **新增** useAutoFollowSelection ask_user 进入 waiting 时 toast 提示（transition-only）
+
+### Code review 修复
+- **修复** legacy `useConversationStore` 缺 `currentIterationByNode`/`setCurrentIteration` (TS2739)
+- **修复** `addFollowupUserMessage` 缺 iteration 戳记（shape consistency）
+- **修复** outline retry badge 与 toast/inline card 显示不一致（统一为 `attempt + 1`）
+- **修复** outline idle 排序 docstring 与 impl 不符（localeCompare → DAG 插入顺序）
+- **修复** nodeHandlers.iteration test 用例不可达（改用 `node.completed` 事件而非 `handleNodeCompleted`）
+
+### 性能契约
+- Outline 渲染成本 O(num_agents)，零 per-message 工作
+- Detail 只渲染选中 agent 的消息（复用 groupNodes + virtualizer）
+- 零新增网络请求 — 全部从现有 scoped stores 派生
+- 138/138 测试通过，tsc 零错误
+
+---
+
 ## 2026-06-10 TODO step gate + Replay 修复 + Snapshot-first hydration
 
 **Commits:** `a3c4c1b` `238e223` `a09da7b` `16da809` `bacb592` `1583020` `9e69640` `8cd2efe` `22dc2b3` `1dcdb29` `19aa718` `86ec5c1`

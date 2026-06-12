@@ -18,6 +18,15 @@ export const nodeHandlers: [string, EventHandler][] = [
       // Idempotent: skip if node is already tracked and running
       const existingNode = stores.workflow.getState().nodes[p.node_id];
       if (existingNode && existingNode.status === "running") return;
+
+      // Read iteration from the event payload (backend is the source of
+      // truth since Plan F). Frontend `currentIterationByNode` is now a
+      // cache, not a counter. Falls back to 1 for legacy events emitted
+      // before Plan F backend deploy.
+      const conv = stores.conversation.getState();
+      const iter = p.iteration ?? 1;
+      conv.setCurrentIteration(p.node_id, iter);
+
       stores.workflow.getState().handleNodeStarted(p);
       stores.output.getState().setActiveNode(p.node_id);
       stores.conversation.getState().addAgentMessage(p.node_id, p.agent_name);

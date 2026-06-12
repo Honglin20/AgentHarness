@@ -54,16 +54,23 @@ def build_node_started_payload(
     model: str | None = None,
     tools: Any = None,
     attempt: int = 1,
+    iteration: int = 1,
 ) -> dict:
     """Build the payload dict for a ``node.started`` event.
 
     The caller (nodeFunc) passes this to ``safe_emit(bus, "node.started", ...)``.
+
+    ``iteration`` is the universal invocation counter for this node (1-indexed).
+    Frontend reads it to populate ``currentIterationByNode`` cache and stamp
+    subsequent messages / todo steps. Defaults to 1 for backward compat with
+    callers that haven't been updated.
     """
     payload: dict[str, Any] = {
         "workflow_id": workflow_id,
         "node_id": node_id,
         "agent_name": agent_name,
         "attempt": attempt,
+        "iteration": iteration,
         "model": model,
         "ts": int(time.time() * 1000),
     }

@@ -40,6 +40,18 @@ export interface ConversationMessage {
    */
   stepId?: string;
 
+  /**
+   * Which loop iteration of this node produced the message. 1-indexed.
+   * Undefined for legacy data (treated as iteration 1 by consumers) and
+   * for messages that aren't part of a node (system, user-typed).
+   *
+   * Stamped at creation time from `currentIterationByNode[nodeId]` — same
+   * pattern as `stepId`. The state map + `setCurrentIteration` action
+   * arrive in later tasks of the same plan; this field is the type-level
+   * foundation that lets them stamp without further interface changes.
+   */
+  iteration?: number;
+
   // ── question-specific fields (type === "question") ──
   questionId?: string;
   questionHeader?: string | null;
@@ -90,6 +102,25 @@ export interface ConversationState {
    */
   currentStepIdByNode: Record<string, string>;
 
+  /**
+   * nodeId → current loop iteration for that node. 1-indexed.
+   *
+   * **Cache, not counter** (Plan F): the value is hydrated from the
+   * `node.started` event payload (backend-owned `node_invocation_counts`
+   * state field). Frontend `setCurrentIteration` writes whatever the
+   * event carried — no `+ 1` increment on the frontend.
+   *
+   * Each new message created on this node stamps `iteration` from this
+   * cache at message-creation time. Pre-Plan-F replays (events without
+   * `iteration`) default to 1 via the `?? 1` fallback in nodeHandlers.
+   *
+   * Not restored by `restoreFromCache` — acceptable because a restored
+   * workflow's existing messages already carry their stamped `iteration`,
+   * and the cache only matters for stamping *new* messages (which require
+   * a fresh `node.started` to repopulate the cache anyway).
+   */
+  currentIterationByNode: Record<string, number>;
+
   // Per-workflow cache for batch mode
   _cache: Record<string, { messages: ConversationMessage[]; pendingQuestionId: string | null; pendingQuestionAgent: string | null }>;
   _activeWid: string | null;
@@ -112,6 +143,7 @@ export interface ConversationState {
    * on node termination / reset).
    */
   setCurrentStep: (nodeId: string, stepId: string | null) => void;
+  setCurrentIteration: (nodeId: string, iteration: number) => void;
   markQuestionTimeout: (questionId: string) => void;
   /**
    * Mark every still-pending question as "interrupted". Called when the
@@ -154,6 +186,7 @@ const initialState = {
   pendingQuestionAgent: null as string | null,
   activeFollowupAgent: null as string | null,
   currentStepIdByNode: {} as Record<string, string>,
+  currentIterationByNode: {} as Record<string, number>,
   _cache: {} as Record<string, { messages: ConversationMessage[]; pendingQuestionId: string | null; pendingQuestionAgent: string | null }>,
   _activeWid: null as string | null,
 };
@@ -499,7 +532,7 @@ export const useConversationStore = create<ConversationState>()((set) => ({
 
   reset: () => {
     msgCounter = 0;
-    return set({ ...initialState, _cache: {}, _activeWid: null, currentStepIdByNode: {} });
+    return set({ ...initialState, _cache: {}, _activeWid: null, currentStepIdByNode: {}, currentIterationByNode: {} });
   },
 
   setCurrentStep: (nodeId, stepId) =>
@@ -513,6 +546,14 @@ export const useConversationStore = create<ConversationState>()((set) => ({
       if (state.currentStepIdByNode[nodeId] === stepId) return state;
       return {
         currentStepIdByNode: { ...state.currentStepIdByNode, [nodeId]: stepId },
+      };
+    }),
+
+  setCurrentIteration: (nodeId, iteration) =>
+    set((state) => {
+      if (state.currentIterationByNode[nodeId] === iteration) return state;
+      return {
+        currentIterationByNode: { ...state.currentIterationByNode, [nodeId]: iteration },
       };
     }),
 

@@ -19,3 +19,9 @@ class HarnessState(TypedDict):
     errors: Annotated[dict, merge_dicts]        # {agent_name: error_info}
     metadata: Annotated[dict, merge_dicts]      # 可扩展插槽
     iteration_counts: Annotated[dict, merge_dicts]  # {edge_key: count} — 条件边回环计数
+    # {node_id: count} — universal invocation counter, incremented every time
+    # make_node_func's node_func runs (passthrough judge nodes excluded —
+    # they're not user-visible and never loop). Used to stamp `iteration` on
+    # node.started events and todo steps. Distinct from iteration_counts
+    # (which is conditional_edge-specific). Plan F.
+    node_invocation_counts: Annotated[dict, merge_dicts]

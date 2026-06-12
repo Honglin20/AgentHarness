@@ -3,6 +3,7 @@ import type { RunRecord } from "./runHistoryStore";
 import { useAgentIOStore } from "./agentIOStore";
 import { getWorkflowManager } from "@/contexts/workflow-context/WorkflowManager";
 import { resetAllStores } from "@/contexts/workflow-context/routing/utils";
+import { useOutlineStore } from "@/components/outline/outlineStore";
 import {
   applyHydration,
   decideStrategy,
@@ -87,6 +88,8 @@ export const useViewStore = create<ViewState>()((set, get) => ({
       const manager = getWorkflowManager();
       const scoped = manager.getOrCreate(current.runId);
       resetAllStores(scoped.stores);
+      // Reset outline selection (but preserve viewMode preference).
+      useOutlineStore.getState().reset();
     }
     set({ activeView: { type: "live" } });
   },
@@ -111,6 +114,10 @@ export const useViewStore = create<ViewState>()((set, get) => ({
     const manager = getWorkflowManager();
     const scoped = manager.getOrCreate(run.run_id);
     resetAllStores(scoped.stores);
+
+    // Reset outline selection (but preserve viewMode preference) so the
+    // previous run's selected agent doesn't bleed into the new run.
+    useOutlineStore.getState().reset();
 
     // Promote skeleton → full replay immediately. The UI switches off the
     // skeleton placeholder as soon as the run record is in hand; lazy

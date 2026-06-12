@@ -22,7 +22,8 @@ export const todoHandlers: [string, EventHandler][] = [
     "todo.created",
     (stores, event, _ctx) => {
       const p = payload<TodoCreatedPayload>(event);
-      handleTodoCreated(stores.todo, p.node_id, p.items);
+      const iter = stores.conversation.getState().currentIterationByNode[p.node_id] ?? 1;
+      handleTodoCreated(stores.todo, p.node_id, p.items, iter);
       // First step is auto-in_progress on the server side; sync the
       // currentStepIdByNode so trailing agent.tool_call / text_delta events
       // get stamped with the active step id.
@@ -94,7 +95,8 @@ export const todoHandlers: [string, EventHandler][] = [
     "todo.replaced",
     (stores, event, _ctx) => {
       const p = payload<TodoReplacedPayload>(event);
-      handleTodoReplaced(stores.todo, p.node_id, p.items);
+      const iter = stores.conversation.getState().currentIterationByNode[p.node_id] ?? 1;
+      handleTodoReplaced(stores.todo, p.node_id, p.items, iter);
       // New plan: point currentStep at the first in_progress step (server
       // sets step[0] to in_progress on replace, mirroring create).
       const firstInProgress = p.items.find((it) => it.status === "in_progress");

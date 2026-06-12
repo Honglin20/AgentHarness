@@ -13,6 +13,8 @@ import { useViewStore, getActiveWorkflowName, isReplayView } from "@/stores/view
 import { useBatchStore } from "@/stores/batchStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { ScopedConversationTab } from "@/components/conversation/ScopedConversationTab";
+import { OutlineMode } from "@/components/outline/OutlineMode";
+import { useOutlineStore } from "@/components/outline/outlineStore";
 import { ScopedResultsTab } from "@/components/results/ScopedResultsTab";
 import { ScopedAnalysisTab } from "@/components/analysis/ScopedAnalysisTab";
 import ChatInput from "@/components/chat/ChatInput";
@@ -307,7 +309,7 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
           ) : null
         ) : activeTab === "conversation" ? (
           <ErrorBoundary module="ConversationTab">
-            <ScopedConversationTab />
+            <ConversationPanel />
           </ErrorBoundary>
         ) : activeTab === "analysis" ? (
           <ErrorBoundary module="AnalysisTab">
@@ -339,6 +341,38 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
         agentName={editAgentName ?? ""}
         workflowName={effectiveWorkflowName}
       />
+    </div>
+  );
+}
+
+function ConversationPanel() {
+  const viewMode = useOutlineStore((s) => s.viewMode);
+  const setViewMode = useOutlineStore((s) => s.setViewMode);
+
+  return (
+    <div className="flex h-full flex-col">
+      {/* View-mode toggle — top-right of the conversation panel */}
+      <div className="flex shrink-0 justify-end border-b border-app-border/50 px-3 py-1">
+        <div className="inline-flex rounded-md border border-app-border text-xs">
+          <button
+            type="button"
+            onClick={() => setViewMode("outline")}
+            className={`px-2 py-0.5 ${viewMode === "outline" ? "bg-muted font-medium text-app-text-primary" : "text-muted-foreground hover:bg-muted/50"}`}
+          >
+            Outline
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("timeline")}
+            className={`px-2 py-0.5 ${viewMode === "timeline" ? "bg-muted font-medium text-app-text-primary" : "text-muted-foreground hover:bg-muted/50"}`}
+          >
+            Timeline
+          </button>
+        </div>
+      </div>
+      <div className="min-h-0 flex-1">
+        {viewMode === "outline" ? <OutlineMode /> : <ScopedConversationTab />}
+      </div>
     </div>
   );
 }

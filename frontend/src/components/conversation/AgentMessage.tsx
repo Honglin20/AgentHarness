@@ -119,8 +119,23 @@ function ToolsBadge({ tools }: { tools: ToolBrief[] }) {
 // ThinkingBlock — collapsible reasoning/thinking display
 // ---------------------------------------------------------------------------
 
-export function ThinkingBlock({ text, streaming }: { text: string; streaming: boolean }) {
-  const [open, setOpen] = useState(false);
+export function ThinkingBlock({
+  text,
+  streaming,
+  defaultOpen = false,
+}: {
+  text: string;
+  streaming: boolean;
+  /**
+   * Initial expanded state. Callers that render ThinkingBlock in response to
+   * a user "show thinking" click pass `true` so the user doesn't have to
+   * click twice (once to reveal the block, once to expand it). Default
+   * `false` preserves the legacy collapsed-on-mount behavior for any caller
+   * that hasn't opted in.
+   */
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   if (!text) return null;
 
   return (
