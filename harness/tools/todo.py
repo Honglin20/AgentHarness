@@ -38,6 +38,10 @@ class StepEntry(BaseModel):
     activeForm: str
     status: Literal["pending", "in_progress", "completed", "skipped"] = "pending"
     detail: str | None = None
+    # Which loop iteration created this step. 1-indexed. Stamped at create
+    # time from deps.iteration (injected by node_factory). Defaults to 1
+    # for backward compat with persisted data from before Plan F. Plan F.
+    iteration: int = 1
 
 
 class TodoState:
@@ -137,6 +141,7 @@ class TodoToolFactory(ToolFactory):
                         content=item.content,
                         activeForm=item.activeForm,
                         status="in_progress" if (not state.steps and i == 0) else "pending",
+                        iteration=getattr(deps, "iteration", 1) if deps else 1,
                     )
                     new_steps.append(entry)
                 state.steps.extend(new_steps)
@@ -250,6 +255,7 @@ class TodoToolFactory(ToolFactory):
                         content=item.content,
                         activeForm=item.activeForm,
                         status="in_progress" if i == 0 else "pending",
+                        iteration=getattr(deps, "iteration", 1) if deps else 1,
                     )
                     new_steps_replace.append(entry)
                 state.steps.extend(new_steps_replace)
