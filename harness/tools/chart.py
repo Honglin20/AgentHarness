@@ -355,10 +355,19 @@ def render_chart(
 
     rendered_msg = f"Chart rendered: {chart_type} | label='{label}' | title='{title or chart_type}'"
 
-    # Channel 1: EventBus (direct per-workflow bus, or fallback to singleton)
-    active_bus = bus or _try_get_event_bus()
-    if active_bus:
-        active_bus.emit("chart.render", event_payload)
+    # Channel 1: EventBus
+    # - Explicit per-workflow Bus (from RenderChartToolFactory): emit directly,
+    #   no subscriber check — the Bus buffer always captures events.
+    # - Fallback to process singleton: only emit if it has subscribers, so
+    #   subprocesses (with their own unused singleton) fall through to
+    #   Channel 2 stdout capture instead of silently dropping the event.
+    if bus is not None:
+        bus.emit("chart.render", event_payload)
+        return rendered_msg
+
+    singleton = _try_get_event_bus()
+    if singleton and singleton.subscriber_count > 0:
+        singleton.emit("chart.render", event_payload)
         return rendered_msg
 
     # Channel 2: Stdout capture — bash tool _reader detects __HARNESS_CHART__:

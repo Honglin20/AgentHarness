@@ -74,7 +74,7 @@ class RunStoreInterface(ABC):
 
     @abstractmethod
     def save_charts(self, run_id: str, chart_groups: dict | None) -> None:
-        """Update chart_groups for a previously-saved run."""
+        """Merge chart_groups into the persisted sidecar (does not overwrite)."""
         ...
 
     @abstractmethod

@@ -504,20 +504,73 @@ class RunStore(RunStoreInterface):
             self._atomic_write(path, json.dumps(record, separators=(",", ":"), ensure_ascii=False))
 
     def save_charts(self, run_id: str, chart_groups: dict | None) -> None:
-        """Update chart_groups sidecar for a persisted run."""
+        """Merge chart_groups into the persisted sidecar.
+
+        Merges with any existing charts (from ChartCollector in the backend's
+        final save) rather than overwriting — so the frontend's saveCharts
+        PATCH (which may lack workflow charts that arrived late via WS) cannot
+        clobber the authoritative data collected from the Bus buffer.
+        """
         charts_path = self._charts_path(run_id)
         if charts_path is None:
             return
-        if chart_groups and chart_groups.get("groupOrder"):
-            self._atomic_write(charts_path, json.dumps(chart_groups, separators=(",", ":"), ensure_ascii=False))
+
+        merged = self._merge_chart_groups(charts_path, chart_groups)
+
+        if merged and merged.get("groupOrder"):
+            self._atomic_write(charts_path, json.dumps(merged, separators=(",", ":"), ensure_ascii=False))
         elif charts_path.exists():
             charts_path.unlink(missing_ok=True)
         # Update _has_charts flag in main record
         path = self._safe_path(run_id)
         if path and path.exists():
             record = json.loads(path.read_text())
-            record["_has_charts"] = bool(chart_groups and chart_groups.get("groupOrder"))
+            record["_has_charts"] = bool(merged and merged.get("groupOrder"))
             self._atomic_write(path, json.dumps(record, separators=(",", ":"), ensure_ascii=False))
+
+    @staticmethod
+    def _merge_chart_groups(charts_path: Path | None, incoming: dict | None) -> dict | None:
+        """Merge incoming chart groups into the existing sidecar.
+
+        Existing groups are preserved; incoming groups add or update entries
+        within each group. Groups that exist on disk but not in the incoming
+        data are kept (this is the key fix — prevents late-arriving frontend
+        PATCHes from wiping backend-collected charts).
+        """
+        existing: dict = {"groups": {}, "groupOrder": []}
+        if charts_path and charts_path.exists():
+            try:
+                existing = json.loads(charts_path.read_text(encoding="utf-8"))
+                if not isinstance(existing, dict):
+                    existing = {"groups": {}, "groupOrder": []}
+            except (json.JSONDecodeError, OSError):
+                existing = {"groups": {}, "groupOrder": []}
+
+        if not incoming or not incoming.get("groupOrder"):
+            return existing if existing.get("groupOrder") else None
+
+        groups = dict(existing.get("groups", {}))
+        order = list(existing.get("groupOrder", []))
+
+        for label in incoming["groupOrder"]:
+            inc_group = incoming["groups"].get(label, {})
+            if label in groups:
+                # Merge charts within existing group
+                ex_group = groups[label]
+                ex_charts = dict(ex_group.get("charts", {}))
+                ex_charts.update(inc_group.get("charts", {}))
+                groups[label] = {
+                    "label": label,
+                    "collapsed": ex_group.get("collapsed", False),
+                    "category": inc_group.get("category") or ex_group.get("category"),
+                    "charts": ex_charts,
+                    "table": inc_group.get("table") or ex_group.get("table"),
+                }
+            else:
+                groups[label] = inc_group
+                order.append(label)
+
+        return {"groups": groups, "groupOrder": order}
 
     def save_conversation(self, run_id: str, conversation: list[dict]) -> None:
         """Update conversation for a persisted run (atomic write)."""
