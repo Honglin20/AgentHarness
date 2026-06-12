@@ -5,6 +5,7 @@ import { Play } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePortalStore } from "@/stores/portalStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
+import { useAppViewStore } from "@/stores/appView";
 import { fetchWithAuth } from "@/lib/api";
 import { MarkdownText } from "@/components/conversation/MarkdownText";
 import { DagChapterNav } from "@/components/portal/DagChapterNav";
@@ -101,8 +102,15 @@ export function DomainTutorialPage() {
     if (def) {
       setSelectedTemplate(def as unknown as Record<string, unknown>);
       previewTemplate(def as unknown as Record<string, unknown>);
+      // AppView drives layout routing — without this, ScopedCenterPanel
+      // stays on the tutorial view even though selectedTemplate is set.
+      useAppViewStore.getState().setView({
+        kind: "template-preview",
+        workflowName: wfName,
+        domainId: tutorialContext?.domainId,
+      });
     }
-  }, [tutorial, workflowDefs, setSelectedTemplate, previewTemplate]);
+  }, [tutorial, workflowDefs, setSelectedTemplate, previewTemplate, tutorialContext]);
 
   // Not found state
   if (!tutorialContext) {

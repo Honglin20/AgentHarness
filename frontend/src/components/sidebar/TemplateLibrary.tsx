@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { LayoutTemplate, Trash2, Lock, Globe } from "lucide-react";
 import { useWorkflowStore } from "@/stores/workflowStore";
+import { useAppViewStore } from "@/stores/appView";
 import { getApiKey, fetchWithAuth } from "@/lib/api";
 import { showError, confirmAction } from "@/lib/confirm";
 
@@ -109,9 +110,14 @@ export function TemplateLibrary() {
               if (isSelected) {
                 setSelectedTemplate(null);
                 clearPreview();
+                useAppViewStore.getState().setView({ kind: "portal-home" });
               } else {
                 setSelectedTemplate(wf as unknown as Record<string, unknown>);
                 previewTemplate(wf as unknown as Record<string, unknown>);
+                useAppViewStore.getState().setView({
+                  kind: "template-preview",
+                  workflowName: wf.name,
+                });
               }
             }}
             className={`group flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors ${

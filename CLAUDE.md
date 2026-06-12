@@ -136,28 +136,12 @@ Bus 的 WS replay buffer 有大小上限（默认 `buffer_size=2000`），normal
 
 ---
 
-## 前端 URL 路由与 hydration 契约（添加新页面 / 修改路由时必须遵守）
+## 前端 URL 路由与 hydration 契约
 
-**单一真相**：`frontend/src/stores/appView.ts` 的 `AppView` 是「当前在哪个页面」的唯一真相，由 URL `?view=...` 派生。其他 store（workflowStore / viewStore.activeView / batchStore / portalStore）都从属于它，不允许用 store 状态隐式推断"在哪个页面"。
-
-**URL 形状**（互斥，不允许混合）：
-```
-?view=portal             → portal 首页（也接受空 URL）
-?view=workflows&domain=X → workflows 列表
-?view=tutorial&domain=X&tutorial=T
-?view=api-doc&domain=X&api=A
-?view=template&wf=Y[&domain=X]
-?view=run&id=R           → 运行页面（live vs replay 由 store 决定，不在 URL）
-?view=bench&bench=B[&task=T]
-```
-
-**强约束**：
-1. **不要新增第二套 URL 同步机制**。`useAppViewUrlSync`（`frontend/src/hooks/useAppViewUrlSync.ts`）是唯一可以读写 URL 的地方。`portalStore` / `useWorkflowLaunch` / `RunHistoryList.handleClickRun` 等只调 `useAppViewStore.setView(...)`，URL 由订阅器自动同步。
-2. **不要把"scoped store 空"等同于"用户在 portal"**。改用 `useWorkflowHydration(workflowId)`（`frontend/src/contexts/workflow-context/hooks.ts`）读 `WorkflowEntry.hydration`：`idle | hydrating | hydrated | failed`。`ScopedCenterPanel` 用 `view.kind + hydration` 双维度分支，**禁止**回到 `isIdle && !selectedTemplate` 这种隐式 portal 判定。
-3. **运行激活只能通过 `activateRun(runId)`**（`frontend/src/lib/activateRun.ts`）。它内部管 seq/abort race，并显式驱动 hydration 状态。history 点击 / URL restore / 任何新入口都必须走它，不允许复制其逻辑。
-4. **改前端必须 `npm run build`** 并把 `frontend/out/` 一起 commit——`server/app.py` 直接服务这个目录，port 8000 的 `{"detail":"Not Found"}` 通常意味着 out/ 没更新。
-
-**老 URL 自动迁移**：`?wid=R` → `?view=run&id=R`、`?bench=B` → `?view=bench&bench=B`，由 `parseUrlToAppView` 在 parse 阶段一次 `replaceState` 完成。
-
-历史教训：曾因 `ScopedCenterPanel` 用 `isIdle && !selectedTemplate` 判定 portal，scoped store 在 hydration 空窗期也命中此条件 → 刷新运行页面会闪 DomainWorkflowsPage；handleClickRun 对 running run 只写全局 store 不填 scoped → 首次点 history 不加载。
+- `AppView`（`frontend/src/stores/appView.ts`）是「当前页面」单一真相，由 URL `?view=...` 派生。新增页面要扩 `AppView` union + URL parser/serializer。
+- URL 同步只走 `useAppViewUrlSync`。其他地方改页面状态用 `useAppViewStore.setView(...)`，URL 自动同步。
+- "scoped store 空" 不等于"在 portal"——用 `useWorkflowHydration()` 区分 loading / portal。
+- 运行激活只能调 `activateRun(runId)`。
+- 改前端必须 `npm run build`，`frontend/out/` 一起 commit（port 8000 直接 serve 这个目录）。
+- 点 workflow / Try it 进模板预览：除了 `setSelectedTemplate + previewTemplate`，**必须**同时 `setView({kind:"template-preview", workflowName})`，否则 ScopedCenterPanel 不切视图。
 

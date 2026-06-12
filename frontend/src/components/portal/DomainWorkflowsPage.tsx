@@ -5,6 +5,7 @@ import { Lock } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePortalStore, type WorkflowDef } from "@/stores/portalStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
+import { useAppViewStore } from "@/stores/appView";
 import { COLOR_MAP } from "./colors";
 import { Breadcrumb } from "./Breadcrumb";
 import type { WorkflowRef } from "@/types/domains";
@@ -103,6 +104,13 @@ export function DomainWorkflowsPage() {
     if (def) {
       setSelectedTemplate(def as unknown as Record<string, unknown>);
       previewTemplate(def as unknown as Record<string, unknown>);
+      // AppView drives layout routing — without this, ScopedCenterPanel
+      // stays on the workflows list view even though selectedTemplate is set.
+      useAppViewStore.getState().setView({
+        kind: "template-preview",
+        workflowName: wfName,
+        domainId: activeDomain ?? undefined,
+      });
     }
   };
 
