@@ -134,12 +134,11 @@ function computeStatus(
   iterMessages: ConversationMessage[],
   isLatestIter: boolean,
 ): OutlineStatus {
-  if (pendingQuestionCount > 0) return "waiting-for-user";
   if (!node) return "idle";
 
-  // Latest iter — use node-level real-time status.
   if (isLatestIter) {
-    // NodeState.status values: idle | running | success | failed | retrying
+    // Latest iter — pending questions are real and actionable.
+    if (pendingQuestionCount > 0) return "waiting-for-user";
     switch (node.status) {
       case "running": return "running";
       case "success": return "completed";
@@ -149,11 +148,11 @@ function computeStatus(
     }
   }
 
-  // Historical iter — node.status reflects the current iter, not this one.
-  // Infer from messages:
-  //   error / interrupted → failed (cancelled mid-stream is a failure mode)
-  //   done                → completed
-  //   else                → idle (no terminal signal)
+  // Historical iter — pendingQuestionCount is intentionally ignored:
+  // a past iter cannot meaningfully be "waiting". If a question somehow
+  // wasn't answered/interrupted before iter boundary (engine bug), surfacing
+  // it as waiting-for-user would be more misleading than inferring from
+  // message state.
   if (iterMessages.some((m) => m.status === "error" || m.status === "interrupted")) {
     return "failed";
   }
