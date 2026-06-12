@@ -22,7 +22,7 @@ function fireEvent(type: string, payload: Record<string, unknown>) {
   return { type, ts: Date.now(), payload, workflow_id: "wf-1" } as any;
 }
 
-describe("node.started handler — iteration counting", () => {
+describe("node.started handler — iteration caching from payload", () => {
   let stores: WorkflowStores;
   const startedHandler = nodeHandlers.find(([t]) => t === "node.started")![1];
   const completedHandler = nodeHandlers.find(([t]) => t === "node.completed")![1];
@@ -31,30 +31,70 @@ describe("node.started handler — iteration counting", () => {
     stores = makeStores();
   });
 
-  it("sets iteration=1 on first node.started for a nodeId", () => {
-    startedHandler(stores, fireEvent("node.started", { node_id: "coder", agent_name: "coder" }), {} as any);
+  it("reads iteration=1 from node.started payload (first invocation)", () => {
+    startedHandler(
+      stores,
+      fireEvent("node.started", { node_id: "coder", agent_name: "coder", iteration: 1 }),
+      {} as any,
+    );
     expect(stores.conversation.getState().currentIterationByNode.coder).toBe(1);
   });
 
-  it("increments iteration on subsequent node.started for same nodeId (loop)", () => {
-    startedHandler(stores, fireEvent("node.started", { node_id: "coder", agent_name: "coder" }), {} as any);
+  it("reads iteration=2 from subsequent node.started payload (loop)", () => {
+    startedHandler(
+      stores,
+      fireEvent("node.started", { node_id: "coder", agent_name: "coder", iteration: 1 }),
+      {} as any,
+    );
     // Fire the actual node.completed event so the workflow store flips the
     // node status to non-running. Without this, node.started's idempotency
     // guard would skip the second fire.
-    completedHandler(stores, fireEvent("node.completed", { node_id: "coder", agent_name: "coder", duration_ms: 100 }), {} as any);
-    startedHandler(stores, fireEvent("node.started", { node_id: "coder", agent_name: "coder" }), {} as any);
+    completedHandler(
+      stores,
+      fireEvent("node.completed", { node_id: "coder", agent_name: "coder", duration_ms: 100 }),
+      {} as any,
+    );
+    startedHandler(
+      stores,
+      fireEvent("node.started", { node_id: "coder", agent_name: "coder", iteration: 2 }),
+      {} as any,
+    );
     expect(stores.conversation.getState().currentIterationByNode.coder).toBe(2);
   });
 
   it("new agent message after second node.started is stamped with iteration=2", () => {
-    startedHandler(stores, fireEvent("node.started", { node_id: "coder", agent_name: "coder" }), {} as any);
+    startedHandler(
+      stores,
+      fireEvent("node.started", { node_id: "coder", agent_name: "coder", iteration: 1 }),
+      {} as any,
+    );
     // MUST fire the actual node.completed event (not handleNodeCompleted
     // directly) so completeAgentMessage flips the first agent message from
     // streaming→done. Otherwise addAgentMessage's streaming-guard no-ops
     // the second node.started and no iteration=2 message is ever created.
-    completedHandler(stores, fireEvent("node.completed", { node_id: "coder", agent_name: "coder", duration_ms: 100 }), {} as any);
-    startedHandler(stores, fireEvent("node.started", { node_id: "coder", agent_name: "coder" }), {} as any);
+    completedHandler(
+      stores,
+      fireEvent("node.completed", { node_id: "coder", agent_name: "coder", duration_ms: 100 }),
+      {} as any,
+    );
+    startedHandler(
+      stores,
+      fireEvent("node.started", { node_id: "coder", agent_name: "coder", iteration: 2 }),
+      {} as any,
+    );
     const lastMsg = stores.conversation.getState().messages.at(-1);
     expect(lastMsg?.iteration).toBe(2);
+  });
+
+  it("falls back to iter=1 when payload lacks iteration (legacy event)", () => {
+    // Pre-Plan-F events don't carry `iteration` — the handler must
+    // degrade gracefully by treating absent as 1. This keeps old runs
+    // replayable after the Plan F frontend deploy.
+    startedHandler(
+      stores,
+      fireEvent("node.started", { node_id: "coder", agent_name: "coder" }),
+      {} as any,
+    );
+    expect(stores.conversation.getState().currentIterationByNode.coder).toBe(1);
   });
 });

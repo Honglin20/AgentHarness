@@ -19,13 +19,13 @@ export const nodeHandlers: [string, EventHandler][] = [
       const existingNode = stores.workflow.getState().nodes[p.node_id];
       if (existingNode && existingNode.status === "running") return;
 
-      // Increment loop iteration counter for this nodeId BEFORE creating
-      // the agent message, so the message stamps the new iteration. Mirrors
-      // the existing stepId pattern: state setter first, message creator
-      // reads from state.
+      // Read iteration from the event payload (backend is the source of
+      // truth since Plan F). Frontend `currentIterationByNode` is now a
+      // cache, not a counter. Falls back to 1 for legacy events emitted
+      // before Plan F backend deploy.
       const conv = stores.conversation.getState();
-      const nextIter = (conv.currentIterationByNode[p.node_id] ?? 0) + 1;
-      conv.setCurrentIteration(p.node_id, nextIter);
+      const iter = (p.iteration as number | undefined) ?? 1;
+      conv.setCurrentIteration(p.node_id, iter);
 
       stores.workflow.getState().handleNodeStarted(p);
       stores.output.getState().setActiveNode(p.node_id);
