@@ -141,6 +141,11 @@ def make_node_func(
     async def node_func(state: HarnessState) -> dict:
         start_time = time.time()
 
+        # Universal invocation counter — bumped every time this node runs,
+        # regardless of loop type (conditional edge, fixed-count, retry, etc.).
+        # Used to stamp iteration on node.started + todo steps. Plan F.
+        current_invocation = state.get("node_invocation_counts", {}).get(agent_def.name, 0) + 1
+
         # Check iteration count for conditional edges
         if agent_def.has_conditional_edges:
             iter_key = f"{agent_def.name}_loop"
@@ -157,13 +162,14 @@ def make_node_func(
                     STATE_ERRORS: {agent_def.name: f"Max iterations ({max_iterations}) exceeded"},
                     STATE_METADATA: {},
                     "iteration_counts": {iter_key: current_count},
+                    "node_invocation_counts": {agent_def.name: current_invocation},
                 }
 
         # Emit node.started event (legacy WS path)
         if bus:
             safe_emit(bus, "node.started", build_node_started_payload(
                 builder_self.workflow_id, agent_def.name, agent_def.name,
-                model=model, tools=tool_info,
+                model=model, tools=tool_info, iteration=current_invocation,
             ))
 
         # Check if any upstream dependency has failed — skip this node
@@ -179,6 +185,7 @@ def make_node_func(
                 STATE_OUTPUTS: {},
                 STATE_ERRORS: {agent_def.name: f"Skipped: upstream '{skip.failed_dep}' failed: {skip.error_info}"},
                 STATE_METADATA: {agent_def.name: {"duration_ms": 0, "skipped": True}},
+                "node_invocation_counts": {agent_def.name: current_invocation},
             }
 
         # Gather upstream outputs
@@ -226,6 +233,7 @@ def make_node_func(
             workflow_id=wid,
             node_id=agent_def.name,
             token_aggregator=node_token_agg,
+            iteration=current_invocation,
         )
 
         # Wire up reminder tracker (reads state lazily from deps)
@@ -277,6 +285,7 @@ def make_node_func(
                     STATE_OUTPUTS: {},
                     STATE_ERRORS: {agent_def.name: f"Rejected: {mw_result.reason}"},
                     STATE_METADATA: {agent_def.name: {"duration_ms": duration_ms}},
+                    "node_invocation_counts": {agent_def.name: current_invocation},
                 }
             ext_ctx = mw_result
             context = ext_ctx.prompt  # pick up mutations
@@ -437,6 +446,7 @@ def make_node_func(
                             STATE_OUTPUTS: {agent_def.name: output},
                             STATE_ERRORS: {},
                             STATE_METADATA: {agent_def.name: {"duration_ms": duration_ms}},
+                            "node_invocation_counts": {agent_def.name: current_invocation},
                         }
 
             if agent_run is None or agent_run.result is None:
@@ -461,6 +471,7 @@ def make_node_func(
                     STATE_OUTPUTS: {agent_def.name: output},
                     STATE_ERRORS: {},
                     STATE_METADATA: {agent_def.name: {"duration_ms": duration_ms}},
+                    "node_invocation_counts": {agent_def.name: current_invocation},
                 }
 
             output = agent_run.result.output
@@ -584,6 +595,7 @@ def make_node_func(
                         STATE_OUTPUTS: {},
                         STATE_ERRORS: {agent_def.name: envelope_error},
                         STATE_METADATA: {agent_def.name: node_meta},
+                        "node_invocation_counts": {agent_def.name: current_invocation},
                     }
 
             # Emit node.completed event + collect I/O for persistence
@@ -623,6 +635,10 @@ def make_node_func(
             if iter_update:
                 result_dict["iteration_counts"] = iter_update
 
+            # Always update node_invocation_counts so the next invocation of
+            # this node sees an incremented counter. Plan F.
+            result_dict["node_invocation_counts"] = {agent_def.name: current_invocation}
+
             return result_dict
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
@@ -660,6 +676,7 @@ def make_node_func(
                 STATE_OUTPUTS: {},
                 STATE_ERRORS: {agent_def.name: str(e)},
                 STATE_METADATA: {agent_def.name: {"duration_ms": duration_ms}},
+                "node_invocation_counts": {agent_def.name: current_invocation},
             }
 
     return node_func
