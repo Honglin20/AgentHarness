@@ -17,6 +17,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
+import { useShallow } from "zustand/shallow";
 import type { StoreApi } from "zustand/vanilla";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { InlineErrorBoundary } from "@/components/ErrorBoundary";
@@ -395,17 +396,22 @@ export const NodeBlockCard = React.memo(function NodeBlockCard({
   iteration,
 }: NodeBlockCardProps) {
   const { mainMessage: m, children, nodeId } = block;
-  // Subscribe to the raw step list by ref — selector returns the store's
-  // array reference, so unrelated store updates don't trigger re-render.
-  // iter filtering happens in useMemo below: only re-filters when the raw
-  // list ref or iteration prop changes.
-  const rawTodos = useStore(todoStore!, (s) => s.todos[nodeId]);
-  const todos = useMemo(
-    () =>
-      iteration === undefined
-        ? rawTodos
-        : rawTodos?.filter((t) => (t.iteration ?? 1) === iteration),
-    [rawTodos, iteration],
+  // Subscribe with iter filter inside the selector. useShallow ensures
+  // that if the filtered result is value-equal to the previous render's
+  // result, the same array reference is returned → no spurious re-render
+  // when an unrelated iter's step mutates (e.g. iter=2 tokenUsage delta
+  // while this card shows iter=1).
+  //
+  // Timeline view passes iteration=undefined → selector returns rawTodos
+  // unchanged (no filter), preserving the legacy "show all steps" behavior.
+  const todos = useStore(
+    todoStore!,
+    useShallow((s: TodoState) => {
+      const all = s.todos[nodeId];
+      if (!all) return all;
+      if (iteration === undefined) return all;
+      return all.filter((t) => (t.iteration ?? 1) === iteration);
+    }),
   );
   const hasTodos = !!todos && todos.length > 0;
 
