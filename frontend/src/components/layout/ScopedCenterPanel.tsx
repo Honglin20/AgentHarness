@@ -1,8 +1,19 @@
 /**
  * ScopedCenterPanel - Center panel using Context stores
  *
- * Routes between 5 views: Benchmark, Error, Portal/Landing, Idle DAG preview, Normal tabs.
- * Business logic is delegated to extracted hooks/components.
+ * Routes rendering based on `appViewStore.view.kind` — the single source
+ * of truth for "which page are we on" — instead of inferring portal-vs-run
+ * from `isIdle && !selectedTemplate` (which conflated "user is on the
+ * portal page" with "scoped store is briefly empty during hydration",
+ * causing the refresh-returns-to-portal bug).
+ *
+ * Per-kind behavior:
+ *   - portal-home / workflows / tutorial / api-doc → render the matching
+ *     portal view
+ *   - template-preview → DAG preview from the selected template
+ *   - run → switch on hydration: "hydrating" = skeleton, "failed" =
+ *     retry UI, "hydrated" = tabs + content
+ *   - benchmark → existing BenchmarkView
  */
 
 "use client";
@@ -12,6 +23,9 @@ import { fetchWithAuth } from "@/lib/api";
 import { useViewStore, getActiveWorkflowName, isReplayView } from "@/stores/viewStore";
 import { useBatchStore } from "@/stores/batchStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
+import { useAppViewStore } from "@/stores/appView";
+import { useWorkflowHydration } from "@/contexts/workflow-context";
+import { activateRun } from "@/lib/activateRun";
 import { ScopedConversationTab } from "@/components/conversation/ScopedConversationTab";
 import { OutlineMode } from "@/components/outline/OutlineMode";
 import { useOutlineStore } from "@/components/outline/outlineStore";
@@ -25,7 +39,6 @@ import { DomainWorkflowsPage } from "@/components/portal/DomainWorkflowsPage";
 import { DomainTutorialPage } from "@/components/portal/DomainTutorialPage";
 import { ApiDocPage } from "@/components/portal/ApiDocPage";
 import { Skeleton } from "@/components/ui/skeleton";
-import { usePortalStore } from "@/stores/portalStore";
 import { useWSMethods } from "@/contexts/workflow-context/WorkflowScope";
 import {
   useWorkflowStatus,
@@ -46,7 +59,6 @@ import {
 } from "@/contexts/workflow-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
-// Extracted modules
 import { useWorkflowLaunch } from "@/hooks/useWorkflowLaunch";
 import { TabBar } from "@/components/center-panel/TabBar";
 import { BenchmarkView } from "@/components/center-panel/BenchmarkView";
@@ -54,6 +66,8 @@ import { BenchmarkView } from "@/components/center-panel/BenchmarkView";
 type Tab = "conversation" | "results" | "analysis";
 
 interface Props {
+  /** Optional benchmark name — kept for backward compat with parent,
+   * ignored when appViewStore.view.kind !== "benchmark". */
   activeBenchmark?: string | null;
   isReplay?: boolean;
 }
@@ -62,6 +76,16 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
   const [activeTab, setActiveTab] = useState<Tab>("conversation");
   const [editAgentName, setEditAgentName] = useState<string | null>(null);
   const [benchmarkData, setBenchmarkData] = useState<Record<string, unknown> | null>(null);
+
+  // ── Single source of truth for routing ───────────────────────────────
+  const view = useAppViewStore((s) => s.view);
+  const runMode = useAppViewStore((s) => s.runMode);
+
+  // Hydration flag from WorkflowEntry — distinguishes "loading" from
+  // "user is on the portal page". Only meaningful when view.kind === "run".
+  const hydration = useWorkflowHydration(
+    view.kind === "run" ? view.runId : null,
+  );
 
   // Scoped store reads
   const status = useWorkflowStatus();
@@ -86,17 +110,13 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
 
   // Global stores (shared state)
   const activeView = useViewStore((s) => s.activeView);
-  const chartsLoading = useViewStore((s) => s.chartsLoading);
   const activeBatchId = useBatchStore((s) => s.activeBatchId);
   const batchRunning = activeBatchId !== null;
-  const portalView = usePortalStore((s) => s.portalView);
 
-  // Use isReplayView (covers both "replay" and "replay-skeleton"). Without
-  // this, clicking a history entry while in the live view shows the idle
-  // landing page for the brief skeleton phase before hydration completes.
-  const isReplay = isReplayProp ?? isReplayView(activeView);
-  const isIdle = !isReplay && status === "idle" && nodeCount === 0;
-  const effectiveWorkflowName = workflowName ?? ((selectedTemplate as any)?.name as string | undefined);
+  // isReplay from prop OR derived from runMode (covers the case where
+  // parent didn't pass it). Eventually this prop goes away once all
+  // callers migrate; for now both paths agree.
+  const isReplay = isReplayProp ?? runMode !== "live";
 
   // Agent descriptions from selected template
   const agentDescriptions = useMemo(() => {
@@ -119,7 +139,8 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
       .map((n: string) => ({ name: n }));
   }, [dag]);
 
-  // ChatInput scoped store props (override legacy global store reads)
+  const effectiveWorkflowName = workflowName ?? ((selectedTemplate as any)?.name as string | undefined);
+
   const chatInputScopedProps = {
     pendingQuestionId: scopedPendingId,
     pendingQuestionAgent: scopedPendingAgent,
@@ -134,7 +155,6 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
     agentsSnapshot,
   };
 
-  // Extracted hook for workflow launching
   const startWorkflow = useWorkflowLaunch(workflowActions, outputActions, chartActions);
 
   // When a new live workflow starts, snap back to Conversation
@@ -145,17 +165,22 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
   const resultCount = liveResultCount;
   const analysisCount = liveAnalysisCount;
 
-  // Fetch benchmark data when activeBenchmark changes
+  // Resolve effective benchmark id — prefer AppView, fall back to prop
+  // for callers that haven't migrated yet.
+  const effectiveBenchmarkId =
+    view.kind === "benchmark" ? view.benchId : activeBenchmark;
+
+  // Fetch benchmark data when effectiveBenchmarkId changes
   useEffect(() => {
-    if (!activeBenchmark) {
+    if (!effectiveBenchmarkId) {
       setBenchmarkData(null);
       return;
     }
-    fetchWithAuth(`/api/benchmarks/${encodeURIComponent(activeBenchmark)}`)
+    fetchWithAuth(`/api/benchmarks/${encodeURIComponent(effectiveBenchmarkId)}`)
       .then((r) => r.json())
       .then((data) => setBenchmarkData(data))
       .catch(() => setBenchmarkData(null));
-  }, [activeBenchmark]);
+  }, [effectiveBenchmarkId]);
 
   const handleSaveBenchmark = useCallback(
     async (name: string, tasks: { label: string; inputs: Record<string, string> }[], description: string) => {
@@ -168,15 +193,15 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
       const data = await (await fetchWithAuth(`/api/benchmarks/${encodeURIComponent(name)}`)).json();
       setBenchmarkData(data);
     },
-    []
+    [],
   );
 
   // ── Benchmark view ──────────────────────────────────────────────────
-  if (activeBenchmark && benchmarkData) {
+  if (effectiveBenchmarkId && benchmarkData) {
     return (
       <BenchmarkView
         benchmarkData={benchmarkData}
-        benchmarkName={activeBenchmark}
+        benchmarkName={effectiveBenchmarkId}
         onSaveBenchmark={handleSaveBenchmark}
         liveResultCount={liveResultCount}
         batchRunning={batchRunning}
@@ -205,17 +230,18 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
     );
   }
 
-  // ── Landing page — Domain Portal ────────────────────────────────────
-  if (isIdle && !selectedTemplate) {
-    if (portalView === "workflows") {
-      return <DomainWorkflowsPage />;
-    }
-    if (portalView === "tutorial") {
-      return <DomainTutorialPage />;
-    }
-    if (portalView === "api-doc") {
-      return <ApiDocPage />;
-    }
+  // ── AppView-driven top-level switch ──────────────────────────────────
+  //
+  // The previous `if (isIdle && !selectedTemplate)` check conflated
+  // "user is on the portal page" with "scoped store is briefly empty
+  // during hydration" — same observable state, two different causes.
+  // Routing on `view.kind` removes the ambiguity: each kind has exactly
+  // one cause and one render path.
+
+  if (view.kind === "workflows") return <DomainWorkflowsPage />;
+  if (view.kind === "tutorial") return <DomainTutorialPage />;
+  if (view.kind === "api-doc") return <ApiDocPage />;
+  if (view.kind === "portal-home") {
     return (
       <>
         <DomainPortal />
@@ -233,65 +259,14 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
     );
   }
 
-  // ── Normal view — tabs + DAG preview ────────────────────────────────
-  const showTabs = !isIdle || isReplay;
-
-  // Replay skeleton: while chartsLoading is true (fetchRun + lazy hydration
-  // in flight), show a placeholder so the user sees immediate feedback
-  // instead of the previous run's stale content. The previous behavior left
-  // the old conversation visible for hundreds of ms before snapping to the
-  // new run, which felt "stuck".
-  const showReplaySkeleton = isReplay && chartsLoading;
-
-  return (
-    <div className="flex h-full flex-col overflow-hidden bg-app-bg-primary">
-      {showTabs && (
-        <TabBar
-          tabs={[
-            { key: "conversation", label: "Conversation" },
-            { key: "results", label: `Results${resultCount > 0 ? ` ·${resultCount}` : ""}` },
-            { key: "analysis", label: `Analysis${analysisCount > 0 ? ` ·${analysisCount}` : ""}` },
-          ]}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          trailing={
-            isReplayView(activeView) ? (
-              <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                REPLAY · {getActiveWorkflowName(activeView) ?? ""}
-              </span>
-            ) : undefined
-          }
-        />
-      )}
-
-      <div className="h-0 min-w-0 flex-1 overflow-hidden">
-        {showReplaySkeleton ? (
-          <div className="flex h-full flex-col gap-3 p-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Skeleton className="h-2 w-2 rounded-full" />
-                <Skeleton className="h-4 w-32" />
-              </div>
-              <Skeleton className="h-4 w-20" />
-            </div>
-            <Skeleton className="h-3 w-3/4" />
-            <Skeleton className="h-3 w-full" />
-            <Skeleton className="h-3 w-5/6" />
-            <Skeleton className="h-3 w-2/3" />
-            <div className="mt-3 rounded-lg border border-app-border p-3">
-              <Skeleton className="h-3 w-40 mb-2" />
-              <Skeleton className="h-3 w-full mb-1.5" />
-              <Skeleton className="h-3 w-3/4 mb-1.5" />
-              <Skeleton className="h-3 w-5/6" />
-            </div>
-            <Skeleton className="h-3 w-3/4 mt-2" />
-            <Skeleton className="h-3 w-full" />
-            <p className="mt-auto self-center text-xs text-muted-foreground">
-              Loading conversation…
-            </p>
-          </div>
-        ) : isIdle && !isReplay ? (
-          dag ? (
+  if (view.kind === "template-preview") {
+    // Template preview — DAG + ChatInput. selectedTemplate lives on the
+    // global workflowStore; the scoped-store dummy mirror is gone, so
+    // read directly.
+    return (
+      <div className="flex h-full flex-col overflow-hidden bg-app-bg-primary">
+        <div className="h-0 min-w-0 flex-1 overflow-hidden">
+          {dag ? (
             <div className="flex h-full flex-col">
               <div className="min-h-0 flex-1">
                 <DAGPreview
@@ -306,41 +281,137 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
                 </p>
               </div>
             </div>
-          ) : null
-        ) : activeTab === "conversation" ? (
-          <ErrorBoundary module="ConversationTab">
-            <ConversationPanel />
-          </ErrorBoundary>
-        ) : activeTab === "analysis" ? (
-          <ErrorBoundary module="AnalysisTab">
-            <ScopedAnalysisTab />
-          </ErrorBoundary>
-        ) : (
-          <ErrorBoundary module="ResultsTab">
-            <ScopedResultsTab />
-          </ErrorBoundary>
-        )}
-      </div>
-
-      {!isReplay && (
+          ) : null}
+        </div>
         <div className="shrink-0">
           <ChatInput
             sendAnswer={sendAnswer}
             sendStopAndRegenerate={sendStopAndRegenerate}
             sendGuidance={sendGuidance}
-            startWorkflow={isIdle ? startWorkflow : undefined}
+            startWorkflow={startWorkflow}
             alwaysVisible
             {...chatInputScopedProps}
           />
         </div>
-      )}
+        <AgentEditorModal
+          open={editAgentName !== null}
+          onOpenChange={(o) => !o && setEditAgentName(null)}
+          agentName={editAgentName ?? ""}
+          workflowName={effectiveWorkflowName}
+        />
+      </div>
+    );
+  }
 
-      <AgentEditorModal
-        open={editAgentName !== null}
-        onOpenChange={(o) => !o && setEditAgentName(null)}
-        agentName={editAgentName ?? ""}
-        workflowName={effectiveWorkflowName}
-      />
+  // view.kind === "run" — the run page. Branch on hydration:
+  //   - "hydrating" → skeleton (NOT portal view)
+  //   - "failed"    → retry UI
+  //   - "hydrated"  → tabs + content
+  if (view.kind === "run") {
+    if (hydration === "failed") {
+      return (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 bg-app-bg-primary p-6">
+          <p className="text-sm font-medium text-red-500">Failed to load run</p>
+          <button
+            onClick={() => void activateRun(view.runId)}
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-700"
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+
+    if (hydration === "hydrating") {
+      return <RunSkeleton />;
+    }
+
+    // hydration === "hydrated" — render tabs + content
+    return (
+      <div className="flex h-full flex-col overflow-hidden bg-app-bg-primary">
+        <TabBar
+          tabs={[
+            { key: "conversation", label: "Conversation" },
+            { key: "results", label: `Results${resultCount > 0 ? ` ·${resultCount}` : ""}` },
+            { key: "analysis", label: `Analysis${analysisCount > 0 ? ` ·${analysisCount}` : ""}` },
+          ]}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          trailing={
+            isReplay ? (
+              <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                REPLAY · {getActiveWorkflowName(activeView) ?? ""}
+              </span>
+            ) : undefined
+          }
+        />
+        <div className="h-0 min-w-0 flex-1 overflow-hidden">
+          {activeTab === "conversation" ? (
+            <ErrorBoundary module="ConversationTab">
+              <ConversationPanel />
+            </ErrorBoundary>
+          ) : activeTab === "analysis" ? (
+            <ErrorBoundary module="AnalysisTab">
+              <ScopedAnalysisTab />
+            </ErrorBoundary>
+          ) : (
+            <ErrorBoundary module="ResultsTab">
+              <ScopedResultsTab />
+            </ErrorBoundary>
+          )}
+        </div>
+        {!isReplay && (
+          <div className="shrink-0">
+            <ChatInput
+              sendAnswer={sendAnswer}
+              sendStopAndRegenerate={sendStopAndRegenerate}
+              sendGuidance={sendGuidance}
+              alwaysVisible
+              {...chatInputScopedProps}
+            />
+          </div>
+        )}
+        <AgentEditorModal
+          open={editAgentName !== null}
+          onOpenChange={(o) => !o && setEditAgentName(null)}
+          agentName={editAgentName ?? ""}
+          workflowName={effectiveWorkflowName}
+        />
+      </div>
+    );
+  }
+
+  // view.kind === "benchmark" with no benchmarkData yet (still loading)
+  // — render a skeleton instead of the previous fall-through which would
+  // have shown the DAG preview / portal home erroneously.
+  return <RunSkeleton />;
+}
+
+function RunSkeleton() {
+  return (
+    <div className="flex h-full flex-col gap-3 p-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-2 w-2 rounded-full" />
+          <Skeleton className="h-4 w-32" />
+        </div>
+        <Skeleton className="h-4 w-20" />
+      </div>
+      <Skeleton className="h-3 w-3/4" />
+      <Skeleton className="h-3 w-full" />
+      <Skeleton className="h-3 w-5/6" />
+      <Skeleton className="h-3 w-2/3" />
+      <div className="mt-3 rounded-lg border border-app-border p-3">
+        <Skeleton className="h-3 w-40 mb-2" />
+        <Skeleton className="h-3 w-full mb-1.5" />
+        <Skeleton className="h-3 w-3/4 mb-1.5" />
+        <Skeleton className="h-3 w-5/6" />
+      </div>
+      <Skeleton className="h-3 w-3/4 mt-2" />
+      <Skeleton className="h-3 w-full" />
+      <p className="mt-auto self-center text-xs text-muted-foreground">
+        Loading conversation…
+      </p>
     </div>
   );
 }

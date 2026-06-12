@@ -8,8 +8,11 @@
 
 import { useStore } from "zustand";
 import { useShallow } from "zustand/shallow";
+import { useSyncExternalStore } from "react";
 import { createStore } from "zustand/vanilla";
 import { useWorkflowStore as getWorkflowStoreApi } from "./WorkflowContext";
+import { getWorkflowManager } from "./WorkflowManager";
+import type { HydrationState } from "./WorkflowManager";
 import type {
   ConversationMessage,
   ConversationState,
@@ -215,6 +218,35 @@ export function useWorkflowDAG(): WorkflowState["dag"] {
  */
 export function useSelectedTemplate(): WorkflowState["selectedTemplate"] {
   return useScopedWorkflowStore((s) => s.selectedTemplate);
+}
+
+/**
+ * useWorkflowHydration
+ *
+ * Reactive view into a workflow entry's `hydration` field. Drives the
+ * run-page loading skeleton vs. portal-fallback distinction — the
+ * missing piece that caused the refresh-returns-to-portal bug.
+ *
+ * Pass `null` when not on a run page; returns "idle" (no subscription
+ * cost — useSyncExternalStore's getSnapshot returns a constant).
+ *
+ * Why this lives on WorkflowEntry (not the scoped store): the entry
+ * survives 5min idle GC, so navigating run → portal → back to the same
+ * run doesn't re-trigger hydration within a session. destroy() clears
+ * it automatically.
+ */
+export function useWorkflowHydration(workflowId: string | null): HydrationState {
+  return useSyncExternalStore(
+    subscribeToWorkflowHydration,
+    () => (workflowId ? getWorkflowManager().getHydration(workflowId) : "idle"),
+    () => "idle" as HydrationState,
+  );
+}
+
+// Module-level subscribe fn — stable identity (required by
+// useSyncExternalStore). Forwards to the singleton manager.
+function subscribeToWorkflowHydration(listener: () => void): () => void {
+  return getWorkflowManager().subscribeToHydration(listener);
 }
 
 // ============================================================

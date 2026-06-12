@@ -30,7 +30,27 @@ interface WorkflowEntry {
   connection: ConnectionInfo;
   lastActiveAt: number;
   createdAt: number;
+  /**
+   * Explicit data-hydration state. Replaces the implicit "scoped store
+   * is empty so we must be on the portal page" inference that caused the
+   * refresh-returns-to-portal bug.
+   *
+   * Lives on WorkflowEntry (not the scoped store) so it survives
+   * navigations within a session — the entry stays in the map across
+   * 5min idle GC, so coming back to a previously-visited run doesn't
+   * re-trigger hydration. destroy() clears it.
+   */
+  hydration: HydrationState;
 }
+
+/**
+ * Hydration lifecycle for a workflow entry.
+ * - "idle"       — never activated (initial state on getOrCreate)
+ * - "hydrating"  — activateRun in flight (fetch + scoped-store fill)
+ * - "hydrated"   — scoped stores populated, ready to render
+ * - "failed"     — activation threw or fetchRun returned null; show retry UI
+ */
+export type HydrationState = "idle" | "hydrating" | "hydrated" | "failed";
 
 /**
  * WorkflowManager - 单例类
@@ -43,6 +63,11 @@ class WorkflowManager {
   private workflows: Map<string, WorkflowEntry> = new Map();
   private activeWorkflowId: string | null = null;
   private config: Required<WorkflowManagerConfig>;
+
+  // Hydration subscribers — fired on every setHydration change. Hooks
+  // filter by workflowId in their snapshot selector. Kept simple (Set of
+  // listeners) since hydration changes are low-frequency.
+  private hydrationListeners: Set<() => void> = new Set();
 
   // 默认配置
   private readonly defaultConfig: Required<WorkflowManagerConfig> = {
@@ -95,6 +120,7 @@ class WorkflowManager {
       connection: { type: "single", ws: null, batchId: null },
       lastActiveAt: Date.now(),
       createdAt: Date.now(),
+      hydration: "idle",
     };
 
     this.workflows.set(workflowId, entry);
@@ -151,6 +177,45 @@ class WorkflowManager {
       entry.lifecycle = entry.id === this.activeWorkflowId ? "running" : "background";
     } else if (status === "completed" || status === "failed") {
       entry.lifecycle = "completed";
+    }
+  }
+
+  /**
+   * Read a workflow's hydration state. Returns "idle" if the entry
+   * doesn't exist (defensive — callers should treat as not-yet-activated).
+   */
+  getHydration(workflowId: string): HydrationState {
+    return this.workflows.get(workflowId)?.hydration ?? "idle";
+  }
+
+  /**
+   * Update a workflow's hydration state and notify subscribers.
+   * No-op if the entry doesn't exist (avoids creating orphan entries
+   * from stale activation runs).
+   */
+  setHydration(workflowId: string, hydration: HydrationState): void {
+    const entry = this.workflows.get(workflowId);
+    if (!entry) return;
+    if (entry.hydration === hydration) return;
+    entry.hydration = hydration;
+    this.notifyHydrationListeners();
+  }
+
+  /**
+   * Subscribe to hydration state changes. Returns an unsubscribe fn.
+   * Used by useSyncExternalStore-backed `useWorkflowHydration` hook so
+   * React components re-render when hydration transitions.
+   */
+  subscribeToHydration(listener: () => void): () => void {
+    this.hydrationListeners.add(listener);
+    return () => {
+      this.hydrationListeners.delete(listener);
+    };
+  }
+
+  private notifyHydrationListeners(): void {
+    for (const listener of Array.from(this.hydrationListeners)) {
+      listener();
     }
   }
 

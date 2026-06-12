@@ -47,6 +47,7 @@ export {
   useOutputActions,
   useConversationActions,
   useChartActions,
+  useWorkflowHydration,
 } from "./hooks";
 
 // Event routing (Phase 2)
@@ -63,7 +64,7 @@ export type { WorkflowWSReturn } from "./useWorkflowWS";
 
 // Manager
 export { getWorkflowManager } from "./WorkflowManager";
-export type { WorkflowEntry } from "./WorkflowManager";
+export type { WorkflowEntry, HydrationState } from "./WorkflowManager";
 
 // Store 工厂
 export {

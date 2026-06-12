@@ -65,11 +65,6 @@ export function getActiveRun(view: ActiveView): RunRecord | null {
 
 interface ViewState {
   activeView: ActiveView;
-  /** True while a replay view is being hydrated (lazy fetch + store fill).
-   *  Consumed by ScopedCenterPanel to render a skeleton instead of stale
-   *  content from the previous run. The name is historical — it covers all
-   *  hydration, not just charts. */
-  chartsLoading: boolean;
   showLive: () => void;
   /** Switch to a replay view immediately with a minimal run record. UI will
    *  render a skeleton while the caller fetches the full record and invokes
@@ -81,7 +76,6 @@ interface ViewState {
 
 export const useViewStore = create<ViewState>()((set, get) => ({
   activeView: { type: "live" },
-  chartsLoading: false,
   showLive: () => {
     const current = get().activeView;
     if (isReplayView(current)) {
@@ -98,7 +92,6 @@ export const useViewStore = create<ViewState>()((set, get) => ({
     // sidebar entry) but haven't fetched the full record yet. The UI
     // renders a loading skeleton while showReplay hydrates.
     activeView: { type: "replay-skeleton", runId, workflowName },
-    chartsLoading: true,
   }),
   showReplay: (run) => {
     const seq = ++_replaySeq;
@@ -125,7 +118,6 @@ export const useViewStore = create<ViewState>()((set, get) => ({
     // setState (with merged data) lands when it completes.
     set({
       activeView: { type: "replay", runId: run.run_id, run },
-      chartsLoading: true,
     });
 
     // Hydration pipeline (see stores/hydration/hydrateReplay.ts):
@@ -140,7 +132,6 @@ export const useViewStore = create<ViewState>()((set, get) => ({
         if (seq !== _replaySeq) return;
         set({
           activeView: { type: "replay", runId: run.run_id, run: merged },
-          chartsLoading: false,
         });
       })
       .catch((err) => {
@@ -158,7 +149,6 @@ export const useViewStore = create<ViewState>()((set, get) => ({
         if (seq !== _replaySeq) return;
         set({
           activeView: { type: "replay", runId: run.run_id, run: merged },
-          chartsLoading: false,
         });
       });
   },

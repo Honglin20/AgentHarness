@@ -7,6 +7,7 @@ import { useViewStore } from "@/stores/viewStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useBatchStore } from "@/stores/batchStore";
 import { setActiveWorkflowId } from "@/lib/workflowNavigation";
+import { activateRun } from "@/lib/activateRun";
 import { useShallow } from "zustand/shallow";
 import { fetchWithAuth } from "@/lib/api";
 import { showSuccess, showError } from "@/lib/confirm";
@@ -192,11 +193,10 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
     }))
   );
 
-  const { showLive, showReplay, beginReplay, activeView } = useViewStore(
+  const { showLive, showReplay, activeView } = useViewStore(
     useShallow((s) => ({
       showLive: s.showLive,
       showReplay: s.showReplay,
-      beginReplay: s.beginReplay,
       activeView: s.activeView,
     }))
   );
@@ -212,7 +212,6 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
   const activeBatchId = useBatchStore((s) => s.activeBatchId);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
 
   // Initial load - only when not in batch mode
   useEffect(() => {
@@ -265,31 +264,11 @@ export function RunHistoryList({ onLeaveBenchmark }: { onLeaveBenchmark?: () => 
     }
     onLeaveBenchmark?.();
     selectRun(run.run_id);
-
-    // Immediately switch to replay view with a minimal run record so the
-    // center panel renders a skeleton instead of leaving the previous run
-    // visible during fetchRun. Full record + lazy conversation/charts/events
-    // hydration happens in showReplay once fetchRun returns.
-    beginReplay(run.run_id, run.workflow_name);
-
-    // Abort previous fetch
-    abortRef.current?.abort();
-    const ac = new AbortController();
-    abortRef.current = ac;
-
-    const full = await fetchRun(run.run_id, ac.signal);
-    if (!full || ac.signal.aborted) {
-      showLive(); // fall back — don't leave UI stuck on skeleton
-      return;
-    }
-
-    if (full.status === "running") {
-      setWorkflow(full.run_id, full.workflow_name, full.dag ?? null);
-      showLive();
-      return;
-    }
-    showReplay(full);
-  }, [isSelectMode, toggleRunSelection, onLeaveBenchmark, selectRun, fetchRun, setWorkflow, showLive, showReplay, beginReplay]);
+    // Single activation entry — owns its own seq/abort race control and
+    // sets hydration flag on the workflow entry so ScopedCenterPanel can
+    // distinguish "loading" from "user is on the portal page".
+    await activateRun(run.run_id);
+  }, [isSelectMode, toggleRunSelection, onLeaveBenchmark, selectRun]);
 
   const handlePause = useCallback(async (e: React.MouseEvent, runId: string) => {
     e.stopPropagation();

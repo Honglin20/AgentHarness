@@ -16,6 +16,7 @@ import dynamic from "next/dynamic";
 import { useViewStore, isReplayView, getActiveRunId } from "@/stores/viewStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useBatchStore } from "@/stores/batchStore";
+import { useAppViewStore } from "@/stores/appView";
 import { WSMethodProvider } from "@/contexts/workflow-context/WorkflowScope";
 import { useWorkflowWS } from "@/contexts/workflow-context/useWorkflowWS";
 import { ConnectionStatusBar } from "./ConnectionStatusBar";
@@ -50,16 +51,20 @@ function useActiveWorkflowId(): string | null {
 
 export function WorkflowCenterPanel({ activeBenchmark }: WorkflowCenterPanelProps) {
   const workflowId = useActiveWorkflowId();
-  const activeView = useViewStore((s) => s.activeView);
-  const isReplay = isReplayView(activeView);
+  const view = useAppViewStore((s) => s.view);
+  const runMode = useAppViewStore((s) => s.runMode);
 
-  // WebSocket managed at this stable level — survives workflow switches.
-  // Replay mode skips WS connection (read-only).
-  const wsMethods = useWorkflowWS(isReplay ? null : workflowId);
+  // WS connects only when actively running a live workflow.
+  // - Replay / replay-skeleton / hydrating → no WS (read-only)
+  // - template-preview → no workflowId yet, null anyway
+  // - benchmark → batchStore's batch WS handles it, single-workflow WS null
+  // - portal-home / workflows / tutorial / api-doc → no WS
+  const isLiveRun = view.kind === "run" && runMode === "live";
+  const wsMethods = useWorkflowWS(isLiveRun ? workflowId : null);
 
   return (
     <>
-      {workflowId && !isReplay && (
+      {workflowId && isLiveRun && (
         <ConnectionStatusBar isConnected={wsMethods.isConnected} />
       )}
       <WSMethodProvider
@@ -69,7 +74,7 @@ export function WorkflowCenterPanel({ activeBenchmark }: WorkflowCenterPanelProp
         sendGuidance={wsMethods.sendGuidance}
         sendFollowup={wsMethods.sendFollowup}
       >
-        <ScopedCenterPanel activeBenchmark={activeBenchmark} isReplay={isReplay} />
+        <ScopedCenterPanel activeBenchmark={activeBenchmark} isReplay={!isLiveRun} />
       </WSMethodProvider>
     </>
   );

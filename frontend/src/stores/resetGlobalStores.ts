@@ -18,6 +18,7 @@ import { useBatchStore } from "./batchStore";
 import { useAgentIOStore } from "./agentIOStore";
 import { useRunHistoryStore } from "./runHistoryStore";
 import { useViewStore } from "./viewStore";
+import { useAppViewStore } from "./appView";
 
 export function resetAllGlobalStores(): void {
   // Clear all scoped stores via WorkflowManager
@@ -34,7 +35,8 @@ export function resetAllGlobalStores(): void {
   useAgentIOStore.getState().reset();
   useRunHistoryStore.getState().reset();
   useViewStore.getState().showLive();
-  if (typeof window !== "undefined") {
-    window.history.replaceState(null, "", window.location.pathname);
-  }
+  // Land on portal home. useAppViewUrlSync's appViewStore subscription
+  // writes the URL (cleaner than direct replaceState — single source of
+  // truth for URL shape).
+  useAppViewStore.getState().setView({ kind: "portal-home" });
 }

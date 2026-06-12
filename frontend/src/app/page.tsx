@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { Panel, Group, Separator } from "react-resizable-panels";
 import { HeaderBar } from "@/components/layout/HeaderBar";
@@ -9,10 +9,12 @@ import { Sidebar } from "@/components/sidebar/Sidebar";
 import { useBatchStore } from "@/stores/batchStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useViewStore, isReplayView, getActiveRunId } from "@/stores/viewStore";
-import { useUrlState } from "@/hooks/useUrlState";
+import { useAppViewStore, type AppView } from "@/stores/appView";
+import { useAppViewUrlSync } from "@/hooks/useAppViewUrlSync";
+import { activateRun } from "@/lib/activateRun";
+import { getWorkflowManager } from "@/contexts/workflow-context/WorkflowManager";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { WorkflowScope } from "@/contexts/workflow-context/WorkflowScope";
-import { usePortalStore, restoreFromUrl } from "@/stores/portalStore";
 
 // DiagnosticsPanel is a 3rd-pane accessory that most users don't expand on
 // first paint — defer its chunk until needed. Saves ~30-40KB on initial load.
@@ -20,6 +22,10 @@ const DiagnosticsPanel = dynamic(
   () => import("@/components/diagnostics/DiagnosticsPanel"),
   { ssr: false },
 );
+
+// View kinds that get the 3-pane layout (Sidebar | Center | Diagnostics).
+// Everything else renders portal-only (full-width center, no sidebar).
+const RUN_LAYOUT_KINDS: AppView["kind"][] = ["run", "template-preview", "benchmark"];
 
 function useActiveWorkflowId(): string | null {
   const activeView = useViewStore((s) => s.activeView);
@@ -35,65 +41,74 @@ function useActiveWorkflowId(): string | null {
   return workflowId;
 }
 
-function useIsPortalMode(): boolean {
-  const workflowId = useWorkflowStore((s) => s.workflowId);
-  const nodeCount = useWorkflowStore((s) => Object.keys(s.nodes).length);
-  const selectedTemplate = useWorkflowStore((s) => s.selectedTemplate);
-  const activeView = useViewStore((s) => s.activeView);
-  const activeBatchId = useBatchStore((s) => s.activeBatchId);
-
-  if (isReplayView(activeView)) return false;
-  if (activeBatchId) return false;
-  if (workflowId) return false;
-  // No workflow running and no template selected = portal mode
-  return nodeCount === 0 && !selectedTemplate;
-}
-
 export default function Home() {
-  const [activeBenchmark, setActiveBenchmark] = useState<string | null>(null);
   const activeWorkflowId = useActiveWorkflowId();
-  const isPortalMode = useIsPortalMode();
+  const view = useAppViewStore((s) => s.view);
 
-  useUrlState(activeBenchmark);
+  // Single URL sync point — replaces useUrlState + portalStore.syncUrl.
+  useAppViewUrlSync();
 
-  // Restore portal state from URL on mount + handle browser back/forward
+  const isRunLayout = RUN_LAYOUT_KINDS.includes(view.kind);
+
+  // Derived benchmark id — flows down to Sidebar + WorkflowCenterPanel.
+  const activeBenchmark =
+    view.kind === "benchmark" ? view.benchId : null;
+
+  // ── URL-restore-driven activation ───────────────────────────────────
+  //
+  // When the URL says we're on a run page but the workflow entry hasn't
+  // been activated yet (hydration === "idle"), trigger activateRun.
+  // This covers refresh on `?view=run&id=R` and the legacy `?wid=R`
+  // bookmark migration. The hydration guard prevents re-firing when
+  // appViewStore is updated by click handlers (they go through
+  // activateRun, which sets hydration to "hydrating" synchronously
+  // before any subscriber can re-trigger).
   useEffect(() => {
-    const restored = restoreFromUrl();
-    if (restored.portalView && restored.portalView !== "home") {
-      usePortalStore.setState(restored);
+    if (view.kind !== "run") return;
+    const manager = getWorkflowManager();
+    if (manager.getHydration(view.runId) === "idle") {
+      // Fire-and-forget — activateRun owns its own seq/abort race control.
+      void activateRun(view.runId);
     }
-    const onPopState = () => {
-      const state = restoreFromUrl();
-      usePortalStore.setState(state);
-    };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
+  }, [view]);
 
+  // ── Benchmark URL restore ───────────────────────────────────────────
+  //
+  // When view.kind === "benchmark", sync batchStore so the existing
+  // BenchmarkView (which reads from batchStore) gets the right bench.
+  // When leaving benchmark view, clear batchStore.
   useEffect(() => {
-    const handler = (e: Event) => {
-      const name = (e as CustomEvent).detail as string;
-      if (name) setActiveBenchmark(name);
-    };
-    window.addEventListener("tars:restore-benchmark", handler);
-    return () => window.removeEventListener("tars:restore-benchmark", handler);
-  }, []);
+    if (view.kind !== "benchmark") {
+      if (useBatchStore.getState().activeBatchId !== null) {
+        useBatchStore.getState().setActiveBatch(null);
+      }
+      return;
+    }
+    const batchStore = useBatchStore.getState();
+    if (batchStore.activeBatchId !== view.benchId) {
+      batchStore.setActiveBatch(view.benchId);
+    }
+    if (view.taskId && batchStore.selectedRunId !== view.taskId) {
+      batchStore.selectRun(view.taskId);
+    }
+  }, [view]);
 
   const handleSelectBenchmark = useCallback((name: string) => {
-    setActiveBenchmark((prev) => {
-      const next = prev === name ? null : name;
-      useBatchStore.getState().setActiveBatch(next);
-      return next;
-    });
+    useAppViewStore.getState().setView({ kind: "benchmark", benchId: name });
+    useBatchStore.getState().setActiveBatch(name);
   }, []);
 
   const handleLeaveBenchmark = useCallback(() => {
-    setActiveBenchmark(null);
+    useAppViewStore.getState().setView({ kind: "portal-home" });
     useBatchStore.getState().setActiveBatch(null);
   }, []);
 
-  // Portal mode: full-width center panel, no sidebar/diagnostics
-  if (isPortalMode && !activeBenchmark) {
+  // Portal layout: full-width center panel, no sidebar/diagnostics.
+  // Driven by AppView.kind — the previous `useIsPortalMode` derived from
+  // workflowStore state which conflated "user is on portal" with "scoped
+  // store briefly empty during hydration" (the refresh-returns-to-portal
+  // bug).
+  if (!isRunLayout) {
     return (
       <ErrorBoundary>
         <div className="flex h-screen flex-col">

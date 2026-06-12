@@ -1,6 +1,22 @@
+/**
+ * Portal store — domain/tutorial/api-doc DATA cache + entry transitions.
+ *
+ * URL responsibility has moved to `useAppViewUrlSync` (single source of
+ * truth). This store now keeps only:
+ *   - Cached domain/tutorial/workflow-def data (fetched once, shared)
+ *   - `activeDomain` / `tutorialContext` / `apiDocContext` for child
+ *     components to read which entity they should render
+ *   - Transition actions that ALSO call `useAppViewStore.setView` so the
+ *     URL stays in sync via the new single hook
+ *
+ * `syncUrl` and `restoreFromUrl` are gone — the URL is not this store's
+ * concern anymore.
+ */
+
 import { create } from "zustand";
 import type { DomainMeta } from "@/types/domains";
 import { fetchWithAuth } from "@/lib/api";
+import { useAppViewStore } from "@/stores/appView";
 
 export type PortalView = "home" | "workflows" | "tutorial" | "api-doc";
 
@@ -40,47 +56,6 @@ interface PortalState {
   ensureWorkflowDefs: () => void;
 }
 
-type PortalData = Pick<PortalState, "portalView" | "activeDomain" | "tutorialContext" | "apiDocContext">;
-
-function syncUrl(state: PortalData) {
-  const params = new URLSearchParams();
-  if (state.portalView === "workflows" && state.activeDomain) {
-    params.set("view", "workflows");
-    params.set("domain", state.activeDomain);
-  } else if (state.portalView === "tutorial" && state.tutorialContext) {
-    params.set("view", "tutorial");
-    params.set("domain", state.tutorialContext.domainId);
-    params.set("tutorial", state.tutorialContext.tutorialId);
-  } else if (state.portalView === "api-doc" && state.apiDocContext) {
-    params.set("view", "api-doc");
-    params.set("domain", state.apiDocContext.domainId);
-    params.set("api", state.apiDocContext.apiName);
-  }
-  const qs = params.toString();
-  const url = qs ? `/?${qs}` : "/";
-  window.history.pushState(null, "", url);
-}
-
-export function restoreFromUrl(): PortalData {
-  if (typeof window === "undefined") return { portalView: "home", activeDomain: null, tutorialContext: null, apiDocContext: null };
-  const params = new URLSearchParams(window.location.search);
-  const view = params.get("view");
-  const domain = params.get("domain");
-  const tutorial = params.get("tutorial");
-  const api = params.get("api");
-
-  if (view === "workflows" && domain) {
-    return { portalView: "workflows", activeDomain: domain, tutorialContext: null, apiDocContext: null };
-  }
-  if (view === "tutorial" && domain && tutorial) {
-    return { portalView: "tutorial", activeDomain: domain, tutorialContext: { domainId: domain, tutorialId: tutorial }, apiDocContext: null };
-  }
-  if (view === "api-doc" && domain && api) {
-    return { portalView: "api-doc", activeDomain: domain, tutorialContext: null, apiDocContext: { domainId: domain, apiName: api } };
-  }
-  return { portalView: "home", activeDomain: null, tutorialContext: null, apiDocContext: null };
-}
-
 export const usePortalStore = create<PortalState>((set, get) => ({
   portalView: "home",
   activeDomain: null,
@@ -92,30 +67,64 @@ export const usePortalStore = create<PortalState>((set, get) => ({
   workflowDefsLoading: false,
 
   setPortalView: (view) => {
-    const data: PortalData = { portalView: view, activeDomain: get().activeDomain, tutorialContext: get().tutorialContext, apiDocContext: get().apiDocContext };
     set({ portalView: view });
-    syncUrl(data);
+    // URL sync happens via appViewStore subscription in useAppViewUrlSync.
+    if (view === "home") {
+      useAppViewStore.getState().setView({ kind: "portal-home" });
+    }
+    // Other portal sub-views are set by their specific action
+    // (showWorkflows/showTutorial/showApiDoc) — calling setView here
+    // would lose the domainId / tutorialId / apiName context.
   },
+
   showWorkflows: (domainId) => {
-    const data: PortalData = { portalView: "workflows", activeDomain: domainId, tutorialContext: null, apiDocContext: null };
-    set(data);
-    syncUrl(data);
+    set({
+      portalView: "workflows",
+      activeDomain: domainId,
+      tutorialContext: null,
+      apiDocContext: null,
+    });
+    useAppViewStore.getState().setView({ kind: "workflows", domainId });
   },
+
   showTutorial: (domainId, tutorialId) => {
-    const data: PortalData = { portalView: "tutorial", activeDomain: domainId, tutorialContext: { domainId, tutorialId }, apiDocContext: null };
-    set(data);
-    syncUrl(data);
+    set({
+      portalView: "tutorial",
+      activeDomain: domainId,
+      tutorialContext: { domainId, tutorialId },
+      apiDocContext: null,
+    });
+    useAppViewStore.getState().setView({
+      kind: "tutorial",
+      domainId,
+      tutorialId,
+    });
   },
+
   showApiDoc: (domainId, apiName) => {
-    const data: PortalData = { portalView: "api-doc", activeDomain: domainId, tutorialContext: null, apiDocContext: { domainId, apiName } };
-    set(data);
-    syncUrl(data);
+    set({
+      portalView: "api-doc",
+      activeDomain: domainId,
+      tutorialContext: null,
+      apiDocContext: { domainId, apiName },
+    });
+    useAppViewStore.getState().setView({
+      kind: "api-doc",
+      domainId,
+      apiName,
+    });
   },
+
   goHome: () => {
-    const data: PortalData = { portalView: "home", activeDomain: null, tutorialContext: null, apiDocContext: null };
-    set(data);
-    syncUrl(data);
+    set({
+      portalView: "home",
+      activeDomain: null,
+      tutorialContext: null,
+      apiDocContext: null,
+    });
+    useAppViewStore.getState().setView({ kind: "portal-home" });
   },
+
   ensureDomains: () => {
     const { domains, domainsLoading } = get();
     if (domains.length > 0 || domainsLoading) return;
@@ -125,6 +134,7 @@ export const usePortalStore = create<PortalState>((set, get) => ({
       .then((data: DomainMeta[]) => set({ domains: data, domainsLoading: false }))
       .catch(() => set({ domainsLoading: false }));
   },
+
   ensureWorkflowDefs: () => {
     const { workflowDefs, workflowDefsLoading } = get();
     if (workflowDefs.length > 0 || workflowDefsLoading) return;

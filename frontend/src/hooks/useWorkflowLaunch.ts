@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { fetchWithAuth } from "@/lib/api";
 import { useViewStore } from "@/stores/viewStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
+import { useAppViewStore } from "@/stores/appView";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { getWorkflowManager } from "@/contexts/workflow-context";
 
@@ -56,13 +57,20 @@ export function useWorkflowLaunch(
         const data = await r.json();
 
         // Pre-populate the new workflow's scoped stores so data is available immediately
-        const newStores = getWorkflowManager().getOrCreate(data.workflow_id).stores;
+        const manager = getWorkflowManager();
+        const newStores = manager.getOrCreate(data.workflow_id).stores;
         newStores.workflow.getState().setWorkflow(data.workflow_id, t.name as string, data.dag);
 
         // Update global store so page.tsx detects workflowId change (layout + WS connect)
         useWorkflowStore.getState().setWorkflow(data.workflow_id, t.name as string, data.dag);
 
-        getWorkflowManager().setActiveWorkflowId(data.workflow_id);
+        manager.setActiveWorkflowId(data.workflow_id);
+
+        // New workflow starts hydrated (scoped store just populated above)
+        // and in live mode (WS will connect on next render).
+        manager.setHydration(data.workflow_id, "hydrated");
+        useAppViewStore.getState().setView({ kind: "run", runId: data.workflow_id });
+        useAppViewStore.getState().setRunMode("live");
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error("Failed to start workflow:", msg);
