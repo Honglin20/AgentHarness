@@ -9,6 +9,9 @@
 
 ## 2026-06
 
+- **2026-06-12** — **Outline Review Batch A**：3 项 surgical fix（UI 1 border 冲突、Arch 2 keydown listener 改 ref-based、retry badge 加 status 门控）。Plan G (Batch B) 已就绪待执行。
+  → [详情](../releases/2026-06-12-outline-review-batch-a.md)
+
 - **2026-06-12** — **Outline Iter Isolation Hardening (Plan F)**：iter 下沉到后端（`node_invocation_counts` state + `node.started` payload + `StepEntry.iteration`），前端从事件读，不再 counter 自增。后端 = 唯一真值，前端 = 渲染投射。
   → [详情](../releases/2026-06-12-outline-iter-hardening.md)
 
