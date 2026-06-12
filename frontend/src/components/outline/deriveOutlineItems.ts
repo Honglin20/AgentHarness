@@ -82,11 +82,18 @@ export function deriveOutlineItems(
   return sorted.map((entry, idx) => {
     const node = nodes[entry.nodeId];
     const name = node?.name ?? entry.nodeId;
-    const todosForNode = todos[entry.nodeId] ?? [];
+    const iterCount = iterCountByNode.get(entry.nodeId) ?? 1;
+    const isLatestIter = entry.iteration === iterCount;
+    // Filter todos by iter so each row only sees its own steps. Legacy
+    // steps without `iteration` field default to iter=1 (matches
+    // ConversationMessage.iteration ?? 1 convention).
+    const todosForNode = (todos[entry.nodeId] ?? []).filter(
+      (t) => (t.iteration ?? 1) === entry.iteration,
+    );
     const iterMessages = messages.filter(
       (m) => m.nodeId === entry.nodeId && (m.iteration ?? 1) === entry.iteration,
     );
-    return buildItem(entry, node, name, todosForNode, iterMessages, iterCountByNode.get(entry.nodeId) ?? 1, idx);
+    return buildItem(entry, node, name, todosForNode, iterMessages, iterCount, idx, isLatestIter);
   });
 }
 
@@ -98,13 +105,14 @@ function buildItem(
   iterMessages: ConversationMessage[],
   iterCount: number,
   order: number,
+  isLatestIter: boolean,
 ): OutlineItem {
   const pendingQuestions = iterMessages.filter(
     (m) => m.type === "question" && m.status === "pending",
   );
-  const status = computeStatus(node, pendingQuestions.length);
-  const activity = computeActivity(node, todos, pendingQuestions);
-  const badges = computeBadges(node, entry.iteration, iterCount);
+  const status = computeStatus(node, pendingQuestions.length, iterMessages, isLatestIter);
+  const activity = computeActivity(node, todos, pendingQuestions, isLatestIter);
+  const badges = computeBadges(node, entry.iteration, iterCount, isLatestIter);
 
   return {
     key: `${entry.nodeId}__iter${entry.iteration}`,
@@ -112,6 +120,7 @@ function buildItem(
     name,
     iteration: entry.iteration,
     hasMultipleIterations: iterCount > 1,
+    isLatestIter,
     status,
     activity,
     badges,
@@ -119,23 +128,39 @@ function buildItem(
   };
 }
 
-function computeStatus(node: NodeState | undefined, pendingQuestionCount: number): OutlineStatus {
+function computeStatus(
+  node: NodeState | undefined,
+  pendingQuestionCount: number,
+  iterMessages: ConversationMessage[],
+  isLatestIter: boolean,
+): OutlineStatus {
   if (pendingQuestionCount > 0) return "waiting-for-user";
   if (!node) return "idle";
-  // NodeState.status values: idle | running | success | failed | retrying
-  switch (node.status) {
-    case "running": return "running";
-    case "success": return "completed";
-    case "failed": return "failed";
-    case "retrying": return "retrying";
-    default: return "idle";
+
+  // Latest iter — use node-level real-time status.
+  if (isLatestIter) {
+    // NodeState.status values: idle | running | success | failed | retrying
+    switch (node.status) {
+      case "running": return "running";
+      case "success": return "completed";
+      case "failed": return "failed";
+      case "retrying": return "retrying";
+      default: return "idle";
+    }
   }
+
+  // Historical iter — node.status reflects the current iter, not this one.
+  // Infer from messages: error → failed, done → completed, else → idle.
+  if (iterMessages.some((m) => m.status === "error")) return "failed";
+  if (iterMessages.some((m) => m.status === "done")) return "completed";
+  return "idle";
 }
 
 function computeActivity(
   node: NodeState | undefined,
   todos: TodoStep[],
   pendingQuestions: ConversationMessage[],
+  isLatestIter: boolean,
 ): AgentActivity {
   if (pendingQuestions.length > 0) {
     return {
@@ -145,7 +170,11 @@ function computeActivity(
     };
   }
   if (!node) return { kind: "idle" };
-  if (node.status === "retrying" && node.retryAttempts?.length) {
+
+  // Retry activity is only meaningful on the latest iter — historical
+  // iters' retryAttempts are merged into the node-level array and can't
+  // be attributed to a specific past iter.
+  if (isLatestIter && node.status === "retrying" && node.retryAttempts?.length) {
     const last = node.retryAttempts[node.retryAttempts.length - 1];
     // RetryAttempt.attempt is 1-indexed for the attempt that JUST FAILED.
     // UI displays the upcoming attempt number (attempt + 1) to match the
@@ -153,6 +182,14 @@ function computeActivity(
     // All three surfaces must agree; do not "fix" one without the others.
     return { kind: "retrying", attempt: last.attempt + 1, maxAttempts: last.maxAttempts };
   }
+
+  // Historical iters have terminated (they're in the past). Without
+  // per-iter metadata we treat them as completed; durationMs is omitted
+  // because node.durationMs is the latest iter's value, not this one's.
+  if (!isLatestIter) {
+    return { kind: "completed" };
+  }
+
   if (node.status === "failed") {
     return { kind: "failed", errorSummary: node.classifiedFailure?.category ?? node.error ?? "Failed" };
   }
@@ -173,28 +210,36 @@ function computeBadges(
   node: NodeState | undefined,
   iteration: number,
   iterCount: number,
+  isLatestIter: boolean,
 ): OutlineBadge[] {
   const badges: OutlineBadge[] = [];
   if (iterCount > 1) {
     badges.push({ kind: "iteration", text: `#${iteration}`, title: `Iteration ${iteration} of ${iterCount}` });
   }
-  if (node?.retryAttempts?.length) {
-    const last = node.retryAttempts[node.retryAttempts.length - 1];
-    // Display upcoming attempt (attempt + 1) — matches toast at
-    // agentHandlers.ts:148 and inline card at AgentMessage.tsx:388.
-    // See computeActivity comment: all three surfaces must agree.
-    badges.push({
-      kind: "retry",
-      text: `${last.attempt + 1}/${last.maxAttempts}`,
-      title: `Retry attempt ${last.attempt + 1} of ${last.maxAttempts}`,
-    });
-  }
-  if (node?.tokenUsage && node.tokenUsage.total > 0) {
-    badges.push({
-      kind: "tokens",
-      text: formatTokens(node.tokenUsage.total),
-      title: `${node.tokenUsage.input} in / ${node.tokenUsage.output} out`,
-    });
+  // Token / retry badges only on the latest iter. NodeState.tokenUsage and
+  // retryAttempts are node-level (not iter-partitioned), so showing them on
+  // historical rows would be misleading — three rows showing the same
+  // number under different "Iteration N/M" titles. Iteration badge above
+  // is genuinely iter-level and shows on every row.
+  if (isLatestIter) {
+    if (node?.retryAttempts?.length) {
+      const last = node.retryAttempts[node.retryAttempts.length - 1];
+      // Display upcoming attempt (attempt + 1) — matches toast at
+      // agentHandlers.ts:148 and inline card at AgentMessage.tsx:388.
+      // See computeActivity comment: all three surfaces must agree.
+      badges.push({
+        kind: "retry",
+        text: `${last.attempt + 1}/${last.maxAttempts}`,
+        title: `Retry attempt ${last.attempt + 1} of ${last.maxAttempts}`,
+      });
+    }
+    if (node?.tokenUsage && node.tokenUsage.total > 0) {
+      badges.push({
+        kind: "tokens",
+        text: formatTokens(node.tokenUsage.total),
+        title: `${node.tokenUsage.input} in / ${node.tokenUsage.output} out`,
+      });
+    }
   }
   return badges;
 }

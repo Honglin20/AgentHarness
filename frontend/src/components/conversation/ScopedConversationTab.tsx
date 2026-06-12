@@ -379,6 +379,10 @@ interface NodeBlockCardProps {
   sendStructuredAnswer: (id: string, answer: QuestionAnswer) => void;
   conversationActions: { answerUserQuestion: (id: string, answer: QuestionAnswer) => void };
   todoStore: StoreApi<TodoState> | null;
+  /** When set, filters the displayed todo list to this iteration.
+   *  Undefined (Timeline view) shows all steps regardless of iter —
+   *  preserves the legacy "full history" timeline behavior. */
+  iteration?: number;
 }
 
 export const NodeBlockCard = React.memo(function NodeBlockCard({
@@ -388,9 +392,21 @@ export const NodeBlockCard = React.memo(function NodeBlockCard({
   sendStructuredAnswer,
   conversationActions,
   todoStore,
+  iteration,
 }: NodeBlockCardProps) {
   const { mainMessage: m, children, nodeId } = block;
-  const todos = useStore(todoStore!, (s) => s.todos[nodeId]);
+  // Subscribe to the raw step list by ref — selector returns the store's
+  // array reference, so unrelated store updates don't trigger re-render.
+  // iter filtering happens in useMemo below: only re-filters when the raw
+  // list ref or iteration prop changes.
+  const rawTodos = useStore(todoStore!, (s) => s.todos[nodeId]);
+  const todos = useMemo(
+    () =>
+      iteration === undefined
+        ? rawTodos
+        : rawTodos?.filter((t) => (t.iteration ?? 1) === iteration),
+    [rawTodos, iteration],
+  );
   const hasTodos = !!todos && todos.length > 0;
 
   return (

@@ -48,6 +48,11 @@ export interface OutlineItem {
   iteration: number;
   /** True if this nodeId has executed more than once. Drives the `#N` badge. */
   hasMultipleIterations: boolean;
+  /** True if this is the highest iteration seen for this nodeId.
+   *  Drives the badge/status degradation policy: latest iter shows node-level
+   *  real-time data (tokenUsage / retryAttempts / status from NodeState);
+   *  historical iters show inferred values from messages alone. */
+  isLatestIter: boolean;
   status: OutlineStatus;
   activity: AgentActivity;
   badges: OutlineBadge[];

@@ -125,6 +125,7 @@ export function AgentDetailView({ nodeId, iteration }: Props) {
                 sendStructuredAnswer={sendStructuredAnswer}
                 conversationActions={conversationActions}
                 todoStore={todoStore}
+                iteration={iteration}
               />
             </InlineErrorBoundary>
           </div>

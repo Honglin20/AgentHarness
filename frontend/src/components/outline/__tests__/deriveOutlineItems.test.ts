@@ -167,4 +167,125 @@ describe("deriveOutlineItems", () => {
     expect(items[0].nodeId).toBe("analyzer");
     expect(items.find((i) => i.nodeId.startsWith("followup-"))).toBeUndefined();
   });
+
+  // ── Plan E: iter isolation + badge degradation ─────────────────────────
+
+  it("filters todos by iteration in computeActivity (Bug 3 fix)", () => {
+    // Without iter filtering, iter=2's "running" activity would pick up
+    // iter=1's in_progress step (s1) and show the wrong "current step".
+    const nodes = { a: node({ id: "a", name: "a", status: "running" }) };
+    const todos = {
+      a: [
+        { taskId: "s1", content: "iter1 step", activeForm: "iter1 stepping", status: "completed", detail: null, iteration: 1 },
+        { taskId: "s2", content: "iter2 step", activeForm: "iter2 stepping", status: "in_progress", detail: null, iteration: 2 },
+      ],
+    };
+    const messages = [
+      msg({ id: "1", nodeId: "a", agentName: "a", timestamp: 100, iteration: 1 }),
+      msg({ id: "2", nodeId: "a", agentName: "a", timestamp: 200, iteration: 2 }),
+    ];
+    const items = deriveOutlineItems(nodes, messages, todos);
+    const iter1 = items.find((i) => i.iteration === 1)!;
+    const iter2 = items.find((i) => i.iteration === 2)!;
+    // iter=2 is latest → running activity reads iter=2's step (s2)
+    expect(iter2.activity).toMatchObject({ kind: "running", currentStepContent: "iter2 stepping" });
+    // iter=1 is historical → completed (inferred), not the iter=2 step
+    expect(iter1.activity.kind).toBe("completed");
+  });
+
+  it("isLatestIter is true only for the highest iteration of a node", () => {
+    const nodes = { coder: node({ id: "coder", name: "coder", status: "running" }) };
+    const messages = [
+      msg({ id: "1", nodeId: "coder", agentName: "coder", timestamp: 100, iteration: 1 }),
+      msg({ id: "2", nodeId: "coder", agentName: "coder", timestamp: 200, iteration: 2 }),
+      msg({ id: "3", nodeId: "coder", agentName: "coder", timestamp: 300, iteration: 3 }),
+    ];
+    const items = deriveOutlineItems(nodes, messages, emptyTodo);
+    expect(items.find((i) => i.iteration === 1)?.isLatestIter).toBe(false);
+    expect(items.find((i) => i.iteration === 2)?.isLatestIter).toBe(false);
+    expect(items.find((i) => i.iteration === 3)?.isLatestIter).toBe(true);
+  });
+
+  it("token badge only appears on latest iter (Bug 1 visual fix)", () => {
+    // Without isLatestIter gating, all three iter rows would show the
+    // identical node-level tokenUsage under different "Iteration N/M" titles.
+    const nodes = {
+      coder: node({
+        id: "coder",
+        name: "coder",
+        status: "success",
+        tokenUsage: { input: 1000, output: 500, total: 1500 },
+      }),
+    };
+    const messages = [
+      msg({ id: "1", nodeId: "coder", agentName: "coder", timestamp: 100, iteration: 1 }),
+      msg({ id: "2", nodeId: "coder", agentName: "coder", timestamp: 200, iteration: 2 }),
+    ];
+    const items = deriveOutlineItems(nodes, messages, emptyTodo);
+    expect(items.find((i) => i.iteration === 1)?.badges.find((b) => b.kind === "tokens")).toBeUndefined();
+    expect(items.find((i) => i.iteration === 2)?.badges.find((b) => b.kind === "tokens")?.text).toBe("1.5k");
+  });
+
+  it("retry badge only appears on latest iter (decision 3 — display-only)", () => {
+    const nodes = {
+      coder: node({
+        id: "coder",
+        name: "coder",
+        status: "retrying",
+        retryAttempts: [
+          { attempt: 1, maxAttempts: 3, category: "NetworkError", reason: "timeout", delayS: 2, retryAfterS: null, ts: 0 },
+        ],
+      }),
+    };
+    const messages = [
+      msg({ id: "1", nodeId: "coder", agentName: "coder", timestamp: 100, iteration: 1 }),
+      msg({ id: "2", nodeId: "coder", agentName: "coder", timestamp: 200, iteration: 2 }),
+    ];
+    const items = deriveOutlineItems(nodes, messages, emptyTodo);
+    expect(items.find((i) => i.iteration === 1)?.badges.find((b) => b.kind === "retry")).toBeUndefined();
+    expect(items.find((i) => i.iteration === 2)?.badges.find((b) => b.kind === "retry")?.text).toBe("2/3");
+  });
+
+  it("historical iter status is inferred from messages (done → completed)", () => {
+    // node.status is "running" because iter=2 is running, but iter=1
+    // already completed — historical iter must infer from messages, not
+    // use the live node.status (which would incorrectly show "running").
+    const nodes = { coder: node({ id: "coder", name: "coder", status: "running" }) };
+    const messages = [
+      msg({ id: "1", nodeId: "coder", agentName: "coder", timestamp: 100, iteration: 1, status: "done" }),
+      msg({ id: "2", nodeId: "coder", agentName: "coder", timestamp: 200, iteration: 2, status: "streaming" }),
+    ];
+    const items = deriveOutlineItems(nodes, messages, emptyTodo);
+    expect(items.find((i) => i.iteration === 1)?.status).toBe("completed");
+    expect(items.find((i) => i.iteration === 2)?.status).toBe("running");
+  });
+
+  it("historical iter with error message is marked failed", () => {
+    const nodes = { coder: node({ id: "coder", name: "coder", status: "success" }) };
+    const messages = [
+      msg({ id: "1", nodeId: "coder", agentName: "coder", timestamp: 100, iteration: 1, status: "error" }),
+      msg({ id: "2", nodeId: "coder", agentName: "coder", timestamp: 200, iteration: 2, status: "done" }),
+    ];
+    const items = deriveOutlineItems(nodes, messages, emptyTodo);
+    expect(items.find((i) => i.iteration === 1)?.status).toBe("failed");
+    expect(items.find((i) => i.iteration === 2)?.status).toBe("completed");
+  });
+
+  it("latest iter picks up legacy TodoStep without iteration field (?? 1 fallback)", () => {
+    // Single-iter scenario: legacy step has no iteration field. Default
+    // `(t.iteration ?? 1) === 1` surfaces it under iter=1, which IS the
+    // latest iter, so computeActivity reads it for the "running" subtitle.
+    const nodes = { coder: node({ id: "coder", name: "coder", status: "running" }) };
+    const todos = {
+      coder: [
+        { taskId: "legacy", content: "old", activeForm: "legacy stepping", status: "in_progress", detail: null },
+      ],
+    };
+    const messages = [msg({ id: "1", nodeId: "coder", agentName: "coder", timestamp: 100, iteration: 1 })];
+    const items = deriveOutlineItems(nodes, messages, todos);
+    expect(items).toHaveLength(1);
+    expect(items[0].iteration).toBe(1);
+    expect(items[0].isLatestIter).toBe(true);
+    expect(items[0].activity).toMatchObject({ kind: "running", currentStepContent: "legacy stepping" });
+  });
 });

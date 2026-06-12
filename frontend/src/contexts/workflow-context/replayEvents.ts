@@ -380,14 +380,20 @@ export function loadRunFromPersistedData(
     }
     stores.todo.setState({ todos: todosMap });
   } else if (events && events.length > 0) {
-    // Event fallback — replay todo.created / todo.updated
+    // Event fallback — replay todo.created / todo.updated.
+    // Caveat: persisted events don't carry iteration info (iter is a
+    // frontend-only counter bumped by node.started, which the event
+    // fallback doesn't replay). All replayed steps default to iter=1.
+    // Outline rows derived from messages still split by iter correctly;
+    // only the todo list shown for non-iter-1 rows is degraded. Live runs
+    // (the normal path) stamp correct iters via todoHandlers.
     for (const event of events) {
       if (event.type === "todo.created") {
         const p = event.payload as {
           node_id: string;
           items: TodoStepItem[];
         };
-        handleTodoCreated(stores.todo, p.node_id, p.items);
+        handleTodoCreated(stores.todo, p.node_id, p.items, 1);
       } else if (event.type === "todo.updated") {
         const p = event.payload as {
           node_id: string;

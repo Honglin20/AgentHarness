@@ -19,6 +19,13 @@ export interface TodoStep {
   detail: string | null;
   /** Per-step token accumulation, attributed from agent.usage_update deltas. */
   tokenUsage?: { input: number; output: number; total: number };
+  /**
+   * Which loop iteration of this node created the step. 1-indexed.
+   * Undefined for legacy data (treated as iteration 1 by consumers — same
+   * convention as ConversationMessage.iteration). Stamped at todo.created /
+   * todo.replaced time from currentIterationByNode[nodeId].
+   */
+  iteration?: number;
 }
 
 export interface TodoState {
@@ -41,6 +48,7 @@ export function handleTodoCreated(
   store: StoreApi<TodoState>,
   nodeId: string,
   items: TodoStepItem[],
+  iteration: number,
 ) {
   store.setState((state) => {
     const existing = state.todos[nodeId] || [];
@@ -53,6 +61,7 @@ export function handleTodoCreated(
         activeForm: item.activeForm,
         status: item.status,
         detail: item.detail ?? null,
+        iteration,
       }));
     return {
       todos: {
@@ -136,6 +145,7 @@ export function handleTodoReplaced(
   store: StoreApi<TodoState>,
   nodeId: string,
   items: TodoStepItem[],
+  iteration: number,
 ): void {
   store.setState((state) => {
     const newSteps: TodoStep[] = items.map((item) => ({
@@ -144,6 +154,7 @@ export function handleTodoReplaced(
       activeForm: item.activeForm,
       status: item.status,
       detail: item.detail ?? null,
+      iteration,
     }));
     return {
       todos: {
