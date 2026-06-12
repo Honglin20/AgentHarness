@@ -327,4 +327,28 @@ describe("deriveOutlineItems", () => {
     // iter=2 IS latest and has no pending question — running.
     expect(items.find((i) => i.iteration === 2)?.status).toBe("running");
   });
+
+  it("outline survives stamp misalignment: todo iter=1, messages iter=2 (T3)", () => {
+    // Edge case: todo.created arrived before node.started bumped the counter
+    // (legacy pre-Plan-F ordering, or event stream desync). Result: todo step
+    // has iteration=1, but messages are stamped iteration=2. Outline must
+    // still render the iter=2 row (from messages); the misplaced todo
+    // attaches to iter=1 row instead. No crash, known degradation.
+    const nodes = { coder: node({ id: "coder", name: "coder", status: "running" }) };
+    const todos = {
+      coder: [
+        { taskId: "misplaced", content: "should be iter 2", activeForm: "x", status: "in_progress", detail: null, iteration: 1 },
+      ] as TodoStep[],
+    };
+    const messages = [
+      msg({ id: "1", nodeId: "coder", agentName: "coder", timestamp: 100, iteration: 1, status: "done" }),
+      msg({ id: "2", nodeId: "coder", agentName: "coder", timestamp: 200, iteration: 2, status: "streaming" }),
+    ];
+    const items = deriveOutlineItems(nodes, messages, todos);
+    expect(items).toHaveLength(2);
+    const iter2 = items.find((i) => i.iteration === 2)!;
+    expect(iter2.status).toBe("running");
+    // iter=2 row has no todos (the misplaced step is under iter=1)
+    expect((iter2.activity as { currentStepContent?: string }).currentStepContent).toBeUndefined();
+  });
 });
