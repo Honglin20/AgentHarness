@@ -299,4 +299,32 @@ describe("deriveOutlineItems", () => {
     expect(items.find((i) => i.iteration === 1)?.status).toBe("failed");
     expect(items.find((i) => i.iteration === 2)?.status).toBe("completed");
   });
+
+  it("historical iter with stale pending question does not show waiting-for-user (D2)", () => {
+    // Edge case: a pending question somehow survives into a historical iter
+    // (shouldn't happen in practice — engine interrupts on iter boundary —
+    // but if it does, "waiting" is the wrong status for a past iter).
+    const nodes = { coder: node({ id: "coder", name: "coder", status: "running" }) };
+    const messages = [
+      msg({
+        id: "1",
+        nodeId: "coder",
+        agentName: "coder",
+        timestamp: 100,
+        iteration: 1,
+        type: "question",
+        status: "pending",
+        questionId: "q1",
+      } as any),
+      msg({ id: "2", nodeId: "coder", agentName: "coder", timestamp: 200, iteration: 2, status: "streaming" }),
+    ];
+    const items = deriveOutlineItems(nodes, messages, emptyTodo);
+    // iter=1 is historical — must NOT show waiting-for-user even though
+    // a pending question exists in its messages. Should infer from the
+    // iter's overall state instead.
+    const iter1Status = items.find((i) => i.iteration === 1)?.status;
+    expect(iter1Status).not.toBe("waiting-for-user");
+    // iter=2 IS latest and has no pending question — running.
+    expect(items.find((i) => i.iteration === 2)?.status).toBe("running");
+  });
 });
