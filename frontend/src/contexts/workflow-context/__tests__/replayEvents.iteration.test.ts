@@ -217,5 +217,45 @@ describe("loadRunFromPersistedData — iteration hydration (Plan F)", () => {
       // path applies a defaulted stamp at creation time).
       expect(steps[0].iteration).toBe(1);
     });
+
+    it("event-fallback: todo.created before any node.started falls back to iter=1 (Phase 5 I1)", () => {
+      // Defensive: persisted events sidecar might (in theory) order todo.created
+      // before the first node.started. The single-pass convByNode map would be
+      // empty at that point → fallback to 1. Locks the contract that out-of-order
+      // degrades rather than crashes.
+      //
+      // In practice, the engine always emits node.started before todo.created
+      // (a node starts, then the agent runs, then calls todo). This test pins
+      // that the replay path is defensive even if that invariant breaks.
+      const workflowId = "iter-evt-ooo";
+      const run = makeBaseRun(workflowId);
+      delete (run as any).todo_steps; // force event-fallback path
+      const events = [
+        {
+          type: "todo.created",
+          payload: {
+            workflow_id: workflowId,
+            node_id: "coder",
+            items: [
+              { task_id: "s1", content: "x", active_form: "X", status: "completed", detail: null },
+            ],
+          },
+        },
+        {
+          type: "node.started",
+          payload: {
+            workflow_id: workflowId,
+            node_id: "coder",
+            agent_name: "coder",
+            iteration: 1,
+          },
+        },
+      ] as any[];
+
+      loadRunFromPersistedData(workflowId, run, events);
+
+      const steps = getWorkflowManager().getStores(workflowId)!.todo.getState().todos.coder;
+      expect(steps[0].iteration).toBe(1);
+    });
   });
 });
