@@ -362,12 +362,14 @@ export function loadRunFromPersistedData(
   // save), replay todo events from the events sidecar. This preserves
   // correctness for all runs.
   const todoStepsSnapshot = run.todo_steps as
-    | Record<string, Array<{ task_id: string; content: string; activeForm: string; status: string; detail: string | null }>>
+    | Record<string, Array<{ task_id: string; content: string; activeForm: string; status: string; detail: string | null; iteration?: number }>>
     | undefined
     | null;
 
   if (todoStepsSnapshot && Object.keys(todoStepsSnapshot).length > 0) {
-    // Snapshot path — direct setState per node
+    // Snapshot path — direct setState per node. Reads `iteration` persisted
+    // by backend since Plan F; legacy snapshots (pre-Plan-F) omit it and
+    // the field stays undefined → consumers treat as iter=1.
     const todosMap: Record<string, import("./stores/todo").TodoStep[]> = {};
     for (const [nodeId, steps] of Object.entries(todoStepsSnapshot)) {
       todosMap[nodeId] = steps.map((s) => ({
@@ -376,24 +378,32 @@ export function loadRunFromPersistedData(
         activeForm: s.activeForm,
         status: s.status as import("./stores/todo").TodoStepStatus,
         detail: s.detail ?? null,
+        iteration: s.iteration,
       }));
     }
     stores.todo.setState({ todos: todosMap });
   } else if (events && events.length > 0) {
-    // Event fallback — replay todo.created / todo.updated.
-    // Caveat: persisted events don't carry iteration info (iter is a
-    // frontend-only counter bumped by node.started, which the event
-    // fallback doesn't replay). All replayed steps default to iter=1.
-    // Outline rows derived from messages still split by iter correctly;
-    // only the todo list shown for non-iter-1 rows is degraded. Live runs
-    // (the normal path) stamp correct iters via todoHandlers.
+    // Event fallback — replay todo.created events. Since Plan F, the
+    // node.started events in this stream carry `iteration` — rebuild
+    // currentIterationByNode from them, then stamp todo.created calls.
+    // Pre-Plan-F replays lack iter on node.started → fallback to 1.
+    const convByNode: Record<string, number> = {};
+    for (const event of events) {
+      if (event.type === "node.started") {
+        const p = event.payload as { node_id?: string; iteration?: number };
+        if (p.node_id) {
+          convByNode[p.node_id] = p.iteration ?? convByNode[p.node_id] ?? 1;
+        }
+      }
+    }
     for (const event of events) {
       if (event.type === "todo.created") {
         const p = event.payload as {
           node_id: string;
           items: TodoStepItem[];
         };
-        handleTodoCreated(stores.todo, p.node_id, p.items, 1);
+        const iter = convByNode[p.node_id] ?? 1;
+        handleTodoCreated(stores.todo, p.node_id, p.items, iter);
       } else if (event.type === "todo.updated") {
         const p = event.payload as {
           node_id: string;

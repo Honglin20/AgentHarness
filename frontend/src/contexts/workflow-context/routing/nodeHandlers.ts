@@ -24,7 +24,7 @@ export const nodeHandlers: [string, EventHandler][] = [
       // cache, not a counter. Falls back to 1 for legacy events emitted
       // before Plan F backend deploy.
       const conv = stores.conversation.getState();
-      const iter = (p.iteration as number | undefined) ?? 1;
+      const iter = p.iteration ?? 1;
       conv.setCurrentIteration(p.node_id, iter);
 
       stores.workflow.getState().handleNodeStarted(p);
