@@ -178,7 +178,7 @@ describe("deriveOutlineItems", () => {
       a: [
         { taskId: "s1", content: "iter1 step", activeForm: "iter1 stepping", status: "completed", detail: null, iteration: 1 },
         { taskId: "s2", content: "iter2 step", activeForm: "iter2 stepping", status: "in_progress", detail: null, iteration: 2 },
-      ],
+      ] as TodoStep[],
     };
     const messages = [
       msg({ id: "1", nodeId: "a", agentName: "a", timestamp: 100, iteration: 1 }),
@@ -279,7 +279,7 @@ describe("deriveOutlineItems", () => {
     const todos = {
       coder: [
         { taskId: "legacy", content: "old", activeForm: "legacy stepping", status: "in_progress", detail: null },
-      ],
+      ] as TodoStep[],
     };
     const messages = [msg({ id: "1", nodeId: "coder", agentName: "coder", timestamp: 100, iteration: 1 })];
     const items = deriveOutlineItems(nodes, messages, todos);
