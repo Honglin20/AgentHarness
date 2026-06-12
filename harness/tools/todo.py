@@ -141,7 +141,7 @@ class TodoToolFactory(ToolFactory):
                         content=item.content,
                         activeForm=item.activeForm,
                         status="in_progress" if (not state.steps and i == 0) else "pending",
-                        iteration=getattr(deps, "iteration", 1) if deps else 1,
+                        iteration=deps.iteration if deps else 1,
                     )
                     new_steps.append(entry)
                 state.steps.extend(new_steps)
@@ -255,7 +255,7 @@ class TodoToolFactory(ToolFactory):
                         content=item.content,
                         activeForm=item.activeForm,
                         status="in_progress" if i == 0 else "pending",
-                        iteration=getattr(deps, "iteration", 1) if deps else 1,
+                        iteration=deps.iteration if deps else 1,
                     )
                     new_steps_replace.append(entry)
                 state.steps.extend(new_steps_replace)

@@ -19,6 +19,10 @@ class AgentDeps(BaseModel):
     depth: int = 0
     workflow_id: str = ""
     node_id: str = ""
+    # Loop iteration counter for this node invocation (1-indexed). Injected
+    # by node_factory at deps construction time. Consumed by todo tool to
+    # stamp StepEntry.iteration. Plan F.
+    iteration: int = 1
     # Runtime-only: never serialized (carries mutable aggregator state that
     # makes no sense to persist or send over the wire).
     token_aggregator: TokenAggregator | None = Field(default=None, exclude=True)

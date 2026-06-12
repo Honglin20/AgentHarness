@@ -26,13 +26,12 @@ def test_todo_create_stamps_iteration_from_deps():
         content="probe",
         activeForm="probing",
         status="in_progress",
-        iteration=getattr(deps, "iteration", 1),
+        iteration=deps.iteration,
     )
     assert new_step.iteration == 3
 
 
-def test_legacy_deps_without_iteration_field_defaults_to_1():
-    """Deps built before Plan F don't have `iteration` attr — must default."""
+def test_deps_iteration_defaults_to_1():
+    """Explicit field default — no getattr fallback, no silent failure."""
     deps = AgentDeps(workflow_id="wf-1", node_id="x", agent_name="x")
-    iter_value = getattr(deps, "iteration", 1)
-    assert iter_value == 1
+    assert deps.iteration == 1
