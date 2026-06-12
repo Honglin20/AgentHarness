@@ -46,7 +46,11 @@ export const OutlineItemRow = React.memo(function OutlineItemRow({ item, selecte
       onClick={() => onSelect(item.key)}
       className={[
         "group flex w-full items-start gap-2 px-3 py-1.5 text-left text-xs transition-colors",
-        selected ? "bg-blue-50 dark:bg-blue-900/30 border-l-2 border-blue-500" : "hover:bg-muted/50",
+        selected && !waiting
+          ? "bg-blue-50 dark:bg-blue-900/30 border-l-2 border-blue-500"
+          : selected
+            ? "bg-blue-50 dark:bg-blue-900/30"
+            : "hover:bg-muted/50",
         STATUS_ROW_TONE[item.status],
       ].join(" ")}
       aria-current={selected ? "true" : undefined}
