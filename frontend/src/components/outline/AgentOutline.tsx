@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef } from "react";
 import { useAgentOutline } from "./useAgentOutline";
 import { useAutoFollowSelection } from "./useAutoFollowSelection";
+import { useWaitingAgentToast } from "./useWaitingAgentToast";
 import { useOutlineStore } from "./outlineStore";
 import { OutlineItemRow } from "./OutlineItemRow";
 
@@ -15,6 +16,7 @@ import { OutlineItemRow } from "./OutlineItemRow";
  */
 export function AgentOutline() {
   const items = useAgentOutline();
+  useWaitingAgentToast(items);
   useAutoFollowSelection(items);
 
   const selectedKey = useOutlineStore((s) => s.selectedKey);

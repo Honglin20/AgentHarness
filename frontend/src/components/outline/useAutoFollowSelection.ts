@@ -10,16 +10,14 @@
  * When autoFollow is off, this hook does nothing — user's manual selection
  * sticks.
  *
- * Side effect: emits a toast notification the FIRST time an agent enters
- * waiting-for-user (transition from "no waiting agent" → "some waiting
- * agent"). Re-fires if the waiting agent changes. Does not re-fire while
- * the same agent remains waiting.
+ * Toast notifications for waiting agents live in useWaitingAgentToast
+ * (split out so this hook has a single responsibility and so toast behavior
+ * is independent of the autoFollow switch).
  */
 
 "use client";
 
-import { useEffect, useRef } from "react";
-import { toast } from "sonner";
+import { useEffect } from "react";
 import { useOutlineStore } from "./outlineStore";
 import type { OutlineItem } from "./types";
 
@@ -28,33 +26,20 @@ export function useAutoFollowSelection(items: OutlineItem[]): void {
   const select = useOutlineStore((s) => s.select);
   const selectedKey = useOutlineStore((s) => s.selectedKey);
 
-  // Track which agent is currently waiting-for-user, so we fire the toast
-  // only on transitions (none → some, or some → different-some), not on
-  // every render while waiting persists.
-  const prevWaitingKeyRef = useRef<string | null>(null);
-
   useEffect(() => {
-    const waiting = items.find((i) => i.status === "waiting-for-user");
-
-    // Toast only on transition into a NEW waiting agent.
-    if (waiting && prevWaitingKeyRef.current !== waiting.key) {
-      toast.info(`${waiting.name} is waiting for your answer`, {
-        description: "Click the highlighted agent in the outline to respond.",
-        duration: 8000,
-      });
-    }
-    prevWaitingKeyRef.current = waiting?.key ?? null;
-
     if (!autoFollow) return;
 
     // Priority 1: any waiting-for-user item.
+    const waiting = items.find((i) => i.status === "waiting-for-user");
     if (waiting) {
       if (selectedKey !== waiting.key) select(waiting.key, true);
       return;
     }
 
     // Priority 2: the most-recently-started running item.
-    const running = items.filter((i) => i.status === "running").sort((a, b) => b.order - a.order)[0];
+    const running = items
+      .filter((i) => i.status === "running")
+      .sort((a, b) => b.order - a.order)[0];
     if (running && selectedKey !== running.key) {
       select(running.key, true);
     }
