@@ -150,8 +150,13 @@ function computeStatus(
   }
 
   // Historical iter — node.status reflects the current iter, not this one.
-  // Infer from messages: error → failed, done → completed, else → idle.
-  if (iterMessages.some((m) => m.status === "error")) return "failed";
+  // Infer from messages:
+  //   error / interrupted → failed (cancelled mid-stream is a failure mode)
+  //   done                → completed
+  //   else                → idle (no terminal signal)
+  if (iterMessages.some((m) => m.status === "error" || m.status === "interrupted")) {
+    return "failed";
+  }
   if (iterMessages.some((m) => m.status === "done")) return "completed";
   return "idle";
 }
