@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import { useAgentOutline } from "./useAgentOutline";
 import { useAutoFollowSelection } from "./useAutoFollowSelection";
 import { useOutlineStore } from "./outlineStore";
@@ -26,6 +26,17 @@ export function AgentOutline() {
 
   // j/k vim-style navigation. Guard against INPUT/TEXTAREA/contentEditable
   // so typing in ChatInput isn't hijacked.
+  //
+  // Refs hold the latest items/selectedKey/select so the listener binds
+  // once on mount. Without refs, every store update (each streamed token)
+  // invalidates the `items` array reference and would re-bind the listener.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const selectedKeyRef = useRef(selectedKey);
+  selectedKeyRef.current = selectedKey;
+  const selectRef = useRef(select);
+  selectRef.current = select;
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -34,18 +45,20 @@ export function AgentOutline() {
       }
       if (e.key !== "j" && e.key !== "k") return;
 
-      const idx = items.findIndex((i) => i.key === selectedKey);
+      const curItems = itemsRef.current;
+      const curSelected = selectedKeyRef.current;
+      const idx = curItems.findIndex((i) => i.key === curSelected);
       let nextIdx: number;
-      if (e.key === "j") nextIdx = Math.min(items.length - 1, (idx < 0 ? -1 : idx) + 1);
-      else nextIdx = Math.max(0, (idx < 0 ? items.length : idx) - 1);
+      if (e.key === "j") nextIdx = Math.min(curItems.length - 1, (idx < 0 ? -1 : idx) + 1);
+      else nextIdx = Math.max(0, (idx < 0 ? curItems.length : idx) - 1);
       if (nextIdx === idx) return;
 
       e.preventDefault();
-      select(items[nextIdx].key, false);
+      selectRef.current(curItems[nextIdx].key, false);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [items, selectedKey, select]);
+  }, []);
 
   if (items.length === 0) {
     return (
