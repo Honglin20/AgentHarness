@@ -226,7 +226,7 @@ function computeBadges(
   // number under different "Iteration N/M" titles. Iteration badge above
   // is genuinely iter-level and shows on every row.
   if (isLatestIter) {
-    if (node?.retryAttempts?.length) {
+    if (node?.status === "retrying" && node.retryAttempts?.length) {
       const last = node.retryAttempts[node.retryAttempts.length - 1];
       // Display upcoming attempt (attempt + 1) — matches toast at
       // agentHandlers.ts:148 and inline card at AgentMessage.tsx:388.

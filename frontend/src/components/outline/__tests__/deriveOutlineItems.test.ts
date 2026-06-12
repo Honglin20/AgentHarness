@@ -246,6 +246,25 @@ describe("deriveOutlineItems", () => {
     expect(items.find((i) => i.iteration === 2)?.badges.find((b) => b.kind === "retry")?.text).toBe("2/3");
   });
 
+  it("retry badge requires status=retrying — no badge after success-with-history", () => {
+    // Agent retried once, eventually succeeded. retryAttempts is non-empty
+    // (historical record), but status is now "success". Badge title says
+    // "Retry attempt N+1 of M" — meaningless on a completed agent, and
+    // would mislead users into thinking it's still retrying.
+    const nodes = {
+      coder: node({
+        id: "coder",
+        name: "coder",
+        status: "success",
+        retryAttempts: [
+          { attempt: 1, maxAttempts: 3, category: "NetworkError", reason: "timeout", delayS: 2, retryAfterS: null, ts: 0 },
+        ],
+      }),
+    };
+    const items = deriveOutlineItems(nodes, [], emptyTodo);
+    expect(items[0].badges.find((b) => b.kind === "retry")).toBeUndefined();
+  });
+
   it("historical iter status is inferred from messages (done → completed)", () => {
     // node.status is "running" because iter=2 is running, but iter=1
     // already completed — historical iter must infer from messages, not
