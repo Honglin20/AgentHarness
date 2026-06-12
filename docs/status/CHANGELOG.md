@@ -9,6 +9,9 @@
 
 ## 2026-06
 
+- **2026-06-12** — **失败节点 IO 展示（浅版本）**：`node.failed` 事件加 `io_data`（input_prompt + system_prompt）,前端 agentIO store 路由打通,`AgentMessage` 去掉 `isDone` 门控,output tab fallback 到 streaming 累积文本。格式错误时终于能看到 agent 实际输入/输出了。
+  → [详情](../releases/2026-06-12-failed-node-io-display.md)
+
 - **2026-06-12** — **AppView + Hydration 重构**：用 URL 派生的 `AppView` 作为"当前页面"单一真相 + `WorkflowEntry.hydration` 显式字段，根治"刷新运行页面返回 portal"和"首次点 history 不加载"两个 bug。统一 `activateRun` 入口（seq + abort race），删除 `useUrlState` + `portalStore.syncUrl` 双 URL 系统和 `WorkflowScope` pre-populate race。新增 45 个测试（appViewUrl / activateRun / useAppViewUrlSync），全 221/221 通过。
   → [详情](../releases/2026-06-12-appview-hydration-refactor.md)
 

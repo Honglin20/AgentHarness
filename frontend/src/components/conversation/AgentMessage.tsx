@@ -200,7 +200,7 @@ export function AgentNodeHeader({
 
   const agentIO = nodeId ? getAgentIO?.(nodeId) : undefined;
   const nodeState = nodeId ? getNodeState?.(nodeId) : undefined;
-  const hasIO = isDone && agentIO && (agentIO.inputPrompt || agentIO.outputResult != null);
+  const hasIO = !!(agentIO && (agentIO.inputPrompt || agentIO.outputResult != null));
   const tokenUsage = nodeState?.tokenUsage;
   const tools = nodeState?.tools;
 
@@ -320,6 +320,10 @@ export function AgentNodeHeader({
                   {agentIO.outputResult != null ? (
                     <div className="prose prose-sm max-w-none text-xs">
                       <MarkdownText>{formatOutputAsMd(agentIO.outputResult)}</MarkdownText>
+                    </div>
+                  ) : text ? (
+                    <div className="prose prose-sm max-w-none text-xs">
+                      <MarkdownText>{text}</MarkdownText>
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground">(empty)</p>

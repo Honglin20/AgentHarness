@@ -141,6 +141,11 @@ export interface NodeFailedPayload {
   attempt: number;
   will_retry: boolean;
   tool_calls_before_failure?: ToolCallBrief[];
+  io_data?: {
+    input_prompt?: string;
+    system_prompt?: string;
+    output_result?: unknown;
+  };
 }
 
 // Agent streaming events

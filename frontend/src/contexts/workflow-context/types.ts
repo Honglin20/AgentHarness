@@ -85,7 +85,7 @@ export const EVENT_TO_STORES: Record<string, (keyof WorkflowStores)[]> = {
 
   "node.started": ["workflow", "conversation"],
   "node.completed": ["workflow", "conversation", "agentIO"],
-  "node.failed": ["workflow", "conversation"],
+  "node.failed": ["workflow", "conversation", "agentIO"],
 
   "agent.text_delta": ["output", "conversation"],
   "agent.tool_call": ["toolCall", "conversation"],

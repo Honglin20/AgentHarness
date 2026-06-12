@@ -108,6 +108,18 @@ export const nodeHandlers: [string, EventHandler][] = [
       stores.conversation
         .getState()
         .failAgentMessage(p.node_id, p.agent_name, p.error, p.duration_ms);
+
+      // Surface io_data (input_prompt + system_prompt) so the In/Out Sheet
+      // is reachable on failed nodes. Output tab falls back to streaming-
+      // accumulated message.content (kept by failAgentMessage).
+      if (p.io_data && (p.io_data.input_prompt || p.io_data.system_prompt)) {
+        stores.agentIO.getState().setAgentIO(
+          p.node_id,
+          p.io_data.input_prompt ?? "",
+          p.io_data.output_result,
+          p.io_data.system_prompt
+        );
+      }
     },
   ],
 ];

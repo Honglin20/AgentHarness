@@ -666,6 +666,18 @@ def make_node_func(
             if tool_calls_before_failure:
                 extra["tool_calls_before_failure"] = tool_calls_before_failure
 
+            # Surface the user prompt + system prompt so the frontend can show
+            # the In/Out Sheet even on failed nodes. `context` is bound at
+            # node_factory.py:244 (outside the try block); guard with locals()
+            # in case build_node_prompt itself raised before binding.
+            # Raw LLM output is intentionally NOT included here — the frontend
+            # falls back to the streaming-accumulated message.content (see
+            # AgentMessage.tsx output tab + failAgentMessage retention).
+            extra["io_data"] = {
+                "input_prompt": locals().get("context", ""),
+                "system_prompt": augmented_prompt,
+            }
+
             if bus:
                 safe_emit(bus, "node.failed", build_node_failed_payload(
                     builder_self.workflow_id, agent_def.name, agent_def.name,
