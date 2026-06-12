@@ -34,6 +34,49 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+## CHANGELOG 与状态文档规则
+
+### 文档职责
+
+| 文档 | 角色 | 内容粒度 |
+|------|------|----------|
+| `docs/status/CURRENT.md` | 当前任务快照 | ≤50 行：当前任务、状态、必读文件、待办 |
+| `docs/status/CHANGELOG.md` | **索引** | 每条 1-2 句话 + 链接到 release note |
+| `docs/releases/<date>-<name>.md` | **详细 release note** | 实际做了什么、偏离 plan 的地方、关键 commits、验证结果 |
+| `docs/plans/<date>-<name>.md` | 实施计划（事前设计） | 将要做什么、动机、权衡、迁移路径 |
+| `docs/releases/HISTORICAL.md` | 历史归档 | 2026-06-10 之前的合并记录（不再维护） |
+
+**关键区别**：
+- `plans/` 是"将要做什么"（设计意图）
+- `releases/` 是"实际做了什么"（outcome，可能偏离 plan）
+- `CHANGELOG.md` 是 `releases/` 的索引，本身**不存详细内容**
+
+### 任务完成时的强制流程
+
+1. 在 `docs/releases/` 新建 `<date>-<name>.md` 详细 release note
+   - 包含：实际改动概要、偏离 plan 的地方（若有）、关键 commit SHAs、验证结果、已知 follow-up
+2. 在 `docs/status/CHANGELOG.md` **顶部**加一行索引（1-2 句话 + 链接到 release note）
+3. 清空 `docs/status/CURRENT.md`，只留 next focus + 必读文件（≤50 行）
+4. **不积累，不延后**——任务完成后立即执行
+
+### 索引格式（CHANGELOG.md 每条）
+
+```markdown
+- **YYYY-MM-DD** — **<Feature Name>**：<1-2 句话描述，聚焦 "为什么" 和 "结果">。
+  → [详情](../releases/YYYY-MM-DD-<name>.md)
+```
+
+### 断点续传
+
+新终端启动必读：
+1. 本文件（`CLAUDE.md`）
+2. `docs/status/CURRENT.md`
+3. CURRENT.md 中"必读文件"清单（≤5 个）
+
+**不要**在未读 CURRENT.md 时开始工作。
+
+---
+
 ## 问题分类与质量标准（必须遵守）
 
 当遇到用户反馈或缺陷报告时，**先判定是 bug 还是架构问题**，再决定动手方式：
