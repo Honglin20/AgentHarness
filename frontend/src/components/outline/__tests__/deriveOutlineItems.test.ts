@@ -288,4 +288,15 @@ describe("deriveOutlineItems", () => {
     expect(items[0].isLatestIter).toBe(true);
     expect(items[0].activity).toMatchObject({ kind: "running", currentStepContent: "legacy stepping" });
   });
+
+  it("historical iter with interrupted message is marked failed (B1 fix)", () => {
+    const nodes = { coder: node({ id: "coder", name: "coder", status: "success" }) };
+    const messages = [
+      msg({ id: "1", nodeId: "coder", agentName: "coder", timestamp: 100, iteration: 1, status: "interrupted" }),
+      msg({ id: "2", nodeId: "coder", agentName: "coder", timestamp: 200, iteration: 2, status: "done" }),
+    ];
+    const items = deriveOutlineItems(nodes, messages, emptyTodo);
+    expect(items.find((i) => i.iteration === 1)?.status).toBe("failed");
+    expect(items.find((i) => i.iteration === 2)?.status).toBe("completed");
+  });
 });
