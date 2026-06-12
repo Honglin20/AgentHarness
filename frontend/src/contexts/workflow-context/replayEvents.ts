@@ -383,10 +383,14 @@ export function loadRunFromPersistedData(
     }
     stores.todo.setState({ todos: todosMap });
   } else if (events && events.length > 0) {
-    // Event fallback — replay todo.created events. Since Plan F, the
-    // node.started events in this stream carry `iteration` — rebuild
-    // currentIterationByNode from them, then stamp todo.created calls.
-    // Pre-Plan-F replays lack iter on node.started → fallback to 1.
+    // Event fallback — replay todo.created / todo.updated. Since Plan F,
+    // node.started events in this stream carry `iteration`; we walk events
+    // in order, tracking the current iteration per node as node.started
+    // events arrive, and stamp each todo.created with the iteration that
+    // was active *at that point in the stream*. A two-pass pre-scan would
+    // lose earlier iterations for loop nodes (only the last node.started's
+    // iter would survive). Pre-Plan-F replays lack iter on node.started →
+    // fallback to 1.
     const convByNode: Record<string, number> = {};
     for (const event of events) {
       if (event.type === "node.started") {
@@ -394,10 +398,7 @@ export function loadRunFromPersistedData(
         if (p.node_id) {
           convByNode[p.node_id] = p.iteration ?? convByNode[p.node_id] ?? 1;
         }
-      }
-    }
-    for (const event of events) {
-      if (event.type === "todo.created") {
+      } else if (event.type === "todo.created") {
         const p = event.payload as {
           node_id: string;
           items: TodoStepItem[];

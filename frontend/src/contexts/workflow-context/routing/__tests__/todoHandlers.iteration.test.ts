@@ -35,10 +35,13 @@ describe("todo.created handler — iteration stamping from currentIterationByNod
     stores = makeStores();
   });
 
-  it("first iter: node.started bumps counter to 1, todo.created stamps steps with iter=1", () => {
+  it("first iter: node.started caches iter=1, todo.created stamps steps with iter=1", () => {
+    // Plan F: iteration comes from the node.started payload (backend is
+    // source of truth). The handler caches it into currentIterationByNode;
+    // todo.created reads from that cache.
     startedHandler(
       stores,
-      fireEvent("node.started", { node_id: "coder", agent_name: "coder" }),
+      fireEvent("node.started", { node_id: "coder", agent_name: "coder", iteration: 1 }),
       {} as any,
     );
     todoCreatedHandler(
@@ -56,7 +59,7 @@ describe("todo.created handler — iteration stamping from currentIterationByNod
     // iter=1
     startedHandler(
       stores,
-      fireEvent("node.started", { node_id: "coder", agent_name: "coder" }),
+      fireEvent("node.started", { node_id: "coder", agent_name: "coder", iteration: 1 }),
       {} as any,
     );
     todoCreatedHandler(
@@ -76,10 +79,10 @@ describe("todo.created handler — iteration stamping from currentIterationByNod
       fireEvent("node.completed", { node_id: "coder", agent_name: "coder", duration_ms: 100 }),
       {} as any,
     );
-    // iter=2
+    // iter=2 — backend stamps iteration=2 in the node.started payload.
     startedHandler(
       stores,
-      fireEvent("node.started", { node_id: "coder", agent_name: "coder" }),
+      fireEvent("node.started", { node_id: "coder", agent_name: "coder", iteration: 2 }),
       {} as any,
     );
     todoCreatedHandler(
