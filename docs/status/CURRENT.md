@@ -47,6 +47,16 @@
 - [ ] **trainer sub_agent 写 cwd 问题**（独立架构问题）
 - [ ] **MCP cleanup bug**
 
+## 下一阶段：NAS 改进（见 `docs/plans/2026-06-13-nas-improvements.md`）
+
+设计已确认：
+- **NASAdapter** —— goal-driven，agent 自由生成 `.nas_runner.py`；**必须通过 parity test**（quick_parity / eval_only_parity）验证计算等价
+- **profile_model** —— ONNX in → profile dict，单函数签名锁定，用户后续替换函数体
+
+实施顺序：P0 cwd bug → **P2 adapter（最先做）** → P1 profile → P1 hypothesis 分级 → P1 run_strategy → P2/P3 批量小改
+
+agent 合并（selector+judger+analyzer+validator → synthesizer）单独立项，本计划不涉及。
+
 ## 旁路任务
 
 - AppView 重构代码完成，等用户浏览器手测验收（5 场景）→ 见 `docs/releases/2026-06-12-appview-hydration-refactor.md`
