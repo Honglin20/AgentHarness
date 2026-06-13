@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """fitness.py — 多维 fitness 计算 (judger 调用).
 
-公式:
+公式 (base):
   primary_normalized = (val - baseline) / baseline           if direction == "higher"
                      = (baseline - val) / baseline           if direction == "lower"
   acc_drop       = max(0, -primary_normalized)
@@ -9,10 +9,17 @@
   param_ratio    = strategy_params / baseline_params
   stability      = 1 - normalize(std(loss_curve_tail))
 
-  fitness = 0.4 * max(0, 1 - acc_drop / acc_tolerance)
-         + 0.3 * min(1.5, latency_ratio)
-         + 0.2 * (1 - param_ratio)
-         + 0.1 * stability
+  base_fitness = 0.4 * max(0, 1 - acc_drop / acc_tolerance)
+              + 0.3 * min(1.5, latency_ratio)
+              + 0.2 * (1 - param_ratio)
+              + 0.1 * stability
+
+Bonus (P3):
+  target_hit_bonus = 0.1 if (manifest.hypothesis_type != "parametric"
+                            AND manifest.profile_target in baseline_profile.top_latency_layers)
+                    else 0.0
+
+  fitness = base_fitness + target_hit_bonus
 """
 from __future__ import annotations
 
@@ -37,6 +44,10 @@ def main() -> None:
                            help="don't write fitness back to strategy_result")
     p_compute.add_argument("--use-onnx-latency", action="store_true",
                            help="use strategy.onnx_latency_ms if present (falls back to latency_ms)")
+    p_compute.add_argument("--manifest", default=None,
+                           help="path to manifest.json (for hypothesis_type + profile_target)")
+    p_compute.add_argument("--baseline-profile", default=None,
+                           help="path to baseline_profile.json (for top_latency_layers)")
 
     args = p.parse_args()
 
@@ -44,12 +55,18 @@ def main() -> None:
         metrics = _load_json(args.metrics_json)
         baseline = _load_json(args.baseline_json)
         strategy = _load_json(args.strategy_result)
+        manifest = _load_json(args.manifest) if args.manifest else None
+        profile = _load_json(args.baseline_profile) if args.baseline_profile else None
 
         if strategy is None:
             print(json.dumps({"error": "strategy_result not found"}))
             sys.exit(1)
 
-        result = _compute(metrics, baseline, strategy, args.target_latency, args.acc_tolerance, args.use_onnx_latency)
+        result = _compute(
+            metrics, baseline, strategy,
+            args.target_latency, args.acc_tolerance,
+            args.use_onnx_latency, manifest, profile,
+        )
         print(json.dumps(result, indent=2))
 
         if not args.no_writeback:
@@ -60,6 +77,8 @@ def main() -> None:
 
 
 def _load_json(path: str) -> dict | None:
+    if path is None:
+        return None
     p = Path(path)
     if not p.exists():
         return None
@@ -84,7 +103,12 @@ def _lookup_metric_value(blob: dict, name: str):
 
 def _compute(metrics: dict, baseline: dict, strategy: dict,
              target_latency: float, acc_tolerance: float,
-             use_onnx_latency: bool = False) -> dict:
+             use_onnx_latency: bool = False,
+             manifest: dict | None = None,
+             profile: dict | None = None) -> dict:
+    manifest = manifest or {}
+    profile = profile or {}
+
     primary_name = metrics.get("primary_metric", "acc")
     primary_dir = _lookup_direction(metrics, primary_name)
 
@@ -103,7 +127,7 @@ def _compute(metrics: dict, baseline: dict, strategy: dict,
     acc_drop = max(0.0, -primary_normalized)
 
     strategy_latency = strategy.get("latency_ms") or 0.0
-    if args.use_onnx_latency:
+    if use_onnx_latency:
         # Prefer onnx latency when available — more stable & cross-device comparable.
         # Fall back to pytorch latency if onnx not measured (e.g. export failed).
         strategy_latency = strategy.get("onnx_latency_ms") or strategy_latency
@@ -126,12 +150,28 @@ def _compute(metrics: dict, baseline: dict, strategy: dict,
         stability = 0.5
 
     acc_term = max(0.0, 1.0 - acc_drop / acc_tolerance) if acc_tolerance > 0 else 0.0
-    fitness = (
+    base_fitness = (
         0.4 * acc_term
         + 0.3 * min(1.5, latency_ratio)
         + 0.2 * (1.0 - min(1.0, param_ratio))
         + 0.1 * stability
     )
+
+    # Target-hit bonus: structural hypothesis hitting profile top-K latency layer
+    hypothesis_type = manifest.get("hypothesis_type", "")
+    profile_target = manifest.get("profile_target")
+    top_layer_names = [
+        l.get("name") for l in profile.get("top_latency_layers", []) if l.get("name")
+    ]
+    target_hit = bool(
+        hypothesis_type
+        and hypothesis_type != "parametric"
+        and profile_target
+        and profile_target in top_layer_names
+    )
+    target_hit_bonus = 0.1 if target_hit else 0.0
+
+    fitness = base_fitness + target_hit_bonus
 
     return {
         "fitness": fitness,
@@ -142,6 +182,9 @@ def _compute(metrics: dict, baseline: dict, strategy: dict,
             "param_ratio": param_ratio,
             "stability": stability,
             "acc_term": acc_term,
+            "base_fitness": base_fitness,
+            "target_hit": target_hit,
+            "target_hit_bonus": target_hit_bonus,
         },
         "primary_metric": primary_name,
         "primary_direction": primary_dir,

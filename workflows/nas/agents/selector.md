@@ -41,7 +41,7 @@ python $helpers_dir/direction.py detect-plateau \
 ```
 返回 JSON：`{plateau: bool, recent_fitness: [...], sigma: ...}`
 
-- plateau=true（最近 3 轮 fitness 标准差 < 阈值）→ `K = budget.strategies_per_iter * 2`（加倍探索）
+- plateau=true（最近 3 轮 **cv < 0.08** 或 **未比历史 best 提升 >1%**）→ `K = budget.strategies_per_iter * 2`（加倍探索）
 - plateau=false → `K = budget.strategies_per_iter`
 
 ### 5. 方向变化建议

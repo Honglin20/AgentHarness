@@ -93,15 +93,42 @@ def _detect_plateau(session: str, window: int) -> dict:
     mean = statistics.mean(recent)
     cv = std / (abs(mean) + 1e-9)
 
-    plateau = cv < 0.02
+    recent_max = max(recent)
+    historical_iters = sorted_iters[:-window]
+    if historical_iters:
+        historical_max = max(iter_best[i] for i in historical_iters)
+        no_improvement = (
+            historical_max > 0
+            and recent_max <= historical_max * 1.01
+        )
+    else:
+        historical_max = None
+        no_improvement = False
+
+    # Plateau triggers if EITHER:
+    # - low_variance: cv < 0.08 (recent best fitness barely changes)
+    # - no_improvement: recent window didn't break historical best by >1%
+    low_variance = cv < 0.08
+    plateau = low_variance or no_improvement
+
+    reasons = []
+    if low_variance:
+        reasons.append(f"cv={cv:.4f} < 0.08 (low variance)")
+    if no_improvement:
+        reasons.append(
+            f"recent_max={recent_max:.4f} ≤ historical_max*1.01="
+            f"{historical_max * 1.01:.4f} (no record break)"
+        )
 
     return {
         "plateau": plateau,
         "recent_fitness": recent,
         "fitness_std": std,
         "fitness_cv": cv,
+        "recent_max": recent_max,
+        "historical_max": historical_max,
         "window": window,
-        "reason": f"cv={cv:.4f} (threshold 0.02) → {'plateau' if plateau else 'exploring'}",
+        "reason": " + ".join(reasons) if reasons else f"cv={cv:.4f}, exploring",
     }
 
 

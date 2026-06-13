@@ -26,13 +26,19 @@ python $helpers_dir/fitness.py compute \
   --metrics-json $session_dir/metrics.json \
   --baseline-json $session_dir/baseline.json \
   --strategy-result $session_dir/iter_<N>/strategy_<i>/eval_result.json \
+  --manifest $session_dir/iter_<N>/strategy_<i>/manifest.json \
+  --baseline-profile $session_dir/baseline_profile.json \
   --target-latency <from budget> \
   --acc-tolerance <from budget> \
   --use-onnx-latency
 ```
 返回：`{fitness: <float>, primary_normalized: <float>, components: {...}}`
 
-`--use-onnx-latency`：latency_ratio 优先用 `strategy.onnx_latency_ms`（更稳、跨设备可比），fallback 到 `latency_ms`（pytorch）。onnx_latency_ms 由 trainer sub_agent 通过 export_onnx + measure_onnx_latency 写入 eval_result.json。
+`--use-onnx-latency`：latency_ratio 优先用 `strategy.onnx_latency_ms`（更稳、跨设备可比），fallback 到 `latency_ms`（pytorch）。
+
+`--manifest` + `--baseline-profile`（P3 target_hit_bonus）：strategy 的 `hypothesis_type != parametric` 且 `profile_target` 命中 baseline_profile 的 top_latency_layers → fitness +0.1 bonus。manifest 缺失或 hypothesis_type 为 parametric → 无 bonus（不影响 base fitness）。
+
+如果 `$session_dir/baseline_profile.json` 不存在（profile_model 跑失败）→ 仍调 fitness.py，但跳过 `--baseline-profile` 参数（bonus 永远 0，base fitness 正常算）。
 
 公式（供 helpers 实现参考）：
 ```
