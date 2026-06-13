@@ -52,17 +52,26 @@ class TestTodoReminderTracker:
         reminder = tracker.get_reminder()
         assert reminder is not None
         assert "<system-reminder>" in reminder
-        assert "todo" in reminder.lower()
+        assert "TodoTool" in reminder
 
     def test_todo_call_resets_counter(self):
-        """Calling todo tool resets the non-todo counter."""
+        """Calling TodoTool resets the non-todo counter.
+
+        Mirrors production: a real TodoTool(create) call also lazily
+        initializes TodoState via ensure_todo_state(), which sets has_plan.
+        Without state, CREATE_THRESHOLD=1 would immediately re-fire on
+        the next non-todo call. We simulate the full flow here.
+        """
         deps = AgentDeps(agent_name="a")
         tracker = TodoReminderTracker(deps)
         tracker.on_tool_call("bash")
         tracker.on_tool_call("bash")
-        tracker.on_tool_call("todo")  # resets
+        # Simulate real TodoTool(create): reset counter + create plan state
+        tracker.on_tool_call("TodoTool")
+        state = ensure_todo_state(deps)
+        state.has_plan = True
         tracker.on_tool_call("bash")
-        # Only 1 non-todo call since reset — well below threshold
+        # Only 1 non-todo call since reset — well below UPDATE_THRESHOLD
         assert tracker.get_reminder() is None
 
     def test_update_reminder_when_plan_exists(self):
@@ -75,8 +84,8 @@ class TestTodoReminderTracker:
         )
 
         tracker = TodoReminderTracker(deps)
-        # RESET counter via todo call first
-        tracker.on_tool_call("todo")
+        # RESET counter via TodoTool call first
+        tracker.on_tool_call("TodoTool")
         # Now accumulate non-todo calls up to UPDATE_THRESHOLD
         for _ in range(TodoReminderTracker.UPDATE_THRESHOLD):
             tracker.on_tool_call("bash")
@@ -85,17 +94,28 @@ class TestTodoReminderTracker:
         assert "Analyze code" in reminder
 
     def test_counter_resets_after_reminder_fires(self):
-        """After reminder fires, counter resets so it doesn't fire again immediately."""
+        """Reminder counter resets after firing; semantics under CREATE_THRESHOLD=1.
+
+        Under CREATE_THRESHOLD=1, when no plan state exists yet, the reminder
+        re-fires on every non-todo call — this is the intended nag behavior
+        until the agent actually calls TodoTool. Once TodoTool runs and
+        ``has_plan`` flips true, the reminder stops (UPDATE_THRESHOLD takes
+        over).
+        """
         deps = AgentDeps(agent_name="a")
         tracker = TodoReminderTracker(deps)
-        for _ in range(TodoReminderTracker.CREATE_THRESHOLD):
-            tracker.on_tool_call("bash")
+        tracker.on_tool_call("bash")
         r1 = tracker.get_reminder()
         assert r1 is not None
-        # One more call — should NOT fire again immediately
+        # Without plan state, the next bash re-triggers (CREATE_THRESHOLD=1)
         tracker.on_tool_call("bash")
         r2 = tracker.get_reminder()
-        assert r2 is None
+        assert r2 is not None
+        # Once TodoTool actually runs and creates plan state, reminder stops
+        tracker.on_tool_call("TodoTool")
+        ensure_todo_state(deps).has_plan = True
+        tracker.on_tool_call("bash")
+        assert tracker.get_reminder() is None
 
 
 # ---------------------------------------------------------------------------
@@ -154,12 +174,16 @@ class TestReminderInjection:
         assert "<system-reminder>" in injected.parts[0].content
 
     def test_no_injection_when_no_reminder(self):
-        """No SystemPromptPart added when tracker has no reminder."""
+        """No SystemPromptPart added when tracker has no reminder.
+
+        Under CREATE_THRESHOLD=1, "no reminder" requires zero non-todo calls
+        OR an existing plan (which switches to UPDATE_THRESHOLD). We test the
+        zero-call case here.
+        """
         bus = Bus()
         deps = AgentDeps(agent_name="a", workflow_id="w", node_id="a")
         tracker = TodoReminderTracker(deps)
-        # Only 1 non-todo call — below threshold
-        tracker.on_tool_call("bash")
+        # Zero non-todo calls — below CREATE_THRESHOLD=1
 
         executor = LLMExecutor(
             MagicMock(), deps,
@@ -289,19 +313,19 @@ def test_real_todo_lifecycle():
 
     bus = Bus()
     registry = ToolRegistry()
-    registry.register("todo", TodoToolFactory(event_bus=bus), source="built-in")
+    registry.register("TodoTool", TodoToolFactory(event_bus=bus), source="built-in")
 
     client = LLMClient()
     agent = client.agent(
         system_prompt=(
             "You MUST follow this exact sequence:\n"
-            "1. Call todo(op='create', items=[{content:'Step 1', activeForm:'Doing step 1'}, "
+            "1. Call TodoTool(op='create', items=[{content:'Step 1', activeForm:'Doing step 1'}, "
             "{content:'Step 2', activeForm:'Doing step 2'}])\n"
-            "2. Then call todo(op='update', task_id='t_1', status='completed')\n"
-            "3. Then call todo(op='update', task_id='t_2', status='completed')\n"
+            "2. Then call TodoTool(op='update', task_id='t_1', status='completed')\n"
+            "3. Then call TodoTool(op='update', task_id='t_2', status='completed')\n"
             "Do NOT skip any step."
         ),
-        tools=registry.resolve(["todo"]),
+        tools=registry.resolve(["TodoTool"]),
         deps_type=AgentDeps,
     )
 
@@ -344,17 +368,17 @@ def test_real_reminder_not_in_tool_result():
 
     bus = Bus()
     registry = ToolRegistry()
-    registry.register("todo", TodoToolFactory(event_bus=bus), source="built-in")
+    registry.register("TodoTool", TodoToolFactory(event_bus=bus), source="built-in")
     registry.register("bash", BashToolFactory(), source="built-in")
 
     client = LLMClient()
     agent = client.agent(
         system_prompt=(
             "You are a test assistant. "
-            "IMPORTANT: Do NOT call the todo tool. "
+            "IMPORTANT: Do NOT call the TodoTool. "
             "Use the bash tool. Run: echo step1, echo step2, echo step3 as separate calls."
         ),
-        tools=registry.resolve(["bash", "todo"]),
+        tools=registry.resolve(["bash", "TodoTool"]),
         deps_type=AgentDeps,
     )
 

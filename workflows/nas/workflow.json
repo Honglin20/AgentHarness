@@ -1,0 +1,82 @@
+{
+  "name": "nas",
+  "max_iterations": 1000000,
+  "agents": [
+    {
+      "name": "scout",
+      "description": "Setup: 路径初始化 + 项目检视 + baseline + tier 推荐 + metrics + domain insights",
+      "after": [],
+      "tools": null,
+      "model": null,
+      "retries": 2
+    },
+    {
+      "name": "selector",
+      "description": "选 parent + 动态 K + plateau 检测 + 方向变化建议",
+      "after": ["scout"],
+      "tools": null,
+      "model": null,
+      "retries": 2
+    },
+    {
+      "name": "planner",
+      "description": "开放式 hypothesize（响应方向变化）+ 一次性 issue K 个 Coder sub_agent",
+      "after": ["selector"],
+      "tools": null,
+      "model": null,
+      "retries": 2
+    },
+    {
+      "name": "trainer",
+      "description": "tier 自判训练 + 并发 K 个 strategy（失败时内部修复）",
+      "after": ["planner"],
+      "tools": null,
+      "model": null,
+      "retries": 2
+    },
+    {
+      "name": "judger",
+      "description": "按 metrics 方向算多维 fitness + 排序",
+      "after": ["trainer"],
+      "tools": null,
+      "model": null,
+      "retries": 2
+    },
+    {
+      "name": "analyzer",
+      "description": "更新 elite pool + 历史 + direction.md + signatures（无决策）",
+      "after": ["judger"],
+      "tools": null,
+      "model": null,
+      "retries": 2
+    },
+    {
+      "name": "validator",
+      "description": "事实决策：调 helpers/check_target.py 做达标对比（防幻觉）",
+      "after": ["analyzer"],
+      "tools": null,
+      "model": null,
+      "retries": 2,
+      "on_pass": "refiner",
+      "on_fail": "selector"
+    },
+    {
+      "name": "refiner",
+      "description": "tier 自判升级 + full-mode retrain top-K",
+      "after": null,
+      "tools": null,
+      "model": null,
+      "retries": 2,
+      "on_pass": "reporter",
+      "on_fail": "selector"
+    },
+    {
+      "name": "reporter",
+      "description": "最终报告 + lineage + abort 处理",
+      "after": ["refiner"],
+      "tools": null,
+      "model": null,
+      "retries": 2
+    }
+  ]
+}

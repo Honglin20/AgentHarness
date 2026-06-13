@@ -71,8 +71,8 @@ def _tiered_registry() -> ToolRegistry:
     reg = ToolRegistry()
 
     forced = EchoFactory()
-    forced.name = "todo"
-    reg.register("todo", forced, tier=ToolTier.FORCED)
+    forced.name = "TodoTool"
+    reg.register("TodoTool", forced, tier=ToolTier.FORCED)
 
     default_a = EchoFactory()
     default_a.name = "bash"
@@ -94,36 +94,36 @@ def _names(tools):
 
 
 def test_forced_injected_into_whitelist():
-    """tools=["bash"] → bash + todo (FORCED injection)."""
+    """tools=["bash"] → bash + TodoTool (FORCED injection)."""
     reg = _tiered_registry()
-    assert _names(reg.resolve(["bash"])) == ["bash", "todo"]
+    assert _names(reg.resolve(["bash"])) == ["TodoTool", "bash"]
 
 
 def test_forced_excluded_by_explicit_exclude():
-    """tools=["bash"], exclude=["todo"] → only bash (FORCED can be opted out)."""
+    """tools=["bash"], exclude=["TodoTool"] → only bash (FORCED can be opted out)."""
     reg = _tiered_registry()
-    assert _names(reg.resolve(["bash"], exclude=["todo"])) == ["bash"]
+    assert _names(reg.resolve(["bash"], exclude=["TodoTool"])) == ["bash"]
 
 
 def test_none_loads_forced_and_default_only():
     """tools=None → FORCED + DEFAULT; EXPLICIT never auto-loaded."""
     reg = _tiered_registry()
-    assert _names(reg.resolve(None)) == ["bash", "grep", "todo"]
+    assert _names(reg.resolve(None)) == ["TodoTool", "bash", "grep"]
 
 
 def test_explicit_loaded_via_whitelist():
-    """tools=["render_chart"] → render_chart + todo (FORCED still injected)."""
+    """tools=["render_chart"] → render_chart + TodoTool (FORCED still injected)."""
     reg = _tiered_registry()
-    assert _names(reg.resolve(["render_chart"])) == ["render_chart", "todo"]
+    assert _names(reg.resolve(["render_chart"])) == ["TodoTool", "render_chart"]
 
 
 def test_whitelist_with_explicit_todo_does_not_duplicate():
-    """tools=["bash", "todo"] → no duplicate todo after forced injection."""
+    """tools=["bash", "TodoTool"] → no duplicate TodoTool after forced injection."""
     reg = _tiered_registry()
-    tools = reg.resolve(["bash", "todo"])
+    tools = reg.resolve(["bash", "TodoTool"])
     names = [t.name for t in tools]
-    assert names.count("todo") == 1
-    assert sorted(names) == ["bash", "todo"]
+    assert names.count("TodoTool") == 1
+    assert sorted(names) == ["TodoTool", "bash"]
 
 
 # ── expand_globs ────────────────────────────────────────────────

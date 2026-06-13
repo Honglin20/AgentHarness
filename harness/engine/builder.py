@@ -73,10 +73,10 @@ class MacroGraphBuilder:
         # See harness/tools/registry.py:ToolTier for the tier model.
         if event_bus:
             from harness.tools.registry import ToolTier
-            if "todo" not in self.tool_registry.list_tools():
+            if "TodoTool" not in self.tool_registry.list_tools():
                 from harness.tools.todo import TodoToolFactory
                 self.tool_registry.register(
-                    "todo",
+                    "TodoTool",
                     TodoToolFactory(event_bus=event_bus),
                     tier=ToolTier.FORCED,
                 )

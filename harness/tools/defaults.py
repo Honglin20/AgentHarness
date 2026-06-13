@@ -46,7 +46,7 @@ def _find_filesystem_server(
 def default_tool_registry(event_bus=None) -> ToolRegistry:
     """Create the default tool registry with three-tier classification.
 
-    Tier 1 (FORCED):   todo       — framework-mandated, always injected
+    Tier 1 (FORCED):   TodoTool   — framework-mandated, always injected
     Tier 2 (DEFAULT):  bash/grep/glob/sub_agent + ask_user
                                    — loaded when agent.tools is null
     Tier 3 (EXPLICIT): render_chart
@@ -57,24 +57,24 @@ def default_tool_registry(event_bus=None) -> ToolRegistry:
     codegraph → EXPLICIT).
 
     Args:
-        event_bus: Required for todo / ask_user / render_chart registration.
+        event_bus: Required for TodoTool / ask_user / render_chart registration.
             Without it, only Tier-2 non-bus tools (bash/grep/glob/sub_agent)
             get registered.
     """
     registry = ToolRegistry()
 
     # ── Tier 1: FORCED ────────────────────────────────────────────────
-    # todo is mandatory because the reminder tracker (todo_reminder.py)
-    # emit <system-reminder> injections that assume the tool is available,
+    # TodoTool is mandatory because the reminder tracker (todo_reminder.py)
+    # emits <system-reminder> injections that assume the tool is available,
     # and the tool description itself mandates "create before work".
-    if event_bus:
-        from harness.tools.todo import TodoToolFactory
-        registry.register(
-            "todo",
-            TodoToolFactory(event_bus=event_bus),
-            source="built-in",
-            tier=ToolTier.FORCED,
-        )
+    # Always register TodoTool (even without event_bus)
+    from harness.tools.todo import TodoToolFactory
+    registry.register(
+        "TodoTool",
+        TodoToolFactory(event_bus=event_bus),
+        source="built-in",
+        tier=ToolTier.FORCED,
+    )
 
     # ── Tier 2: DEFAULT ───────────────────────────────────────────────
     registry.register(

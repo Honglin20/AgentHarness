@@ -83,9 +83,13 @@ def get_todo_state(deps: AgentDeps) -> TodoState | None:
 # ---------------------------------------------------------------------------
 
 class TodoToolFactory(ToolFactory):
-    """todo — plan and track task steps."""
+    """TodoTool — plan and track task steps.
 
-    name = "todo"
+    Named ``TodoTool`` (not ``todo``) so the LLM sees this is a callable
+    tool, not a free-form concept it might emulate by writing JSON via bash.
+    """
+
+    name = "TodoTool"
     description = (
         "Plan and track your task steps. "
         "You MUST call this with op='create' to define your step list BEFORE starting any work, "
@@ -281,7 +285,7 @@ class TodoToolFactory(ToolFactory):
             # --- list ---
             if op == "list":
                 if not state.steps:
-                    return "No steps created yet. Call todo(op='create', items=[...]) first."
+                    return "No steps created yet. Call TodoTool(op='create', items=[...]) first."
                 total = len(state.steps)
                 symbols = {
                     "pending": "⬜",
@@ -300,6 +304,7 @@ class TodoToolFactory(ToolFactory):
 
         return PydanticAITool(
             self._wrap_fn(todo, self.name),
+            name=self.name,
             takes_ctx=True,
             description=self.description,
         )

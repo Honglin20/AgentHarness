@@ -1,7 +1,7 @@
 """Step completion gate — pydantic-ai output validator.
 
 Enforces the agent ↔ TODO contract:
-1. Every agent MUST call ``todo op='create'`` before producing output.
+1. Every agent MUST call ``TodoTool op='create'`` before producing output.
 2. All steps MUST be in terminal state (completed/skipped) at output time.
 
 On violation, raises :class:`ModelRetry`. pydantic-ai continues ``iter()``
@@ -64,9 +64,9 @@ async def step_gate_validator(ctx: Any, data: Any) -> Any:
     # happens iff the agent never called any todo op.
     if todo_state is None or not todo_state.has_plan:
         raise ModelRetry(
-            "你必须先调用 todo 工具 op='create' 规划步骤，"
+            "你必须先调用 TodoTool 工具 op='create' 规划步骤，"
             "列出所有打算完成的任务（即使是单步任务），然后才能开始执行。\n"
-            "示例：todo(op='create', items=[TodoItem(content='...', activeForm='...')])"
+            "示例：TodoTool(op='create', items=[TodoItem(content='...', activeForm='...')])"
         )
 
     # Gate 2: all steps must be terminal (completed or skipped).
@@ -81,9 +81,9 @@ async def step_gate_validator(ctx: Any, data: Any) -> Any:
         raise ModelRetry(
             f"以下步骤还未显式收尾: {names}。\n"
             f"请调用以下之一收尾：\n"
-            f"  - todo(op='complete_remaining', status='completed'|'skipped', reason='...') "
+            f"  - TodoTool(op='complete_remaining', status='completed'|'skipped', reason='...') "
             f"批量收尾（用于目标已提前达成的场景），或\n"
-            f"  - todo(op='update', task_id='...', status='completed'|'skipped') 单步收尾\n"
+            f"  - TodoTool(op='update', task_id='...', status='completed'|'skipped') 单步收尾\n"
             f"注意：不允许遗留 pending/in_progress 状态的步骤。"
         )
 

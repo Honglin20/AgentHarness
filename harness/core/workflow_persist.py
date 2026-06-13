@@ -171,6 +171,7 @@ def workflow_to_dict(workflow: "Workflow") -> dict:
     return {
         "name": workflow.name,
         "agents": [a.to_dict() for a in workflow.agents],
+        "max_iterations": workflow.max_iterations,
     }
 
 
@@ -189,4 +190,5 @@ def workflow_from_dict(
         workflow_dir=workflow_dir,
         agents_dir=agents_dir,
         checkpointer=checkpointer,
+        max_iterations=data.get("max_iterations", 3),
     )

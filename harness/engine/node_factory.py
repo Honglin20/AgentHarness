@@ -102,18 +102,18 @@ def make_node_func(
     builder_self = builder  # Capture for workflow_id access
     final_tool_names, model, retries, result_type = resolve_agent_config(builder, agent_def, parsed)
 
-    # Per-node reminder tracker (only when todo will be available to the agent).
+    # Per-node reminder tracker (only when TodoTool will be available to the agent).
     #
-    # `todo` is FORCED-tier, so registry.resolve() injects it unless an
+    # `TodoTool` is FORCED-tier, so registry.resolve() injects it unless an
     # exclude list removes it. The check below keeps the original semantics
-    # intact: when no whitelist is given (None) todo is always present;
-    # when a whitelist is given, todo is present iff it's listed (FORCED
+    # intact: when no whitelist is given (None) TodoTool is always present;
+    # when a whitelist is given, TodoTool is present iff it's listed (FORCED
     # injection guarantees that). This also auto-adapts if exclude_tools
-    # ever flows into this layer (then "todo" would be absent from
+    # ever flows into this layer (then "TodoTool" would be absent from
     # final_tool_names and the tracker correctly disables).
-    # Tracker reads TodoState lazily from deps — the todo tool creates state
+    # Tracker reads TodoState lazily from deps — the TodoTool creates state
     # on first call, and the tracker reads it from there.  No registry mutation.
-    todo_available = final_tool_names is None or "todo" in final_tool_names
+    todo_available = final_tool_names is None or "TodoTool" in final_tool_names
     # Will be set inside nodeFunc after deps is created
     _reminder_tracker_holder: list[TodoReminderTracker | None] = [None]
 
@@ -683,6 +683,15 @@ def make_node_func(
                     builder_self.workflow_id, agent_def.name, agent_def.name,
                     str(e), duration_ms, error_type=error_type, extra=extra or None,
                 ))
+
+            # Root agent (after == []) failure = setup failure = no point
+            # continuing. Re-raise so LangGraph terminates the workflow
+            # instead of swallowing the error and letting downstream agents
+            # cycle indefinitely (scout fail → selector → ... → validator.on_fail
+            # → selector → recursion limit). Non-root agents keep the swallow
+            # semantics so conditional-edge recovery (on_fail) can still work.
+            if agent_def.after == []:
+                raise
 
             return {
                 STATE_OUTPUTS: {},
