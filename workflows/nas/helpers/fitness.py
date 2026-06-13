@@ -35,6 +35,8 @@ def main() -> None:
     p_compute.add_argument("--acc-tolerance", type=float, required=True)
     p_compute.add_argument("--no-writeback", action="store_true",
                            help="don't write fitness back to strategy_result")
+    p_compute.add_argument("--use-onnx-latency", action="store_true",
+                           help="use strategy.onnx_latency_ms if present (falls back to latency_ms)")
 
     args = p.parse_args()
 
@@ -47,7 +49,7 @@ def main() -> None:
             print(json.dumps({"error": "strategy_result not found"}))
             sys.exit(1)
 
-        result = _compute(metrics, baseline, strategy, args.target_latency, args.acc_tolerance)
+        result = _compute(metrics, baseline, strategy, args.target_latency, args.acc_tolerance, args.use_onnx_latency)
         print(json.dumps(result, indent=2))
 
         if not args.no_writeback:
@@ -81,7 +83,8 @@ def _lookup_metric_value(blob: dict, name: str):
 
 
 def _compute(metrics: dict, baseline: dict, strategy: dict,
-             target_latency: float, acc_tolerance: float) -> dict:
+             target_latency: float, acc_tolerance: float,
+             use_onnx_latency: bool = False) -> dict:
     primary_name = metrics.get("primary_metric", "acc")
     primary_dir = _lookup_direction(metrics, primary_name)
 
@@ -100,6 +103,10 @@ def _compute(metrics: dict, baseline: dict, strategy: dict,
     acc_drop = max(0.0, -primary_normalized)
 
     strategy_latency = strategy.get("latency_ms") or 0.0
+    if args.use_onnx_latency:
+        # Prefer onnx latency when available — more stable & cross-device comparable.
+        # Fall back to pytorch latency if onnx not measured (e.g. export failed).
+        strategy_latency = strategy.get("onnx_latency_ms") or strategy_latency
     latency_ratio = (target_latency / strategy_latency) if strategy_latency > 0 else 0.0
 
     baseline_params = baseline.get("params", 0) if baseline else 0

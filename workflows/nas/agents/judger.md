@@ -27,16 +27,21 @@ python $helpers_dir/fitness.py compute \
   --baseline-json $session_dir/baseline.json \
   --strategy-result $session_dir/iter_<N>/strategy_<i>/eval_result.json \
   --target-latency <from budget> \
-  --acc-tolerance <from budget>
+  --acc-tolerance <from budget> \
+  --use-onnx-latency
 ```
 返回：`{fitness: <float>, primary_normalized: <float>, components: {...}}`
+
+`--use-onnx-latency`：latency_ratio 优先用 `strategy.onnx_latency_ms`（更稳、跨设备可比），fallback 到 `latency_ms`（pytorch）。onnx_latency_ms 由 trainer sub_agent 通过 export_onnx + measure_onnx_latency 写入 eval_result.json。
 
 公式（供 helpers 实现参考）：
 ```
 primary_normalized = (val - baseline) / baseline  if direction=="higher"
                    = (baseline - val) / baseline  if direction=="lower"
 acc_drop       = max(0, -primary_normalized)
-latency_ratio  = target_latency_ms / strategy_latency_ms
+strategy_latency = strategy.onnx_latency_ms  (if --use-onnx-latency)
+                 || strategy.latency_ms      (fallback)
+latency_ratio  = target_latency_ms / strategy_latency
 param_ratio    = strategy_params / baseline_params
 stability      = 1 - normalize(std(loss_curve_tail))
 

@@ -53,6 +53,10 @@ Benchmark command: <benchmark_command>
 2. git apply <diff> (baseline 跳过)
 3. 训练: <training_command>
 4. Benchmark: <benchmark_command>
+5. 导出 ONNX（在项目源码目录跑，不是 worktree）:
+   python $helpers_dir/export_onnx.py --checkpoint <ckpt_path> --out $session_dir/iter_<N>/strategy_<i>/model.onnx --model-dir <project_source_dir>
+6. 测 ONNX latency:
+   python $helpers_dir/measure_onnx_latency.py --onnx $session_dir/iter_<N>/strategy_<i>/model.onnx --out $session_dir/iter_<N>/strategy_<i>/onnx_latency.json
 
 失败处理:
 - OOM / NaN / shape mismatch / ImportError / CUDA error → 不要立即放弃
@@ -62,6 +66,7 @@ Benchmark command: <benchmark_command>
   - shape mismatch → 检查 layer 接口
   - ImportError → 修路径
 - 修复后重跑；仍失败 → status="failed" + error_trace
+- ONNX 导出/测量失败不阻塞 eval_result（status 仍 ok，但 onnx_latency_ms 留 null）
 
 GPU: CUDA_VISIBLE_DEVICES=<gpu_id>
 
@@ -71,6 +76,8 @@ GPU: CUDA_VISIBLE_DEVICES=<gpu_id>
   "strategy_id": "<id>",
   "metrics": { "<name>": <float>, ... },
   "latency_ms": <float or null>,
+  "onnx_latency_ms": <float or null, 来自 onnx_latency.json latency_ms_median>,
+  "onnx_path": "<path or null>",
   "params": <int or null>,
   "loss_curve": [<float>, ...] or null,
   "training_log_path": "<path>",

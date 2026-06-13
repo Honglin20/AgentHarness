@@ -104,6 +104,19 @@ retries: 2
 }
 ```
 
+### 5. 渲染最终结果图（含 refinement 数据，完整可视化）
+```bash
+python $helpers_dir/render_charts.py \
+  --session $session_dir \
+  --node-id reporter
+```
+
+reporter 调用比 analyzer 多了 refinement/_merged.json 数据：
+- refine 阶段的 strategy 进图（按 tier_index 分组）
+- baseline-comparison bar 用 refinement 后的最佳 strategy（更准）
+
+不阻塞 reporter 输出。
+
 ## 注意
 - 客观报告，refinement 失败的 strategy 也要列
 - abort 时不要伪造"找到改进"

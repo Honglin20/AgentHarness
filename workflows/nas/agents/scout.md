@@ -52,6 +52,7 @@ cat /tmp/.scout_paths.json
 
 Session dir: <session_dir>
 Working dir: <working_dir>
+Helpers dir: <helpers_dir>
 Training command: <training_command>
 Benchmark command: <benchmark_command>
 
@@ -60,15 +61,23 @@ Benchmark command: <benchmark_command>
 2. 跑 1 epoch baseline: <training_command>（如果原命令含 --epochs，改成 --epochs 1；否则加 --epochs 1）
 3. 跑 benchmark: <benchmark_command>
 4. 测量: 1 epoch wall clock 秒数 / metric 值 / latency_ms / params / total_epochs（解析 trainer args）
-5. 写 <session_dir>/baseline.json:
+5. 导出 ONNX（在 working_dir 跑，因为 model.py 在那里）:
+   python <helpers_dir>/export_onnx.py --checkpoint <ckpt_path> --out <session_dir>/baseline.onnx --model-dir <working_dir>
+6. 测 ONNX latency:
+   python <helpers_dir>/measure_onnx_latency.py --onnx <session_dir>/baseline.onnx --out <session_dir>/baseline_onnx_latency.json
+7. 写 <session_dir>/baseline.json:
    {
      "metrics": {<name>: <val>, ...},
-     "latency_ms": <float>,
+     "latency_ms": <float, pytorch benchmark>,
+     "onnx_latency_ms": <float, latency_ms_median from onnx_latency.json>,
+     "onnx_path": "<session_dir>/baseline.onnx",
      "params": <int>,
      "one_epoch_sec": <float>,
      "total_epochs": <int>,
      "full_training_duration_sec": <one_epoch_sec * total_epochs>
    }
+
+ONNX 导出/测量失败不阻塞 baseline.json 写入，但 onnx_latency_ms 留 null。
 ```
 
 ### Sub-agent 2: tier_planner（isolation="none"，只读 baseline.json）

@@ -62,8 +62,12 @@ Benchmark command: <benchmark_command>
 2. git apply <diff>
 3. 训练: <adjusted_training_command>
 4. Benchmark: <benchmark_command>
+5. 导出 ONNX（在项目源码目录跑，不是 worktree）:
+   python $helpers_dir/export_onnx.py --checkpoint <ckpt_path> --out $session_dir/refinement/<strategy_id>.onnx --model-dir <project_source_dir>
+6. 测 ONNX latency:
+   python $helpers_dir/measure_onnx_latency.py --onnx $session_dir/refinement/<strategy_id>.onnx --out $session_dir/refinement/<strategy_id>_onnx_latency.json
 
-失败处理（同 search 阶段，最多 2 次重试）
+失败处理（同 search 阶段，最多 2 次重试；ONNX 失败不阻塞，onnx_latency_ms 留 null）
 
 GPU: CUDA_VISIBLE_DEVICES=<gpu_id>
 
@@ -74,6 +78,8 @@ GPU: CUDA_VISIBLE_DEVICES=<gpu_id>
   "tier_applied": {"tier_index": <T>, "data_ratio": <X>, "epochs": <Y>},
   "metrics": {...},
   "latency_ms": <float>,
+  "onnx_latency_ms": <float or null, 来自 onnx_latency.json latency_ms_median>,
+  "onnx_path": "<path or null>",
   "params": <int>,
   "loss_curve": [...],
   "training_log_path": "<path>",

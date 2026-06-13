@@ -104,6 +104,22 @@ python $helpers_dir/direction.py detect-plateau \
   --write $session_dir/plateau_signal.json
 ```
 
+### 7. 渲染本轮结果图（每 iter 都画，前端 result 标签实时显示）
+```bash
+python $helpers_dir/render_charts.py \
+  --session $session_dir \
+  --node-id analyzer
+```
+
+helper 自动按 tier 分组画图（参考 AlphaGo-Moment / ASI-Arch 论文风格）：
+- 每 tier 一张 scatter (acc vs latency_ms，baseline 标记)
+- 每 tier 一张 optimal_line (Pareto 前沿 acc → max)
+- fitness-progression line (iter-N best fitness 收敛)
+- top_strategies table
+- baseline-comparison bar (baseline vs top-1，normalized)
+
+如果某些 tier 数据为空，helper 自动跳过；不阻塞 analyzer 主流程。
+
 写：`$session_dir/plateau_signal.json`:
 ```json
 {
