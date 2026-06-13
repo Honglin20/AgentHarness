@@ -76,3 +76,15 @@ class MultiInputMLP(nn.Module):
 
 def count_parameters(model: nn.Module) -> int:
     return sum(p.numel() for p in model.parameters())
+
+
+def dummy_inputs(batch_size: int = 1):
+    """Construct dummy inputs for ONNX export / latency benchmarking.
+
+    Returns a tuple of two tensors (x_a, x_b), each (batch_size, 32).
+    Matches MultiInputMLP.forward(x_a, x_b) signature.
+    """
+    return (
+        torch.randn(batch_size, 32),
+        torch.randn(batch_size, 32),
+    )

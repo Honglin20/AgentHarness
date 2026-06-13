@@ -3,6 +3,7 @@
 NAS workflow will modify this file to explore different architectures
 (layer count / hidden dim / activation / normalization).
 """
+import torch
 import torch.nn as nn
 
 
@@ -62,3 +63,11 @@ class ConfigurableMLP(nn.Module):
 
 def count_parameters(model: nn.Module) -> int:
     return sum(p.numel() for p in model.parameters())
+
+
+def dummy_inputs(batch_size: int = 1):
+    """Construct dummy inputs for ONNX export / latency benchmarking.
+
+    Returns a single tensor of shape (batch_size, 64).
+    """
+    return torch.randn(batch_size, 64)

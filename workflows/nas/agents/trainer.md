@@ -55,8 +55,14 @@ Benchmark command: <benchmark_command>
 4. Benchmark: <benchmark_command>
 5. 导出 ONNX（在项目源码目录跑，不是 worktree）:
    python $helpers_dir/export_onnx.py --checkpoint <ckpt_path> --out $session_dir/iter_<N>/strategy_<i>/model.onnx --model-dir <project_source_dir>
+   **失败处理（input shape / 多输入问题）**:
+   - export_onnx.py 会自动调用 `model.dummy_inputs()` 推导 forward 签名（tensor / tuple / list / dict 都支持）
+   - 如果 stderr 出现 "single-tensor fallback" 警告且项目是 multi/list/dict 输入 → 项目 model.py 缺 dummy_inputs 函数
+   - 修复：读 forward 签名，在 <project_source_dir>/model.py 末尾 append 一个 dummy_inputs(batch_size=1) 函数
+     （forward(self, x_a, x_b) → return (randn(B, dim_a), randn(B, dim_b))，shape 从 train.py 数据推导）
+   - 重试 export。**这是允许修改 model.py 的特例**（其他改动只能通过 diff）
 6. 测 ONNX latency:
-   python $helpers_dir/measure_onnx_latency.py --onnx $session_dir/iter_<N>/strategy_<i>/model.onnx --out $session_dir/iter_<N>/strategy_<i>/onnx_latency.json
+   python $helpers_dir/measure_onnx_latency.py --onnx $session_dir/iter_<N>/strategy_<i>/model.onnx --out $session_dir/iter_<N>/strategy_<i>/onnx_latency.json --model-dir <project_source_dir>
 
 失败处理:
 - OOM / NaN / shape mismatch / ImportError / CUDA error → 不要立即放弃

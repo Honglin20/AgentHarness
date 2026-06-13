@@ -64,8 +64,11 @@ Benchmark command: <benchmark_command>
 4. Benchmark: <benchmark_command>
 5. 导出 ONNX（在项目源码目录跑，不是 worktree）:
    python $helpers_dir/export_onnx.py --checkpoint <ckpt_path> --out $session_dir/refinement/<strategy_id>.onnx --model-dir <project_source_dir>
+   **失败处理（input shape / 多输入问题）**:
+   - export_onnx.py 自动调用 `model.dummy_inputs()` 推导 forward 签名（支持 tensor / tuple / list / dict）
+   - 缺 dummy_inputs 函数 → 读 forward 签名 + train.py 数据 shape，append 到 <project_source_dir>/model.py 末尾，重试
 6. 测 ONNX latency:
-   python $helpers_dir/measure_onnx_latency.py --onnx $session_dir/refinement/<strategy_id>.onnx --out $session_dir/refinement/<strategy_id>_onnx_latency.json
+   python $helpers_dir/measure_onnx_latency.py --onnx $session_dir/refinement/<strategy_id>.onnx --out $session_dir/refinement/<strategy_id>_onnx_latency.json --model-dir <project_source_dir>
 
 失败处理（同 search 阶段，最多 2 次重试；ONNX 失败不阻塞，onnx_latency_ms 留 null）
 

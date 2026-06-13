@@ -72,6 +72,17 @@ def count_parameters(model: nn.Module) -> int:
     return sum(p.numel() for p in model.parameters())
 
 
+def dummy_inputs(batch_size: int = 1):
+    """Construct dummy inputs for ONNX export / latency benchmarking.
+
+    Returns a list of N tensors, each (batch_size, in_dim).
+    Matches ListInputMLP.forward(x_list) signature.
+    """
+    num_inputs = 3
+    in_dim = 16
+    return [torch.randn(batch_size, in_dim) for _ in range(num_inputs)]
+
+
 def make_synthetic_batch(batch_size: int, num_inputs: int = 3, in_dim: int = 16,
                          signal_scale: float = 3.0, device: str = "cpu"):
     """Generate one batch: list of N tensors + labels.

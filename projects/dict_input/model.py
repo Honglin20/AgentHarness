@@ -84,6 +84,18 @@ def count_parameters(model: nn.Module) -> int:
     return sum(p.numel() for p in model.parameters())
 
 
+def dummy_inputs(batch_size: int = 1):
+    """Construct dummy inputs for ONNX export / latency benchmarking.
+
+    Returns a dict {"user": ..., "item": ...}.
+    Matches DictInputMLP.forward(inputs: dict) signature.
+    """
+    return {
+        "user": torch.randn(batch_size, 8),
+        "item": torch.randn(batch_size, 8),
+    }
+
+
 def make_synthetic_batch(batch_size: int, user_dim: int = 8, item_dim: int = 8,
                          num_classes: int = 3, noise_scale: float = 0.3,
                          device: str = "cpu", _protos=None):
