@@ -26,19 +26,50 @@ retries: 2
 - signatures.idx 知道哪些改造已经试过
 
 ### 2. 开放式 hypothesize K 个 strategy
-**默认**：在 domain_insights 推荐方向 + parent 改造路径上深化。
 
-**如果 selector.direction_change = true**（强制换方向）：
-- **必须**从 suggested_directions 选 ≥2 个 hypothesize
-- 剩余 K-2 个可以继续探索（但不要重复 signatures.idx 里的）
-- 在 direction.md 里标记本次尝试的方向
+#### 2.1 Lineage 拆分（K ≥ 3 时强制）
 
-**hypothesis 必须包含**：
+避免 parent 选错时 K 个 strategy 一起错；wild card 防止局部最优陷阱。
+
+- `⌈K/2⌉` 个 from **top-1 parent**（深化当前最优方向）
+- `1` 个 from **top-2 parent**（探索次优分支；candidates 不足 2 个时全给 top-1）
+- `1` 个 **wild card**（`strategy_id` 加 `_wc` 后缀）：restart from baseline，方向**必须不同于**已探索的 `direction_tag`
+- K = 2 时不强制拆分，但仍鼓励"1 深化 + 1 新方向"
+
+如果 `selector.direction_change = true`（强制换方向）：
+- wild card 必须从 `suggested_directions` 选
+- 其他 strategy 也应偏离已探索路径（不重复 `signatures.idx`）
+
+#### 2.2 hypothesis 字段（必含）
+
 - 改造描述（具体到文件 + layer + op）
-- 领域依据（cite domain_insights 哪一条 / 为什么这个方向对该领域有效）
-- 预期效果（降延迟 X% / 保精度 Y%）
+- **`hypothesis_type`**: `[parametric]` / `[structural_local]` / `[structural_global]`
+  - `[parametric]`：调超参（activation / hidden_dim / num_layers / lr / batch_size / ...）— 便宜、低风险、天花板低
+  - `[structural_local]`：换 layer / 插 skip / channel shuffle / op 替换 — 中风险
+  - `[structural_global]`：重构 attention / 替换 backbone / MoE — 高风险、高收益
+- 领域依据：cite `domain_insights.md` 哪一条 **或** `baseline_profile.json.top_latency_layers` 哪个 layer
+- 预期效果（降延迟 X% / 保精度 Y%；structural_global 可给范围）
 
-可探索类型（不限于此）：
+#### 2.3 Profile-aware targeting（推荐）
+
+读 `$session_dir/baseline_profile.json` 的 `top_latency_layers`：
+- structural 类 hypothesis 优先 cite top-3 latency layer（如"attention.qkv 占 38% → 替换为 fused QKV"）
+- parametric 类不强制（调超参本来就不针对特定 layer）
+
+#### 2.4 Type 分布约束（K ≥ 3 时）
+
+- **至少 1 个 `[structural_local]` 或 `[structural_global]`**（避免全 parametric 原地打转）
+- wild card 鼓励 `[structural_global]`（探索大幅度改造）
+
+#### 2.5 Failure-aware avoidance（必做）
+
+读 `$session_dir/failure_patterns.md`（analyzer 累加维护）：
+- 已标记的**危险 layer**（如"conv3 修改反复 shape mismatch"）→ hypothesis 不得 cite，除非明确解释如何规避
+- 已标记的**危险超参组合**（如"GELU + lr=1e-2 → NaN"）→ 不再生成同组合
+- 文件不存在 → 无已知危险区，自由生成
+
+#### 2.6 可探索类型（参考，不限于此）
+
 - 领域特定：DSP 算子 / 卷积分解 / attention 稀疏化 / head 蒸馏 / 量化友好结构
 - 通用：换激活 / 改归一化 / 加 skip / channel shuffle / 结构重排
 
@@ -80,10 +111,13 @@ Strategy hypothesis: <hypothesis 描述>
 - diff: $session_dir/iter_<N>/strategy_<i>/diff.patch
 - manifest: $session_dir/iter_<N>/strategy_<i>/manifest.json:
   {
-    "strategy_id": "iter_<N>_strategy_<i>",
+    "strategy_id": "iter_<N>_strategy_<i>" or "iter_<N>_strategy_<i>_wc",
     "parent_strategy_id": "<...>",
+    "is_wild_card": <bool>,
     "hypothesis": "<...>",
+    "hypothesis_type": "parametric | structural_local | structural_global",
     "domain_basis": "<from domain_insights>",
+    "profile_target": "<which top_latency_layer, or null>",
     "direction_tag": "<本次探索的方向分类>",
     "files_changed": [...],
     "ops_modified": [...],

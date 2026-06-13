@@ -13,6 +13,7 @@ retries: 2
 
 ## 输入
 - `$session_dir/baseline.json`
+- `$session_dir/baseline_profile.json`（per-layer latency + params，**架构建议的关键数据源**）
 - `$session_dir/candidates.json`
 - `$session_dir/refinement/*.json`
 - `$session_dir/validator_decision.json`
@@ -21,6 +22,8 @@ retries: 2
 - `$session_dir/budget.json`
 - `$session_dir/metrics.json`
 - `$session_dir/domain_insights.md`
+- `$session_dir/direction.md`（含 wild card 标记，`_wc` 后缀）
+- `$session_dir/failure_patterns.md`（如存在；analyzer 累加维护）
 
 ## 任务
 
@@ -82,6 +85,38 @@ retries: 2
 - <direction_1>: best_fitness=<X>
 - <direction_2>: best_fitness=<Y>
 - 未尝试的方向（domain_insights 推荐 + planner 没用）: ...
+
+## 架构优化建议（基于本次观察）
+
+**必填，不能为空。严禁泛泛而谈（"建议尝试更多结构"），必须 cite 具体数据。**
+
+### 1. Latency 瓶颈分析
+读 `$session_dir/baseline_profile.json`：
+- Baseline latency top-3 layer: <列出 layer 名 + 占比>
+- 本轮 structural 改造涉及哪些？（对比 candidates.json 的 `ops_modified` 字段）
+- **未触碰的高 latency layer**: <列出本轮没动过的 top-K layer>
+- 建议: <针对未触 layer 给具体改造方向，例如"fused QKV" / "depthwise separable conv">
+
+### 2. Accuracy 天花板分析
+读 HISTORY.md + candidates.json：
+- 所有 strategy 的 primary_metric 范围: [<min>, <max>]
+- 是否有明显天花板（≥3 个 strategy 接近同一值）？
+- 推断原因: <over-parameterization / 数据不足 / 收敛鞍点 / tier 不足>
+- 建议: <数据增强 / 更长训练 / 不同 optimizer / 升 tier>
+
+### 3. Wild card 启示（如有）
+读 direction.md，找 `strategy_id` 含 `_wc` 的：
+- wild card 数量 + 收益 vs top-1 lineage: <对比 fitness / latency>
+- 启示: <哪个非主流方向值得加大投入>
+
+### 4. 未充分探索方向
+读 domain_insights.md 的推荐方向 vs direction.md 的 explored：
+- 推荐 ≥5 条，本轮探索了 X 条，未探索 Y 条
+- 列出未探索方向 + 每条预估收益（基于 domain knowledge 或 profile 数据）
+
+### 5. Failure 启示（读 failure_patterns.md）
+- 哪些改造反复失败？→ <标记为后续避免>
+- 哪些改造稳定可叠加？→ <标记为安全方向>
 
 ## 结论 + 后续建议
 - 是否达标
