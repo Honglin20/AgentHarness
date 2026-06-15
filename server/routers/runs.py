@@ -248,6 +248,15 @@ async def get_run_events(
     store, run, user, is_admin = _load_run_for_user(run_id, request, store)
     return store.get_events(run_id)
 
+@router.get("/runs/{run_id}/outline")
+async def get_run_outline(
+    run_id: str, request: Request,
+    store: RunStoreInterface = Depends(get_run_store_dep),
+) -> list[dict] | None:
+    """Pre-computed per-(nodeId, iter) outline summary. None = legacy / failed → frontend derives from conversation."""
+    store, run, user, is_admin = _load_run_for_user(run_id, request, store)
+    return store.get_outline(run_id)
+
 @router.get("/runs/{run_id}/conversation")
 async def get_run_conversation(
     run_id: str, request: Request,

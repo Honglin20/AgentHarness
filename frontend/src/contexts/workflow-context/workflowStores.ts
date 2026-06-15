@@ -18,6 +18,7 @@ export {
   handleTodoBulkCompleted,
   handleTodoReplaced,
   accumulateStepTokens,
+  createOutlineSidecarStore,
   createWorkflowStores,
   getMessageCounter,
 } from "./stores/index";
@@ -27,4 +28,5 @@ export type {
   IdCounter,
   TodoState,
   TodoStep,
+  OutlineSidecarState,
 } from "./stores/index";

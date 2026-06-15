@@ -540,3 +540,97 @@ def test_list_runs_pagination(tmp_path):
     assert len(all_runs["runs"]) == 10
     assert all_runs["total"] == 10
     assert all_runs["has_more"] is False
+
+
+def test_save_and_get_outline_round_trip():
+    """save_outline writes sidecar + _has_outline flag; get_outline reads it back."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = RunStore(runs_dir=tmpdir)
+        store.save(
+            run_id="run-outline",
+            workflow_name="demo",
+            agents_snapshot=[],
+            status="completed",
+            inputs={},
+            result=None,
+        )
+
+        # No sidecar yet — get_outline returns None, _has_outline absent
+        assert store.get_outline("run-outline") is None
+        record = store.get_run("run-outline")
+        assert record.get("_has_outline") in (None, False)
+
+        outline = [
+            {
+                "key": "trainer__iter1",
+                "node_id": "trainer",
+                "iteration": 1,
+                "is_latest_iter": True,
+                "iter_count": 1,
+                "name": "trainer",
+                "first_ts": 1718000000000,
+                "status": "completed",
+                "activity": {"kind": "completed", "durationMs": 4500},
+                "badges": [],
+                "order": 0,
+            }
+        ]
+        store.save_outline("run-outline", outline)
+
+        # Round-trip: get_outline returns the same list
+        loaded = store.get_outline("run-outline")
+        assert loaded == outline
+
+        # Flag stamped on main record
+        record = store.get_run("run-outline")
+        assert record.get("_has_outline") is True
+
+        # Sidecar file uses the +outline.json suffix
+        sidecar = Path(tmpdir) / "run-outline+outline.json"
+        assert sidecar.exists()
+        assert json.loads(sidecar.read_text()) == outline
+
+        # list_runs glob should skip the sidecar (not treat it as a run)
+        runs = store.list_runs()["runs"]
+        assert all(r["run_id"] != "run-outline+outline" for r in runs)
+
+
+def test_save_outline_with_empty_list_clears_sidecar():
+    """Empty outline list removes the sidecar and clears _has_outline."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = RunStore(runs_dir=tmpdir)
+        store.save(
+            run_id="run-empty",
+            workflow_name="demo",
+            agents_snapshot=[],
+            status="completed",
+            inputs={},
+            result=None,
+        )
+        store.save_outline("run-empty", [{"key": "x__iter1"}])
+        assert store.get_outline("run-empty") is not None
+        assert store.get_run("run-empty").get("_has_outline") is True
+
+        store.save_outline("run-empty", [])
+        assert store.get_outline("run-empty") is None
+        assert store.get_run("run-empty").get("_has_outline") is False
+
+
+def test_delete_run_removes_outline_sidecar():
+    """delete_run must clean up the +outline.json sidecar too."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = RunStore(runs_dir=tmpdir)
+        store.save(
+            run_id="run-del",
+            workflow_name="demo",
+            agents_snapshot=[],
+            status="completed",
+            inputs={},
+            result=None,
+        )
+        store.save_outline("run-del", [{"key": "x__iter1"}])
+        sidecar = Path(tmpdir) / "run-del+outline.json"
+        assert sidecar.exists()
+
+        assert store.delete_run("run-del") is True
+        assert not sidecar.exists()

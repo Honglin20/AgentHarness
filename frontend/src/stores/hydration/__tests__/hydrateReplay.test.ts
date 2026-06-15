@@ -58,6 +58,7 @@ const emptySidecars: SidecarData = {
   charts: null,
   events: undefined,
   conversation: null,
+  outline: null,
 };
 
 describe("decideStrategy", () => {
@@ -93,6 +94,7 @@ describe("decideStrategy", () => {
       charts: null,
       events: undefined,
       conversation: [{ id: "m1", type: "user", content: "hi" }],
+      outline: null,
     };
     expect(decideStrategy(run, sidecars)).toBe("persisted");
   });
@@ -106,6 +108,7 @@ describe("decideStrategy", () => {
       charts: null,
       events: [{ type: "node.started", ts: 0, payload: {} }] as any,
       conversation: null,
+      outline: null,
     };
     expect(decideStrategy(run, sidecars)).toBe("events");
   });
@@ -120,6 +123,7 @@ describe("decideStrategy", () => {
       charts: null,
       events: [{ type: "node.started", ts: 0, payload: {} }] as any,
       conversation: null,
+      outline: null,
     };
     expect(decideStrategy(run, sidecars)).toBe("events");
   });
@@ -189,7 +193,7 @@ describe("applyHydration", () => {
         trace: [{ agent_name: "writer", status: "success", duration_ms: 100, error: null }],
       },
     });
-    const sidecars: SidecarData = { charts: null, events: undefined, conversation: null };
+    const sidecars: SidecarData = { charts: null, events: undefined, conversation: null, outline: null };
 
     applyHydration("r1", run, sidecars, "persisted");
 
@@ -204,6 +208,7 @@ describe("applyHydration", () => {
       charts: null,
       events: [{ type: "node.started", ts: 0, payload: {} }] as any,
       conversation: null,
+      outline: null,
     };
 
     applyHydration("r1", run, sidecars, "events");
@@ -224,7 +229,7 @@ describe("applyHydration", () => {
 
   it("falls back to legacy when 'events' strategy has empty events", () => {
     const run = makeRun();
-    const sidecars: SidecarData = { charts: null, events: undefined, conversation: null };
+    const sidecars: SidecarData = { charts: null, events: undefined, conversation: null, outline: null };
 
     // Should not happen via decideStrategy, but be defensive.
     applyHydration("r1", run, sidecars, "events");
@@ -239,6 +244,7 @@ describe("applyHydration", () => {
       charts: { groups: {}, groupOrder: [] },
       events: [{ type: "x", ts: 0, payload: {} }] as any,
       conversation: [{ id: "m1", type: "user", content: "hi" }],
+      outline: null,
     };
 
     const merged = applyHydration("r1", run, sidecars, "legacy");

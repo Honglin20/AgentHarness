@@ -143,6 +143,7 @@ export const useViewStore = create<ViewState>()((set, get) => ({
           charts: run.chart_groups ?? null,
           events: run.events,
           conversation: run.conversation ?? null,
+          outline: null,
         };
         const strategy = decideStrategy(run, fallbackSidecars);
         const merged = applyHydration(run.run_id, run, fallbackSidecars, strategy);

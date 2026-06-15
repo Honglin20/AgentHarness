@@ -47,6 +47,7 @@ export interface WorkflowStores {
   agentIO: StoreApi<import("@/stores/agentIOStore").AgentIOState>;
   span: StoreApi<import("@/stores/spanStore").SpanState>;
   todo: StoreApi<import("./stores/todo").TodoState>;
+  outline: StoreApi<import("./stores/outline").OutlineSidecarState>;
 }
 
 /**

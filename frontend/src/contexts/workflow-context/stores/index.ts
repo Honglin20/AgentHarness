@@ -29,6 +29,7 @@ import {
   handleTodoReplaced,
   accumulateStepTokens,
 } from "./todo";
+import { createOutlineSidecarStore } from "./outline";
 
 // Re-export all imports
 export {
@@ -46,11 +47,13 @@ export {
   handleTodoBulkCompleted,
   handleTodoReplaced,
   accumulateStepTokens,
+  createOutlineSidecarStore,
 };
 
 // Re-export types
 export type { IdCounter } from "@/lib/idCounter";
 export type { TodoState, TodoStep } from "./todo";
+export type { OutlineSidecarState } from "./outline";
 
 // ============================================================
 // Workflow Stores Container
@@ -64,6 +67,7 @@ export interface WorkflowStores {
   agentIO: StoreApi<AgentIOState>;
   span: StoreApi<SpanState>;
   todo: StoreApi<import("./todo").TodoState>;
+  outline: StoreApi<import("./outline").OutlineSidecarState>;
 }
 
 export interface CreateWorkflowStoresOptions {
@@ -86,6 +90,7 @@ export function createWorkflowStores(
     agentIO: createAgentIOStore(workflowId),
     span: createSpanStore(workflowId),
     todo: createTodoStore(workflowId),
+    outline: createOutlineSidecarStore(workflowId),
   };
 }
 

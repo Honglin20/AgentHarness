@@ -77,6 +77,7 @@ def test_can_subclass_for_alternative_backend():
             self._runs: dict[str, dict] = {}
             self._charts: dict[str, dict] = {}
             self._events: dict[str, list] = {}
+            self._outline: dict[str, list] = {}
             self._followups: dict[tuple[str, str], dict] = {}
             self._mtimes: dict[str, float] = {}
 
@@ -134,11 +135,19 @@ def test_can_subclass_for_alternative_backend():
         def get_events(self, run_id):
             return self._events.get(run_id)
 
+        def get_outline(self, run_id):
+            return self._outline.get(run_id)
+
+        def save_outline(self, run_id, outline):
+            if outline:
+                self._outline[run_id] = outline
+
         def delete_run(self, run_id):
             existed = run_id in self._runs
             self._runs.pop(run_id, None)
             self._charts.pop(run_id, None)
             self._events.pop(run_id, None)
+            self._outline.pop(run_id, None)
             return existed
 
         def update_followup(self, run_id, agent_name, session_data):

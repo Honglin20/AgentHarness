@@ -97,6 +97,7 @@ export function resetAllStores(stores: WorkflowStores): void {
   stores.agentIO.getState().reset();
   stores.span.getState().reset();
   stores.todo.getState().reset();
+  stores.outline.getState().reset();
 }
 
 // ---------------------------------------------------------------------------

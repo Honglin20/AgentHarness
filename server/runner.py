@@ -380,6 +380,34 @@ class WorkflowRunner:
                     todo_steps=_todo_steps or None,
                 )
 
+                # Write outline sidecar — pre-computed per-(nodeId, iter) summary
+                # so the frontend can render the outline without scanning the full
+                # conversation (replay mode). Wrapped in try/except: a buggy
+                # projection must never block the main run-record save; the
+                # frontend falls back to deriving from conversation.
+                try:
+                    from harness.persistence.outline_compute import compute_outline
+                    result_data = data.get("result") if data else None
+                    trace_for_outline = (
+                        result_data.get("trace", []) if isinstance(result_data, dict) else []
+                    )
+                    outline = compute_outline(
+                        conversation=conversation,
+                        events=events,
+                        trace=trace_for_outline,
+                        todo_steps=_todo_steps or None,
+                        agents_snapshot=data.get("agents_snapshot")
+                            or _build_agents_snapshot(workflow) if data else _build_agents_snapshot(workflow),
+                        dag=repo.get_dag(workflow_id),
+                    )
+                    if outline:
+                        RunStore().save_outline(workflow_id, outline)
+                except Exception:
+                    logger.exception(
+                        "outline sidecar computation failed for %s — falling back to frontend derive",
+                        workflow_id,
+                    )
+
             except Exception as e:
                 # Store error for REST endpoints
                 from server.repository import get_repository
@@ -452,6 +480,28 @@ class WorkflowRunner:
                     work_dir=work_dir,
                     todo_steps=_todo_steps or None,
                 )
+
+                # Outline sidecar for failed runs too — frontend outline should
+                # reflect which nodes succeeded before the failure. Same
+                # try/except guard as the success path.
+                try:
+                    from harness.persistence.outline_compute import compute_outline
+                    outline = compute_outline(
+                        conversation=conversation,
+                        events=events,
+                        trace=[],
+                        todo_steps=_todo_steps or None,
+                        agents_snapshot=data.get("agents_snapshot")
+                            or _build_agents_snapshot(workflow) if data else _build_agents_snapshot(workflow),
+                        dag=repo.get_dag(workflow_id),
+                    )
+                    if outline:
+                        RunStore().save_outline(workflow_id, outline)
+                except Exception:
+                    logger.exception(
+                        "outline sidecar computation failed for %s (failed run) — falling back to frontend derive",
+                        workflow_id,
+                    )
 
             finally:
                 # Restore working directory

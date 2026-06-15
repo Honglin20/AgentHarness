@@ -26,6 +26,7 @@ _SAFE_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 # Sidecar suffixes use '+'' which is NOT in _SAFE_ID_RE, preventing name collision.
 _CHARTS_SUFFIX = "+charts.json"
 _EVENTS_SUFFIX = "+events.json"
+_OUTLINE_SUFFIX = "+outline.json"
 
 
 class RunStore(RunStoreInterface):
@@ -66,7 +67,7 @@ class RunStore(RunStoreInterface):
         # Rebuild from disk
         new_index: dict[str, dict] = {}
         for f in self._dir.glob("*.json"):
-            if f.name.endswith(_CHARTS_SUFFIX) or f.name.endswith(_EVENTS_SUFFIX):
+            if f.name.endswith(_CHARTS_SUFFIX) or f.name.endswith(_EVENTS_SUFFIX) or f.name.endswith(_OUTLINE_SUFFIX):
                 continue
             try:
                 data = json.loads(f.read_text())
@@ -131,6 +132,11 @@ class RunStore(RunStoreInterface):
         if not _SAFE_ID_RE.match(run_id):
             return None
         return self._dir / f"{run_id}{_EVENTS_SUFFIX}"
+
+    def _outline_path(self, run_id: str) -> Path | None:
+        if not _SAFE_ID_RE.match(run_id):
+            return None
+        return self._dir / f"{run_id}{_OUTLINE_SUFFIX}"
 
     def _atomic_write(self, path: Path, content: str) -> None:
         """Write content atomically via tmp + rename.
@@ -315,7 +321,7 @@ class RunStore(RunStoreInterface):
                     logger.warning("Corrupted run file skipped: %s", path.name)
         else:
             for f in self._dir.glob("*.json"):
-                if f.name.endswith(_CHARTS_SUFFIX) or f.name.endswith(_EVENTS_SUFFIX):
+                if f.name.endswith(_CHARTS_SUFFIX) or f.name.endswith(_EVENTS_SUFFIX) or f.name.endswith(_OUTLINE_SUFFIX):
                     continue
                 try:
                     data = json.loads(f.read_text())
@@ -432,6 +438,17 @@ class RunStore(RunStoreInterface):
         except (json.JSONDecodeError, OSError):
             return None
 
+    def get_outline(self, run_id: str) -> list[dict] | None:
+        """Load the pre-computed outline summary sidecar."""
+        path = self._outline_path(run_id)
+        if path is None or not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text())
+            return data if isinstance(data, list) else None
+        except (json.JSONDecodeError, OSError):
+            return None
+
     def _migrate_inline_data(self, run_id: str, data: dict) -> None:
         """Migrate old-format inline chart_groups/events to sidecar files."""
         charts = data.get("chart_groups")
@@ -470,6 +487,9 @@ class RunStore(RunStoreInterface):
         events_path = self._events_path(run_id)
         if events_path and events_path.exists():
             events_path.unlink(missing_ok=True)
+        outline_path = self._outline_path(run_id)
+        if outline_path and outline_path.exists():
+            outline_path.unlink(missing_ok=True)
         # Keep index in sync
         self._remove_index_entry(run_id)
         return True
@@ -580,4 +600,29 @@ class RunStore(RunStoreInterface):
         record["conversation"] = conversation
         path = self._safe_path(run_id)
         if path:
+            self._atomic_write(path, json.dumps(record, separators=(",", ":"), ensure_ascii=False))
+
+    def save_outline(self, run_id: str, outline: list[dict]) -> None:
+        """Write the outline summary sidecar (overwrites; not append-only).
+
+        Outline is a pre-computed projection of conversation + trace, so it
+        replaces any existing sidecar entirely. Updates ``_has_outline`` on
+        the main record so the detail endpoint can advertise it cheaply
+        without stat-ing the sidecar file.
+        """
+        outline_path = self._outline_path(run_id)
+        if outline_path is None:
+            return
+        if outline:
+            self._atomic_write(
+                outline_path,
+                json.dumps(outline, separators=(",", ":"), ensure_ascii=False),
+            )
+        elif outline_path.exists():
+            outline_path.unlink(missing_ok=True)
+        # Keep main record flag in sync — mirrors save_charts behavior.
+        path = self._safe_path(run_id)
+        if path and path.exists():
+            record = json.loads(path.read_text())
+            record["_has_outline"] = bool(outline)
             self._atomic_write(path, json.dumps(record, separators=(",", ":"), ensure_ascii=False))

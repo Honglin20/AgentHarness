@@ -169,6 +169,28 @@ class RunStoreInterface(ABC):
         """Load the events buffer for a run, or None if absent / not persisted."""
         ...
 
+    @abstractmethod
+    def get_outline(self, run_id: str) -> list[dict] | None:
+        """Load the pre-computed outline summary sidecar.
+
+        Each entry corresponds to a ``(node_id, iteration)`` pair and mirrors
+        the frontend ``OutlineItem`` shape (``frontend/src/components/outline/types.ts``).
+        Returns None when no sidecar exists (legacy runs / computation failed);
+        the frontend falls back to deriving from the full conversation.
+        """
+        ...
+
+    @abstractmethod
+    def save_outline(self, run_id: str, outline: list[dict]) -> None:
+        """Write the outline summary sidecar.
+
+        Overwrites any existing sidecar — outline is a pre-computed projection
+        of conversation + trace, not an append-only log. Also stamps
+        ``_has_outline=True`` on the main record so ``_persisted_run_detail``
+        can advertise the sidecar cheaply.
+        """
+        ...
+
     # ------------------------------------------------------------------ #
     # Delete paths
     # ------------------------------------------------------------------ #

@@ -19,7 +19,7 @@
  * can sequence them under whatever concurrency policy they need.
  */
 
-import type { RunRecord } from "@/stores/runHistoryStore";
+import type { RunRecord, OutlineSummaryItem } from "@/stores/runHistoryStore";
 import type { WSEvent } from "@/types/events";
 import { useRunHistoryStore } from "@/stores/runHistoryStore";
 import {
@@ -27,6 +27,8 @@ import {
   loadRunFromPersistedData,
   replayEventsToStores,
 } from "@/contexts/workflow-context/replayEvents";
+import { getWorkflowManager } from "@/contexts/workflow-context/WorkflowManager";
+import { outlineSummaryToItems } from "@/components/outline/outlineSummaryToItems";
 
 export type HydrationStrategy = "persisted" | "events" | "legacy";
 
@@ -34,6 +36,7 @@ export interface SidecarData {
   charts: RunRecord["chart_groups"];
   events: RunRecord["events"];
   conversation: RunRecord["conversation"] | null;
+  outline: OutlineSummaryItem[] | null;
 }
 
 /**
@@ -74,12 +77,14 @@ export async function loadSidecars(run: RunRecord): Promise<SidecarData> {
   const needsConv = Boolean(
     run._has_conversation && (!run.conversation || run.conversation.length === 0),
   );
+  const needsOutline = Boolean(run._has_outline);
 
-  if (!needsCharts && !needsConv) {
+  if (!needsCharts && !needsConv && !needsOutline) {
     return {
       charts: run.chart_groups ?? null,
       events: run.events,
       conversation: run.conversation ?? null,
+      outline: null,
     };
   }
 
@@ -89,7 +94,7 @@ export async function loadSidecars(run: RunRecord): Promise<SidecarData> {
   // to swallow its own rejection.
   const safeFetch = <T>(p: Promise<T>): Promise<T | null> => p.catch(() => null);
 
-  const [charts, events, conv] = await Promise.all([
+  const [charts, events, conv, outline] = await Promise.all([
     needsCharts && run._has_charts
       ? safeFetch(store.fetchRunCharts(run.run_id))
       : Promise.resolve(run.chart_groups ?? null),
@@ -99,12 +104,16 @@ export async function loadSidecars(run: RunRecord): Promise<SidecarData> {
     needsConv
       ? safeFetch(store.fetchRunConversation(run.run_id))
       : Promise.resolve(run.conversation ?? null),
+    needsOutline
+      ? safeFetch(store.fetchRunOutline(run.run_id))
+      : Promise.resolve(null),
   ]);
 
   return {
     charts: charts ?? run.chart_groups ?? null,
     events: events ?? run.events,
     conversation: conv ?? run.conversation ?? null,
+    outline: outline ?? null,
   };
 }
 
@@ -160,6 +169,16 @@ export function applyHydration(
         run.result,
       );
       break;
+  }
+
+  // Hydrate the outline sidecar store AFTER the strategy dispatch — every
+  // strategy calls resetAllStores() internally, which would wipe an earlier
+  // write. When sidecar is absent (legacy run / fetch failed / computation
+  // failed at save), items stays null and `useAgentOutline` falls back to
+  // deriving from the full conversation.
+  if (sidecars.outline && sidecars.outline.length > 0) {
+    const items = outlineSummaryToItems(sidecars.outline);
+    getWorkflowManager().getOrCreate(workflowId).stores.outline.getState().setItems(items);
   }
 
   return merged;

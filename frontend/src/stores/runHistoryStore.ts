@@ -28,6 +28,26 @@ export interface RunSummary {
   user_id?: string | null;
 }
 
+/**
+ * Outline summary sidecar DTO (snake_case from backend). Structurally
+ * isomorphic to `OutlineItem` (`frontend/src/components/outline/types.ts`) —
+ * `outlineSummaryToItems` does a 1:1 camelCase cast. Sidecar is the source of
+ * truth in replay mode; live mode derives from conversation as before.
+ */
+export interface OutlineSummaryItem {
+  key: string;
+  node_id: string;
+  iteration: number;
+  is_latest_iter: boolean;
+  iter_count: number;
+  name: string;
+  first_ts: number;
+  status: "idle" | "running" | "waiting-for-user" | "completed" | "failed" | "retrying";
+  activity: Record<string, unknown>;
+  badges: Array<{ kind: string; text: string; title?: string }>;
+  order: number;
+}
+
 export interface RunRecord {
   run_id: string;
   workflow_name: string;
@@ -74,6 +94,14 @@ export interface RunRecord {
   _has_charts?: boolean;
   _has_events?: boolean;
   _has_conversation?: boolean;
+  /**
+   * Outline sidecar exists. When true, `fetchRunOutline` returns the
+   * pre-computed per-(nodeId, iter) summary so the outline can render
+   * without scanning the full conversation. False on legacy runs and
+   * when outline computation failed at save time — frontend then derives
+   * from conversation as before.
+   */
+  _has_outline?: boolean;
   /** Per-node TODO steps snapshot, saved at workflow completion. */
   todo_steps?: Record<string, Array<{
     task_id: string;
@@ -126,6 +154,12 @@ interface RunHistoryState {
   fetchRunCharts: (runId: string) => Promise<RunRecord["chart_groups"]>;
   fetchRunEvents: (runId: string) => Promise<RunRecord["events"]>;
   fetchRunConversation: (runId: string) => Promise<RunRecord["conversation"] | null>;
+  /**
+   * Fetch the outline summary sidecar. Returns null when the sidecar is
+   * absent (legacy run / computation failed) — caller falls back to
+   * deriving from conversation. Mirrors `fetchRunCharts`/`fetchRunEvents`.
+   */
+  fetchRunOutline: (runId: string) => Promise<OutlineSummaryItem[] | null>;
   selectRun: (runId: string | null) => void;
   toggleSelectMode: () => void;
   toggleRunSelection: (runId: string) => void;
@@ -456,6 +490,17 @@ export const useRunHistoryStore = create<RunHistoryState>()((set, get) => ({
     try {
       const r = await fetchWithAuth(`/api/runs/${runId}/conversation`);
       if (r.ok) return await r.json();
+    } catch {}
+    return null;
+  },
+
+  fetchRunOutline: async (runId: string) => {
+    try {
+      const r = await fetchWithAuth(`/api/runs/${runId}/outline`);
+      if (r.ok) {
+        const data = await r.json();
+        return Array.isArray(data) ? (data as OutlineSummaryItem[]) : null;
+      }
     } catch {}
     return null;
   },
