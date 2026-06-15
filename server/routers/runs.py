@@ -12,6 +12,7 @@ from server._helpers import (
     _check_not_modified,
     _create_and_start_workflow,
     _live_run_detail,
+    _load_conversation_for_user,
     _new_bus,
     _persisted_run_detail,
     _reconstruct_run_to_repo,
@@ -260,23 +261,17 @@ async def get_run_outline(
 @router.get("/runs/{run_id}/conversation")
 async def get_run_conversation(
     run_id: str, request: Request,
+    before: int | None = None, limit: int = 50,
     store: RunStoreInterface = Depends(get_run_store_dep),
     repo: WorkflowRepository = Depends(get_repository_dep),
-) -> list[dict] | None:
-    """Conversation messages, split out of GET /runs/{id} so the main record stays small."""
-    user = get_current_user(request)
-    is_admin = get_user_manager().is_admin(user)
-    run = store.get_run(run_id)
-    if run:
-        if not is_admin and run.get("user_id", "default") != user.user_id:
-            raise HTTPException(status_code=403, detail="Not your run")
-        return run.get("conversation") or []
-    data = repo.get(run_id)
-    if data is None:
-        raise HTTPException(status_code=404, detail="Run not found")
-    if not is_admin and data.get("user_id", "default") != user.user_id:
-        raise HTTPException(status_code=403, detail="Not your run")
-    return data.get("conversation") or []
+) -> dict:
+    """Windowed conversation slice. before=exclusive upper bound on array index."""
+    limit = max(1, min(limit, 200))
+    conv = _load_conversation_for_user(run_id, request, store, repo)
+    total = len(conv)
+    upper = total if before is None else max(0, min(before, total))
+    start = max(0, upper - limit)
+    return {"messages": conv[start:upper], "has_more": start > 0, "total": total}
 
 @router.patch("/runs/{run_id}/conversation")
 async def update_run_conversation(

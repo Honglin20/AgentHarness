@@ -31,7 +31,11 @@ vi.mock("@/stores/runHistoryStore", () => ({
     getState: () => ({
       fetchRunCharts: vi.fn().mockResolvedValue({ groups: {}, groupOrder: [] }),
       fetchRunEvents: vi.fn().mockResolvedValue([{ type: "node.started", ts: 0, payload: {} }]),
-      fetchRunConversation: vi.fn().mockResolvedValue([{ id: "m1", type: "user", content: "hi" }]),
+      fetchRunConversation: vi.fn().mockResolvedValue({
+        messages: [{ id: "m1", type: "user", content: "hi" }],
+        has_more: false,
+        total: 1,
+      }),
     }),
   },
 }));
@@ -93,7 +97,7 @@ describe("decideStrategy", () => {
     const sidecars: SidecarData = {
       charts: null,
       events: undefined,
-      conversation: [{ id: "m1", type: "user", content: "hi" }],
+      conversation: { messages: [{ id: "m1", type: "user", content: "hi" }], has_more: false, total: 1 },
       outline: null,
     };
     expect(decideStrategy(run, sidecars)).toBe("persisted");
@@ -155,13 +159,21 @@ describe("loadSidecars", () => {
     const result = await loadSidecars(run);
     expect(result.charts).toEqual(run.chart_groups);
     expect(result.events).toEqual(run.events);
-    expect(result.conversation).toEqual(run.conversation);
+    expect(result.conversation).toEqual({
+      messages: run.conversation,
+      has_more: false,
+      total: run.conversation!.length,
+    });
   });
 
   it("fetches conversation when _has_conversation is true and conversation is empty", async () => {
     const run = makeRun({ _has_conversation: true, conversation: [] });
     const result = await loadSidecars(run);
-    expect(result.conversation).toEqual([{ id: "m1", type: "user", content: "hi" }]);
+    expect(result.conversation).toEqual({
+      messages: [{ id: "m1", type: "user", content: "hi" }],
+      has_more: false,
+      total: 1,
+    });
   });
 
   it("fetches charts when _has_charts is true and chart_groups is null", async () => {
@@ -243,13 +255,17 @@ describe("applyHydration", () => {
     const sidecars: SidecarData = {
       charts: { groups: {}, groupOrder: [] },
       events: [{ type: "x", ts: 0, payload: {} }] as any,
-      conversation: [{ id: "m1", type: "user", content: "hi" }],
+      conversation: {
+        messages: [{ id: "m1", type: "user", content: "hi" }],
+        has_more: false,
+        total: 1,
+      },
       outline: null,
     };
 
     const merged = applyHydration("r1", run, sidecars, "legacy");
     expect(merged.chart_groups).toEqual(sidecars.charts);
     expect(merged.events).toEqual(sidecars.events);
-    expect(merged.conversation).toEqual(sidecars.conversation);
+    expect(merged.conversation).toEqual(sidecars.conversation?.messages);
   });
 });

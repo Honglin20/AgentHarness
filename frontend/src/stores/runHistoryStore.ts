@@ -153,7 +153,17 @@ interface RunHistoryState {
   fetchRun: (runId: string, signal?: AbortSignal) => Promise<RunRecord | null>;
   fetchRunCharts: (runId: string) => Promise<RunRecord["chart_groups"]>;
   fetchRunEvents: (runId: string) => Promise<RunRecord["events"]>;
-  fetchRunConversation: (runId: string) => Promise<RunRecord["conversation"] | null>;
+  /**
+   * Fetch a windowed slice of the conversation. `before` is an exclusive
+   * upper bound on the server-side array index (oldest→newest order set by
+   * ConversationCollector). Omit `before` for the most recent `limit` messages.
+   * Returns `{messages, has_more, total}` or null on fetch failure.
+   */
+  fetchRunConversation: (
+    runId: string,
+    before?: number,
+    limit?: number,
+  ) => Promise<{ messages: ConversationMessageDTO[]; has_more: boolean; total: number } | null>;
   /**
    * Fetch the outline summary sidecar. Returns null when the sidecar is
    * absent (legacy run / computation failed) — caller falls back to
@@ -486,9 +496,13 @@ export const useRunHistoryStore = create<RunHistoryState>()((set, get) => ({
     return null;
   },
 
-  fetchRunConversation: async (runId: string) => {
+  fetchRunConversation: async (runId: string, before?: number, limit?: number) => {
     try {
-      const r = await fetchWithAuth(`/api/runs/${runId}/conversation`);
+      const params = new URLSearchParams();
+      if (before !== undefined) params.set("before", String(before));
+      if (limit !== undefined) params.set("limit", String(limit));
+      const qs = params.toString();
+      const r = await fetchWithAuth(`/api/runs/${runId}/conversation${qs ? `?${qs}` : ""}`);
       if (r.ok) return await r.json();
     } catch {}
     return null;

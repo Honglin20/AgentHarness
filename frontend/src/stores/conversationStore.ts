@@ -171,6 +171,38 @@ export interface ConversationState {
   appendAgentTextToCache: (wid: string, nodeId: string, text: string, agentName: string) => void;
   addToolCallToCache: (wid: string, nodeId: string, agentName: string, toolName: string, toolArgs: Record<string, unknown>) => void;
   addToolResultToCache: (wid: string, nodeId: string, toolName: string, result: string) => void;
+
+  // ── Windowed loading (stage 3 — cursor pagination) ──
+  /**
+   * True when the backend has more messages earlier than what's currently
+   * loaded. Drives the "Load earlier" button visibility. Always false on
+   * live runs (append-only) and on the global store (single-session).
+   */
+  hasEarlier: boolean;
+  /**
+   * True while a `fetchRunConversation(before=…)` is in flight. Prevents
+   * double-fires from rapid clicks and lets the UI show a spinner.
+   */
+  loadingEarlier: boolean;
+  /**
+   * Server-side total message count for the run. Used to compute the next
+   * cursor: `before = total - messages.length` (live runs leave this at 0
+   * since they don't paginate).
+   */
+  conversationTotal: number;
+  /**
+   * Prepend a window of older messages to the head of `messages`. Caller
+   * passes the new `hasMore` flag from the response so the button hides
+   * once the head of the conversation is reached. No-op on global store.
+   */
+  prependEarlier: (messages: ConversationMessage[], hasMore: boolean) => void;
+  /** Mark loadingEarlier. Used by the load-more UI before kicking off a fetch. */
+  setLoadingEarlier: (loading: boolean) => void;
+  /**
+   * Hydrate windowed state from a cursor fetch response. Sets hasEarlier
+   * + total without touching messages (caller writes messages separately).
+   */
+  setWindowedState: (hasEarlier: boolean, total: number) => void;
 }
 
 let msgCounter = 0;
@@ -189,6 +221,11 @@ const initialState = {
   currentIterationByNode: {} as Record<string, number>,
   _cache: {} as Record<string, { messages: ConversationMessage[]; pendingQuestionId: string | null; pendingQuestionAgent: string | null }>,
   _activeWid: null as string | null,
+  // Windowed loading — global store is always live (single session), so these
+  // are no-op defaults. Scoped store overrides with real implementations.
+  hasEarlier: false,
+  loadingEarlier: false,
+  conversationTotal: 0,
 };
 
 export const useConversationStore = create<ConversationState>()((set) => ({
@@ -724,4 +761,9 @@ export const useConversationStore = create<ConversationState>()((set) => ({
       }
       return state;
     }),
+
+  // Windowed loading — no-op on the global store (live / single-session).
+  prependEarlier: () => {},
+  setLoadingEarlier: () => {},
+  setWindowedState: () => {},
 }));

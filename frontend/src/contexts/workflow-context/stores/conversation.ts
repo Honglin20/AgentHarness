@@ -64,6 +64,13 @@ export function createConversationStore(
     // Cache management (保留用于 batch 模式兼容)
     _cache: {} as ConversationState["_cache"],
     _activeWid: null as string | null,
+
+    // Windowed loading — true when backend has more earlier messages.
+    // Reset to false on reset() (workflow switch); set to true by
+    // applyHydration after the initial cursor fetch returns has_more=true.
+    hasEarlier: false,
+    loadingEarlier: false,
+    conversationTotal: 0,
   };
 
   const store = createStore<ConversationState>()((set, get) => ({
@@ -365,6 +372,9 @@ export function createConversationStore(
         activeFollowupAgent: null,
         currentStepIdByNode: {},
         currentIterationByNode: {},
+        hasEarlier: false,
+        loadingEarlier: false,
+        conversationTotal: 0,
       }),
 
     setCurrentStep: (nodeId, stepId) =>
@@ -537,6 +547,20 @@ export function createConversationStore(
           ],
         };
       }),
+
+    // ── Windowed loading actions ─────────────────────────────────────────
+    // Scoped store is the only consumer of cursor pagination. Global store
+    // provides no-op stubs so the ConversationState contract stays uniform.
+    prependEarlier: (earlierMessages, hasMore) =>
+      set((state) => ({
+        // Prepend preserves order: earlierMessages are older than what's in
+        // state.messages, so they go to the head.
+        messages: [...earlierMessages, ...state.messages],
+        hasEarlier: hasMore,
+        loadingEarlier: false,
+      })),
+    setLoadingEarlier: (loading) => set({ loadingEarlier: loading }),
+    setWindowedState: (hasEarlier, total) => set({ hasEarlier, conversationTotal: total }),
   }));
 
   (store as unknown as { _msgCounter: IdCounter })._msgCounter = msgCounter;

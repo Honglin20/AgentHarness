@@ -40,7 +40,8 @@ import {
 } from "./groupNodes";
 import { useWSMethods } from "@/contexts/workflow-context/WorkflowScope";
 import { useConversationActions } from "@/contexts/workflow-context/hooks";
-import { useStableVisibleCount } from "@/hooks/useStableVisibleCount";
+import { useRunHistoryStore } from "@/stores/runHistoryStore";
+import { dtoListToMessages } from "@/lib/conversion/dtoToMessage";
 
 interface ScopedConversationTabProps {
   autoScroll?: boolean;
@@ -467,11 +468,9 @@ function renderOtherBlock(
   return <ToolCallMessage key={m.id} message={m} />;
 }
 
-// C3 (Phase 8): lazy message rendering. Only the most recent N messages are
-// grouped + virtualized initially; user scrolls to top to load earlier batch.
-const VISIBLE_WINDOW = 50;
-const VISIBLE_TRIGGER = 200;
-const LOAD_EARLIER_BATCH = 50;
+// Cursor pagination window (stage 3). Backend returns this many messages
+// per fetch; user clicks "Load earlier" to prepend the previous window.
+const CURSOR_LIMIT = 50;
 
 export function ScopedConversationTab({ autoScroll = true }: ScopedConversationTabProps = {}) {
   const messages = useConversationMessages();
@@ -480,20 +479,17 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const agentIOStore = useScopedStore("agentIO");
+  const conversationStoreApi = useScopedStore("conversation");
   const workflowStoreApi = useScopedStore("workflow");
   const todoStore = useScopedStore("todo");
 
-  const [visibleCount, setVisibleCount] = useStableVisibleCount(
-    VISIBLE_WINDOW,
-    // workflowId is the "run identity" signal — streaming chunks grow
-    // messages but don't change workflowId; switching runs does.
-    useStore(workflowStoreApi!, (s) => s.workflowId),
-  );
-  const visibleMessages = useMemo(() => {
-    if (messages.length <= VISIBLE_TRIGGER) return messages;
-    return messages.slice(Math.max(0, messages.length - visibleCount));
-  }, [messages, visibleCount]);
-  const hiddenEarlierCount = messages.length - visibleMessages.length;
+  // Store already holds a windowed slice (tail N messages after hydration;
+  // grows prepend-only via "Load earlier"). No client-side slicing needed.
+  const visibleMessages = messages;
+  const hasEarlier = useStore(conversationStoreApi!, (s) => s.hasEarlier);
+  const loadingEarlier = useStore(conversationStoreApi!, (s) => s.loadingEarlier);
+  const conversationTotal = useStore(conversationStoreApi!, (s) => s.conversationTotal);
+  const workflowId = useStore(workflowStoreApi!, (s) => s.workflowId);
   const agentIOData = useStore(agentIOStore!, (s) => s.data);
   const workflowNodes = useStore(workflowStoreApi!, (s) => s.nodes);
 
@@ -504,6 +500,28 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
 
   const getAgentIO = useCallback((nodeId: string) => agentIORef.current[nodeId], []);
   const getNodeState = useCallback((nodeId: string) => nodesRef.current[nodeId], []);
+
+  // Load earlier window — compute the next cursor from server-side total and
+  // currently-loaded message count, then prepend the fetched slice.
+  const loadEarlier = useCallback(async () => {
+    if (!workflowId || !hasEarlier || loadingEarlier) return;
+    const store = conversationStoreApi?.getState();
+    if (!store) return;
+    store.setLoadingEarlier(true);
+    try {
+      const before = Math.max(0, conversationTotal - visibleMessages.length);
+      const resp = await useRunHistoryStore.getState().fetchRunConversation(workflowId, before, CURSOR_LIMIT);
+      if (!resp) {
+        // Fetch failed — keep the button visible so the user can retry.
+        store.setLoadingEarlier(false);
+        return;
+      }
+      const earlierMsgs = dtoListToMessages(resp.messages);
+      store.prependEarlier(earlierMsgs, resp.has_more);
+    } catch {
+      store.setLoadingEarlier(false);
+    }
+  }, [workflowId, hasEarlier, loadingEarlier, conversationTotal, visibleMessages.length, conversationStoreApi]);
 
   // Refs for estimateSize (stable reads without re-creating the callback)
   const todosRef = useRef(todoStore?.getState().todos ?? {});
@@ -580,14 +598,16 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
 
   return (
     <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto">
-      {hiddenEarlierCount > 0 && (
+      {hasEarlier && (
         <div className="sticky top-0 z-10 flex justify-center border-b border-app-border bg-background/80 backdrop-blur px-4 py-2">
           <button
-            onClick={() => setVisibleCount((c) => c + LOAD_EARLIER_BATCH)}
-            className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground hover:bg-muted/70 hover:text-app-text-primary"
+            onClick={loadEarlier}
+            disabled={loadingEarlier}
+            className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground hover:bg-muted/70 hover:text-app-text-primary disabled:opacity-50"
           >
-            Load {Math.min(LOAD_EARLIER_BATCH, hiddenEarlierCount)} earlier messages
-            {" "}(↑ {hiddenEarlierCount} hidden)
+            {loadingEarlier
+              ? "Loading…"
+              : `Load ${Math.min(CURSOR_LIMIT, Math.max(0, conversationTotal - visibleMessages.length))} earlier messages`}
           </button>
         </div>
       )}

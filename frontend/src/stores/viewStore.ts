@@ -142,7 +142,9 @@ export const useViewStore = create<ViewState>()((set, get) => ({
         const fallbackSidecars: SidecarData = {
           charts: run.chart_groups ?? null,
           events: run.events,
-          conversation: run.conversation ?? null,
+          conversation: run.conversation && run.conversation.length > 0
+            ? { messages: run.conversation, has_more: false, total: run.conversation.length }
+            : null,
           outline: null,
         };
         const strategy = decideStrategy(run, fallbackSidecars);

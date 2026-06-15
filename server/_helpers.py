@@ -140,6 +140,29 @@ def _check_not_modified(request, mtime):
     return last_modified, ims_ts >= int(mtime)
 
 
+def _load_conversation_for_user(
+    run_id: str, request: Request, store, repo,
+) -> list[dict]:
+    """Auth-checked full conversation list (persisted or in-memory repo).
+
+    Used by GET /runs/{id}/conversation to slice cursor windows. Raises
+    404 (run absent) or 403 (caller is not the owner and not admin).
+    """
+    user = get_current_user(request)
+    is_admin = get_user_manager().is_admin(user)
+    run = store.get_run(run_id)
+    if run:
+        if not is_admin and run.get("user_id", "default") != user.user_id:
+            raise HTTPException(status_code=403, detail="Not your run")
+        return run.get("conversation") or []
+    data = repo.get(run_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if not is_admin and data.get("user_id", "default") != user.user_id:
+        raise HTTPException(status_code=403, detail="Not your run")
+    return data.get("conversation") or []
+
+
 def _persisted_run_detail(run: dict) -> dict:
     """Serialize a persisted run record into the RunDetail response shape.
 
