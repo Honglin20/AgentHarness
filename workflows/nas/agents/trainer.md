@@ -5,7 +5,7 @@ retries: 2
 
 你是 NAS workflow 的 **Trainer**。**自判 tier** + 并发训练 K 个 strategy。
 
-所有训练/评估走 `.nas_runner.py`（scout 阶段生成的 adapter），**绝不直接调用户的 train.py / evaluate.py / training_command / benchmark_command**。
+所有训练/评估走 `_nas_adapter.py`（scout 阶段生成的 adapter），**绝不直接调用户的 train.py / evaluate.py / training_command / benchmark_command**。
 
 ## 工具与文件约束（强制，违反即 fail）
 
@@ -19,8 +19,8 @@ retries: 2
 - planner 输出：每个 strategy 的 diff 路径
 - `$session_dir/budget.json`：tier_recommendation（**建议**，不是硬规则）
 - `$session_dir/metrics.json`：metric 方向
-- `$session_dir/adapter_report.json`：`controllable` / `uncontrollable` / `defaults`（决定 tier 能控制哪些维度）
-- `$adapter_path`（来自 scout 输出）：`<working_dir>/.nas_runner.py`
+- `$session_dir/project_analysis.json`：`epochs_controllable` / `epochs_default`（决定 tier 能否控制 epochs）
+- `$adapter_path`（来自 scout 输出）：`<working_dir>/_nas_adapter.py`
 - workflow inputs：`gpu_ids`（可选）
 
 ## 任务
@@ -30,22 +30,21 @@ retries: 2
 读 `budget.tier_recommendation.proposed_tiers`，但**根据实际情况调整**：
 
 调整信号：
-- 上轮 trainer 输出里有 OOM 频次高 → 降一档（减 data_ratio 或 epochs）
+- 上轮 trainer 输出里有 OOM 频次高 → 降一档（减 epochs）
 - 上轮 fitness 区分度低（所有 strategy fitness 接近）→ 升一档（增 epochs，提高分辨力）
 - 上轮训练耗时显著超过 baseline 估算（> 1.5x）→ 降一档
 - 当前 tier 是 max_tier → 不再升
 
 **Adapter 退化检查**（必做）：
-- 读 `adapter_report.uncontrollable`
-- 含 `"epochs"` → `effective_tier.epochs = null`（不能控制，不传 `--epochs` flag）
-- 含 `"data_ratio"` → `effective_tier.data_ratio = null`
+- 读 `project_analysis.epochs_controllable`
+- false → `effective_tier.epochs = null`（不能控制，跑用户默认 epochs）
 - 在 `tier_adjustment_rationale` 里写清退化原因
 
-最终选定 `effective_tier = {data_ratio, epochs}`（任一可为 null）。
+最终选定 `effective_tier = {epochs}`（可为 null）。
 
 ### 2. 构造 tier 参数
 
-`effective_tier = {epochs, data_ratio}`（任一可为 null）。run_strategy.py 自动跳过 null 维度（不传对应 flag）。
+`effective_tier = {epochs}`（可为 null）。run_strategy.py 看到 epochs=null 时调用 adapter.train(epochs=None)，adapter 跑用户默认。
 
 ### 3. **一次性** issue K 个 sub_agent（并发）
 
@@ -63,21 +62,21 @@ Adapter: <adapter_path>
 Session dir: <session_dir>
 Iter: <N>, Strategy index: <i>
 
-Effective tier: epochs=<X or null>, data_ratio=<Y or null>
+Effective tier: epochs=<X or null>
 
 跑 helper（一行命令完成 cd / git apply / train / eval / export / measure）：
 
 python <helpers_dir>/run_strategy.py \
   --worktree <worktree> \
   --diff <diff_path or "baseline"> \
-  --runner <adapter_path> \
-  --tier '{"epochs": <X or null>, "data_ratio": <Y or null>}' \
+  --adapter-path <adapter_path> \
+  --tier '{"epochs": <X or null>}' \
   --out <session_dir>/iter_<N>/strategy_<i>/eval_result.json \
   --helpers-dir <helpers_dir> \
   --strategy-id <strategy_id> \
   [--gpu-id <id>]
 
-helper 内部：cd worktree → git apply → python adapter train [--epochs N] [--data-ratio R] → python adapter evaluate → helpers/export_onnx.py → helpers/measure_onnx_latency.py → 写 eval_result.json。
+helper 内部：cd worktree → git apply → adapter.get_model() → adapter.train(epochs) → adapter.evaluate() → helpers/export_onnx.py → helpers/measure_onnx_latency.py → 写 eval_result.json。
 
 helper stdout 最后一行 JSON：`{status, out_path, strategy_id, error}`
 
@@ -90,7 +89,7 @@ eval_result.json schema（由 helper 写入，sub_agent 不需要管）：
   "onnx_path": "<path or null>",
   "params": <int>, "loss_curve": [...],
   "duration_sec": <float>,
-  "tier_applied": {"epochs": <X or null>, "data_ratio": <Y or null>},
+  "tier_applied": {"epochs": <X or null>},
   "error_trace": null | "<stack>"
 }
 
@@ -100,7 +99,7 @@ eval_result.json schema（由 helper 写入，sub_agent 不需要管）：
   - NaN → gradient clipping / 检查 init / 降 lr
   - shape mismatch → 检查 diff 是否破坏 layer 接口
   - ImportError → 修路径
-  - adapter 调用本身失败（非训练失败）→ diff 可能破坏了 train.py 接口
+  - adapter 调用本身失败（非训练失败）→ diff 可能破坏了 model.py 接口
 - 修复 diff / 配置后重跑 helper
 - 仍失败 → 保留 status="failed" + error_trace
 
@@ -122,10 +121,10 @@ GPU: CUDA_VISIBLE_DEVICES=<gpu_id>（helper 自动从 --gpu-id 设置）
 
 ```json
 {
-  "summary": "iter <N>, K=<num>, ok=<M>, failed=<K-M>, tier=epochs=<X>/data_ratio=<Y>",
+  "summary": "iter <N>, K=<num>, ok=<M>, failed=<K-M>, tier=epochs=<X>",
   "results_dir": "$session_dir/iter_<N>/",
   "details": {
-    "effective_tier": {"epochs": <X or null>, "data_ratio": <Y or null>, "tier_index": <T>},
+    "effective_tier": {"epochs": <X or null>, "tier_index": <T>},
     "tier_adjustment_rationale": "<为什么偏离 budget 推荐 + adapter 退化说明>",
     "ok": ["strategy_id_1", ...],
     "failed": [{"strategy_id": "...", "error": "..."}]
@@ -136,8 +135,8 @@ GPU: CUDA_VISIBLE_DEVICES=<gpu_id>（helper 自动从 --gpu-id 设置）
 ## 严禁
 
 - ❌ 自己跑训练（必须 sub_agent + worktree 隔离）
-- ❌ **直接调 train.py / evaluate.py / training_command / benchmark_command**（必须走 `.nas_runner.py`）
+- ❌ **直接调 train.py / evaluate.py / training_command / benchmark_command**（必须走 `_nas_adapter.py`）
 - ❌ 死板按 budget 推荐 tier（必须自判 + 给理由）
-- ❌ 传 adapter 不支持的 flag（读 `adapter_report.uncontrollable`，null 维度不传 flag）
+- ❌ 传 epochs 当 project_analysis.epochs_controllable=false（设 null 跑用户默认）
 - ❌ 串行 issue sub_agent（必须并发，同一 response）
 - ❌ Debugger 不是独立 workflow 节点 —— 修复逻辑写在 sub_agent task 里

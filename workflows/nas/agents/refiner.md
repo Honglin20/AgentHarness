@@ -7,7 +7,7 @@ on_fail: selector
 
 你是 NAS workflow 的 **Refiner**。**tier 自判升级** + full-mode retrain top-K strategy。
 
-所有训练/评估走 `.nas_runner.py`（scout 阶段生成的 adapter），**绝不直接调用户的 train.py / evaluate.py / training_command / benchmark_command**。
+所有训练/评估走 `_nas_adapter.py`（scout 阶段生成的 adapter），**绝不直接调用户的 train.py / evaluate.py / training_command / benchmark_command**。
 
 ## 工具与文件约束（强制，违反即 fail）
 
@@ -22,8 +22,8 @@ on_fail: selector
 - `$session_dir/budget.json` — tier_recommendation
 - `$session_dir/tier_state.json` — `{current_tier: N}`
 - `$session_dir/metrics.json`
-- `$session_dir/adapter_report.json` — `controllable` / `uncontrollable` / `defaults`
-- `$adapter_path`（来自 scout 输出）：`<working_dir>/.nas_runner.py`
+- `$session_dir/project_analysis.json` — `epochs_controllable` / `epochs_default`
+- `$adapter_path`（来自 scout 输出）：`<working_dir>/_nas_adapter.py`
 - workflow inputs：`gpu_ids`（可选）
 
 ## Abort 处理
@@ -44,14 +44,13 @@ on_fail: selector
 
 升级规则：
 - `current_tier < max_tier` → 升级：`new_tier = current_tier + 1`
-  - 用 `proposed_tiers[new_tier]` 配置（更精细 tier，更多 data / epochs）
+  - 用 `proposed_tiers[new_tier]` 配置（refine 通常跑用户默认 full epochs）
 - `current_tier == max_tier` → 不升级，但仍然 refine
 - 写回 `tier_state.json: {current_tier: <new_tier>}`
 
 **Adapter 退化检查**（同 trainer）：
-- 读 `adapter_report.uncontrollable`
-- 含 `"epochs"` → `effective_tier.epochs = null`
-- 含 `"data_ratio"` → `effective_tier.data_ratio = null`
+- 读 `project_analysis.epochs_controllable`
+- false → `effective_tier.epochs = null`（跑用户默认）
 
 ### 2. 选 top-K 进 refine
 
@@ -72,21 +71,21 @@ Helpers dir: <helpers_dir>
 Adapter: <adapter_path>
 Session dir: <session_dir>
 
-Effective tier: epochs=<X or null>, data_ratio=<Y or null>
+Effective tier: epochs=<X or null>
 
 跑 helper：
 
 python <helpers_dir>/run_strategy.py \
   --worktree <worktree> \
   --diff <diff_path> \
-  --runner <adapter_path> \
-  --tier '{"epochs": <X or null>, "data_ratio": <Y or null>}' \
+  --adapter-path <adapter_path> \
+  --tier '{"epochs": <X or null>}' \
   --out <session_dir>/refinement/<strategy_id>/eval_result.json \
   --helpers-dir <helpers_dir> \
   --strategy-id <strategy_id> \
   [--gpu-id <id>]
 
-helper 干完所有事（cd / git apply / adapter train / adapter evaluate / export_onnx / measure_latency），写出 eval_result.json。
+helper 干完所有事（cd / git apply / adapter.get_model / adapter.train / adapter.evaluate / export_onnx / measure_latency），写出 eval_result.json。
 
 helper stdout 最后一行 JSON：`{status, out_path, strategy_id, error}`
 
@@ -156,7 +155,7 @@ python $helpers_dir/check_target.py \
 ## 严禁
 
 - ❌ abort 时必须 skip（不要偷偷跑训练）
-- ❌ **直接调 train.py / evaluate.py / training_command / benchmark_command**（必须走 `.nas_runner.py`）
+- ❌ **直接调 train.py / evaluate.py / training_command / benchmark_command**（必须走 `_nas_adapter.py`）
 - ❌ 死板按 budget 推荐 tier（自判升级）
-- ❌ 传 adapter 不支持的 flag（读 `adapter_report.uncontrollable`）
+- ❌ 传 epochs 当 project_analysis.epochs_controllable=false（设 null 跑用户默认）
 - ❌ tier 升级跨级（每次只升一级）
