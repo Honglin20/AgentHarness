@@ -222,17 +222,38 @@ def main() -> None:
         sys.exit(1)
 
     ckpt = torch.load(args.checkpoint, weights_only=False, map_location="cpu")
-    config = ckpt["config"]
 
-    try:
-        model = _instantiate_model(model_cls, config)
-    except TypeError as e:
-        print(json.dumps({
-            "error": f"Cannot instantiate {model_cls.__name__} from checkpoint config: {e}",
-            "config": config,
-        }))
-        sys.exit(1)
-    model.load_state_dict(ckpt["model_state"])
+    # Support two checkpoint formats:
+    # 1. NAS adapter raw state_dict (just a dict of param tensors, no metadata)
+    # 2. Project-native checkpoint dict with "config" + "model_state" keys
+    if isinstance(ckpt, dict) and "model_state" in ckpt:
+        # Project-native format: use config to instantiate model with right hyperparams
+        config = ckpt.get("config", {})
+        try:
+            model = _instantiate_model(model_cls, config)
+        except TypeError as e:
+            print(json.dumps({
+                "error": f"Cannot instantiate {model_cls.__name__} from checkpoint config: {e}",
+                "config": config,
+            }))
+            sys.exit(1)
+        model.load_state_dict(ckpt["model_state"])
+    else:
+        # NAS adapter raw state_dict format: instantiate model with default args
+        try:
+            model = model_cls()
+        except TypeError as e:
+            print(json.dumps({
+                "error": f"Cannot instantiate {model_cls.__name__} with no args (default init required for raw state_dict checkpoint): {e}",
+            }))
+            sys.exit(1)
+        try:
+            model.load_state_dict(ckpt)
+        except RuntimeError as e:
+            print(json.dumps({
+                "error": f"state_dict load failed: {e}",
+            }))
+            sys.exit(1)
     model.eval()
 
     out_path = Path(args.out)

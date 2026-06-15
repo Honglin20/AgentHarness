@@ -1,0 +1,9 @@
+*/checkpoints/
+*/__pycache__/
+*/.nas_session_pointer
+*/_nas_adapter.py
+*/eval_result.json
+*/train_metrics.json
+*/metrics.json
+*/domain_insights.md
+*/onnxruntime_profile*.json
