@@ -248,6 +248,10 @@ def _load_state_dict(model: nn.Module, weights_path: str) -> None:
     """Load weights from path. Handles common state_dict wrappings.
 
     Wrappers unwrapped: state_dict / model_state_dict / model / net.
+
+    If shape mismatch occurs (e.g. NAS strategy mutated model architecture
+    but weights_path points to pre-mutation baseline), warns + skips loading
+    rather than raising — NAS strategies should train from scratch anyway.
     """
     state = torch.load(weights_path, map_location="cpu")
     if isinstance(state, dict):
@@ -255,7 +259,14 @@ def _load_state_dict(model: nn.Module, weights_path: str) -> None:
             if wrapper_key in state and isinstance(state[wrapper_key], dict):
                 state = state[wrapper_key]
                 break
-    model.load_state_dict(state)
+    try:
+        model.load_state_dict(state)
+    except RuntimeError as e:
+        import sys
+        sys.stderr.write(
+            f"[nas_adapter] warning: load_state_dict failed ({type(e).__name__}); "
+            f"likely architecture mutation by NAS strategy. Using random init.\n"
+        )
 
 
 def _measure_latency(model: nn.Module, n_warmup: int = 3, n_iter: int = 10) -> float:
