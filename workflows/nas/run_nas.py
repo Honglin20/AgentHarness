@@ -46,6 +46,10 @@ def main():
     if wf._event_bus is None:
         from harness.extensions.bus import Bus
         wf._event_bus = Bus()
+    # Bump request_limit (workflow.json doesn't persist it). NAS has many
+    # sub_agent calls (5-6 in setup + K×2 per cycle iter), default 50 is too low.
+    if wf.request_limit is None or wf.request_limit < 500:
+        wf.request_limit = 500
     if args.max_iterations is not None:
         wf.max_iterations = args.max_iterations
     elif isinstance(inputs.get("max_iters"), int):

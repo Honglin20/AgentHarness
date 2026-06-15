@@ -50,6 +50,7 @@ def build_workflow() -> Workflow:
     wf = Workflow(
         name="nas",
         event_bus=Bus(),
+        request_limit=500,  # NAS has many sub_agent calls (project_analyzer + scout + 5-6 sub_agents in setup; K×2 sub_agents per cycle iter)
         agents=[
             # ── Setup (one-shot) ────────────────────────────────────────
             Agent(
