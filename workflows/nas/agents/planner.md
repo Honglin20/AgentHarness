@@ -143,7 +143,7 @@ Strategy hypothesis: <hypothesis 描述>
 领域依据: <cite domain_insights>
 
 改造方向（具体可执行）:
-- 文件: <file_path>
+- 文件: <file_path 相对路径，如 "model.py" 或 "config.py"，**不要用绝对路径**>
 - Layer / Op: <which>
 - 改造类型: <replace / reorder / insert / remove>
 - 数值约束: <如有>
@@ -156,6 +156,8 @@ Strategy hypothesis: <hypothesis 描述>
   - 1 位置 = 单个 layer 替换 / 单个 hyperparam 调整 / 单个 op 插入删除 / 单个 nn.Module 类替换
   - 禁止：重写整个 model + training loop + data loader 同时
   - 必须在 manifest 里写 change_count = ops_modified.length（≤3）
+- **路径必须相对**：你已经在 worktree 内（cwd 自动是 worktree path），所有文件操作用相对路径（如 `model.py`）。**绝对禁止**用 `/Users/.../projects/<name>/...` 绝对路径，那会污染主项目目录。
+- **写 diff.patch 用相对路径 header**：`diff --git a/model.py b/model.py`（不是 `diff --git a/projects/<name>/model.py ...`）
 
 输出:
 - diff: $session_dir/iter_<N>/strategy_<i>/diff.patch

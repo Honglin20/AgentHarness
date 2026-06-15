@@ -117,19 +117,51 @@ baseline.json 写完后，**同一 response 内** issue 这 2 个 sub_agent：
 | tier_planner | none | `<workflow_dir>/agents/subagents/tier_planner.md` | `<session_dir>/budget.json`（基于 `project_analysis.epochs_controllable` 决定 tier 数）|
 | metrics_identifier | none | `<workflow_dir>/agents/subagents/metrics_identifier.md` | `<session_dir>/metrics.json`（**所有 metric 必须有方向，不允许 unknown**）|
 
-## Step 4: 收集 + 校验
+## Step 4: 收集 + 强制 schema 校验 + helper override
 
-读所有 sub_agent 返回 + 验证文件：
+读所有 sub_agent 返回 + 验证文件。**关键：baseline.json / budget.json 必须用 helper 重新生成（即使 sub_agent 已经写过），强制 schema 一致。**
+
+### Step 4.1: 检查文件存在性
 
 - `<working_dir>/_nas_adapter.py`（存在）
 - `<session_dir>/project_analysis.json`（project_analyzer 写）
-- `<session_dir>/adapter_report.json`（`smoke_result.train_ok / export_ok / latency_ok` 全 true）
-- `<session_dir>/baseline.json`（含 metrics / latency_ms / params / one_epoch_sec / profile_path）
-- `<session_dir>/budget.json`（含 tier_recommendation.proposed_tiers / max_tier）
+- `<session_dir>/adapter_report.json`
+- `<session_dir>/baseline_eval.json`（baseline_runner 调 run_strategy.py 写）
+- `<session_dir>/baseline_profile.json`（baseline_runner 调 profile_model.py 写）
 - `<session_dir>/metrics.json`（含 primary_metric / metrics，**无 unknown**）
 - `<session_dir>/domain_insights.md`（非空）
 
-**任一文件缺失或 smoke 三件套失败** → ask_user 兜底（不再 fail loud）。
+任一文件缺失 → ask_user 兜底。
+
+### Step 4.2: 强制重新生成 baseline.json + budget.json（关键，绕过 LLM 自由发挥）
+
+sub_agent（baseline_runner / tier_planner）写的 baseline.json / budget.json 可能 schema 不一致（LLM 用了 status / config / latency dict 等非 schema 字段）。**你必须用 helper 重新生成，覆盖 sub_agent 写的版本**：
+
+```bash
+# 重新生成 baseline.json（输入：baseline_eval.json + project_analysis.json + profile_path）
+python $helpers_dir/make_baseline.py \
+  --eval-result $session_dir/baseline_eval.json \
+  --project-analysis $session_dir/project_analysis.json \
+  --profile-path $session_dir/baseline_profile.json \
+  --out $session_dir/baseline.json
+
+# 重新生成 budget.json（输入：baseline.json + project_analysis.json + workflow inputs）
+python $helpers_dir/make_budget.py \
+  --baseline $session_dir/baseline.json \
+  --project-analysis $session_dir/project_analysis.json \
+  --target-latency <from workflow inputs> \
+  --acc-tolerance <from workflow inputs> \
+  --strategies-per-iter <from workflow inputs> \
+  --out $session_dir/budget.json
+```
+
+helper exit 1 → 看 stderr 错误（baseline_eval.json 缺字段 / project_analysis.json 缺 epochs_controllable），先修复输入再重跑 helper。**不要绕过 helper 手写 JSON**。
+
+### Step 4.3: 验证 smoke 三件套
+
+读 `<session_dir>/adapter_report.json`，检查 `smoke_result.train_ok / export_ok / latency_ok` 全 true。如果 schema 不对（LLM 写了 `smoke_tests` 而不是 `smoke_result`），把实际值 normalize 到 smoke_result。
+
+任一字段为 false → ask_user 兜底（让用户决定 abort 还是调整 adapter）。
 
 ## 输出（ScoutResult schema，扁平结构）
 
