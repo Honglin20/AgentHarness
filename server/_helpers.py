@@ -4,15 +4,22 @@ These functions don't belong to any single domain router — they're
 shared infrastructure (validation, workflow lifecycle, bus creation,
 benchmark enrichment, etc.).
 """
+from __future__ import annotations
+
 import json
 import logging
 import time
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, Request
 
 from harness.api import Agent, Workflow, _WORKFLOWS_DIR
+
+if TYPE_CHECKING:
+    from harness.run_store_interface import RunStoreInterface
+    from server.repository import WorkflowRepository
 from harness.compiler.dag_builder import build_dag
 from harness.compiler.md_parser import _SHARED_AGENTS_DIR
 from harness.tools.registry import ToolRegistry
@@ -141,7 +148,10 @@ def _check_not_modified(request, mtime):
 
 
 def _load_conversation_for_user(
-    run_id: str, request: Request, store, repo,
+    run_id: str,
+    request: Request,
+    store: RunStoreInterface,
+    repo: WorkflowRepository,
 ) -> list[dict]:
     """Auth-checked full conversation list (persisted or in-memory repo).
 
