@@ -1,82 +1,871 @@
 {
   "name": "nas",
-  "max_iterations": 1000000,
   "agents": [
     {
-      "name": "scout",
-      "description": "Setup: 路径初始化 + 项目检视 + baseline + tier 推荐 + metrics + domain insights",
+      "name": "project_analyzer",
       "after": [],
-      "tools": null,
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "read_text_file",
+        "todo"
+      ],
       "model": null,
-      "retries": 2
+      "retries": 2,
+      "result_type_name": "ProjectAnalysis",
+      "result_type_schema": {
+        "description": "project_analyzer agent output. Detects user project structure.\n\nWritten to <session_dir>/project_analysis.json. Read by scout (passes to\nadapter_generator), tier_planner (reads epochs_controllable), baseline_runner\n(reads epochs_default).",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "model_class": {
+            "description": "nn.Module class name (e.g. 'Net')",
+            "title": "Model Class",
+            "type": "string"
+          },
+          "model_module": {
+            "description": "Dotted import path relative to working_dir (e.g. 'model')",
+            "title": "Model Module",
+            "type": "string"
+          },
+          "model_init_args": {
+            "additionalProperties": true,
+            "description": "__init__ kwargs",
+            "title": "Model Init Args",
+            "type": "object"
+          },
+          "model_init_signature": {
+            "default": "",
+            "description": "Raw __init__ signature for debug",
+            "title": "Model Init Signature",
+            "type": "string"
+          },
+          "train_entry": {
+            "description": "module:function (e.g. 'train:train_model') or 'NOT_FOUND'",
+            "title": "Train Entry",
+            "type": "string"
+          },
+          "train_signature": {
+            "default": "",
+            "description": "Raw train function signature",
+            "title": "Train Signature",
+            "type": "string"
+          },
+          "eval_entry": {
+            "default": "NOT_FOUND",
+            "description": "module:function or 'NOT_FOUND'",
+            "title": "Eval Entry",
+            "type": "string"
+          },
+          "eval_signature": {
+            "default": "",
+            "description": "Raw eval function signature",
+            "title": "Eval Signature",
+            "type": "string"
+          },
+          "weights_path": {
+            "default": "NOT_FOUND",
+            "description": "Absolute path or 'NOT_FOUND'",
+            "title": "Weights Path",
+            "type": "string"
+          },
+          "weights_exist": {
+            "default": false,
+            "title": "Weights Exist",
+            "type": "boolean"
+          },
+          "data_loader_entry": {
+            "default": "NOT_FOUND",
+            "description": "module:function returning DataLoader, or 'NOT_FOUND'",
+            "title": "Data Loader Entry",
+            "type": "string"
+          },
+          "epochs_controllable": {
+            "description": "Whether adapter can control epochs dimension",
+            "title": "Epochs Controllable",
+            "type": "boolean"
+          },
+          "epochs_control_mechanism": {
+            "description": "How epochs is controlled in user project",
+            "enum": [
+              "cli_flag",
+              "function_arg",
+              "config_file",
+              "hardcoded"
+            ],
+            "title": "Epochs Control Mechanism",
+            "type": "string"
+          },
+          "epochs_default": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "User project's default epochs (null if not detectable)",
+            "title": "Epochs Default"
+          }
+        },
+        "required": [
+          "summary",
+          "model_class",
+          "model_module",
+          "train_entry",
+          "epochs_controllable",
+          "epochs_control_mechanism"
+        ],
+        "title": "ProjectAnalysis",
+        "type": "object"
+      }
+    },
+    {
+      "name": "scout",
+      "after": [
+        "project_analyzer"
+      ],
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "sub_agent",
+        "ask_user"
+      ],
+      "model": null,
+      "retries": 2,
+      "result_type_name": "ScoutResult",
+      "result_type_schema": {
+        "description": "scout agent output. Pure path summary; sub_agent-written files validated separately.",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "working_dir": {
+            "title": "Working Dir",
+            "type": "string"
+          },
+          "session_dir": {
+            "title": "Session Dir",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "workflow_dir": {
+            "title": "Workflow Dir",
+            "type": "string"
+          },
+          "helpers_dir": {
+            "title": "Helpers Dir",
+            "type": "string"
+          },
+          "adapter_path": {
+            "description": "Absolute path to <working_dir>/_nas_adapter.py",
+            "title": "Adapter Path",
+            "type": "string"
+          },
+          "project_analysis_path": {
+            "description": "Absolute path to <session_dir>/project_analysis.json",
+            "title": "Project Analysis Path",
+            "type": "string"
+          },
+          "epochs_controllable": {
+            "title": "Epochs Controllable",
+            "type": "boolean"
+          },
+          "epochs_default": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Epochs Default"
+          },
+          "adapter_report_path": {
+            "title": "Adapter Report Path",
+            "type": "string"
+          },
+          "baseline_path": {
+            "title": "Baseline Path",
+            "type": "string"
+          },
+          "budget_path": {
+            "title": "Budget Path",
+            "type": "string"
+          },
+          "metrics_path": {
+            "title": "Metrics Path",
+            "type": "string"
+          },
+          "domain_insights_path": {
+            "title": "Domain Insights Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "working_dir",
+          "session_dir",
+          "session_id",
+          "workflow_dir",
+          "helpers_dir",
+          "adapter_path",
+          "project_analysis_path",
+          "epochs_controllable",
+          "adapter_report_path",
+          "baseline_path",
+          "budget_path",
+          "metrics_path",
+          "domain_insights_path"
+        ],
+        "title": "ScoutResult",
+        "type": "object"
+      }
     },
     {
       "name": "selector",
-      "description": "选 parent + 动态 K + plateau 检测 + 方向变化建议",
-      "after": ["scout"],
-      "tools": null,
+      "after": [
+        "scout"
+      ],
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "sub_agent"
+      ],
       "model": null,
-      "retries": 2
+      "retries": 2,
+      "result_type_name": "SelectorResult",
+      "result_type_schema": {
+        "description": "selector agent output. Picks parent + K + direction strategy for current iter.",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "iter_num": {
+            "title": "Iter Num",
+            "type": "integer"
+          },
+          "parent_strategy_id": {
+            "description": "'baseline' for iter 1, else top-1 from candidates",
+            "title": "Parent Strategy Id",
+            "type": "string"
+          },
+          "strategies_per_iter": {
+            "description": "K for this iter (doubled if plateau)",
+            "title": "Strategies Per Iter",
+            "type": "integer"
+          },
+          "current_tier": {
+            "title": "Current Tier",
+            "type": "integer"
+          },
+          "direction_change": {
+            "title": "Direction Change",
+            "type": "boolean"
+          },
+          "suggested_directions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Suggested Directions",
+            "type": "array"
+          },
+          "plateau_detected": {
+            "title": "Plateau Detected",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "summary",
+          "iter_num",
+          "parent_strategy_id",
+          "strategies_per_iter",
+          "current_tier",
+          "direction_change",
+          "plateau_detected"
+        ],
+        "title": "SelectorResult",
+        "type": "object"
+      }
     },
     {
       "name": "planner",
-      "description": "开放式 hypothesize（响应方向变化）+ 一次性 issue K 个 Coder sub_agent",
-      "after": ["selector"],
-      "tools": null,
+      "after": [
+        "selector"
+      ],
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "sub_agent"
+      ],
       "model": null,
-      "retries": 2
+      "retries": 2,
+      "result_type_name": "PlannerResult",
+      "result_type_schema": {
+        "$defs": {
+          "StrategyInfo": {
+            "description": "One strategy entry in planner output.",
+            "properties": {
+              "id": {
+                "description": "strategy_id, 'iter_<N>_strategy_<i>' or with '_wc' suffix for wild card",
+                "title": "Id",
+                "type": "string"
+              },
+              "hypothesis": {
+                "title": "Hypothesis",
+                "type": "string"
+              },
+              "diff_path": {
+                "title": "Diff Path",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "hypothesis",
+              "diff_path"
+            ],
+            "title": "StrategyInfo",
+            "type": "object"
+          }
+        },
+        "description": "planner agent output. K strategy descriptors (deltas written by Coder sub_agents).",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "strategies_dir": {
+            "description": "<session_dir>/iter_<N>/",
+            "title": "Strategies Dir",
+            "type": "string"
+          },
+          "parent_strategy_id": {
+            "title": "Parent Strategy Id",
+            "type": "string"
+          },
+          "directions_explored": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Directions Explored",
+            "type": "array"
+          },
+          "strategies": {
+            "items": {
+              "$ref": "#/$defs/StrategyInfo"
+            },
+            "title": "Strategies",
+            "type": "array"
+          }
+        },
+        "required": [
+          "summary",
+          "strategies_dir",
+          "parent_strategy_id",
+          "directions_explored",
+          "strategies"
+        ],
+        "title": "PlannerResult",
+        "type": "object"
+      }
     },
     {
       "name": "trainer",
-      "description": "tier 自判训练 + 并发 K 个 strategy（失败时内部修复）",
-      "after": ["planner"],
-      "tools": null,
+      "after": [
+        "planner"
+      ],
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "sub_agent"
+      ],
       "model": null,
-      "retries": 2
+      "retries": 2,
+      "result_type_name": "TrainerResult",
+      "result_type_schema": {
+        "$defs": {
+          "EffectiveTier": {
+            "description": "Tier actually applied (null epochs = uncontrollable, single tier forced).",
+            "properties": {
+              "epochs": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Epochs"
+              },
+              "tier_index": {
+                "title": "Tier Index",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "epochs",
+              "tier_index"
+            ],
+            "title": "EffectiveTier",
+            "type": "object"
+          },
+          "FailedStrategy": {
+            "description": "One failed strategy entry.",
+            "properties": {
+              "strategy_id": {
+                "title": "Strategy Id",
+                "type": "string"
+              },
+              "error": {
+                "title": "Error",
+                "type": "string"
+              }
+            },
+            "required": [
+              "strategy_id",
+              "error"
+            ],
+            "title": "FailedStrategy",
+            "type": "object"
+          }
+        },
+        "description": "trainer agent output.",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "results_dir": {
+            "title": "Results Dir",
+            "type": "string"
+          },
+          "effective_tier": {
+            "$ref": "#/$defs/EffectiveTier"
+          },
+          "tier_adjustment_rationale": {
+            "title": "Tier Adjustment Rationale",
+            "type": "string"
+          },
+          "ok": {
+            "description": "List of strategy_ids that succeeded",
+            "items": {
+              "type": "string"
+            },
+            "title": "Ok",
+            "type": "array"
+          },
+          "failed": {
+            "items": {
+              "$ref": "#/$defs/FailedStrategy"
+            },
+            "title": "Failed",
+            "type": "array"
+          }
+        },
+        "required": [
+          "summary",
+          "results_dir",
+          "effective_tier",
+          "tier_adjustment_rationale",
+          "ok",
+          "failed"
+        ],
+        "title": "TrainerResult",
+        "type": "object"
+      }
     },
     {
       "name": "judger",
-      "description": "按 metrics 方向算多维 fitness + 排序",
-      "after": ["trainer"],
-      "tools": null,
+      "after": [
+        "trainer"
+      ],
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "sub_agent"
+      ],
       "model": null,
-      "retries": 2
+      "retries": 2,
+      "result_type_name": "JudgerResult",
+      "result_type_schema": {
+        "$defs": {
+          "RankingEntry": {
+            "description": "One entry in judger's ranking.",
+            "properties": {
+              "strategy_id": {
+                "title": "Strategy Id",
+                "type": "string"
+              },
+              "fitness": {
+                "title": "Fitness",
+                "type": "number"
+              },
+              "metrics": {
+                "additionalProperties": true,
+                "title": "Metrics",
+                "type": "object"
+              },
+              "latency_ms": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Latency Ms"
+              },
+              "params": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Params"
+              },
+              "primary_normalized": {
+                "title": "Primary Normalized",
+                "type": "number"
+              }
+            },
+            "required": [
+              "strategy_id",
+              "fitness",
+              "metrics",
+              "primary_normalized"
+            ],
+            "title": "RankingEntry",
+            "type": "object"
+          }
+        },
+        "description": "judger agent output. Sorted ranking of ok strategies.",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "primary_metric": {
+            "title": "Primary Metric",
+            "type": "string"
+          },
+          "ranking": {
+            "items": {
+              "$ref": "#/$defs/RankingEntry"
+            },
+            "title": "Ranking",
+            "type": "array"
+          }
+        },
+        "required": [
+          "summary",
+          "primary_metric",
+          "ranking"
+        ],
+        "title": "JudgerResult",
+        "type": "object"
+      }
     },
     {
       "name": "analyzer",
-      "description": "更新 elite pool + 历史 + direction.md + signatures（无决策）",
-      "after": ["judger"],
-      "tools": null,
+      "after": [
+        "judger"
+      ],
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "sub_agent",
+        "render_chart"
+      ],
       "model": null,
-      "retries": 2
+      "retries": 2,
+      "result_type_name": "AnalyzerResult",
+      "result_type_schema": {
+        "description": "analyzer agent output. Pure bookkeeping; no decision.",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "iter_num": {
+            "title": "Iter Num",
+            "type": "integer"
+          },
+          "best_strategy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Strategy Id"
+          },
+          "best_fitness": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Fitness"
+          },
+          "candidates_count": {
+            "title": "Candidates Count",
+            "type": "integer"
+          },
+          "plateau_detected": {
+            "title": "Plateau Detected",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "summary",
+          "iter_num",
+          "best_strategy_id",
+          "best_fitness",
+          "candidates_count",
+          "plateau_detected"
+        ],
+        "title": "AnalyzerResult",
+        "type": "object"
+      }
     },
     {
       "name": "validator",
-      "description": "事实决策：调 helpers/check_target.py 做达标对比（防幻觉）",
-      "after": ["analyzer"],
-      "tools": null,
+      "after": [
+        "analyzer"
+      ],
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "sub_agent"
+      ],
       "model": null,
       "retries": 2,
       "on_pass": "refiner",
-      "on_fail": "selector"
+      "on_fail": "selector",
+      "result_type_name": "ValidatorResult",
+      "result_type_schema": {
+        "description": "validator agent output. Pure decision (pass/fail); framework routes accordingly.",
+        "properties": {
+          "decision": {
+            "enum": [
+              "pass",
+              "fail"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "target_met": {
+            "title": "Target Met",
+            "type": "boolean"
+          },
+          "outcome": {
+            "enum": [
+              "refine",
+              "abort"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "best_strategy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Best Strategy Id"
+          }
+        },
+        "required": [
+          "decision",
+          "reason",
+          "summary",
+          "target_met",
+          "outcome"
+        ],
+        "title": "ValidatorResult",
+        "type": "object"
+      }
     },
     {
       "name": "refiner",
-      "description": "tier 自判升级 + full-mode retrain top-K",
       "after": null,
-      "tools": null,
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "sub_agent"
+      ],
       "model": null,
       "retries": 2,
       "on_pass": "reporter",
-      "on_fail": "selector"
+      "on_fail": "selector",
+      "result_type_name": "RefinerResult",
+      "result_type_schema": {
+        "description": "refiner agent output. Pure decision.",
+        "properties": {
+          "decision": {
+            "enum": [
+              "pass",
+              "fail"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "refine_pass",
+              "tier_upgrade",
+              "max_tier_reached",
+              "abort"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "current_tier": {
+            "title": "Current Tier",
+            "type": "integer"
+          },
+          "best_strategy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Best Strategy Id"
+          }
+        },
+        "required": [
+          "decision",
+          "reason",
+          "summary",
+          "outcome",
+          "current_tier"
+        ],
+        "title": "RefinerResult",
+        "type": "object"
+      }
     },
     {
       "name": "reporter",
-      "description": "最终报告 + lineage + abort 处理",
-      "after": ["refiner"],
-      "tools": null,
+      "after": [
+        "refiner"
+      ],
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "sub_agent",
+        "render_chart"
+      ],
       "model": null,
-      "retries": 2
+      "retries": 2,
+      "result_type_name": "ReporterResult",
+      "result_type_schema": {
+        "description": "reporter agent output.",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "达标成功",
+              "部分成功",
+              "abort"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "recommended_strategy_id": {
+            "title": "Recommended Strategy Id",
+            "type": "string"
+          },
+          "target_met": {
+            "title": "Target Met",
+            "type": "boolean"
+          },
+          "report_path": {
+            "title": "Report Path",
+            "type": "string"
+          },
+          "total_iters": {
+            "title": "Total Iters",
+            "type": "integer"
+          },
+          "total_strategies_explored": {
+            "title": "Total Strategies Explored",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "summary",
+          "outcome",
+          "recommended_strategy_id",
+          "target_met",
+          "report_path",
+          "total_iters",
+          "total_strategies_explored"
+        ],
+        "title": "ReporterResult",
+        "type": "object"
+      }
     }
-  ]
+  ],
+  "max_iterations": 1000000
 }
