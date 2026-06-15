@@ -112,7 +112,7 @@ describe("test helpers", () => {
       const r = createMockRunRecord();
       expect(r.run_id).toBeTruthy();
       expect(Array.isArray(r.conversation)).toBe(true);
-      expect(r.conversation.length).toBe(0);
+      expect(r.conversation?.length ?? 0).toBe(0);
       expect(r.dag).toBeNull();
     });
 

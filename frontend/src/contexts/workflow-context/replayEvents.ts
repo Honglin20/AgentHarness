@@ -195,7 +195,7 @@ export function loadLegacyRunData(
 
 interface PersistedRunData {
   agent_io?: Record<string, { input_prompt: string; output_result: unknown; system_prompt?: string }>;
-  conversation: Array<Record<string, any>>;
+  conversation?: Array<Record<string, any>> | null;
   dag: { nodes: string[]; edges: [string, string][]; conditional_edges?: { from: string; to: string; label: string }[] } | null;
   result: {
     outputs: Record<string, unknown>;

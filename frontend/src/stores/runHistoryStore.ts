@@ -46,7 +46,16 @@ export interface RunRecord {
       token_usage?: { input: number; output: number; total: number } | null;
     }>;
   } | null;
-  conversation: ConversationMessageDTO[];
+  /**
+   * Conversation messages. Sidecar-only since `server/_helpers.py` strips
+   * `conversation` to `None` on the detail endpoint and exposes the data via
+   * `GET /runs/{id}/conversation` (gated by `_has_conversation`).
+   *
+   * Optional because legacy / inline persisted runs may still carry it on the
+   * main record; consumers should always read via `?? []` or the sidecar fetch
+   * in `hydrateReplay.loadSidecars`.
+   */
+  conversation?: ConversationMessageDTO[] | null;
   created_at: string;
   dag: {
     nodes: string[];
