@@ -40,14 +40,11 @@ def compute_outline(
     agents_snapshot = agents_snapshot or []
     dag_nodes: list[str] = list((dag or {}).get("nodes") or [])
 
-    # agent_name lookup from snapshot — frontend uses NodeState.name which is
-    # populated by the workflow store from the same snapshot.
-    name_by_node = {a.get("name"): a.get("name") for a in agents_snapshot}
-    # Snapshot name is the node id; the display name is whatever the agent
-    # registered as. For now there is no separate display-name field, so
-    # fall back to node id.
-    for node_id in dag_nodes:
-        name_by_node.setdefault(node_id, node_id)
+    # In AgentHarness the DAG node id IS the agent's registered name (see
+    # ``build_node_started_payload`` in node_phases.py — agent_name=node_id).
+    # agents_snapshot entries are keyed by the same name, so the display name
+    # is just the node id. Keep a snapshot set so unknown nodes still render.
+    snapshot_names = {a.get("name") for a in agents_snapshot if a.get("name")}
 
     # trace lookup by agent_name (trace is agent-level, no iteration dim)
     trace_by_agent: dict[str, dict] = {}
@@ -94,7 +91,7 @@ def compute_outline(
     msg_first_ts_by_node: dict[str, int] = {}
     for m in conversation:
         node_id = m.get("nodeId") or m.get("node_id")
-        if not node_id:
+        if not node_id or _is_followup_node(node_id):
             continue
         ts = m.get("timestamp") or m.get("ts") or 0
         if node_id not in msg_first_ts_by_node or ts < msg_first_ts_by_node[node_id]:
@@ -140,7 +137,9 @@ def compute_outline(
         m_type = m.get("type") or m.get("kind")
         m_status = m.get("status")
         node_id = m.get("nodeId") or m.get("node_id")
-        if m_type == "question" and m_status == "pending" and node_id:
+        if not node_id or _is_followup_node(node_id):
+            continue
+        if m_type == "question" and m_status == "pending":
             pending_q_by_node[node_id] = pending_q_by_node.get(node_id, 0) + 1
 
     # 8. Per-(nodeId, iter) message status scan for historical iters'
@@ -149,7 +148,7 @@ def compute_outline(
     msg_status_by_node: dict[str, list[str]] = {}
     for m in conversation:
         node_id = m.get("nodeId") or m.get("node_id")
-        if not node_id:
+        if not node_id or _is_followup_node(node_id):
             continue
         m_status = m.get("status")
         if m_status:
@@ -174,6 +173,23 @@ def compute_outline(
             will_retry = payload.get("will_retry")
             latest_event_status_by_node[node_id] = "retrying" if will_retry else "failed"
 
+    # 9b. Latest retry attempt per node. ``agent.retry_attempted`` carries
+    #     ``attempt`` (the attempt that JUST FAILED, 1-indexed) + ``max_attempts``
+    #     (mirrors NodeState.retryAttempts on the frontend). UI shows attempt+1
+    #     = the upcoming attempt number (matches deriveOutlineItems.ts:181-188).
+    latest_retry_by_node: dict[str, dict] = {}
+    for ev in events:
+        if ev.get("type") != "agent.retry_attempted":
+            continue
+        payload = ev.get("payload") or {}
+        node_id = payload.get("node_id")
+        if not node_id:
+            continue
+        latest_retry_by_node[node_id] = {
+            "attempt": int(payload.get("attempt") or 1),
+            "max_attempts": int(payload.get("max_attempts") or 1),
+        }
+
     # 10. Active step per node (in_progress todo) — mirror deriveOutlineItems.ts:200-205.
     active_step_by_node: dict[str, dict] = {}
     for node_id, steps in todo_steps.items():
@@ -192,11 +208,14 @@ def compute_outline(
         iteration = entry["iteration"]
         iter_count = iter_count_by_node.get(node_id, 1)
         is_latest_iter = iteration == iter_count
-        name = name_by_node.get(node_id, node_id)
+        # AgentHarness: agent_name == node_id (see node_phases.build_node_started_payload).
+        # Display name = node id; snapshot presence is just a sanity guard.
+        name = node_id if node_id in snapshot_names or not snapshot_names else node_id
         node_trace = trace_by_agent.get(node_id, {})
         node_status_event = latest_event_status_by_node.get(node_id)
         pending_q = pending_q_by_node.get(node_id, 0)
         statuses_for_node = msg_status_by_node.get(node_id, [])
+        retry_info = latest_retry_by_node.get(node_id)
 
         status = _compute_status(
             is_latest_iter=is_latest_iter,
@@ -211,12 +230,14 @@ def compute_outline(
             node_status_event=node_status_event,
             node_trace=node_trace,
             active_step=active_step_by_node.get(node_id),
+            retry_info=retry_info,
         )
         badges = _compute_badges(
             iteration=iteration,
             iter_count=iter_count,
             is_latest_iter=is_latest_iter,
             node_trace=node_trace,
+            retry_info=retry_info,
         )
 
         first_ts = entry["first_ts"]
@@ -282,12 +303,21 @@ def _compute_activity(
     node_status_event: str | None,
     node_trace: dict,
     active_step: dict | None,
+    retry_info: dict | None,
 ) -> dict:
     """Mirror ``computeActivity`` in deriveOutlineItems.ts:163-211."""
     if pending_q > 0:
         return {"kind": "waiting-for-user", "questionId": "", "questionCount": pending_q}
     if not is_latest_iter:
         return {"kind": "completed"}
+    if node_status_event == "retrying" and retry_info:
+        # Mirror frontend: display attempt+1 (the upcoming attempt) — matches
+        # the toast at agentHandlers and the inline retry card at AgentMessage.
+        return {
+            "kind": "retrying",
+            "attempt": retry_info["attempt"] + 1,
+            "maxAttempts": retry_info["max_attempts"],
+        }
     if node_status_event == "failed":
         error_summary = node_trace.get("error") or "Failed"
         return {"kind": "failed", "errorSummary": str(error_summary)}
@@ -312,6 +342,7 @@ def _compute_badges(
     iter_count: int,
     is_latest_iter: bool,
     node_trace: dict,
+    retry_info: dict | None,
 ) -> list[dict]:
     """Mirror ``computeBadges`` in deriveOutlineItems.ts:213-249."""
     badges: list[dict] = []
@@ -322,6 +353,16 @@ def _compute_badges(
             "title": f"Iteration {iteration} of {iter_count}",
         })
     if is_latest_iter:
+        # Retry badge first (matches frontend ordering: retry → tokens).
+        # Display upcoming attempt (attempt+1); same convention as activity.
+        if retry_info:
+            upcoming = retry_info["attempt"] + 1
+            max_attempts = retry_info["max_attempts"]
+            badges.append({
+                "kind": "retry",
+                "text": f"{upcoming}/{max_attempts}",
+                "title": f"Retry attempt {upcoming} of {max_attempts}",
+            })
         token_usage = node_trace.get("token_usage") or {}
         total = token_usage.get("total") if isinstance(token_usage, dict) else None
         if total and total > 0:
@@ -338,3 +379,14 @@ def _format_tokens(n: int) -> str:
     if n >= 1000:
         return f"{n / 1000:.1f}k"
     return str(n)
+
+
+def _is_followup_node(node_id: str) -> bool:
+    """Synthetic @mention followup nodeIds start with ``followup-``.
+
+    ChatInput creates these for multi-turn @agent conversations; they never
+    fire node.started, so they're not real DAG nodes. deriveOutlineItems.ts:45
+    skips them in the message scan — we do the same so followup messages
+    don't pollute first_ts / pending_question / status maps.
+    """
+    return node_id.startswith("followup-")

@@ -168,6 +168,76 @@ def test_pending_question_blocks_node():
     assert out[0]["activity"] == {"kind": "waiting-for-user", "questionId": "", "questionCount": 1}
 
 
+def test_retrying_emits_activity_and_badge():
+    """Retry status must mirror deriveOutlineItems.ts:181-188 + 229-239.
+
+    agent.retry_attempted payload carries attempt (the one that JUST FAILED,
+    1-indexed) + max_attempts. UI shows attempt+1 = the upcoming attempt.
+    """
+    dag = {"nodes": ["trainer"], "edges": []}
+    out = compute_outline(
+        conversation=[],
+        events=[
+            _started("trainer", ts=1000),
+            _failed("trainer", will_retry=True),
+            {
+                "type": "agent.retry_attempted",
+                "ts": 2500,
+                "payload": {
+                    "node_id": "trainer",
+                    "agent_name": "trainer",
+                    "attempt": 1,
+                    "max_attempts": 3,
+                },
+            },
+        ],
+        trace=[],
+        todo_steps={},
+        agents_snapshot=[{"name": "trainer"}],
+        dag=dag,
+    )
+    item = out[0]
+    assert item["status"] == "retrying"
+    assert item["activity"] == {"kind": "retrying", "attempt": 2, "maxAttempts": 3}
+    # Retry badge should be present, showing upcoming attempt 2/3.
+    retry_badges = [b for b in item["badges"] if b["kind"] == "retry"]
+    assert len(retry_badges) == 1
+    assert retry_badges[0] == {
+        "kind": "retry",
+        "text": "2/3",
+        "title": "Retry attempt 2 of 3",
+    }
+
+
+def test_followup_messages_excluded_from_projections():
+    """@mention followup nodeIds (`followup-<agent>`) must not pollute the
+    outline maps. They never fire node.started, so they shouldn't appear as
+    phantom outline rows or skew first_ts / pending_q of real DAG nodes.
+    """
+    dag = {"nodes": ["scout"], "edges": []}
+    out = compute_outline(
+        conversation=[
+            # Real scout message at ts=2000
+            {"type": "agent", "status": "done", "nodeId": "scout", "timestamp": 2000},
+            # followup- noise: earlier ts (would skew scout first_ts) + pending question
+            {"type": "agent", "status": "done", "nodeId": "followup-trainer", "timestamp": 500},
+            {"type": "question", "status": "pending", "nodeId": "followup-trainer", "timestamp": 600},
+        ],
+        events=[_started("scout", ts=1000), _completed("scout", ts=3000)],
+        trace=[{"agent_name": "scout", "status": "success", "duration_ms": 2000}],
+        todo_steps={},
+        agents_snapshot=[{"name": "scout"}],
+        dag=dag,
+    )
+    # Only scout appears — followup-trainer is not in DAG and its messages
+    # don't pollute scout's first_ts or pending_q.
+    assert len(out) == 1
+    assert out[0]["node_id"] == "scout"
+    assert out[0]["status"] == "completed"
+    # first_ts not skewed by followup ts=500 (would have been 500 if not filtered).
+    assert out[0]["first_ts"] != 500
+
+
 def test_sort_by_first_ts_then_dag_order():
     """Out-of-order events should still produce DAG-ordered idle tail."""
     dag = {"nodes": ["a", "b", "c"], "edges": []}
