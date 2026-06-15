@@ -39,52 +39,28 @@
    - epochs_controllable=false → 强制 1 tier（rationale 写"epochs hardcoded, cannot differentiate tier"）
    - 在 rationale 写清退化原因
 
-5. 写 `<session_dir>/budget.json`（严格按 BudgetFile schema）：
+5. 写 `<session_dir>/budget.json`（**必须用 helper，禁止手写 JSON**）：
 
-   ```json
-   {
-     "baseline_duration_sec": <float, T from baseline.json>,
-     "one_epoch_sec": <float, from baseline.json>,
-     "total_epochs": <int, from baseline.json>,
-     "tier_recommendation": {
-       "rationale": "<str, 简短说明，含退化说明>",
-       "proposed_tiers": [
-         {"name": "search", "epochs": <int or null>},
-         {"name": "refine", "epochs": <int or null>}
-       ],
-       "max_tier": <int, 0 or 1>,
-       "degraded_dimensions": ["epochs"]   // 或 [] 当 epochs_controllable=true
-     },
-     "target_latency_ms": <float, from workflow inputs>,
-     "acc_tolerance": <float, from workflow inputs>,
-     "strategies_per_iter": <int, from workflow inputs>
-   }
+   **关键**：不要手写 budget.json（容易 schema 不一致 + 用旧 3-tier 矩阵）！必须调 helper：
+
+   ```bash
+   python <helpers_dir>/make_budget.py \
+     --baseline <session_dir>/baseline.json \
+     --project-analysis <session_dir>/project_analysis.json \
+     --target-latency <from workflow inputs> \
+     --acc-tolerance <from workflow inputs> \
+     --strategies-per-iter <from workflow inputs> \
+     --out <session_dir>/budget.json
    ```
 
-   **关键约束**：
-   - `proposed_tiers` 的每个 tier **只能有** `name` 和 `epochs` 字段（TierSpec schema）。**禁止** `data_ratio` / `tier_index` / `description`。
-   - `degraded_dimensions` 只能是 `["epochs"]` 或 `[]`（不能是 data_ratio）。
-   - max_tier 只能是 0 或 1（2 tier 矩阵已删除）。
+   Helper deterministic 决定 tier 系统（基于 T + epochs_controllable）：
+   - T < 300s → 1 tier（max_tier=0）
+   - T ≥ 300s + epochs_controllable=true → 2 tier（max_tier=1）
+   - T ≥ 300s + epochs_controllable=false → 1 tier forced
 
-   **mnist 示例（baseline T=158s, epochs_controllable=true）**：
-   ```json
-   {
-     "baseline_duration_sec": 158.59,
-     "one_epoch_sec": 31.72,
-     "total_epochs": 5,
-     "tier_recommendation": {
-       "rationale": "T=158s ≥ 300s threshold? no (T<300s); 1 tier forced. Wait, 158<300 so single tier. epochs controllable via --epochs flag.",
-       "proposed_tiers": [{"name": "search", "epochs": null}],
-       "max_tier": 0,
-       "degraded_dimensions": []
-     },
-     "target_latency_ms": 0.05,
-     "acc_tolerance": 0.02,
-     "strategies_per_iter": 3
-   }
-   ```
+   Helper 强制 BudgetFile schema（无 `_meta` / `budget_allocation` / `description` 等额外字段，无 `data_ratio`）。
 
-   注意：`proposed_tiers` 的 `epochs` 字段为 null 时表示"用户默认 epochs"（run_strategy.py 会用 None 调 adapter.train）。
+   Helper 失败会 exit 1。看到错误 → 检查 baseline.json 是否有 `full_training_duration_sec` 字段、project_analysis.json 是否有 `epochs_controllable` 字段，修复后重跑。**不要绕过 helper 手写 JSON**。
 
 ## 返回 scout 的 summary
 

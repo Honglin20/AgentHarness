@@ -55,45 +55,28 @@ python <helpers_dir>/profile_model.py \
 
 **失败处理**：profile 失败不阻塞 baseline.json 写入（`profile_path` 留 null，stderr warning）。reporter 读 profile 给架构建议时跳过。
 
-### 4. 写 `<session_dir>/baseline.json`（严格按 BaselineFile schema 重组）
+### 4. 写 `<session_dir>/baseline.json`（**必须用 helper，禁止手写 JSON**）
 
-**关键**：不要直接复制 `baseline_eval.json` 内容！必须按以下 schema **重组**字段。
+**关键**：不要手写 baseline.json（容易 schema 不一致）！必须调 helper：
 
-```json
-{
-  "metrics": <dict, e.g. {"acc": 0.86, "loss": 0.45} — from baseline_eval.json["metrics"]>,
-  "latency_ms": <float, from baseline_eval.json["latency_ms"]>,
-  "onnx_latency_ms": <float or null, from baseline_eval.json["onnx_latency_ms"]>,
-  "onnx_path": <str or null, from baseline_eval.json["onnx_path"]>,
-  "params": <int, from baseline_eval.json["params"]>,
-  "one_epoch_sec": <float, from baseline_eval.json["duration_sec"]>,
-  "total_epochs": <int, step 2 推断 from project_analysis.json["epochs_default"]>,
-  "full_training_duration_sec": <float, one_epoch_sec * total_epochs>,
-  "profile_path": "<session_dir>/baseline_profile.json or null"
-}
+```bash
+python <helpers_dir>/make_baseline.py \
+  --eval-result <session_dir>/baseline_eval.json \
+  --project-analysis <session_dir>/project_analysis.json \
+  --profile-path <session_dir>/baseline_profile.json \
+  --out <session_dir>/baseline.json
 ```
 
-**严禁字段**（不要写入 baseline.json）：
-- ❌ 顶级 `accuracy` / `acc`（必须放进 `metrics` dict）
-- ❌ `config` / `train_duration_sec` / `loss_curve`（不是 BaselineFile schema）
-- ❌ `status` / `strategy_id` / `tier_applied`（这些是 baseline_eval.json 的字段，不是 baseline.json）
+Helper 强制 BaselineFile schema：
+- `metrics` 必须是 dict（如 `{"acc": 0.86}`）
+- `latency_ms` 必须是 float（不是 dict）
+- `total_epochs` 从 `project_analysis.epochs_default` 读
+- `one_epoch_sec` 从 `baseline_eval.duration_sec` 读
+- `full_training_duration_sec` = one_epoch_sec * total_epochs
 
-ONNX 导出/测量失败不阻塞 baseline.json 写入，但 `onnx_latency_ms` / `onnx_path` 留 null。
+Helper 失败（schema 不匹配）会 exit 1 + stderr 错误信息。看到错误 → 修复输入（baseline_eval.json 或 project_analysis.json）后重跑 helper。**不要绕过 helper 手写 JSON**。
 
-**示例（mnist 项目正确输出）**：
-```json
-{
-  "metrics": {"acc": 0.8611, "loss": 0.4523},
-  "latency_ms": 0.0261,
-  "onnx_latency_ms": 0.0679,
-  "onnx_path": "/path/to/baseline.onnx",
-  "params": 9226,
-  "one_epoch_sec": 31.72,
-  "total_epochs": 5,
-  "full_training_duration_sec": 158.59,
-  "profile_path": "/path/to/baseline_profile.json"
-}
-```
+ONNX 导出/测量失败不阻塞：`onnx_latency_ms` / `onnx_path` 留 null，helper 自动处理。
 
 ## 返回 scout 的 summary
 
