@@ -23,7 +23,7 @@ class AskUserOption(BaseModel):
     value: str | None = Field(None, description="String returned to the LLM; defaults to label")
 
 
-DEFAULT_TIMEOUT_SEC = 300.0
+DEFAULT_TIMEOUT_SEC = 60.0
 TIMEOUT_MESSAGE = "User disconnected. Proceed with your best judgment."
 
 
@@ -103,7 +103,7 @@ class AskUserToolFactory(ToolFactory):
         "and headers to separate sections. NEVER dump a long unformatted paragraph — "
         "structure the question so it's easy to scan at a glance.\n\n"
         "Returns the user's answer as a plain string. "
-        "Blocks until answered or 5 min timeout."
+        "Blocks until answered or 60 sec timeout."
     )
 
     def __init__(self, event_bus: Any | None = None):

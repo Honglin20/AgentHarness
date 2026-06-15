@@ -73,6 +73,52 @@ retries: 2
 - 领域特定：DSP 算子 / 卷积分解 / attention 稀疏化 / head 蒸馏 / 量化友好结构
 - 通用：换激活 / 改归一化 / 加 skip / channel shuffle / 结构重排
 
+#### 2.7 小步迭代约束（**强制**，违反即丢弃 strategy）
+
+每个 strategy 的 diff 必须**只改动 ≤3 个位置**（"位置"= 单个连续代码块）。
+
+**位置定义**：
+- 单个 layer 替换（如 `nn.ReLU()` → `nn.GELU()`）= 1 位置
+- 单个 hyperparam 调整（如 `hidden_dim=64` → `128`）= 1 位置
+- 单个 op 插入/删除（如加 skip connection 在 forward 里）= 1 位置
+- 整个 nn.Module 类替换（如 `MLP` → `CNN`）= 1 位置（但内部多 layer 改也算 1）
+
+**典型例子**：
+- ✅ 1 位置：`nn.ReLU()` → `nn.GELU()`（单点替换）
+- ✅ 2 位置：`hidden_dim=64` → `128` + 加 `nn.BatchNorm1d(...)` 后 Linear
+- ✅ 3 位置：换 activation + 加 skip + 增大 hidden_dim
+- ❌ 4+ 位置：同时改 lr + batch_size + epochs + optimizer + model
+- ❌ 全局重写：把 MLP 替换成 CNN 同时改 forward + 加 flatten + 改 init
+
+**严格约束**：
+- ❌ 一次性重写整个 model（多个 class 同时改）
+- ❌ 改 training loop + model + data loader 同时
+- ❌ 改 >3 个 hyperparam 同时
+
+**理由**：小步迭代让 fitness 变化可归因（哪个改动有效），便于 analyzer 分析 + reporter 推荐。
+
+**K 个 strategy 的总改动**：每个独立计数（不累加）。即 K=3 时每个 strategy 各自 ≤3 位置。
+
+**manifest.json 必含字段**（让 judger / analyzer 审计改动幅度）：
+```json
+{
+  "strategy_id": "iter_<N>_strategy_<i>",
+  "parent_strategy_id": "<...>",
+  "is_wild_card": <bool>,
+  "hypothesis": "<...>",
+  "hypothesis_type": "parametric | structural_local | structural_global",
+  "domain_basis": "<from domain_insights>",
+  "profile_target": "<which top_latency_layer, or null>",
+  "direction_tag": "<本次探索的方向分类>",
+  "files_changed": ["<file1>", "<file2>"],          // length ≤ 3
+  "ops_modified": ["ReLU→GELU", "hidden_dim 64→128"], // length ≤ 3
+  "change_count": 2,                                  // = len(ops_modified), must ≤ 3
+  "diff_path": "..."
+}
+```
+
+**sub_agent task 模板里必须强调 ≤3 位置约束**（见 §4）。
+
 ### 3. 去重检查（每个 strategy）
 ```bash
 python $helpers_dir/signature.py check \
@@ -106,6 +152,10 @@ Strategy hypothesis: <hypothesis 描述>
 - 不改蒸馏、不改量化
 - 保持对外接口兼容（输入输出 shape 一致）
 - 改完必须能 import 通过
+- **小步迭代**：改动 ≤3 个位置（files_changed.length ≤3 AND ops_modified.length ≤3）
+  - 1 位置 = 单个 layer 替换 / 单个 hyperparam 调整 / 单个 op 插入删除 / 单个 nn.Module 类替换
+  - 禁止：重写整个 model + training loop + data loader 同时
+  - 必须在 manifest 里写 change_count = ops_modified.length（≤3）
 
 输出:
 - diff: $session_dir/iter_<N>/strategy_<i>/diff.patch
@@ -119,8 +169,9 @@ Strategy hypothesis: <hypothesis 描述>
     "domain_basis": "<from domain_insights>",
     "profile_target": "<which top_latency_layer, or null>",
     "direction_tag": "<本次探索的方向分类>",
-    "files_changed": [...],
-    "ops_modified": [...],
+    "files_changed": [...],     // length ≤ 3
+    "ops_modified": [...],      // length ≤ 3
+    "change_count": <int>,      // = len(ops_modified), must ≤ 3
     "diff_path": "..."
   }
 ```

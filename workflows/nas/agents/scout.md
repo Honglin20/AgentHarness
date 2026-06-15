@@ -101,9 +101,10 @@ EOF
 
 baseline_runner 通过 run_strategy.py 跑 baseline 1 epoch + evaluate + export onnx + measure latency → `<session_dir>/baseline.json` + `<session_dir>/baseline_profile.json`。
 
-**跑完后必须 ask_user 对齐 baseline**（决策 4）：
+**跑完后尝试 ask_user 对齐 baseline**（决策 4，**可选 fallback**）：
 - 问题："baseline acc=X / latency=Yms / params=Z，与你的预期一致吗？"
 - 选项：[一致，继续] / [不一致，调整重跑] / [abort]
+- **重要**：如果 ask_user 触发后返回 TIMEOUT_MESSAGE（5 分钟无响应，NAS CLI 模式无 WS），**默认按"一致，继续"处理**，把 baseline 数值写到 scout summary 让用户事后查看。不要因为 ask_user timeout 阻塞 workflow。
 
 用户选"不一致" → 调整重跑（最多 retry 2 次；调整 weights_path / evaluate batch_size / profile warmup）。仍不对齐 → ask_user 决定 abort 或继续。
 

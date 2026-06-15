@@ -1,0 +1,15 @@
+training:
+  epochs: 5
+  batch_size: 32
+  lr: 0.001
+
+model:
+  n_subcarriers: 64
+  hidden_dim: 128
+  n_layers: 2
+  activation: relu
+
+data:
+  snr_db: 20.0
+  n_train: 1000
+  n_eval: 200

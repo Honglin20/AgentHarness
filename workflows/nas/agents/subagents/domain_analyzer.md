@@ -41,6 +41,36 @@
    3. [structural_global] <方向> — <理由>
    ... (≥5 条)
 
+   **按领域给具体方向（参考，LLM 应基于项目实际选择）**：
+
+   - **CV (image classification / detection)**:
+     - [structural_local] depthwise separable conv 替代标准 Conv2d
+     - [structural_local] channel shuffle / group conv
+     - [structural_local] 加 residual / skip connection
+     - [parametric] activation: ReLU → GELU/SiLU
+     - [parametric] batchnorm: toggle on/off
+   - **NLP (text classification / LM)**:
+     - [structural_local] linear attention 替代 standard attention
+     - [structural_local] sparse attention (top-k)
+     - [structural_local] head reduction (n_heads 减半)
+     - [structural_local] weight tying (embedding 与 output 共享)
+     - [parametric] embed_dim / hidden_dim 调整
+   - **无线 (OFDM / signal detection)**:
+     - [structural_local] depthwise conv for complex input (real+imag channels)
+     - [structural_local] 1x1 conv bottleneck
+     - [structural_local] power normalization layer
+     - [parametric] hidden_dim 调整
+   - **时序 (LSTM / Transformer forecaster)**:
+     - [structural_local] GRU 替代 LSTM (cheaper)
+     - [structural_local] linear RNN (LRU/RWKV)
+     - [structural_local] layer sharing (多 LSTM layer 共享权重)
+     - [parametric] hidden_dim / n_layers 调整
+   - **推荐 (NCF / two-tower)**:
+     - [structural_local] low-rank MLP (矩阵分解)
+     - [structural_local] cross-feature interaction layer
+     - [parametric] embedding_dim 调整
+     - [parametric] MLP hidden_dim 调整
+
    类型定义:
    - parametric: 调超参（hidden_dim / lr / batch_size / activation）
    - structural_local: 换 layer / 插 skip / channel shuffle
