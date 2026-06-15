@@ -25,6 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from harness.api import Agent, Workflow
+from harness.extensions.bus import Bus
 
 from schemas import (
     ProjectAnalysis, ScoutResult, SelectorResult, PlannerResult, TrainerResult,
@@ -38,7 +39,7 @@ from schemas import (
 NAS_TOOLS = ["bash", "grep", "glob", "sub_agent"]
 NAS_TOOLS_WITH_CHART = NAS_TOOLS + ["render_chart"]
 NAS_TOOLS_WITH_ASK = NAS_TOOLS + ["ask_user"]
-PROJECT_ANALYZER_TOOLS = ["bash", "grep", "glob", "read_text_file", "todo"]
+PROJECT_ANALYZER_TOOLS = ["bash", "grep", "glob", "read_text_file"]
 
 # Repo layout: devkit/nas/register.py → workflows/nas/
 WORKFLOW_DIR = Path(__file__).resolve().parent.parent.parent / "workflows" / "nas"
@@ -48,6 +49,7 @@ def build_workflow() -> Workflow:
     """Construct the NAS workflow with all 10 agents + Pydantic result_types."""
     wf = Workflow(
         name="nas",
+        event_bus=Bus(),
         agents=[
             # ── Setup (one-shot) ────────────────────────────────────────
             Agent(

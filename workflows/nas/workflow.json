@@ -8,8 +8,7 @@
         "bash",
         "grep",
         "glob",
-        "read_text_file",
-        "todo"
+        "read_text_file"
       ],
       "model": null,
       "retries": 2,

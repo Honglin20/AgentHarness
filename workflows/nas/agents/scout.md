@@ -44,21 +44,38 @@ cat /tmp/.scout_paths.json
 
 读 `/tmp/.scout_paths.json` 拿到 `working_dir` / `session_dir` / `session_id` / `workflow_dir` / `helpers_dir`。后续所有路径用这些绝对值。
 
-## Step 0.5: 读 ProjectAnalysis（project_analyzer agent 已写入）
+## Step 0.5: 接收 ProjectAnalysis（来自 state.outputs.project_analyzer）+ 写到 session_dir
+
+`project_analyzer` agent 已经通过 framework state 返回 ProjectAnalysis dict（**它不写文件**）。你在 prompt context 看到的上游输出含 model_class / train_entry / eval_entry / weights_path / epochs_controllable 等字段。
+
+**把 ProjectAnalysis 写到 session_dir**（让 sub_agent adapter_generator / baseline_runner / tier_planner 读文件）：
 
 ```bash
-cat $session_dir/project_analysis.json
+mkdir -p $session_dir
+cat > $session_dir/project_analysis.json <<EOF
+{
+  "summary": "<from state.outputs.project_analyzer.summary>",
+  "model_class": "<...>",
+  "model_module": "<...>",
+  "model_init_args": {...},
+  "train_entry": "<...>",
+  "eval_entry": "<...>",
+  "weights_path": "<...>",
+  "weights_exist": <bool>,
+  "epochs_controllable": <bool>,
+  "epochs_control_mechanism": "<cli_flag|function_arg|config_file|hardcoded>",
+  "epochs_default": <int or null>
+}
+EOF
 ```
 
-提取关键字段：
+提取关键字段传给后续 sub_agent：
 - `model_class` / `model_module` / `model_init_args`
 - `train_entry` / `eval_entry`
 - `weights_path` / `weights_exist`
 - `epochs_controllable` / `epochs_control_mechanism` / `epochs_default`
 
-这些字段传给后续 sub_agent（adapter_generator / baseline_runner / tier_planner）。
-
-**ask_user 触发条件**：ProjectAnalysis 缺关键字段（`model_class` 或 `train_entry` 是 NOT_FOUND，或 summary 含 "partial"）→ ask_user 让用户补字段或手动指定。
+**ask_user 触发条件**：ProjectAnalysis 缺关键字段（`model_class` 或 `train_entry` 是 NOT_FOUND，或 summary 含 "partial: missing"）→ ask_user 让用户补字段或手动指定。**注意**：summary 里提到 "session pointer not found" 或类似非关键字段问题的，不算 partial，不触发 ask_user。
 
 ## Step 1: Wave 1 — adapter_generator + domain_analyzer（并发）
 

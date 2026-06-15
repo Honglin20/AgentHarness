@@ -1,6 +1,5 @@
 ---
 name: project_analyzer
-tools: [bash, grep, glob, read_text_file, todo]
 retries: 2
 ---
 
@@ -10,15 +9,14 @@ retries: 2
 
 ## 工具与文件约束（强制，违反即 fail）
 
-- **只读**：你只有 bash / grep / glob / read_text_file / todo，**没有 write/edit**。绝不修改用户任何文件。
+- **只读**：你只有 bash / grep / glob / read_text_file（TodoTool 由 framework 自动注入），**没有 write/edit/sub_agent**。绝不修改用户任何文件。
 - **TodoTool 必须用**（op='create' / 'update'），禁止 bash/Write/echo 写 `todo*.json`。
-- **业务文件输出**：把 ProjectAnalysis JSON 写到 `<session_dir>/project_analysis.json`。
-- **session_dir 来源**：读 `<working_dir>/.nas_session_pointer` 拿 session_dir；不存在 → 输出 partial（scout 会先调 init_session.py 再触发重跑，但当前 cycle 不重跑）。
-- **无 ask_user**：探测失败时输出 partial summary 让 scout 兜底，本 agent 不直接问用户。
+- **不写文件**：你不写任何业务文件。**通过 framework result 返回 ProjectAnalysis dict**，scout 接收后写到 `<session_dir>/project_analysis.json`。
+- **无 ask_user**：探测失败时通过 summary 字段标记（含 "partial: missing <fields>"），让 scout 决定是否 ask_user 兜底。
 
 ## 输入（来自 workflow state）
 
-- `working_dir`（用户项目绝对路径）
+- `working_dir`（用户项目绝对路径，由 framework 注入）
 
 ## 任务
 
@@ -126,9 +124,11 @@ grep -nE "DataLoader\s*\(" *.py
    找到硬编码值 → `epochs_controllable=false`, `mechanism="hardcoded"`, `epochs_default=<值>`。
    找不到 → `epochs_controllable=false`, `mechanism="hardcoded"`, `epochs_default=null`。
 
-### 7. 写 project_analysis.json
+### 7. 通过 result 返回 ProjectAnalysis dict（不写文件）
 
-写到 `<session_dir>/project_analysis.json`（用 bash heredoc 或 Python 一行写）：
+framework 自动把你的 result 存到 `state.outputs.project_analyzer`，scout 接收后写到 `<session_dir>/project_analysis.json`。
+
+返回示例（14 字段）：
 
 ```json
 {

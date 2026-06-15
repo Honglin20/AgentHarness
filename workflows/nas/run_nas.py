@@ -39,6 +39,13 @@ def main():
     # Load workflow
     from harness.workflow_persist import load_workflow
     wf = load_workflow("nas")
+    # Inject event_bus so scout's ask_user tool can register (setup-phase
+    # fallback for smoke failure / missing ProjectAnalysis fields /
+    # dummy_inputs confirmation / baseline alignment). workflow.json doesn't
+    # persist event_bus; load_workflow returns None.
+    if wf._event_bus is None:
+        from harness.extensions.bus import Bus
+        wf._event_bus = Bus()
     if args.max_iterations is not None:
         wf.max_iterations = args.max_iterations
     elif isinstance(inputs.get("max_iters"), int):
