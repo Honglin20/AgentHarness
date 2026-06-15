@@ -76,7 +76,7 @@ Effective tier: epochs=<X or null>
 跑 helper：
 
 python <helpers_dir>/run_strategy.py \
-  --worktree <worktree> \
+  --worktree . \
   --diff <diff_path> \
   --adapter-path <adapter_path> \
   --tier '{"epochs": <X or null>}' \
@@ -84,6 +84,8 @@ python <helpers_dir>/run_strategy.py \
   --helpers-dir <helpers_dir> \
   --strategy-id <strategy_id> \
   [--gpu-id <id>]
+
+**关键**：`--worktree .` 用当前 cwd（sub_agent 的 worktree path）。**不要**用主项目目录绝对路径。
 
 helper 干完所有事（cd / git apply / adapter.get_model / adapter.train / adapter.evaluate / export_onnx / measure_latency），写出 eval_result.json。
 

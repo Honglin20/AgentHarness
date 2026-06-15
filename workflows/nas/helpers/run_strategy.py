@@ -29,7 +29,9 @@ from pathlib import Path
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--worktree", required=True)
+    p.add_argument("--worktree", default=".",
+                   help="working dir for git apply + adapter calls. Default '.' (=current cwd). "
+                        "When invoked by sub_agent with isolation='worktree', this is the worktree path.")
     p.add_argument("--diff", required=True,
                    help="path to .patch, or 'baseline' to skip git apply")
     p.add_argument("--adapter-path", dest="adapter_path", required=True,
