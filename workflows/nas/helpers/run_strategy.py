@@ -1,21 +1,29 @@
 #!/usr/bin/env python
 """run_strategy.py — Run a NAS strategy end-to-end.
 
-Wraps: cd worktree → git apply diff → adapter train → adapter evaluate → export_onnx → measure_latency.
+Wraps: cd worktree → git apply diff → adapter train → adapter evaluate →
+export_onnx (subprocess) → measure_onnx_latency (subprocess).
 
 Used by trainer/refiner sub_agents to eliminate task template duplication.
 Writes eval_result.json to --out path.
+
+Adapter is loaded via importlib as a unique module (per-call) to avoid
+sys.modules cache poisoning when trainer runs multiple strategies in the
+same Python process. Worktree is added to sys.path[0] and set as cwd so
+the adapter's user-code imports (`from model import Net`) resolve.
 
 Exit code: 0 if status="ok", 1 otherwise.
 """
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -24,20 +32,21 @@ def main():
     p.add_argument("--worktree", required=True)
     p.add_argument("--diff", required=True,
                    help="path to .patch, or 'baseline' to skip git apply")
-    p.add_argument("--runner", required=True,
-                   help="adapter path (.nas_runner.py)")
-    p.add_argument("--tier", default="{}",
-                   help="JSON: {epochs, data_ratio}; null/absent dims are skipped")
+    p.add_argument("--adapter-path", dest="adapter_path", required=True,
+                   help="path to _nas_adapter.py")
+    p.add_argument("--tier", default="null",
+                   help='JSON: {"epochs": N} or null for single-tier (user default)')
     p.add_argument("--out", required=True,
                    help="eval_result.json output path")
-    p.add_argument("--helpers-dir", required=True)
-    p.add_argument("--strategy-id", default=None)
-    p.add_argument("--gpu-id", default=None)
+    p.add_argument("--helpers-dir", dest="helpers_dir", required=True)
+    p.add_argument("--strategy-id", dest="strategy_id", default=None)
+    p.add_argument("--gpu-id", dest="gpu_id", default=None)
     args = p.parse_args()
 
-    tier = json.loads(args.tier)
+    tier_raw = json.loads(args.tier)  # {"epochs": N} | None
+    tier = tier_raw or {}
     worktree = Path(args.worktree).resolve()
-    runner = Path(args.runner).resolve()
+    adapter_path = Path(args.adapter_path).resolve()
     helpers = Path(args.helpers_dir).resolve()
     out_path = Path(args.out).resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -60,13 +69,13 @@ def main():
         "duration_sec": 0.0,
         "tier_applied": {
             "epochs": tier.get("epochs"),
-            "data_ratio": tier.get("data_ratio"),
         },
     }
 
     onnx_path = out_path.parent / "model.onnx"
     onnx_latency_path = out_path.parent / "onnx_latency.json"
     ckpt_path_default = out_path.parent / "ckpt.pt"
+    actual_ckpt = str(ckpt_path_default)  # default; updated after train
 
     # Step 1: git apply (if not baseline)
     if args.diff != "baseline":
@@ -76,56 +85,62 @@ def main():
             result["error_trace"] = f"git apply failed:\n{err}"
             _finish(result, out_path)
 
-    # Step 2: adapter train
-    train_cmd = [sys.executable, str(runner), "train",
-                 "--output", str(ckpt_path_default)]
-    if tier.get("epochs") is not None:
-        train_cmd += ["--epochs", str(tier["epochs"])]
-    if tier.get("data_ratio") is not None:
-        train_cmd += ["--data-ratio", str(tier["data_ratio"])]
+    # Steps 2-3: load adapter, train, evaluate (in adapter's cwd context)
+    try:
+        with _load_adapter(adapter_path, worktree, args.strategy_id) as adapter:
+            # Step 2: adapter train
+            _log(f"adapter train: epochs={tier.get('epochs')}")
+            t0 = time.time()
+            model = adapter.get_model()
+            train_result = adapter.train(
+                model,
+                epochs=tier.get("epochs"),
+                output=ckpt_path_default,
+            )
+            result["duration_sec"] = time.time() - t0
 
-    _log(f"adapter train: {' '.join(train_cmd)}")
-    t0 = time.time()
-    rc, out, err = _run(train_cmd, cwd=worktree, env=env)
-    result["duration_sec"] = time.time() - t0
+            if not train_result.get("ok"):
+                result["error_trace"] = (
+                    f"adapter train failed:\n{train_result.get('error', '')[-2000:]}"
+                )
+                _finish(result, out_path)
 
-    if rc != 0:
-        result["error_trace"] = f"adapter train failed (rc={rc}):\n{err[-2000:]}"
+            actual_ckpt = (
+                train_result.get("checkpoint")
+                or str(ckpt_path_default)
+            )
+            result["metrics"].update(train_result.get("metrics", {}))
+            result["loss_curve"] = train_result.get("loss_curve", [])
+            result["params"] = train_result.get("params")
+            if train_result.get("duration_sec"):
+                result["duration_sec"] = train_result["duration_sec"]
+
+            # Step 3: adapter evaluate
+            _log(f"adapter evaluate: ckpt={actual_ckpt}")
+            eval_result = adapter.evaluate(model, checkpoint=actual_ckpt)
+            if eval_result.get("ok"):
+                result["metrics"].update(eval_result.get("metrics", {}))
+                result["latency_ms"] = eval_result.get("latency_ms")
+                if result["params"] is None:
+                    result["params"] = eval_result.get("params")
+            else:
+                _log(
+                    f"adapter evaluate failed (non-blocking): "
+                    f"{eval_result.get('error', '')[-500:]}"
+                )
+    except Exception as e:
+        import traceback
+        result["error_trace"] = (
+            f"adapter load/execute failed:\n"
+            f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
+        )
         _finish(result, out_path)
-
-    train_payload = _parse_stdout_json(out)
-    if train_payload is None:
-        result["error_trace"] = f"adapter train stdout not JSON:\n{out[-2000:]}"
-        _finish(result, out_path)
-
-    actual_ckpt = train_payload.get("checkpoint") or str(ckpt_path_default)
-    result["metrics"].update(train_payload.get("metrics", {}))
-    result["loss_curve"] = train_payload.get("loss_curve", [])
-    result["params"] = train_payload.get("params")
-    if train_payload.get("duration_sec"):
-        result["duration_sec"] = train_payload["duration_sec"]
-
-    # Step 3: adapter evaluate
-    _log(f"adapter evaluate: ckpt={actual_ckpt}")
-    eval_cmd = [sys.executable, str(runner), "evaluate",
-                "--checkpoint", actual_ckpt]
-    rc, out, err = _run(eval_cmd, cwd=worktree, env=env)
-    if rc != 0:
-        result["error_trace"] = f"adapter evaluate failed (rc={rc}):\n{err[-2000:]}"
-        _finish(result, out_path)
-
-    eval_payload = _parse_stdout_json(out)
-    if eval_payload:
-        result["metrics"].update(eval_payload.get("metrics", {}))
-        result["latency_ms"] = eval_payload.get("latency_ms")
-        if result["params"] is None:
-            result["params"] = eval_payload.get("params")
 
     # Status OK if we reached here
     result["status"] = "ok"
     result["error_trace"] = None
 
-    # Step 4: ONNX export (non-blocking)
+    # Step 4: ONNX export (non-blocking, subprocess to helpers — unchanged)
     _log(f"export_onnx: ckpt={actual_ckpt}")
     export_cmd = [
         sys.executable, str(helpers / "export_onnx.py"),
@@ -160,6 +175,38 @@ def main():
     _finish(result, out_path)
 
 
+@contextmanager
+def _load_adapter(adapter_path: Path, worktree: Path, strategy_id: str | None = None):
+    """Load _nas_adapter.py as a unique module; cleanup sys.path/cwd/modules on exit.
+
+    Each call generates a unique module name (keyed on worktree id + strategy_id)
+    to avoid sys.modules cache poisoning when trainer runs multiple strategies
+    in the same Python process. Worktree is added to sys.path[0] and set as cwd
+    so the adapter's user-code imports (`from model import Net`) resolve.
+    """
+    suffix = strategy_id or worktree.name
+    module_name = f"_nas_adapter_{id(worktree)}_{suffix}"
+
+    worktree_str = str(worktree)
+    sys.path.insert(0, worktree_str)
+    original_cwd = os.getcwd()
+    os.chdir(worktree)
+
+    try:
+        spec = importlib.util.spec_from_file_location(module_name, str(adapter_path))
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"failed to load adapter spec from {adapter_path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module  # register before exec for self-refs
+        spec.loader.exec_module(module)
+        yield module
+    finally:
+        os.chdir(original_cwd)
+        if worktree_str in sys.path:
+            sys.path.remove(worktree_str)
+        sys.modules.pop(module_name, None)
+
+
 def _run(cmd, cwd=None, env=None, timeout=3600):
     try:
         r = subprocess.run(cmd, capture_output=True, text=True,
@@ -167,17 +214,6 @@ def _run(cmd, cwd=None, env=None, timeout=3600):
         return r.returncode, r.stdout, r.stderr
     except subprocess.TimeoutExpired:
         return 124, "", f"timeout after {timeout}s"
-
-
-def _parse_stdout_json(stdout):
-    """Parse last non-empty line of stdout as JSON."""
-    lines = [l for l in stdout.splitlines() if l.strip()]
-    if not lines:
-        return None
-    try:
-        return json.loads(lines[-1])
-    except json.JSONDecodeError:
-        return None
 
 
 def _log(msg):
