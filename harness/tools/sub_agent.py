@@ -26,14 +26,21 @@ def _create_worktree(source_dir: str, task_id: str) -> tuple[str, bool]:
 
     Returns (workdir, created) where created is True if a new worktree was
     actually created, False if it fell back to the source directory.
+
+    The worktree path is logged loudly to aid debugging worktree-isolation
+    issues (sub_agent code mutations leaking into main project dir).
     """
     source = Path(source_dir).resolve()
     wt_path = source.parent / f".wt_{task_id}"
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["git", "worktree", "add", str(wt_path), "HEAD"],
             capture_output=True, text=True, check=True,
             cwd=str(source),
+        )
+        logger.warning(
+            "sub_agent worktree CREATED: wt_path=%s, source=%s, git_stdout=%s",
+            wt_path, source, result.stdout[:200],
         )
         for data_dir in ("data", "checkpoints", "datasets"):
             target = source / data_dir
@@ -43,7 +50,11 @@ def _create_worktree(source_dir: str, task_id: str) -> tuple[str, bool]:
                     link.symlink_to(target)
         return str(wt_path), True
     except (subprocess.CalledProcessError, OSError) as e:
-        logger.warning("Worktree creation failed (%s) — falling back to shared dir", e)
+        logger.warning(
+            "Worktree creation FAILED (%s) — falling back to shared dir. "
+            "sub_agent mutations WILL pollute main project dir! stderr=%s",
+            e, getattr(e, 'stderr', '')[:200] if hasattr(e, 'stderr') else '',
+        )
         return source_dir, False
 
 
