@@ -111,8 +111,7 @@ describe("test helpers", () => {
     it("createMockRunRecord has required fields populated", () => {
       const r = createMockRunRecord();
       expect(r.run_id).toBeTruthy();
-      expect(Array.isArray(r.conversation)).toBe(true);
-      expect(r.conversation?.length ?? 0).toBe(0);
+      expect(r.conversation).toEqual([]);
       expect(r.dag).toBeNull();
     });
 
