@@ -152,7 +152,17 @@ interface RunHistoryState {
 
   fetchRun: (runId: string, signal?: AbortSignal) => Promise<RunRecord | null>;
   fetchRunCharts: (runId: string) => Promise<RunRecord["chart_groups"]>;
-  fetchRunEvents: (runId: string) => Promise<RunRecord["events"]>;
+  /**
+   * Fetch the events sidecar. Optional `since` filters to events with
+   * ts >= since (ms epoch); optional `limit` caps the slice. Both default
+   * to undefined → return the full buffer. Used for incremental replay
+   * when an event buffer is large enough to warrant pagination.
+   */
+  fetchRunEvents: (
+    runId: string,
+    since?: number,
+    limit?: number,
+  ) => Promise<RunRecord["events"]>;
   /**
    * Fetch a windowed slice of the conversation. `before` is an exclusive
    * upper bound on the server-side array index (oldest→newest order set by
@@ -488,9 +498,13 @@ export const useRunHistoryStore = create<RunHistoryState>()((set, get) => ({
     return null;
   },
 
-  fetchRunEvents: async (runId: string) => {
+  fetchRunEvents: async (runId: string, since?: number, limit?: number) => {
     try {
-      const r = await fetchWithAuth(`/api/runs/${runId}/events`);
+      const params = new URLSearchParams();
+      if (since !== undefined) params.set("since", String(since));
+      if (limit !== undefined) params.set("limit", String(limit));
+      const qs = params.toString();
+      const r = await fetchWithAuth(`/api/runs/${runId}/events${qs ? `?${qs}` : ""}`);
       if (r.ok) return await r.json();
     } catch {}
     return null;

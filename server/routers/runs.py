@@ -242,12 +242,17 @@ async def get_run_charts(
 
 @router.get("/runs/{run_id}/events")
 async def get_run_events(
-    run_id: str, request: Request,
+    run_id: str, request: Request, since: float | None = None, limit: int | None = None,
     store: RunStoreInterface = Depends(get_run_store_dep),
 ) -> list[dict] | None:
-    """Load events sidecar data for a persisted run (lazy loading)."""
+    """Events sidecar. `since` filters ts>=since; `limit` caps the slice."""
     store, run, user, is_admin = _load_run_for_user(run_id, request, store)
-    return store.get_events(run_id)
+    events = store.get_events(run_id)
+    if events is None:
+        return None
+    if since is not None:
+        events = [e for e in events if (e.get("ts") or 0) >= since]
+    return events[:limit] if (limit is not None and limit >= 0) else events
 
 @router.get("/runs/{run_id}/outline")
 async def get_run_outline(
