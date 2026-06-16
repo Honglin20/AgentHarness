@@ -90,6 +90,11 @@ class SidebarPanel:
     # ------------------------------------------------------------------
 
     def on_workflow_started(self, payload: dict[str, Any]) -> None:
+        # Update workflow_name from event — TuiRenderer may construct
+        # SidebarPanel with empty name before Workflow.load() resolves
+        # the actual name, then pass it through on_workflow_started.
+        if payload.get("name"):
+            self.state.workflow_name = payload["name"]
         dag = payload.get("dag") or {}
         self.state.dag_nodes = list(dag.get("nodes") or [])
         self.state.envelope = payload.get("envelope")

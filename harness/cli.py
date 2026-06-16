@@ -165,24 +165,38 @@ def cmd_run(args) -> int:
     # Registering the coordinator tells ask_user to use stdin instead.
     #
     # The coordinator's Live attachment is what differs by mode:
-    #   - TUI mode (TTY attached, --no-tui not set): TuiRenderer (Checkpoint
-    #     6) attaches its Live via coord.attach_live, so pause/resume
-    #     actually pauses rendering around input().
+    #   - TUI mode (TTY attached, --no-tui not set): TuiRenderer attaches
+    #     its Live via coord.attach_live, so pause/resume actually pauses
+    #     rendering around input().
     #   - Non-TUI mode (CI / pipe / subprocess): coord has no Live,
     #     pause/resume are no-ops, but ask_user still routes through stdin
     #     — which will raise loud on EOF if no interactive stdin exists,
     #     rather than deadlocking silently.
-    from harness.extensions.tui import StdinCoordinator, set_stdin_coordinator
+    from harness.extensions.tui import (
+        StdinCoordinator,
+        TuiRenderer,
+        set_stdin_coordinator,
+    )
 
     is_tty = sys.stdin.isatty() and sys.stdout.isatty()
     use_tui = is_tty and not args.no_tui
-    set_stdin_coordinator(StdinCoordinator())
 
-    # Run with persistence. ConsoleOutput is the default output hook —
-    # TuiRenderer replaces it in Checkpoint 6 once Live rendering lands.
+    coord = StdinCoordinator()
+    set_stdin_coordinator(coord)
+
+    # Build the output hook. TuiRenderer drives Live + sidebar/main_panel
+    # in TUI mode; cli_runner falls back to ConsoleOutput when output_hook
+    # is None (non-TUI / compact).
+    output_hook = None
+    tui_renderer: TuiRenderer | None = None
+    if use_tui:
+        tui_renderer = TuiRenderer(workflow_name=wf.name)
+        tui_renderer.attach_coordinator(coord)
+        output_hook = tui_renderer
+
+    # Run with persistence.
     from harness.cli_runner import run_with_persistence
 
-    output_hook = None  # cli_runner picks ConsoleOutput when None
     try:
         run_id, result = asyncio.run(
             run_with_persistence(
@@ -203,6 +217,14 @@ def cmd_run(args) -> int:
             traceback.print_exc(file=sys.stderr)
         return 1
     finally:
+        # Always stop TuiRenderer so cursor + terminal state are restored
+        # even on exception. TuiRenderer.stop() is idempotent so calling
+        # it after on_workflow_end already stopped Live is a no-op.
+        if tui_renderer is not None:
+            try:
+                tui_renderer.stop()
+            except Exception:
+                pass
         # Always clear the coordinator so a stale one doesn't leak across
         # multiple harness run invocations in long-lived processes (e.g.
         # test harnesses, notebooks).
