@@ -60,13 +60,20 @@ function BudgetBarInner({ envelope, nodes }: BudgetBarProps) {
   // Per-agent request budget from settings (default 200). Each agent gets its
   // own budget, so the workflow-wide ceiling is requestLimit × nodeCount.
   const requestLimit = useSettingsStore((s) => s.requestLimit);
+  // Model context window (default 200k). Drives the "Window" bar denominator
+  // so users see actual context pressure, not the cumulative cost.
+  const modelContextLimit = useSettingsStore((s) => s.modelContextLimit);
 
   // Accumulate metrics from all nodes
-  let totalTokens = 0;
+  let totalTokens = 0;          // cumulative cost (input + output summed across nodes)
   let totalSteps = 0;
   let totalDuration = 0;
   let totalRequests = 0;
   let nodeCount = 0;
+  // Largest single-request context window observed across all nodes.
+  // "Max" not "sum" because each agent has its own message_history; the
+  // workflow's context pressure is the worst agent, not the total.
+  let maxWindowTokens = 0;
 
   for (const node of Object.values(nodes)) {
     // Only count nodes that have actually started (status !== "idle") toward
@@ -78,6 +85,12 @@ function BudgetBarInner({ envelope, nodes }: BudgetBarProps) {
     nodeCount += 1;
     if (node.tokenUsage) {
       totalTokens += node.tokenUsage.input + node.tokenUsage.output;
+      // Window = most recent single-shot request. Falls back to cumulative
+      // (input + output) when last_* missing — old events / replayed data.
+      const lastIn = node.tokenUsage.lastInput ?? node.tokenUsage.input;
+      const lastOut = node.tokenUsage.lastOutput ?? node.tokenUsage.output;
+      const window = lastIn + lastOut;
+      if (window > maxWindowTokens) maxWindowTokens = window;
     }
     if (node.toolCallCount) {
       totalSteps += node.toolCallCount;
@@ -97,8 +110,10 @@ function BudgetBarInner({ envelope, nodes }: BudgetBarProps) {
   // before any envelope exists) — request budget is a per-agent concept that
   // doesn't depend on the workflow envelope.
   const showRequestsBar = totalRequests > 0 && nodeCount > 0;
+  // Show Window bar only when at least one node has reported usage.
+  const showWindowBar = maxWindowTokens > 0 && nodeCount > 0;
 
-  if (!hasMaxTokens && !hasMaxSteps && !hasMaxDuration && !showRequestsBar) return null;
+  if (!hasMaxTokens && !hasMaxSteps && !hasMaxDuration && !showRequestsBar && !showWindowBar) return null;
 
   return (
     <div className="flex flex-col gap-1 px-2 py-1.5 border-b border-app-border">
@@ -111,7 +126,15 @@ function BudgetBarInner({ envelope, nodes }: BudgetBarProps) {
         />
       )}
       {hasMaxTokens && (
-        <ProgressBar label="Tokens" current={totalTokens} max={envelope.max_tokens!} fmt={fmtNum} />
+        <ProgressBar label="Cost" current={totalTokens} max={envelope.max_tokens!} fmt={fmtNum} />
+      )}
+      {showWindowBar && (
+        <ProgressBar
+          label="Window"
+          current={maxWindowTokens}
+          max={modelContextLimit}
+          fmt={fmtNum}
+        />
       )}
       {hasMaxSteps && (
         <ProgressBar label="Steps" current={totalSteps} max={envelope.max_steps!} fmt={String} />

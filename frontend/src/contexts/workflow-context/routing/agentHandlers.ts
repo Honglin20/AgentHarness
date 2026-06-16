@@ -177,7 +177,14 @@ export const agentHandlers: [string, EventHandler][] = [
       }
 
       stores.workflow.getState().setNodeUsage(
-        p.node_id, p.requests, p.input_tokens, p.output_tokens,
+        p.node_id,
+        p.requests,
+        p.input_tokens,
+        p.output_tokens,
+        // New stage-2 fields — undefined on old events, store handles fallback.
+        p.last_input,
+        p.last_output,
+        p.cache_hit,
       );
     },
   ],

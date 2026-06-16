@@ -491,13 +491,30 @@ def make_node_func(
 
             duration_ms = int((time.time() - start_time) * 1000)
 
-            # Extract token usage (before hooks so plugins can read it)
+            # Extract token usage (before hooks so plugins can read it).
+            # `usage_obj` is agent_run.usage — the cumulative total across the
+            # whole iter() (multiple model requests summed). For the per-request
+            # "last" snapshot we ask the executor, which tracked baselines.
             token_usage = None
             try:
+                last = executor.get_last_request_usage()
+                cache_hit = getattr(usage_obj, "cache_read_tokens", 0) or 0
                 token_usage = {
+                    # Legacy fields (cumulative semantics — unchanged)
                     "input": usage_obj.input_tokens,
                     "output": usage_obj.output_tokens,
                     "total": usage_obj.total_tokens,
+                    # Explicit cumulative aliases (matches event payload)
+                    "cumulative_input": usage_obj.input_tokens,
+                    "cumulative_output": usage_obj.output_tokens,
+                    # Per-request single-shot (last model request only).
+                    # Drives the BudgetBar "Window" bar so users see actual
+                    # context pressure, not the cumulative sum that Pydantic
+                    # AI accrues across requests in the same iter().
+                    "last_input": last.get("last_input", 0),
+                    "last_output": last.get("last_output", 0),
+                    # Cache hit (cumulative — prompt caching dedup)
+                    "cache_hit": cache_hit,
                 }
             except Exception:
                 logger.debug(

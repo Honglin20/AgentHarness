@@ -34,11 +34,17 @@ function makeStores(activeWorkflowId: string | null): WorkflowStores {
   };
 
   // Stub the other stores — routeEvent touches several but PR-D handlers
-  // only call stores.workflow. Other handlers (e.g. agent.tool_call) may
-  // run if we route the same event twice, but our tests route distinct
-  // PR-D events only.
+  // only call stores.workflow. agent.usage_update also reads
+  // stores.conversation.getState().currentStepIdByNode[node_id] for per-step
+  // token attribution, so the conversation stub must expose that map.
   const noopStore: any = {
     getState: () => ({}),
+    setState: vi.fn(),
+    subscribe: vi.fn(),
+    getInitialState: vi.fn(),
+  };
+  const conversationStore: any = {
+    getState: () => ({ currentStepIdByNode: {} }),
     setState: vi.fn(),
     subscribe: vi.fn(),
     getInitialState: vi.fn(),
@@ -46,7 +52,7 @@ function makeStores(activeWorkflowId: string | null): WorkflowStores {
 
   return {
     workflow,
-    conversation: noopStore,
+    conversation: conversationStore,
     toolCall: noopStore,
     output: noopStore,
     chart: noopStore,
@@ -146,6 +152,60 @@ describe("PR-D agent handlers — workflow filtering", () => {
       makeCtx(),
     );
     expect(stores.workflow.getState().setNodeUsage).not.toHaveBeenCalled();
+  });
+
+  it("agent.usage_update routes stage-2 fields (last_input / last_output / cache_hit) to setNodeUsage", async () => {
+    const { routeEvent } = await import("../index");
+    const stores = makeStores("wf-active");
+    routeEvent(
+      stores,
+      makeEvent("agent.usage_update", {
+        workflow_id: "wf-active",
+        node_id: "agent_a",
+        agent_name: "agent_a",
+        requests: 3,
+        input_tokens: 250,         // cumulative
+        output_tokens: 30,         // cumulative
+        total_tokens: 280,
+        cumulative_input: 250,
+        cumulative_output: 30,
+        last_input: 80,            // single-shot
+        last_output: 10,
+        cache_hit: 15,
+      }),
+      makeCtx(),
+    );
+    expect(stores.workflow.getState().setNodeUsage).toHaveBeenCalledWith(
+      "agent_a",
+      3,
+      250,
+      30,
+      80,
+      10,
+      15,
+    );
+  });
+
+  it("agent.usage_update falls back gracefully when stage-2 fields absent (old backend)", async () => {
+    const { routeEvent } = await import("../index");
+    const stores = makeStores("wf-active");
+    routeEvent(
+      stores,
+      makeEvent("agent.usage_update", {
+        workflow_id: "wf-active",
+        node_id: "agent_a",
+        agent_name: "agent_a",
+        requests: 1,
+        input_tokens: 100,
+        output_tokens: 20,
+        total_tokens: 120,
+      }),
+      makeCtx(),
+    );
+    // Last three args undefined — store handles fallback in BudgetBar.
+    expect(stores.workflow.getState().setNodeUsage).toHaveBeenCalledWith(
+      "agent_a", 1, 100, 20, undefined, undefined, undefined,
+    );
   });
 
   it("agent.failed_with_classified_reason skips when workflow_id ≠ active", async () => {

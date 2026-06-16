@@ -95,6 +95,17 @@ class LLMExecutor:
         # Class-level would be shared across concurrent workflows, breaking
         # per-workflow throttle semantics.
         self._delta_skip_counter: int = 0
+        # Baselines for per-request usage delta. Pydantic AI's ctx.state.usage
+        # accumulates within iter(), so subtracting baseline (captured at model
+        # request entry) from current gives the single-shot request usage.
+        # Reset in run() entry so retries (which replay iter() with fresh usage)
+        # don't leak the previous attempt's baseline.
+        self._baseline_input: int = 0
+        self._baseline_output: int = 0
+        self._baseline_cache_hit: int = 0
+        self._last_input: int = 0
+        self._last_output: int = 0
+        self._last_cache_hit: int = 0
 
     # ------------------------------------------------------------------
     # Public API
@@ -122,6 +133,17 @@ class LLMExecutor:
             set_chart_workflow_context,
         )
         wid_token = set_chart_workflow_context(self._wid or None)
+
+        # Reset per-request usage tracking. execute_with_retry replays
+        # run_fn on retry, and Pydantic AI starts each iter() with a fresh
+        # usage accumulator — we must mirror that here so _last_* reflects
+        # only the current attempt's most recent model request.
+        self._baseline_input = 0
+        self._baseline_output = 0
+        self._baseline_cache_hit = 0
+        self._last_input = 0
+        self._last_output = 0
+        self._last_cache_hit = 0
 
         stop_regen: dict[str, Any] | None = None
 
@@ -188,6 +210,14 @@ class LLMExecutor:
 
     async def _handle_model_request(self, node, ctx) -> dict[str, Any] | None:
         """Stream model response text and thinking, emit deltas, check interrupts."""
+
+        # Capture baseline usage BEFORE Pydantic AI increments it for this
+        # request. ctx.state.usage accumulates across model requests within
+        # an iter() run, so (current - baseline) at end-of-request = single-
+        # shot usage for this request only.
+        self._baseline_input = getattr(ctx.state.usage, "input_tokens", 0) or 0
+        self._baseline_output = getattr(ctx.state.usage, "output_tokens", 0) or 0
+        self._baseline_cache_hit = getattr(ctx.state.usage, "cache_read_tokens", 0) or 0
 
         # Inject reminder as a system message into message_history before the
         # model call.  This is read by pydantic-ai's _prepare_request() inside
@@ -259,6 +289,52 @@ class LLMExecutor:
 
         self._last_ttft_ms = ttft_ms
 
+        # Compute single-shot usage for THIS model request by subtracting
+        # the baseline captured at entry. Pydantic AI increments ctx.state.usage
+        # inside node.stream() once the response finalizes, so by the time we
+        # reach here current - baseline = this request's contribution.
+        current_input = getattr(ctx.state.usage, "input_tokens", 0) or 0
+        current_output = getattr(ctx.state.usage, "output_tokens", 0) or 0
+        current_cache_hit = getattr(ctx.state.usage, "cache_read_tokens", 0) or 0
+
+        last_input = current_input - self._baseline_input
+        last_output = current_output - self._baseline_output
+        last_cache_hit = current_cache_hit - self._baseline_cache_hit
+
+        if last_input < 0 or last_output < 0:
+            # Baseline was captured after Pydantic AI already incr'd —
+            # indicates _handle_model_request was entered mid-increment or
+            # the baseline capture point moved. Fail loud (log + ext.error)
+            # and clamp to 0 so the workflow doesn't crash, but the operator
+            # sees the instrumentation bug.
+            logger.error(
+                "agent.usage_update delta negative for %s: "
+                "baseline=(in=%d,out=%d,cache=%d) current=(in=%d,out=%d,cache=%d) "
+                "delta=(in=%d,out=%d,cache=%d) — baseline capture point is wrong",
+                self._agent_name,
+                self._baseline_input, self._baseline_output, self._baseline_cache_hit,
+                current_input, current_output, current_cache_hit,
+                last_input, last_output, last_cache_hit,
+            )
+            safe_emit(self._bus, "ext.error", {
+                "extension": "llm_executor",
+                "phase": "usage_delta",
+                "error": (
+                    f"negative usage delta for {self._agent_name}: "
+                    f"last_input={last_input}, last_output={last_output}"
+                ),
+            }) if self._bus else None
+            last_input = max(0, last_input)
+            last_output = max(0, last_output)
+            last_cache_hit = max(0, last_cache_hit)
+
+        # Persist for node_factory to read after iter() completes (so the
+        # final token_usage dict written into node.completed reflects the
+        # last single-shot request, not just the cumulative iter total).
+        self._last_input = last_input
+        self._last_output = last_output
+        self._last_cache_hit = last_cache_hit
+
         if self._bus:
             safe_emit(self._bus, "span.end", {
                 "workflow_id": self._wid,
@@ -269,26 +345,47 @@ class LLMExecutor:
                 "ts": int(time.time() * 1000),
             })
 
-            # Per-LLM-request usage snapshot — drives the BudgetBar "Requests"
-            # progress bar in real time. ctx.state.usage accumulates within
-            # the current iter() run (resets on retry since execute_with_retry
-            # replays the whole iter). Frontend overwrites per (wf, node, agent).
+            # Per-LLM-request usage snapshot — drives BudgetBar's two bars:
+            #   - Cost row uses cumulative_input + cumulative_output (cost view)
+            #   - Window row uses last_input + last_output (context pressure)
+            # Legacy input_tokens / output_tokens / total_tokens fields are
+            # kept = cumulative for backward compat with older consumers.
             try:
-                u = ctx.state.usage
                 safe_emit(self._bus, "agent.usage_update", {
                     "workflow_id": self._wid,
                     "node_id": self._node_id,
                     "agent_name": self._agent_name,
-                    "requests": getattr(u, "requests", 0) or 0,
-                    "input_tokens": getattr(u, "input_tokens", 0) or 0,
-                    "output_tokens": getattr(u, "output_tokens", 0) or 0,
-                    "total_tokens": (getattr(u, "input_tokens", 0) or 0)
-                                    + (getattr(u, "output_tokens", 0) or 0),
-                }, priority="normal")  # high-frequency, normal priority (FIFO-evictable)
+                    "requests": getattr(ctx.state.usage, "requests", 0) or 0,
+                    # Legacy fields (cumulative semantics, unchanged)
+                    "input_tokens": current_input,
+                    "output_tokens": current_output,
+                    "total_tokens": current_input + current_output,
+                    # New: explicit cumulative aliases
+                    "cumulative_input": current_input,
+                    "cumulative_output": current_output,
+                    # New: per-request single-shot
+                    "last_input": last_input,
+                    "last_output": last_output,
+                    # New: cache hit (cumulative — prompt caching dedup)
+                    "cache_hit": current_cache_hit,
+                }, priority="normal")
             except Exception:
                 logger.debug("Failed to emit agent.usage_update", exc_info=True)
 
         return None
+
+    def get_last_request_usage(self) -> dict[str, int]:
+        """Return the most recent model request's single-shot usage.
+
+        Read by node_factory after iter() completes so the persisted
+        token_usage dict carries both cumulative and last-snapshot fields.
+        Returns zeros if no model request has run yet.
+        """
+        return {
+            "last_input": self._last_input,
+            "last_output": self._last_output,
+            "last_cache_hit": self._last_cache_hit,
+        }
 
     # ------------------------------------------------------------------
     # Internal: call-tools node

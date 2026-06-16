@@ -20,7 +20,20 @@ export interface NodeState {
   toolCallsBeforeFailure?: ToolCallBrief[];
   attempt?: number;
   willRetry?: boolean;
-  tokenUsage?: { input: number; output: number; total: number };
+  tokenUsage?: {
+    // Legacy — cumulative semantics (Pydantic AI's ctx.state.usage total).
+    input: number;
+    output: number;
+    total: number;
+    // Stage 2 — explicit cumulative aliases + per-request single-shot.
+    // Optional: missing on old runs / replayed events from before stage 2.
+    // BudgetBar Window bar falls back to cumulative when lastInput missing.
+    cumulativeInput?: number;
+    cumulativeOutput?: number;
+    lastInput?: number;
+    lastOutput?: number;
+    cacheHit?: number;
+  };
   /** Per-agent token breakdown — present when backend emits `token_breakdown`. */
   tokenBreakdown?: Record<string, AgentTokenUsage>;
   tools?: ToolBrief[];
@@ -112,8 +125,22 @@ export interface WorkflowState {
   /** Record a final classified failure on the node (PR-D). Does NOT auto-flip
    * status — node.failed handler does that. */
   setClassifiedFailure: (nodeId: string, failure: ClassifiedFailure) => void;
-  /** Update the per-node current-attempt request count from agent.usage_update. */
-  setNodeUsage: (nodeId: string, requests: number, inputTokens: number, outputTokens: number) => void;
+  /** Update the per-node current-attempt request count from agent.usage_update.
+   *
+   * inputTokens / outputTokens are cumulative (Pydantic AI ctx.state.usage).
+   * lastInput / lastOutput are the most recent single-shot request usage —
+   * optional, present only on stage-2+ backends. cacheHit is cumulative
+   * prompt-cache hits.
+   */
+  setNodeUsage: (
+    nodeId: string,
+    requests: number,
+    inputTokens: number,
+    outputTokens: number,
+    lastInput?: number,
+    lastOutput?: number,
+    cacheHit?: number,
+  ) => void;
 
   // Cache management for batch mode
   saveToCache: (wid: string) => void;
@@ -277,7 +304,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
       },
     })),
 
-  setNodeUsage: (nodeId, requests, inputTokens, outputTokens) =>
+  setNodeUsage: (nodeId, requests, inputTokens, outputTokens, lastInput, lastOutput, cacheHit) =>
     set((state) => ({
       nodes: {
         ...state.nodes,
@@ -289,6 +316,11 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
             input: inputTokens,
             output: outputTokens,
             total: inputTokens + outputTokens,
+            cumulativeInput: inputTokens,
+            cumulativeOutput: outputTokens,
+            lastInput,
+            lastOutput,
+            cacheHit,
           },
         },
       },

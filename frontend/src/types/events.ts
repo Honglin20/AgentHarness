@@ -473,9 +473,18 @@ export interface AgentUsageUpdatePayload {
   node_id: string;
   agent_name: string;
   requests: number;
+  // Legacy fields — cumulative semantics (Pydantic AI's ctx.state.usage
+  // accumulates across all model requests within one iter() run).
   input_tokens: number;
   output_tokens: number;
   total_tokens: number;
+  // Stage 2 additions — optional because older backend events / replay
+  // buffer entries may lack them. Frontend falls back to legacy fields.
+  cumulative_input?: number;
+  cumulative_output?: number;
+  last_input?: number;
+  last_output?: number;
+  cache_hit?: number;
 }
 
 /**

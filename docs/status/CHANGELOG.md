@@ -9,6 +9,9 @@
 
 ## 2026-06
 
+- **2026-06-16** — **阶段 2 Token 统计语义分离**：区分「累计消耗」（cost）和「当前上下文窗口」（window）。LLMExecutor 加 baseline + delta 计算，`agent.usage_update` 事件附 last_input/output/cache_hit；BudgetBar 拆双进度条：Cost 行（累计 / envelope）+ Window 行（max 单次 / 模型上下文上限）。retry 边界 + 旧事件兼容全覆盖。78 后端 + 8 前端测试全过。
+  → [详情](../releases/2026-06-16-token-stats-semantic-split.md)
+
 - **2026-06-16** — **ask_user P1 review follow-ups**：float timeout 接受 / stdin EOFError raise（不再 silent return）/ 进程级 asyncio.Lock 防止并发 prompt 交错。补 5 个测试缺口（float、EOF、stdin lock 序列化、interrupted skip、orphan answer）。
   → [详情](../releases/2026-06-16-ask-user-refresh-timeout-cli.md)（commit `01b5c6d`）
 

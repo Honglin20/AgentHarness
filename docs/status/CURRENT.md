@@ -1,66 +1,57 @@
 # Current Task
 
-**当前任务**: 工具与 Token 问题分阶段修复 —— 阶段 1 完成（含 review 修补），准备阶段 2
-**状态**: 阶段 1 P0 + P1 review follow-ups 全部落地；阶段 2 待启动
+**当前任务**: 工具与 Token 问题分阶段修复 —— 阶段 2 完成，准备阶段 3
+**状态**: 阶段 2（Token 统计语义分离）已落地；阶段 3（工具结果截断）待启动
 **日期**: 2026-06-16
 **分支**: `main`
 
-## 阶段 1 完成情况
+## 阶段进度总览
 
-**Commits**:
-- `af923ad` — 阶段 1 P0：emit chat.answer/timeout + 超时 env + stdin fallback
-- `01b5c6d` — P1 review follow-ups：float timeout / EOF raise / stdin lock + 测试缺口
-
-**Review 判定**: ship with follow-ups（无阻塞性问题，3 个 P1 已修，3 个 P2 推后跟踪）
-
-### P0 改动（commit af923ad）
-- [x] ask_user emit `chat.answer` / `chat.timeout`（critical priority，进 replay buffer）
-- [x] 前端 chatHandlers 处理 chat.answer / chat.timeout（idempotent + legacy 形态）
-- [x] `HARNESS_ASK_USER_TIMEOUT` env 替代硬编码 60s（默认 -1=无限）
-- [x] stdin fallback（bus 为 None 时走 stdin）
-
-### P1 Review Follow-ups（commit 01b5c6d）
-- [x] `_resolve_timeout` 接受 float seconds（`"1.5"` 不再误报 "not an integer"）
-- [x] stdin EOFError → raise RuntimeError（不再 silent return ""）
-- [x] stdin 并发守卫：进程级 `asyncio.Lock` 防止两个 prompt 物理交错
-- [x] 测试缺口补：float timeout / EOFError raises / stdin lock 序列化 / interrupted skip / orphan answer
-
-详见 [`docs/releases/2026-06-16-ask-user-refresh-timeout-cli.md`](../releases/2026-06-16-ask-user-refresh-timeout-cli.md)
-
-### P2 推后项（review 标记，不阻塞阶段 2）
-
-| 项 | 位置 | 优先级 | 说明 |
+| 阶段 | 任务 | 状态 | Commit |
 |---|---|---|---|
-| chat.answer silent-drop dev warning | `chatHandlers.ts:82-87` | P2 | 当前静默丢弃未知 question_id 的 answer；加 `console.warn` 便于调试 |
-| rawToAnswer legacy 双模式丢失 | `chatHandlers.ts:25-27` | P3 | legacy `{answer}` 形态无法表达 selected+custom_input 同时存在；实际无 legacy 生产者，de-prioritize |
-| ask_user 集成测试（端到端 WS replay） | 新文件 | P2 | 当前 chatHandlers 是单元测试；应补一个 mock WS 流的真集成测试 |
+| 1 P0 | ask_user emit chat.answer/timeout + 超时 env + stdin fallback | ✅ | `af923ad` |
+| 1 P1 | review follow-ups（float timeout / EOF raise / stdin lock） | ✅ | `01b5c6d` |
+| 2 | Token 统计语义分离（cost vs window） | ✅ | （本提交） |
+| 3 | 工具结果截断（bash/codegraph_explore 长输出截断） | 待开始 | — |
+| 4 | 自动 compaction（评估中） | 待评估 | — |
 
-## 必读文件（阶段 2 启动前）
+## 阶段 2 完成情况
+
+**核心改动**：
+- 后端 `LLMExecutor` 加 baseline + delta，emit 时携带 `last_input` / `last_output` / `cache_hit`
+- 后端 `node_factory.token_usage` dict 扩展（cumulative / last / cache_hit）
+- 前端 `workflowStore.NodeState.tokenUsage` + `setNodeUsage` 扩展
+- 前端 `settingsStore.modelContextLimit`（默认 200k）
+- 前端 `BudgetBar` 拆双进度条：Cost（累计 / envelope）+ Window（max 单次 / 模型上限）
+
+**验证**：
+- 后端 78 测试全过（含 5 个新增 stage-2 测试）
+- 前端 8 routing 测试全过（含 2 个新增 stage-2 路由测试）
+- TypeScript 类型干净 / frontend build 成功
+
+详见 [`docs/releases/2026-06-16-token-stats-semantic-split.md`](../releases/2026-06-16-token-stats-semantic-split.md)
+
+## 必读文件（阶段 3 启动前）
 
 - `docs/plans/2026-06-16-tooling-token-phase-plan.md` — 全四阶段计划
-- `~/.claude/projects/-Users-mozzie-Desktop-Projects-AgentHarness/memory/token-stats-vs-context-window.md` — Token 语义错位根因
-- `harness/engine/token_aggregator.py` + `harness/engine/llm_executor.py:170-183` — record/累加逻辑
-- `frontend/src/components/diagnostics/BudgetBar.tsx` — UI 展示
-- `frontend/src/types/events.ts` — TokenUsage 接口
+- `harness/engine/llm_executor.py:440-455` — `_emit_tool_result`（截断入口）
+- `harness/tools/bash.py` / `harness/tools/grep_glob.py` / `harness/tools/mcp_bridge.py`（MCP tool result）— 长输出源头
+- `~/.claude/projects/-Users-mozzie-Desktop-Projects-AgentHarness/memory/token-stats-vs-context-window.md` — 根因
 
-## 阶段 2 待启动：Token 统计语义分离
+## 阶段 3 待启动：工具结果截断
 
-**目标**：把「累计消耗」和「当前上下文窗口」分离展示，避免 BudgetBar 上的 500k+ 让用户误以为上下文炸了。
+**目标**：从源头降低 message_history 增长速度，让 window 不容易炸。
 
 **要点**：
-- `TokenAggregator` 区分 `cumulative_input_tokens`（累加）和 `last_context_tokens`（最近一次快照）
-- `agent.usage_update` 事件增加 `last_context_tokens` 字段
-- `BudgetBar` 改成两个进度条：消耗 / 预算 + 当前窗口 / 模型上限
-- record 时减去 `cache_hit_tokens`（避免重复计费被误读为窗口炸了）
+- 新增 `harness/tools/_truncate.py`：按工具类型应用阈值（bash 8KB / codegraph_explore 6KB / sub_agent 4KB / Read 不截断）
+- 在 `LLMExecutor._emit_tool_result` 入口处应用
+- 截断时附加提示："Result truncated to N KB. Use codegraph_node for full source."
+- emit `agent.tool_output_truncated` 事件（已在 CRITICAL_EVENT_TYPES，前端可提示）
 
 **预计工作量**：1 天
 
-## 后续阶段
-
-- 阶段 3：工具结果截断（bash/codegraph_explore 等）— 1 天
-- 阶段 4：自动 compaction — 评估中
-
 ## 旁路
 
-- NAS workflow ONNX 已完成（上轮任务），等下次跑 NAS 实测验收
-- Pre-existing 测试失败（test_chart × 3, test_sub_agent × 1, 前端 workflowHandlers `@/lib/summary/runSummary` import 问题）与本次改动无关，单独跟踪
+- 阶段 1 review 标记的 3 个 P2 推后项仍跟踪（chat.answer dev warning / rawToAnswer legacy 双模式 / 端到端 WS replay 集成测试）
+- NAS workflow ONNX 已完成，等下次跑 NAS 实测验收
+- Pre-existing 测试失败（test_chart × 3, test_sub_agent × 1, 前端 workflowHandlers import 问题）单独跟踪
