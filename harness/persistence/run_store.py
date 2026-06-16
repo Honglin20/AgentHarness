@@ -21,6 +21,35 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_RUNS_DIR = get_runs_dir()
 
+
+def _run_sort_key(run: dict) -> tuple:
+    """Sort key: status priority (running > waiting-for-user > others) then
+    created_at descending.
+
+    Returns a tuple so the sort is stable within each priority bucket.
+    Active workflows (running / waiting-for-user) always appear before
+    completed/failed/cancelled, regardless of created_at — so a long-running
+    workflow started an hour ago doesn't drown under today's 30 completed
+    test runs, and a zombie running workflow from days ago still surfaces
+    to the top (where users can see/clean it) instead of hiding at the
+    bottom of the list.
+    """
+    status = run.get("status", "")
+    if status in ("running", "waiting-for-user"):
+        priority = 2
+    elif status == "paused":
+        priority = 1
+    else:
+        priority = 0
+    # created_at descending — reverse=True at call site means we want the
+    # tuple itself ascending, so use the raw value (older = smaller = sorts
+    # later under reverse=True... wait, that's the opposite. Use negation
+    # via string tricks: prefix with "1" for newer isn't safe. Instead use
+    # secondary tuple and keep reverse=True: bigger tuple wins.
+    # Tuple compare: priority first (higher wins), then created_at (later
+    # string wins under reverse=True). So return (priority, created_at).
+    return (priority, run.get("created_at", ""))
+
 _SAFE_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 # Sidecar suffixes use '+'' which is NOT in _SAFE_ID_RE, preventing name collision.
@@ -320,7 +349,13 @@ class RunStore(RunStoreInterface):
                 if user_id is not None and entry.get("user_id", "default") != user_id:
                     continue
                 filtered.append(entry)
-            filtered.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+            # Status-priority sort: running / waiting-for-user floats to top
+            # so users always see active workflows first. Within each bucket,
+            # newest first. Without this, a zombie running workflow (e.g.
+            # server crashed mid-run, status never flipped to failed) would
+            # sit at the bottom because its created_at is stale — exactly
+            # the bug observed 2026-06-16.
+            filtered.sort(key=_run_sort_key, reverse=True)
             total = len(filtered)
             if limit is not None:
                 has_more = (offset + limit) < total
@@ -372,7 +407,8 @@ class RunStore(RunStoreInterface):
                 if user_id is not None and data.get("user_id", "default") != user_id:
                     continue
                 runs.append(data)
-        runs.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+        # Status-priority sort — see summary_index branch above for rationale.
+        runs.sort(key=_run_sort_key, reverse=True)
         total = len(runs)
         if limit is not None:
             has_more = (offset + limit) < total
