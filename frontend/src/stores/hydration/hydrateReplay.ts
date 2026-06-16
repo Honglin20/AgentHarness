@@ -263,3 +263,42 @@ export async function hydrateStores(
     return applyHydration(run.run_id, run, fallback, fallbackStrategy);
   }
 }
+
+/**
+ * Phase 1 hydration — minimum viable data for instant UI feedback.
+ *
+ * Writes synchronously to the workflow store (dag + name) and fetches the
+ * outline sidecar (small pre-computed summary, typically a few KB). Combined
+ * these let the user see the DAG + agent outline within ~100ms of clicking
+ * a run, instead of waiting for the full hydration pipeline (which replays
+ * events and fetches conversation/charts sidecars).
+ *
+ * Does NOT call resetAllStores — phase 2 (`hydrateStores`) owns that. The
+ * caller must have reset stores before invoking phase 1 (or accept that
+ * stale data may briefly show until phase 2 lands).
+ *
+ * Best-effort on the outline fetch — if it fails, phase 2 will retry via
+ * applyHydration's outline branch.
+ */
+export async function hydratePhase1(run: RunRecord): Promise<void> {
+  const scoped = getWorkflowManager().getOrCreate(run.run_id).stores;
+  scoped.workflow.getState().setWorkflow(
+    run.run_id,
+    run.workflow_name,
+    run.dag ?? null,
+  );
+  if (run._has_outline) {
+    try {
+      const outline = await useRunHistoryStore.getState().fetchRunOutline(run.run_id);
+      if (outline && outline.length > 0) {
+        scoped.outline.getState().setItems(outlineSummaryToItems(outline));
+      }
+    } catch (err) {
+      // Fail loud per CLAUDE.md — surface the error so it doesn't look
+      // identical to "no outline sidecar". Phase 2 will still attempt
+      // its own fetch via loadSidecars, but if the backend is broken
+      // both phases fail silently without this log.
+      console.error(`[hydratePhase1] outline fetch failed for ${run.run_id}:`, err);
+    }
+  }
+}

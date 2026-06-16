@@ -14,6 +14,7 @@ import {
   loadSidecars,
   applyHydration,
   hydrateStores,
+  hydratePhase1,
   type SidecarData,
 } from "@/stores/hydration/hydrateReplay";
 
@@ -27,6 +28,10 @@ vi.mock("@/contexts/workflow-context/replayEvents", () => ({
 
 // Mock the run history store so loadSidecars can be tested without a real
 // fetch implementation.
+const fetchRunOutlineMock = vi.fn().mockResolvedValue([
+  { key: "a-1", node_id: "a", iteration: 1, is_latest_iter: true, iter_count: 1,
+    name: "a", first_ts: 0, status: "completed", activity: {}, badges: [], order: 0 },
+]);
 vi.mock("@/stores/runHistoryStore", () => ({
   useRunHistoryStore: {
     getState: () => ({
@@ -37,6 +42,7 @@ vi.mock("@/stores/runHistoryStore", () => ({
         has_more: false,
         total: 1,
       }),
+      fetchRunOutline: fetchRunOutlineMock,
     }),
   },
 }));
@@ -314,5 +320,39 @@ describe("hydrateStores", () => {
     expect(loadRunFromPersistedData).not.toHaveBeenCalled();
     // Returns the original run untouched (no merge applied)
     expect(merged).toBe(run);
+  });
+});
+
+describe("hydratePhase1", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fetchRunOutlineMock.mockResolvedValue([
+      { key: "a-1", node_id: "a", iteration: 1, is_latest_iter: true, iter_count: 1,
+        name: "a", first_ts: 0, status: "completed", activity: {}, badges: [], order: 0 },
+    ]);
+  });
+
+  it("skips outline fetch when _has_outline is false", async () => {
+    const run = makeRun({ dag: { nodes: ["a"], edges: [] } });
+
+    await hydratePhase1(run);
+
+    expect(fetchRunOutlineMock).not.toHaveBeenCalled();
+  });
+
+  it("fetches outline sidecar when _has_outline is true", async () => {
+    const run = makeRun({ _has_outline: true, dag: { nodes: ["a"], edges: [] } });
+
+    await hydratePhase1(run);
+
+    expect(fetchRunOutlineMock).toHaveBeenCalledWith(run.run_id);
+  });
+
+  it("swallows outline fetch failure (phase 2 retries)", async () => {
+    const run = makeRun({ _has_outline: true, dag: { nodes: ["a"], edges: [] } });
+    fetchRunOutlineMock.mockRejectedValueOnce(new Error("network"));
+
+    // Should not throw — phase 1 always resolves
+    await expect(hydratePhase1(run)).resolves.toBeUndefined();
   });
 });

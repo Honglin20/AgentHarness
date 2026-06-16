@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from fastapi import Request
 
-from harness.run_store import RunStore
+from harness.run_store import get_run_store
 from harness.run_store_interface import RunStoreInterface
 from harness.extensions.bus import Bus
 from harness.user_manager import User, UserManager, get_current_user
@@ -22,10 +22,11 @@ from server.runner import WorkflowRunner, get_runner
 from server.event_bus import get_event_bus
 
 
-# Module-level singleton — RunStore.__init__ calls mkdir, so creating a fresh
-# instance per request is wasteful (and races on the directory). Cached on
-# first use. Test overrides via `app.dependency_overrides[get_run_store_dep]`
-# still work because FastAPI swaps the whole callable, bypassing this cache.
+# Module-level singleton — delegates to harness.run_store.get_run_store()
+# so HTTP endpoints and runner.py / ws_handler.py share the same instance
+# (and therefore the same `_summary_index`). Cached on first use; test
+# overrides via `app.dependency_overrides[get_run_store_dep]` still work
+# because FastAPI swaps the whole callable, bypassing this cache.
 _run_store_singleton: RunStoreInterface | None = None
 
 
@@ -38,7 +39,7 @@ def get_run_store_dep() -> RunStoreInterface:
     """
     global _run_store_singleton
     if _run_store_singleton is None:
-        _run_store_singleton = RunStore()
+        _run_store_singleton = get_run_store()
     return _run_store_singleton
 
 

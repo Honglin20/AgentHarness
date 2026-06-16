@@ -325,8 +325,8 @@ def _rebuild_bus_from_events(workflow_id: str):
     actual events live in the {run_id}+events.json sidecar. Reading
     `run["events"]` directly returns None and silently breaks replay.
     """
-    from harness.run_store import RunStore
-    store = RunStore()
+    from harness.run_store import get_run_store
+    store = get_run_store()
     run = store.get_run(workflow_id)
     if not run or not run.get("_has_events"):
         return None
@@ -361,7 +361,7 @@ async def _handle_followup(
 ) -> None:
     """Handle a chat.followup message: run a temporary agent with tools."""
     from harness.followup import get_followup_manager
-    from harness.run_store import RunStore
+    from harness.run_store import get_run_store
     from harness.tools.defaults import default_tool_registry
     from harness.tools.deps import AgentDeps
 
@@ -378,7 +378,7 @@ async def _handle_followup(
         return
 
     # Load run data
-    run = RunStore().get_run(workflow_id)
+    run = get_run_store().get_run(workflow_id)
     if not run:
         event_bus.emit("followup.failed", {
             "workflow_id": workflow_id,

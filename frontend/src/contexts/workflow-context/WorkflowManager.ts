@@ -374,14 +374,37 @@ class WorkflowManager {
   }
 
   /**
-   * 重置（测试用）
+   * Reset all workflow state WITHOUT replacing the singleton instance.
+   *
+   * Used by `resetAllGlobalStores` (New Workflow, Logo, user switch). Safe
+   * to call in production — `WorkflowScope.tsx:77` caches the manager in a
+   * `useMemo(..., [])` so it never re-fetches; if we replaced the singleton
+   * here, that cached reference would point at a destroyed instance and all
+   * subsequent scoped-store reads would silently miss (activateRun writes
+   * the new singleton's stores; WorkflowScope exposes the old one's).
+   *
+   * Does NOT stop the cleanup timer — the instance survives, so background
+   * workflows created after reset still need idle GC.
    */
   reset(): void {
     for (const id of Array.from(this.workflows.keys())) {
       this.destroy(id);
     }
     this.activeWorkflowId = null;
-    this.stopCleanupTimer();
+  }
+
+  /**
+   * Test-only: full reset including replacing the singleton. Production
+   * code should use `reset()` — replacing the instance mid-session breaks
+   * WorkflowScope's cached reference (see reset() docstring).
+   */
+  static _resetAllForTests(): void {
+    const m = WorkflowManager.instance;
+    if (m) {
+      for (const id of Array.from(m.workflows.keys())) m.destroy(id);
+      m.activeWorkflowId = null;
+      m.stopCleanupTimer();
+    }
     WorkflowManager.instance = null;
   }
 }

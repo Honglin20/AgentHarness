@@ -23,7 +23,7 @@ def _save_incremental(builder: "MacroGraphBuilder", event_bus: Any) -> None:
     on server at module load time).
     """
     try:
-        from harness.run_store import RunStore
+        from harness.run_store import get_run_store
         from harness.extensions.collectors import build_conversation, ChartCollector
         from server.repository import get_repository
 
@@ -45,7 +45,7 @@ def _save_incremental(builder: "MacroGraphBuilder", event_bus: Any) -> None:
             if cg.get("groupOrder"):
                 chart_groups = cg
 
-        RunStore().save(
+        get_run_store().save(
             run_id=wid,
             workflow_name=data["workflow"].name,
             agents_snapshot=data.get("agents_snapshot", []),

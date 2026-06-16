@@ -626,3 +626,26 @@ class RunStore(RunStoreInterface):
             record = json.loads(path.read_text())
             record["_has_outline"] = bool(outline)
             self._atomic_write(path, json.dumps(record, separators=(",", ":"), ensure_ascii=False))
+
+
+# ---------------------------------------------------------------------------
+# Module-level singleton accessor
+# ---------------------------------------------------------------------------
+#
+# Critical: production code MUST go through `get_run_store()`. Calling
+# `RunStore()` directly creates a new instance whose `_summary_index` is
+# None — its `_update_index_entry` becomes a no-op, so saves via that
+# instance never reach the singleton HTTP endpoints use to serve list_runs.
+# Compounded by macOS APFS not always bumping dir mtime on rename, the
+# singleton's `_maybe_rebuild_index` then never notices the new file and
+# the just-saved run disappears from `/api/runs` until process restart.
+#
+# Tests that need an isolated instance can still call `RunStore()` directly.
+_run_store_singleton: "RunStore | None" = None
+
+
+def get_run_store() -> "RunStore":
+    global _run_store_singleton
+    if _run_store_singleton is None:
+        _run_store_singleton = RunStore()
+    return _run_store_singleton

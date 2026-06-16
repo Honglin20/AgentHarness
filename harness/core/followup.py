@@ -135,10 +135,10 @@ class FollowUpManager:
 
     def flush_to_store(self, run_id: str) -> None:
         """Write all sessions for a run to RunStore."""
-        from harness.run_store import RunStore
+        from harness.run_store import get_run_store
 
         prefix = f"{run_id}::"
-        store = RunStore()
+        store = get_run_store()
         for key, session in self._sessions.items():
             if key.startswith(prefix):
                 store.update_followup(run_id, session.agent_name, session.to_dict())
@@ -149,15 +149,15 @@ class FollowUpManager:
         if session is None:
             return
 
-        from harness.run_store import RunStore
-        store = RunStore()
+        from harness.run_store import get_run_store
+        store = get_run_store()
         store.update_followup(run_id, agent_name, session.to_dict())
 
     def load_from_store(self, run_id: str) -> None:
         """Restore sessions from RunStore into memory (e.g. on WS connect)."""
-        from harness.run_store import RunStore
+        from harness.run_store import get_run_store
 
-        store = RunStore()
+        store = get_run_store()
         record = store.get_run(run_id)
         if not record:
             return

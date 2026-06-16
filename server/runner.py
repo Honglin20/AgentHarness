@@ -204,8 +204,8 @@ class WorkflowRunner:
                 workflow = data["workflow"]
                 data["status"] = "paused"
                 batch_id = data.get("batch_id")
-                from harness.run_store import RunStore
-                store = RunStore()
+                from harness.run_store import get_run_store
+                store = get_run_store()
                 existing = store.get_run(workflow_id) or {}
                 try:
                     store.save(
@@ -338,7 +338,7 @@ class WorkflowRunner:
                 event_bus.emit("workflow.completed", completion_payload)
 
                 # Persist run to disk (with event-ordered conversation + charts)
-                from harness.run_store import RunStore
+                from harness.run_store import get_run_store
                 from harness.extensions.collectors import ConversationCollector, ChartCollector
                 _agent_io = workflow._builder.agent_io if workflow._builder else {}
                 _todo_steps = dict(workflow._builder.todo_states) if workflow._builder else {}
@@ -360,7 +360,7 @@ class WorkflowRunner:
                     events = []
                     chart_groups = None
 
-                RunStore().save(
+                get_run_store().save(
                     run_id=workflow_id,
                     workflow_name=workflow.name,
                     agents_snapshot=data.get("agents_snapshot")
@@ -425,7 +425,7 @@ class WorkflowRunner:
                 event_bus.emit("workflow.error", error_payload)
 
                 # Persist failed run to disk (with event-ordered conversation)
-                from harness.run_store import RunStore
+                from harness.run_store import get_run_store
                 from harness.extensions.collectors import ConversationCollector, ChartCollector
                 _agent_io = workflow._builder.agent_io if workflow._builder else {}
                 _todo_steps = dict(workflow._builder.todo_states) if workflow._builder else {}
@@ -447,7 +447,7 @@ class WorkflowRunner:
                     events = []
                     chart_groups = None
 
-                RunStore().save(
+                get_run_store().save(
                     run_id=workflow_id,
                     workflow_name=workflow.name,
                     agents_snapshot=data.get("agents_snapshot")
@@ -555,7 +555,7 @@ def _save_outline_sidecar(
     """
     try:
         from harness.persistence.outline_compute import compute_outline
-        from harness.run_store import RunStore
+        from harness.run_store import get_run_store
         outline = compute_outline(
             conversation=conversation,
             events=events,
@@ -565,7 +565,7 @@ def _save_outline_sidecar(
             dag=dag,
         )
         if outline:
-            RunStore().save_outline(workflow_id, outline)
+            get_run_store().save_outline(workflow_id, outline)
     except Exception:
         logger.exception(
             "outline sidecar computation failed for %s — falling back to frontend derive",

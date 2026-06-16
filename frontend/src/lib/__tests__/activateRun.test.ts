@@ -69,11 +69,13 @@ vi.mock("@/stores/runHistoryStore", () => ({
   },
 }));
 
-const { hydrateStoresSpy } = vi.hoisted(() => ({
+const { hydrateStoresSpy, hydratePhase1Spy } = vi.hoisted(() => ({
   hydrateStoresSpy: vi.fn(),
+  hydratePhase1Spy: vi.fn(),
 }));
 vi.mock("@/stores/hydration/hydrateReplay", () => ({
   hydrateStores: hydrateStoresSpy,
+  hydratePhase1: hydratePhase1Spy,
 }));
 
 // Import AFTER mocks are declared.
@@ -104,6 +106,8 @@ describe("activateRun", () => {
     fetchRunSpy.mockReset();
     hydrateStoresSpy.mockClear();
     hydrateStoresSpy.mockImplementation(async (run: RunRecord) => run);
+    hydratePhase1Spy.mockReset();
+    hydratePhase1Spy.mockResolvedValue(undefined);
     getOrCreateSpy.mockClear();
     getHydrationSpy.mockClear();
     setHydrationSpy.mockClear();
@@ -125,7 +129,7 @@ describe("activateRun", () => {
     expect(setWorkflowSpy).not.toHaveBeenCalled();
   });
 
-  it("hydrates a running run via hydrateStores (scoped pipeline) + global setWorkflow + runMode live", async () => {
+  it("hydrates a running run via phase 1 only (WS replays events for phase 2)", async () => {
     const running = makeRun({
       status: "running",
       dag: { nodes: ["a"], edges: [] },
@@ -137,33 +141,36 @@ describe("activateRun", () => {
     // Global workflowStore gets populated (page.tsx workflowId detection)
     expect(setWorkflowSpy).toHaveBeenCalledTimes(1);
     expect(setWorkflowSpy).toHaveBeenCalledWith("r1", "test-wf", running.dag);
-    // hydrateStores called with the full run record (fills scoped stores
-    // with events/conversation/agents that WS won't replay)
-    expect(hydrateStoresSpy).toHaveBeenCalledTimes(1);
-    expect(hydrateStoresSpy).toHaveBeenCalledWith(running, expect.any(Number), expect.any(Function));
+    // Phase 1 awaited (workflow store + outline sidecar)
+    expect(hydratePhase1Spy).toHaveBeenCalledTimes(1);
+    expect(hydratePhase1Spy).toHaveBeenCalledWith(running);
+    // Phase 2 (hydrateStores) NOT called — WS sinceSeq=0 replays all
+    // buffered events into scoped stores, and hydrateStores' internal
+    // resetAllStores would race the WS stream (review #2 finding).
+    expect(hydrateStoresSpy).not.toHaveBeenCalled();
     // showReplay NOT called for live runs (would clobber live UX)
     expect(showReplaySpy).not.toHaveBeenCalled();
     expect(setHydrationSpy).toHaveBeenLastCalledWith("r1", "hydrated");
     expect(setRunModeSpy).toHaveBeenLastCalledWith("live");
   });
 
-  it("does not set hydration=hydrated before hydrateStores resolves (running branch)", async () => {
+  it("does not set hydration=hydrated before phase 1 resolves (running branch)", async () => {
     const running = makeRun({ status: "running", dag: { nodes: ["a"], edges: [] } });
     fetchRunSpy.mockResolvedValueOnce(running);
 
-    let resolveHydrate: (r: RunRecord) => void = () => {};
-    hydrateStoresSpy.mockReturnValueOnce(
-      new Promise<RunRecord>((r) => {
-        resolveHydrate = r;
+    let resolvePhase1: () => void = () => {};
+    hydratePhase1Spy.mockReturnValueOnce(
+      new Promise<void>((r) => {
+        resolvePhase1 = r;
       }),
     );
 
     const pending = activateRun("r1");
-    // While hydrateStores is pending, hydration should still be "hydrating"
+    // While phase 1 is pending, hydration should still be "hydrating"
     expect(setHydrationSpy).toHaveBeenLastCalledWith("r1", "hydrating");
     expect(setHydrationSpy).not.toHaveBeenCalledWith("r1", "hydrated");
 
-    resolveHydrate(running);
+    resolvePhase1();
     await pending;
 
     expect(setHydrationSpy).toHaveBeenLastCalledWith("r1", "hydrated");

@@ -21,7 +21,7 @@ import { useAppViewStore } from "@/stores/appView";
 import { useViewStore } from "@/stores/viewStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useRunHistoryStore } from "@/stores/runHistoryStore";
-import { hydrateStores } from "@/stores/hydration/hydrateReplay";
+import { hydrateStores, hydratePhase1 } from "@/stores/hydration/hydrateReplay";
 
 let _activateSeq = 0;
 let _abortController: AbortController | null = null;
@@ -84,24 +84,32 @@ export async function activateRun(runId: string): Promise<void> {
 
   if (full.status === "running") {
     // Live run — populate global workflowStore so page.tsx detects the
-    // workflowId and switches to run layout. Scoped workflow store gets
-    // populated by hydrateStores below along with conversation/agents/etc.
+    // workflowId and switches to run layout.
     useWorkflowStore.getState().setWorkflow(
       runId,
       full.workflow_name,
       full.dag ?? null,
     );
 
-    // Critical: run the hydration pipeline so scoped stores reflect prior
-    // events / conversation / outline / charts. Without this, clicking a
-    // running workflow shows an empty conversation because WS only pushes
-    // new events — anything that happened before WS connect is invisible.
-    // Not calling showReplay because that would flip activeView to replay
-    // and clobber the live-mode UX (ConnectionStatusBar, ChatInput).
-    await hydrateStores(full, seq, () => _activateSeq);
+    // Phase 1 (await): minimal data for instant UI feedback — workflow
+    // store + outline sidecar. Keeps setHydration("hydrated") latency
+    // bounded to ~100ms.
+    await hydratePhase1(full);
     if (seq !== _activateSeq) return;
 
     useAppViewStore.getState().setRunMode("live");
+
+    // WS (sinceSeq=0) replays all buffered events into scoped stores on
+    // connect — conversation / charts / agents / outline are rebuilt from
+    // the live event stream. NO phase 2 hydrateStores call: its internal
+    // resetAllStores would race the WS stream and wipe just-delivered
+    // events (review finding: agent output appears, vanishes, reappears
+    // as phase 2 lands). For paused-resume runs where sidecars exist on
+    // disk, those same events are still in the Bus buffer and reach the
+    // store via WS — no HTTP sidecar fetch needed.
+    //
+    // Not calling showReplay either — it would flip activeView to replay
+    // and clobber the live-mode UX (ConnectionStatusBar, ChatInput).
   } else {
     // Completed / failed / etc — showReplay owns hydration pipeline.
     useViewStore.getState().showReplay(full);
