@@ -20,6 +20,7 @@ Re-generate by re-running scout's adapter_generator sub_agent.
 """
 from __future__ import annotations
 
+import importlib.util
 import subprocess
 import sys
 import time
@@ -29,7 +30,7 @@ import torch
 import torch.nn as nn
 
 
-_ADAPTER_TEMPLATE_VERSION = "1.0"
+_ADAPTER_TEMPLATE_VERSION = "1.1"  # bumped from 1.0: get_model supports model_override_path
 
 # ═══════════════════════════════════════════════════════════════════════
 # Configuration — adapter_generator fills these constants at gen time
@@ -124,11 +125,58 @@ def get_model(**overrides) -> nn.Module:
     """Instantiate user model + load weights if available. Returns model.eval().
 
     Callers: baseline_runner, trainer, refiner, adapter_generator smoke test.
+
+    structural_global override: when called with `model_override_path` +
+    `model_override_class` kwargs (passed by run_strategy.py for strategies
+    whose manifest.hypothesis_type == "structural_global"), skips
+    _construct_model and dynamically loads the user-provided new model
+    file from worktree. Lets planner hypothesize brand-new architectures
+    without Coder patching _construct_model body (adapter stays the
+    NAS-team-maintained contract boundary).
     """
-    model = _construct_model(**overrides)
+    override_path = overrides.pop("model_override_path", None)
+    override_class = overrides.pop("model_override_class", None)
+    if override_path:
+        model = _load_override_model(override_path, override_class, overrides)
+    else:
+        model = _construct_model(**overrides)
     if WEIGHTS_PATH and WEIGHTS_PATH != "NOT_FOUND" and Path(WEIGHTS_PATH).exists():
         _load_state_dict(model, WEIGHTS_PATH)
     return model.eval()
+
+
+def _load_override_model(
+    path: str,
+    class_name: str | None,
+    overrides: dict,
+) -> nn.Module:
+    """Dynamically import a user-provided model from a .py file path.
+
+    Used by structural_global strategies. Path may be absolute or relative;
+    relative paths resolve against the adapter file's parent dir (= worktree
+    root when run_strategy.py loads the adapter).
+
+    Returns the instantiated model (caller handles weight loading + eval()).
+    """
+    p = Path(path)
+    if not p.is_absolute():
+        p = Path(__file__).resolve().parent / p
+    if not p.exists():
+        raise FileNotFoundError(
+            f"model_override_path not found: {p} (relative={path!r})"
+        )
+    module_id = f"_nas_override_{p.stem}_{id(p)}"
+    spec = importlib.util.spec_from_file_location(module_id, str(p))
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"failed to load override spec from {p}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    if not class_name:
+        raise ValueError("model_override_class required when model_override_path is set")
+    cls = getattr(mod, class_name, None)
+    if cls is None:
+        raise AttributeError(f"class {class_name!r} not found in {p}")
+    return cls(**overrides)
 
 
 def train(model: nn.Module, epochs: int | None = None, output=None) -> dict:

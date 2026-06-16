@@ -64,6 +64,14 @@ Iter: <N>, Strategy index: <i>
 
 Effective tier: epochs=<X or null>
 
+**structural_global strategy 特殊处理**（如果该 strategy 的 manifest.hypothesis_type == "structural_global"）：
+- Coder 已经在 worktree 根目录写了新模型文件（如 `model_v2.py`），路径在 manifest.new_model_path
+- adapter.get_model 会通过 importlib 动态加载该 .py 的 manifest.new_model_class 类，跳过 _construct_model
+- run_strategy.py 命令**必须**额外加：
+    --model-override-path <manifest.new_model_path> \
+    --model-override-class <manifest.new_model_class>
+- diff.patch 可能仍含对用户其他文件（如 config.py / train.py）的改动；若 diff.patch 为空，--diff 仍传 manifest.diff_path（或 "baseline" 跳过 git apply）
+
 跑 helper（一行命令完成 cd / git apply / train / eval / export / measure）：
 
 python <helpers_dir>/run_strategy.py \
@@ -74,11 +82,12 @@ python <helpers_dir>/run_strategy.py \
   --out <session_dir>/iter_<N>/strategy_<i>/eval_result.json \
   --helpers-dir <helpers_dir> \
   --strategy-id <strategy_id> \
-  [--gpu-id <id>]
+  [--gpu-id <id>] \
+  [--model-override-path <path> --model-override-class <name>]   # 仅 structural_global 加
 
 **关键**：`--worktree .` 用当前 cwd（sub_agent 的 worktree path，由 framework isolation 自动设置）。**不要**用主项目目录的绝对路径，会污染主目录。
 
-helper 内部：cd worktree → git apply → adapter.get_model() → adapter.train(epochs) → adapter.evaluate() → helpers/export_onnx.py → helpers/measure_onnx_latency.py → 写 eval_result.json。
+helper 内部：cd worktree → git apply（除非 baseline）→ adapter.get_model([model_override_path/class]) → adapter.train(epochs) → adapter.evaluate() → helpers/export_onnx.py → helpers/measure_onnx_latency.py → 写 eval_result.json。
 
 helper stdout 最后一行 JSON：`{status, out_path, strategy_id, error}`
 
@@ -101,6 +110,8 @@ eval_result.json schema（由 helper 写入，sub_agent 不需要管）：
   - NaN → gradient clipping / 检查 init / 降 lr
   - shape mismatch → 检查 diff 是否破坏 layer 接口
   - ImportError → 修路径
+  - structural_global + FileNotFoundError "model_override_path not found" → Coder 没写新文件 / 路径不对，确认 manifest.new_model_path 与实际文件名一致
+  - structural_global + AttributeError "class X not found" → manifest.new_model_class 与文件内 class 定义名不一致
   - adapter 调用本身失败（非训练失败）→ diff 可能破坏了 model.py 接口
 - 修复 diff / 配置后重跑 helper
 - 仍失败 → 保留 status="failed" + error_trace

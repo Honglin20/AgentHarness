@@ -43,6 +43,16 @@ def main():
     p.add_argument("--helpers-dir", dest="helpers_dir", required=True)
     p.add_argument("--strategy-id", dest="strategy_id", default=None)
     p.add_argument("--gpu-id", dest="gpu_id", default=None)
+    p.add_argument(
+        "--model-override-path", dest="model_override_path", default=None,
+        help="path to new model .py file for structural_global strategies "
+             "(planner hypothesizes new architecture; Coder writes the .py; "
+             "adapter.get_model dynamically loads it via importlib)",
+    )
+    p.add_argument(
+        "--model-override-class", dest="model_override_class", default=None,
+        help="class name to import from --model-override-path (required iff path is set)",
+    )
     args = p.parse_args()
 
     tier_raw = json.loads(args.tier)  # {"epochs": N} | None
@@ -93,7 +103,20 @@ def main():
             # Step 2: adapter train
             _log(f"adapter train: epochs={tier.get('epochs')}")
             t0 = time.time()
-            model = adapter.get_model()
+            # structural_global override: planner hypothesized a new model file;
+            # adapter.get_model dynamically loads it instead of _construct_model.
+            get_model_kwargs: dict = {}
+            if args.model_override_path:
+                if not args.model_override_class:
+                    result["error_trace"] = (
+                        "--model-override-path set without --model-override-class; "
+                        "structural_global requires both"
+                    )
+                    _finish(result, out_path)
+                get_model_kwargs["model_override_path"] = args.model_override_path
+                get_model_kwargs["model_override_class"] = args.model_override_class
+                _log(f"using model override: {args.model_override_path}::{args.model_override_class}")
+            model = adapter.get_model(**get_model_kwargs)
             train_result = adapter.train(
                 model,
                 epochs=tier.get("epochs"),
