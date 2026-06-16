@@ -128,6 +128,7 @@ class LLMExecutor:
         # can stamp it on its events. Without this, server's chart fallback
         # used to guess the workflow by node_id and could route across
         # concurrently-running workflows.
+        from harness.tools._truncate import truncation_context
         from harness.tools.chart import (
             reset_chart_workflow_context,
             set_chart_workflow_context,
@@ -145,6 +146,13 @@ class LLMExecutor:
         self._last_output = 0
         self._last_cache_hit = 0
 
+        # Publish (bus, wid, node, agent) for tool-result truncation events.
+        # ToolFactory._wrap_fn reads this via contextvars so it can emit
+        # agent.tool_output_truncated without holding a back-reference.
+        trunc_ctx = truncation_context(
+            self._bus, self._wid, self._node_id, self._agent_name,
+        )
+
         stop_regen: dict[str, Any] | None = None
 
         # Resolve per-agent request_limit: explicit > env (default 200). Wrapped
@@ -160,28 +168,29 @@ class LLMExecutor:
         usage_limits = UsageLimits(request_limit=effective_request_limit)
 
         try:
-            async with self._agent.iter(
-                context, deps=self._deps, usage_limits=usage_limits,
-            ) as agent_run:
-                node = agent_run.next_node
+            with trunc_ctx:
+                async with self._agent.iter(
+                    context, deps=self._deps, usage_limits=usage_limits,
+                ) as agent_run:
+                    node = agent_run.next_node
 
-                while not isinstance(node, End):
-                    if self._agent.is_model_request_node(node):
-                        stop_regen = await self._handle_model_request(node, agent_run.ctx)
-                        if stop_regen:
-                            break
-                        node = await agent_run.next(node)
+                    while not isinstance(node, End):
+                        if self._agent.is_model_request_node(node):
+                            stop_regen = await self._handle_model_request(node, agent_run.ctx)
+                            if stop_regen:
+                                break
+                            node = await agent_run.next(node)
 
-                    elif self._agent.is_call_tools_node(node):
-                        stop_regen = await self._handle_call_tools(node, agent_run.ctx)
-                        if stop_regen:
-                            break
-                        node = await agent_run.next(node)
+                        elif self._agent.is_call_tools_node(node):
+                            stop_regen = await self._handle_call_tools(node, agent_run.ctx)
+                            if stop_regen:
+                                break
+                            node = await agent_run.next(node)
 
-                    else:
-                        node = await agent_run.next(node)
+                        else:
+                            node = await agent_run.next(node)
 
-            return AgentRunResult(agent_run=agent_run, stop_regen=stop_regen, ttft_ms=self._last_ttft_ms)
+                return AgentRunResult(agent_run=agent_run, stop_regen=stop_regen, ttft_ms=self._last_ttft_ms)
         finally:
             reset_chart_workflow_context(wid_token)
 

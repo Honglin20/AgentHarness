@@ -9,6 +9,9 @@
 
 ## 2026-06
 
+- **2026-06-16** — **阶段 3 工具结果截断**：新增 `harness/tools/_truncate.py` 模块，按工具类型限制返回值字节数（bash 8KB / codegraph_* 6KB / sub_agent 4KB），从源头降低 message_history 增长。`_wrap_fn` 重构为无条件截断（不再依赖 dedup_guard），`LLMExecutor.run()` 用 `truncation_context` 注入 (bus, wid, node, agent) 让截断事件 emit `agent.tool_output_truncated`。env `HARNESS_TOOL_RESULT_LIMIT_BYTES` 全局覆盖（0 禁用）。19 个新测试。
+  → [详情](../releases/2026-06-16-tool-result-truncation.md)
+
 - **2026-06-16** — **阶段 2 review follow-ups**：(1) BudgetBar 缺 last_* 时不再 fallback 到 cumulative（否则会显示误导的 125% 红条），改为隐藏 Window 行；(2) `cache_hit` 拆为 `cumulative_cache_hit` + `last_cache_hit`（对称）；(3) 加 `negative delta` 测试（clamp + ext.error）+ `setNodeUsage` store 行为测试（确保 last 缺失时保持 undefined）。
   → [详情](../releases/2026-06-16-token-stats-semantic-split.md)
 

@@ -56,30 +56,69 @@ class ToolFactory(ABC):
     def create(self) -> PydanticAITool: ...
 
     def _wrap_fn(self, fn, tool_name: str):
-        """Wrap a tool function with dedup guard if configured.
+        """Wrap a tool function with dedup guard + result truncation.
 
-        Preserves sync/async nature of the original function.
+        Truncation is unconditional (applies to every tool, every call) so
+        long tool returns don't inflate message_history forever. Dedup is
+        opt-in via the dedup guard config. Preserves sync/async nature.
         """
+        from harness.tools._truncate import (
+            emit_tool_output_truncated,
+            truncate_tool_result,
+        )
         from harness.tools.dedup_guard import get_dedup_guard
 
         guard = get_dedup_guard()
-        if guard is None:
-            return fn
 
         if iscoroutinefunction(fn):
             @wraps(fn)
             async def _async_wrapped(*args, **kwargs):
-                if guard.check(tool_name, kwargs):
+                if guard is not None and guard.check(tool_name, kwargs):
                     return f"[dedup: {tool_name} skipped — duplicate call]"
-                return await fn(*args, **kwargs)
+                result = await fn(*args, **kwargs)
+                truncated, was_cut, original_bytes = truncate_tool_result(
+                    tool_name, result,
+                )
+                if was_cut:
+                    emit_tool_output_truncated(
+                        tool_name=tool_name,
+                        original_bytes=original_bytes,
+                        truncated_bytes=len(truncated.encode("utf-8"))
+                        if isinstance(truncated, str) else 0,
+                        limit_bytes=_lookup_limit_for_event(tool_name),
+                    )
+                return truncated
             return _async_wrapped
         else:
             @wraps(fn)
             def _sync_wrapped(*args, **kwargs):
-                if guard.check(tool_name, kwargs):
+                if guard is not None and guard.check(tool_name, kwargs):
                     return f"[dedup: {tool_name} skipped — duplicate call]"
-                return fn(*args, **kwargs)
+                result = fn(*args, **kwargs)
+                truncated, was_cut, original_bytes = truncate_tool_result(
+                    tool_name, result,
+                )
+                if was_cut:
+                    emit_tool_output_truncated(
+                        tool_name=tool_name,
+                        original_bytes=original_bytes,
+                        truncated_bytes=len(truncated.encode("utf-8"))
+                        if isinstance(truncated, str) else 0,
+                        limit_bytes=_lookup_limit_for_event(tool_name),
+                    )
+                return truncated
             return _sync_wrapped
+
+
+def _lookup_limit_for_event(tool_name: str) -> int:
+    """Resolve the effective limit for the truncated event payload.
+
+    Imported lazily so registry.py doesn't pay the import cost when no
+    truncation happens. Mirrors _resolve_limit but always returns an int
+    (0 means "disabled" — useful telemetry signal).
+    """
+    from harness.tools._truncate import _resolve_limit
+    return _resolve_limit(tool_name)
 
 
 class ToolRegistry:
