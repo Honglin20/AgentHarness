@@ -9,6 +9,9 @@
 
 ## 2026-06
 
+- **2026-06-17** — **NAS workflow: SCOUT collector 化 + planner 变化额度契约**：5 个 setup sub_agent（adapter_generator / domain_analyzer / baseline_runner / tier_planner / metrics_identifier）从 scout 内嵌提升为 DAG 顶层节点，scout 退化为路径汇总 collector（200→100 行，request_limit 500→200）。每个 setup 节点有独立 result_type，中间过程（grep/read/smoke/retry）全部进入 event bus 可见。planner 的"≤3 位置"约束从 prompt 措辞提升到 schema (StrategyInfo model_validator) + helper (validate_manifest.py) + judger (fitness.py contract_violation + type_diversity_penalty) 三层契约；新增 `structural_global` + `new_model_path` 路径支持 planner 提新模型，adapter `get_model` 通过 importlib 动态加载，不动 `_construct_model` 契约边界。candidate_pool 加 `--top-k-per-type` 多样性筛选。
+  → [详情](../releases/2026-06-17-nas-scout-decompose-and-change-quota.md)（commits `2cc1b18` / `19fdea3` / `6f04716` / `2abd7d2`）
+
 - **2026-06-17** — **`harness run` CLI + 持久化（Cp1-4）**：新增 `harness run <name>` 命令端到端跑 workflow 并写到与 server 相同的 `runs/` 目录，前端 `GET /api/runs` 自动发现 CLI 历史、零前端修改可 replay。`StdinCoordinator` 单例让 ask_user 在 CLI 模式 opt-in 走 stdin（不影响 WS 路径），`cli_runner.run_with_persistence()` 封装 bus 注入 + Collectors + RunStore.save。`demo_pipeline` 端到端验证通过（3 agents success / 518 events）。Cp5-8（Rich Live TUI 渲染）待启动。
   → [详情](../releases/2026-06-17-cli-run-persistence.md)
 
