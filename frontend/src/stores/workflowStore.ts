@@ -100,6 +100,20 @@ export interface WorkflowState {
   // Budget envelope from workflow.started
   envelope: Record<string, number> | null;
 
+  /**
+   * NAS fitness history — one entry per judger completion. Phase 4 of
+   * long-run replay. Empty for non-NAS workflows or pre-judger setup phase.
+   * Carried in snapshot so the trend chart renders immediately on refresh.
+   */
+  fitnessHistory: Array<{
+    iter: number;
+    best_fitness: number;
+    best_strategy_id?: string;
+    best_latency_ms?: number | null;
+    best_metrics?: Record<string, unknown> | null;
+    primary_metric?: string | null;
+  }>;
+
   selectedNodeId: string | null;
   selectedTemplate: Record<string, unknown> | null;
 
@@ -162,6 +176,7 @@ const initialState = {
   nodes: {} as Record<string, NodeState>,
   dag: null as { nodes: string[]; edges: [string, string][] } | null,
   envelope: null as Record<string, number> | null,
+  fitnessHistory: [] as NonNullable<WorkflowState["fitnessHistory"]>,
   _cache: {} as Record<string, WorkflowSnapshot>,
 };
 

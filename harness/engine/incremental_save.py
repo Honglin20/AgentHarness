@@ -6,6 +6,7 @@ raises — if save fails, the workflow continues normally.
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -132,6 +133,25 @@ def _save_incremental(
         except Exception:
             iter_index = {}
 
+        # fitness_history — NAS-specific series. Each judger completion
+        # appends the iter's best fitness. Persisted across saves by reading
+        # the prior snapshot's fitness_history first, so non-judger node
+        # completions don't wipe it. See docs/plans/2026-06-16-long-run-replay-architecture.md Phase 4.
+        try:
+            prior_snapshot = get_run_store().get_snapshot(wid) or {}
+            fitness_history = list(prior_snapshot.get("fitness_history") or [])
+        except Exception:
+            fitness_history = []
+
+        if node_id == "judger" and iter_num is not None:
+            best = _extract_best_fitness(agent_io_snapshot.get("judger"))
+            if best is not None:
+                # Replace any prior entry for the same iter (idempotent if
+                # judger re-runs the same iter via checkpointer resume).
+                fitness_history = [e for e in fitness_history if e.get("iter") != iter_num]
+                fitness_history.append({"iter": iter_num, **best})
+                fitness_history.sort(key=lambda e: e.get("iter", 0))
+
         # current_iter: max iter seen across all cycle agents. None if no
         # iter sidecars written yet (setup-only / Phase 1 run).
         current_iter = None
@@ -172,8 +192,10 @@ def _save_incremental(
             # Phase 2 fields.
             "current_iter": current_iter,
             "iter_index": iter_index,
-            # Phase 4: NAS fitness series extracted from judger agent_io.
-            "fitness_history": [],
+            # Phase 4: NAS fitness series. Each judger completion appends
+            # one entry {iter, best_fitness, best_strategy_id, ...}. Empty
+            # for non-NAS workflows or pre-judger setup phase.
+            "fitness_history": fitness_history,
         }
         try:
             get_run_store().save_snapshot(wid, snapshot)
@@ -211,3 +233,46 @@ def _extract_iter_summary(output: Any, max_len: int = 120) -> str:
         return s[:max_len] + ("…" if len(s) > max_len else "")
     except Exception:
         return ""
+
+
+def _extract_best_fitness(judger_io: Any) -> dict | None:
+    """Extract the best (max fitness) entry from a judger's output.
+
+    judger_io is the per-node agent_io dict shape:
+        {"input_prompt": ..., "system_prompt": ..., "output_result": <dict|str>}
+
+    output_result is normally a dict (pydantic model_dump from node_factory
+    success path) but may be a JSON string in edge cases. Returns None if
+    output isn't shaped like a JudgerResult (no ranking array / empty).
+
+    Returns: {best_fitness, best_strategy_id, best_latency_ms, best_metrics}
+    """
+    if not isinstance(judger_io, dict):
+        return None
+    output = judger_io.get("output_result")
+    if isinstance(output, str):
+        try:
+            output = json.loads(output)
+        except (json.JSONDecodeError, TypeError):
+            return None
+    if not isinstance(output, dict):
+        return None
+    ranking = output.get("ranking")
+    if not isinstance(ranking, list) or not ranking:
+        return None
+    try:
+        best = max(
+            ranking,
+            key=lambda e: e.get("fitness", float("-inf")) if isinstance(e, dict) else float("-inf"),
+        )
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(best, dict) or not isinstance(best.get("fitness"), (int, float)):
+        return None
+    return {
+        "best_fitness": best.get("fitness"),
+        "best_strategy_id": best.get("strategy_id"),
+        "best_latency_ms": best.get("latency_ms"),
+        "best_metrics": best.get("metrics") if isinstance(best.get("metrics"), dict) else None,
+        "primary_metric": output.get("primary_metric"),
+    }

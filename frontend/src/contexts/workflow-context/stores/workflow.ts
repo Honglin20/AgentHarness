@@ -33,6 +33,7 @@ export function createWorkflowStore(
     nodes: {} as WorkflowState["nodes"],
     dag: null as WorkflowState["dag"],
     envelope: null as WorkflowState["envelope"],
+    fitnessHistory: [] as WorkflowState["fitnessHistory"],
     selectedNodeId: null as string | null,
     selectedTemplate: null as Record<string, unknown> | null,
     activeWorkflowId: workflowId,

@@ -11,6 +11,7 @@ import { useChartGroups, useChartActions } from "@/contexts/workflow-context";
 import { filterGroupsByCategory, type ChartGroup } from "@/stores/chartStore";
 import LazyChartWidget from "@/components/output/LazyChartWidget";
 import DataTable from "@/components/output/charts/DataTable";
+import { FitnessChart } from "./FitnessChart";
 import {
   Collapsible,
   CollapsibleTrigger,
@@ -57,6 +58,7 @@ export function ScopedResultsTab({
   return (
     <ScrollArea className="h-full">
       <div className="p-4">
+        <FitnessChart />
         {groupOrder.map((label) => {
           const group = groups[label];
           if (!group) return null;

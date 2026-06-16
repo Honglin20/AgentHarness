@@ -336,7 +336,14 @@ export interface RunSnapshot {
   nodes_latest?: Record<string, { status?: string; latest_iter?: number | null }>;
   current_iter?: number | null;
   iter_index?: Record<string, unknown> | null;
-  fitness_history?: Array<{ iter: number; fitness: number; latency_ms?: number; acc?: number }>;
+  fitness_history?: Array<{
+    iter: number;
+    best_fitness: number;
+    best_strategy_id?: string;
+    best_latency_ms?: number | null;
+    best_metrics?: Record<string, unknown> | null;
+    primary_metric?: string | null;
+  }>;
 }
 
 /**
@@ -355,11 +362,16 @@ export function hydrateFromSnapshot(snapshot: RunSnapshot): void {
   const scoped = getWorkflowManager().getOrCreate(snapshot.run_id).stores;
 
   // 1. Workflow store: id + name + dag (matches hydratePhase1 contract)
+  //    + fitness_history (Phase 4) — direct setState bypasses setWorkflow
+  //    to keep the trend chart data on refresh.
   scoped.workflow.getState().setWorkflow(
     snapshot.run_id,
     snapshot.workflow_name,
     snapshot.dag ?? null,
   );
+  if (Array.isArray(snapshot.fitness_history)) {
+    scoped.workflow.setState({ fitnessHistory: snapshot.fitness_history as never });
+  }
 
   // 2. Conversation store: replace messages (snapshot.conversation is
   // already a structured message list from build_conversation on backend).
