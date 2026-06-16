@@ -215,6 +215,25 @@ async def run_with_persistence(
             if hasattr(workflow._builder, "register_active"):
                 workflow._builder.register_active()
 
+        # Emit workflow.started BEFORE arun so it lands at the head of the
+        # event stream — server does this in _helpers.py:358, and the
+        # frontend uses it to initialize UI state (DAG, inputs, envelope).
+        # Without it, replay falls back to the run record's static fields,
+        # which works but isn't byte-for-byte parity with server runs.
+        import time as _time
+        bus.emit(
+            "workflow.started",
+            {
+                "workflow_id": run_id,
+                "name": workflow.name,
+                "workflow": workflow.name,
+                "inputs": inputs,
+                "dag": build_workflow_dag(workflow),
+                "envelope": getattr(workflow, "envelope", None),
+                "started_ts_ms": int(_time.time() * 1000),
+            },
+        )
+
         result = await workflow.arun(inputs, config=config)
         status = "completed"
         error: Optional[str] = None
