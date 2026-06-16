@@ -4,14 +4,10 @@ color: violet
 icon: Search
 status: active
 workflows:
-  - name: nas-search-space
-    description: 搜索空间探索
-  - name: nas-proxy-search
-    description: Proxy 加速搜索
-  - name: nas-multi-objective
-    description: 多目标 NAS 优化
+  - name: nas
+    description: 端到端 NAS（探测 → 基线 → 迭代搜索 → refine → 报告）
 ---
 
 # 结构搜索 (NAS)
 
-自动搜索最优网络结构，在精度、延迟、计算量之间找到最佳平衡。
+围绕用户已有的训练项目，自动探测入口、生成 adapter、建立基线，然后以开放式 hypothesis + 多维 fitness 在精度/延迟/参数量之间迭代搜索结构改造方案，最后通过 tier 升级复跑确认并产出可部署推荐与架构优化建议。
