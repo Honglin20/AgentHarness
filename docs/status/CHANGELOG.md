@@ -9,6 +9,9 @@
 
 ## 2026-06
 
+- **2026-06-17** — **`harness run` TUI 渲染层（Cp5-7）**：Rich Live 双栏 TUI 落地 —— `TuiRenderer(BaseHook)` 把 `SidebarPanel`（Agents / Fitness sparkline / Tokens / Tools）+ `MainPanel`（流式 LLM 思考 + tool 调用）通过 `rich.live.Live` + `Layout` 组合成实时刷新 UI。`compact.py` 在非 TTY 自动降级到 `ConsoleOutput`（防 ANSI 光标码污染 CI 日志）。`cycle_events.py` 提供可选 `cycle.start/end` 契约让迭代 workflow 显示 "iter N/M" + fitness sparkline。TuiRenderer 同时是 BaseHook **和** bus subscriber，订阅 cycle.end + streaming `agent.usage_update`。106 个测试全过。
+  → [详情](../releases/2026-06-17-cli-run-tui.md)
+
 - **2026-06-17** — **NAS workflow: SCOUT collector 化 + planner 变化额度契约**：5 个 setup sub_agent（adapter_generator / domain_analyzer / baseline_runner / tier_planner / metrics_identifier）从 scout 内嵌提升为 DAG 顶层节点，scout 退化为路径汇总 collector（200→100 行，request_limit 500→200）。每个 setup 节点有独立 result_type，中间过程（grep/read/smoke/retry）全部进入 event bus 可见。planner 的"≤3 位置"约束从 prompt 措辞提升到 schema (StrategyInfo model_validator) + helper (validate_manifest.py) + judger (fitness.py contract_violation + type_diversity_penalty) 三层契约；新增 `structural_global` + `new_model_path` 路径支持 planner 提新模型，adapter `get_model` 通过 importlib 动态加载，不动 `_construct_model` 契约边界。candidate_pool 加 `--top-k-per-type` 多样性筛选。
   → [详情](../releases/2026-06-17-nas-scout-decompose-and-change-quota.md)（commits `2cc1b18` / `19fdea3` / `6f04716` / `2abd7d2`）
 

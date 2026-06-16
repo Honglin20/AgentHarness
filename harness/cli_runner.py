@@ -193,6 +193,12 @@ async def run_with_persistence(
     attach_bus = getattr(output_hook, "attach_bus", None)
     if callable(attach_bus):
         attach_bus(bus)
+
+    # Inject workflow reference so the hook can extract DAG topology
+    # when it starts. Also duck-typed — ConsoleOutput silently skips.
+    set_workflow = getattr(output_hook, "set_workflow", None)
+    if callable(set_workflow):
+        set_workflow(workflow)
     # Workflow.use() guarantees _event_bus is non-None after the call, but
     # be defensive in case a future Workflow subclass changes that.
     if bus is None:  # pragma: no cover — defensive
@@ -227,6 +233,16 @@ async def run_with_persistence(
             workflow._builder.workflow_id = run_id
             if hasattr(workflow._builder, "register_active"):
                 workflow._builder.register_active()
+
+        # Cp8: Explicit start signal for hooks that own resources like Live.
+        # The engine only dispatches on_node_* / on_llm_delta / on_tool_call
+        # hooks — on_workflow_start is NEVER called (pre-existing framework
+        # gap). So hooks like TuiRenderer expose start() and we invoke it
+        # explicitly here, after MCP setup but before arun. Duck-typed so
+        # ConsoleOutput silently skips.
+        start_hook = getattr(output_hook, "start", None)
+        if callable(start_hook):
+            start_hook()
 
         # Emit workflow.started BEFORE arun so it lands at the head of the
         # event stream — server does this in _helpers.py:358, and the

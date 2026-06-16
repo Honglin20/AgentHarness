@@ -69,11 +69,51 @@ harness run demo_pipeline --runs-dir /tmp/my-runs --input '{"task":"..."}'
 harness run demo_pipeline --no-tui --input '...'
 ```
 
+**TUI 渲染（自动启用）**：当 stdin 和 stdout 都是 TTY 时，`harness run` 自动启用
+Rich Live 双栏 TUI：
+
+```
+╭─ Agent Output ─────────────────────────╮ ╭─ 🌀 demo_pipeline ───╮
+│ ─── ▶ analyzer ───                      │ │ Agents               │
+│                                         │ │ ▶ analyzer   ⚡       │
+│   Looking at the function, it lacks     │ │ ⋯ planner    queue   │
+│   type hints and a docstring...         │ │ ⋯ reviewer   queue   │
+│                                         │ │                      │
+│   🔧 read_file('model.py')              │ │ Fitness              │
+│     ↳ 1.2k chars                        │ │ — (no cycle events)  │
+│                                         │ │                      │
+│ ─── ✓ analyzer (15s) ───                │ │ Tokens               │
+│                                         │ │ 4.8k cumulative      │
+│ ─── ▶ planner ───                       │ │ ▰▰▱▱▱▱▱▱▱▱          │
+│   ...                                   │ │                      │
+│                                         │ │ Tools                │
+│                                         │ │ TodoTool        3    │
+│                                         │ │ read_text_file  1    │
+╰─────────────────────────────────────────╯ ╰──────────────────────╯
+```
+
+- 左栏：流式 LLM 思考（dim）/ 文本输出 / 工具调用 + 结果摘要 / node lifecycle
+- 右栏 sidebar：Agents 状态（DAG 拓扑顺序）+ Fitness sparkline（迭代 workflow）
+  + Tokens 累积 + envelope bar + Tools 计数
+
+迭代类 workflow（NAS、evolutionary search 等）可以在 workflow 内部发
+`cycle.start/end` 事件让 sidebar 显示 "iter N/M" + fitness sparkline：
+
+```python
+from harness.extensions.tui.cycle_events import emit_cycle_start, emit_cycle_end
+
+for i in range(total_iters):
+    emit_cycle_start(bus, i + 1, total=total_iters)
+    score = await evaluate_candidate(...)
+    emit_cycle_end(bus, i + 1, score, total=total_iters)
+```
+
 **Exit codes**：`0` 成功 / `1` workflow 失败（仍持久化 failed run）/ `2` workflow
 未找到 / `3` workflow.json 解析错误 / `130` Ctrl+C。
 
-**HITL（ask_user）**：CLI 模式下 ask_user 自动走 stdin。TTY 环境会暂停渲染等待
-用户输入；非 TTY（如 `< /dev/null`）会 fail loud（EOFError），不会死锁。
+**HITL（ask_user）**：CLI 模式下 ask_user 自动走 stdin。TTY 环境会暂停 Live
+渲染（StdinCoordinator），问题显示在 stderr，用户回答后恢复；非 TTY（如
+`< /dev/null`）会 fail loud（EOFError），不会死锁。
 
 **Replay**：`harness ui` 启动浏览器，左侧历史列表自动出现 CLI 跑过的 run（含
 失败 run），点击可看完整 agents / DAG / conversation / events。

@@ -200,6 +200,9 @@ def cmd_run(args) -> int:
     # Run with persistence.
     from harness.cli_runner import run_with_persistence
 
+    if os.environ.get("HARNESS_CLI_DEBUG"):
+        print(f"[DEBUG] output_hook={type(output_hook).__name__}", file=sys.stderr)
+
     try:
         run_id, result = asyncio.run(
             run_with_persistence(
