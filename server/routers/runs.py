@@ -283,6 +283,38 @@ async def get_run_snapshot(
     store, run, user, is_admin = _load_run_for_user(run_id, request, store)
     return store.get_snapshot(run_id)
 
+@router.get("/runs/{run_id}/nodes/{node_id}/iters")
+async def get_node_iters(
+    run_id: str, node_id: str, request: Request,
+    store: RunStoreInterface = Depends(get_run_store_dep),
+) -> dict:
+    """List all iters for a cycle agent node — lightweight summaries only.
+
+    Returns {node_id, iters: [{iter, status, duration_ms, summary}, ...]}
+    sorted by iter ascending. Empty list for non-cycle agents / legacy runs.
+
+    Phase 2 of long-run replay: drives the iter dropdown selector in the
+    node detail drawer. Heavy per-iter detail (input/output/tool_calls)
+    is fetched on demand via GET /runs/{id}/nodes/{node}/iters/{n}.
+    """
+    store, run, user, is_admin = _load_run_for_user(run_id, request, store)
+    index = store.get_iter_index(run_id) or {}
+    return {"node_id": node_id, "iters": index.get(node_id, [])}
+
+@router.get("/runs/{run_id}/nodes/{node_id}/iters/{iter_num}")
+async def get_node_iter_detail(
+    run_id: str, node_id: str, iter_num: int, request: Request,
+    store: RunStoreInterface = Depends(get_run_store_dep),
+) -> dict | None:
+    """Load full detail for one iter of a cycle agent node.
+
+    Returns the per-iter sidecar: {iter, node_id, status, duration_ms,
+    input_prompt, system_prompt, output, summary}. None if absent (legacy
+    run / iter never persisted / iter_num out of range).
+    """
+    store, run, user, is_admin = _load_run_for_user(run_id, request, store)
+    return store.get_iter_sidecar(run_id, node_id, iter_num)
+
 @router.get("/runs/{run_id}/conversation")
 async def get_run_conversation(
     run_id: str, request: Request,

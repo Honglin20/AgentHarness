@@ -208,6 +208,42 @@ class RunStoreInterface(ABC):
         """Load the snapshot sidecar, or None if absent (legacy / never written)."""
         ...
 
+    @abstractmethod
+    def save_iter_sidecar(
+        self, run_id: str, node_id: str, iter_num: int, data: dict,
+    ) -> None:
+        """Write a per-iter sidecar for a cycle agent invocation.
+
+        Phase 2 of long-run replay. Each cycle agent completion writes one
+        sidecar carrying input / output / tool_calls / duration / seq_range.
+        GET /api/runs/{id}/nodes/{node}/iters/{n} reads it on demand.
+        """
+        ...
+
+    @abstractmethod
+    def get_iter_sidecar(
+        self, run_id: str, node_id: str, iter_num: int,
+    ) -> dict | None:
+        """Load one iter sidecar, or None if absent."""
+        ...
+
+    @abstractmethod
+    def update_iter_index(
+        self, run_id: str, node_id: str, iter_summary: dict,
+    ) -> None:
+        """Append/replace an entry in the per-run iter_index sidecar.
+
+        iter_index = {node_id: [{iter, status, duration_ms, summary, ...}, ...]}
+        Used by GET /api/runs/{id}/nodes/{node}/iters to render the iter
+        dropdown without loading every sidecar.
+        """
+        ...
+
+    @abstractmethod
+    def get_iter_index(self, run_id: str) -> dict | None:
+        """Load the iter_index sidecar, or None if absent."""
+        ...
+
     # ------------------------------------------------------------------ #
     # Delete paths
     # ------------------------------------------------------------------ #

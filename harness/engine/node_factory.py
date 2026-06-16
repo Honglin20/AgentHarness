@@ -436,7 +436,7 @@ def make_node_func(
                         }
                         builder_self.agent_io[agent_def.name] = io_data
                         _collect_todo_state(builder_self, deps, agent_def.name)
-                        _save_incremental(builder_self, bus)
+                        _save_incremental(builder_self, bus, node_id=agent_def.name, iter_num=current_invocation, duration_ms=duration_ms)
                         if bus:
                             safe_emit(bus, "node.completed", build_node_completed_payload(
                                 builder_self.workflow_id, agent_def.name, agent_def.name,
@@ -461,7 +461,7 @@ def make_node_func(
                 }
                 builder_self.agent_io[agent_def.name] = io_data
                 _collect_todo_state(builder_self, deps, agent_def.name)
-                _save_incremental(builder_self, bus)
+                _save_incremental(builder_self, bus, node_id=agent_def.name, iter_num=current_invocation, duration_ms=duration_ms)
                 if bus:
                     safe_emit(bus, "node.completed", build_node_completed_payload(
                         builder_self.workflow_id, agent_def.name, agent_def.name,
@@ -630,7 +630,7 @@ def make_node_func(
             builder_self.agent_io[agent_def.name] = io_data
             _collect_todo_state(builder_self, deps, agent_def.name)
             # Incremental save: persist completed node data to disk
-            _save_incremental(builder_self, bus)
+            _save_incremental(builder_self, bus, node_id=agent_def.name, iter_num=current_invocation, duration_ms=duration_ms)
             if bus:
                 safe_emit(bus, "node.completed", build_node_completed_payload(
                     builder_self.workflow_id, agent_def.name, agent_def.name,

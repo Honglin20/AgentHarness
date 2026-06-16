@@ -28,6 +28,12 @@ _CHARTS_SUFFIX = "+charts.json"
 _EVENTS_SUFFIX = "+events.json"
 _OUTLINE_SUFFIX = "+outline.json"
 _SNAPSHOT_SUFFIX = "+snapshot.json"
+_ITER_INDEX_SUFFIX = "+iter_index.json"
+# Per-iter sidecars: {run_id}+iters+{node}+{iter}.json
+# Using '+' as separator (not in _SAFE_ID_RE) prevents name collision with
+# main record + keeps the namespace distinct from other sidecars.
+_ITER_SIDECAR_PREFIX = "+iters+"
+_ITER_SIDECAR_SUFFIX = ".json"
 
 
 class RunStore(RunStoreInterface):
@@ -145,6 +151,23 @@ class RunStore(RunStoreInterface):
         if not _SAFE_ID_RE.match(run_id):
             return None
         return self._dir / f"{run_id}{_SNAPSHOT_SUFFIX}"
+
+    def _iter_index_path(self, run_id: str) -> Path | None:
+        if not _SAFE_ID_RE.match(run_id):
+            return None
+        return self._dir / f"{run_id}{_ITER_INDEX_SUFFIX}"
+
+    def _iter_sidecar_path(self, run_id: str, node_id: str, iter_num: int) -> Path | None:
+        """Per-iter sidecar path: {run_id}+iters+{node_id}+{iter}.json.
+
+        Validates both run_id and node_id against _SAFE_ID_RE to prevent
+        path traversal. iter_num must be a non-negative int.
+        """
+        if not _SAFE_ID_RE.match(run_id) or not _SAFE_ID_RE.match(node_id):
+            return None
+        if not isinstance(iter_num, int) or iter_num < 0:
+            return None
+        return self._dir / f"{run_id}{_ITER_SIDECAR_PREFIX}{node_id}+{iter_num}{_ITER_SIDECAR_SUFFIX}"
 
     def _atomic_write(self, path: Path, content: str) -> None:
         """Write content atomically via tmp + rename.
@@ -609,6 +632,126 @@ class RunStore(RunStoreInterface):
         path = self._safe_path(run_id)
         if path:
             self._atomic_write(path, json.dumps(record, separators=(",", ":"), ensure_ascii=False))
+
+    def save_iter_sidecar(
+        self,
+        run_id: str,
+        node_id: str,
+        iter_num: int,
+        data: dict,
+    ) -> None:
+        """Write a per-iter sidecar for a cycle agent invocation.
+
+        Overwrites if the same (node_id, iter_num) sidecar exists — agents
+        re-running the same iter (rare; e.g. retry from checkpointer) replace
+        the prior record. Atomic write via tmp + rename.
+
+        data shape (caller-controlled, but typically):
+            {
+              "iter": int,
+              "node_id": str,
+              "input": {...},            # upstream_outputs at iter entry
+              "output": {...},           # agent_io for this invocation
+              "tool_calls": [...],       # L2 detailed (optional)
+              "duration_ms": int,
+              "token_usage": {...},
+              "events_seq_range": [start_seq, end_seq],
+              "status": "completed" | "failed",
+              "summary": str,            # short one-liner for iter list UI
+            }
+        """
+        path = self._iter_sidecar_path(run_id, node_id, iter_num)
+        if path is None:
+            return
+        self._atomic_write(
+            path,
+            json.dumps(data, separators=(",", ":"), ensure_ascii=False),
+        )
+
+    def get_iter_sidecar(
+        self,
+        run_id: str,
+        node_id: str,
+        iter_num: int,
+    ) -> dict | None:
+        """Load a per-iter sidecar, or None if absent."""
+        path = self._iter_sidecar_path(run_id, node_id, iter_num)
+        if path is None or not path.exists():
+            return None
+        try:
+            return json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError):
+            logger.warning(
+                "Failed to read iter sidecar for %s/%s/%s",
+                run_id, node_id, iter_num,
+                exc_info=True,
+            )
+            return None
+
+    def update_iter_index(
+        self,
+        run_id: str,
+        node_id: str,
+        iter_summary: dict,
+    ) -> None:
+        """Append or replace an entry in the per-run iter_index sidecar.
+
+        iter_index shape:
+            { "<node_id>": [<iter_summary>, ...], ... }
+
+        iter_summary is identified by its "iter" field — calling this with
+        the same (node_id, iter) replaces the prior summary; otherwise
+        appends and re-sorts by iter ascending.
+
+        iter_summary typically carries: iter, status, duration_ms, summary,
+        events_seq_range. Heavy fields (full input/output/tool_calls) belong
+        in the per-iter sidecar, NOT the index.
+        """
+        index_path = self._iter_index_path(run_id)
+        if index_path is None:
+            return
+        # Read existing index (empty if absent)
+        index: dict[str, list[dict]] = {}
+        if index_path.exists():
+            try:
+                index = json.loads(index_path.read_text()) or {}
+            except (json.JSONDecodeError, OSError):
+                logger.warning(
+                    "Corrupt iter_index for %s — rebuilding", run_id, exc_info=True,
+                )
+                index = {}
+        node_entries = index.setdefault(node_id, [])
+        iter_num = iter_summary.get("iter")
+        if not isinstance(iter_num, int):
+            return  # malformed summary — refuse to write
+        # Replace existing entry with same iter num, else append
+        for i, e in enumerate(node_entries):
+            if e.get("iter") == iter_num:
+                node_entries[i] = iter_summary
+                break
+        else:
+            node_entries.append(iter_summary)
+        # Keep sorted by iter ascending so list UI doesn't need to sort.
+        node_entries.sort(key=lambda e: e.get("iter", 0))
+        self._atomic_write(
+            index_path,
+            json.dumps(index, separators=(",", ":"), ensure_ascii=False),
+        )
+
+    def get_iter_index(self, run_id: str) -> dict | None:
+        """Load the iter_index sidecar.
+
+        Returns {node_id: [iter_summary, ...]} or None if absent (legacy /
+        cycle agents never ran / pre-Phase-2 runs).
+        """
+        index_path = self._iter_index_path(run_id)
+        if index_path is None or not index_path.exists():
+            return None
+        try:
+            return json.loads(index_path.read_text()) or {}
+        except (json.JSONDecodeError, OSError):
+            logger.warning("Failed to read iter_index for %s", run_id, exc_info=True)
+            return None
 
     def save_outline(self, run_id: str, outline: list[dict]) -> None:
         """Write the outline summary sidecar (overwrites; not append-only).
