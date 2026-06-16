@@ -6,6 +6,8 @@ Returns a single string assembled from the user's structured answer.
 
 from __future__ import annotations
 
+import os
+import sys
 import uuid
 from typing import Any, Literal
 
@@ -23,7 +25,32 @@ class AskUserOption(BaseModel):
     value: str | None = Field(None, description="String returned to the LLM; defaults to label")
 
 
-DEFAULT_TIMEOUT_SEC = 60.0
+# Timeout is configurable via env. Default -1 = wait forever (human-in-the-loop
+# should not silently auto-skip). Positive int = N seconds. 0 is invalid.
+#
+# History: hard-coded 60s caused two real defects:
+#   (1) Refresh during a question → future lost → 60s later agent got
+#       TIMEOUT_MESSAGE and proceeded with wrong context.
+#   (2) `python run_workflow(ui=False)` had no WS subscriber → 60s timeout
+#       was the only possible outcome, HITL was effectively unusable.
+def _resolve_timeout() -> float | None:
+    raw = os.environ.get("HARNESS_ASK_USER_TIMEOUT", "-1")
+    try:
+        n = int(raw)
+    except ValueError:
+        raise RuntimeError(
+            f"HARNESS_ASK_USER_TIMEOUT={raw!r} is not an integer. "
+            "Use -1 (wait forever) or a positive number of seconds."
+        )
+    if n == -1:
+        return None
+    if n <= 0:
+        raise RuntimeError(
+            f"HARNESS_ASK_USER_TIMEOUT={n} is invalid. Use -1 (wait forever) or >= 1 second."
+        )
+    return float(n)
+
+
 TIMEOUT_MESSAGE = "User disconnected. Proceed with your best judgment."
 
 
@@ -103,7 +130,8 @@ class AskUserToolFactory(ToolFactory):
         "and headers to separate sections. NEVER dump a long unformatted paragraph — "
         "structure the question so it's easy to scan at a glance.\n\n"
         "Returns the user's answer as a plain string. "
-        "Blocks until answered or 60 sec timeout."
+        "Blocks until answered (default waits forever; configurable via "
+        "HARNESS_ASK_USER_TIMEOUT env)."
     )
 
     def __init__(self, event_bus: Any | None = None):
@@ -148,38 +176,60 @@ class AskUserToolFactory(ToolFactory):
                 Choice + other: "Sonnet 4.6 | other: also consider Gemini"
             """
             question_id = str(uuid.uuid4())
+            timeout = _resolve_timeout()
+            wid = getattr(ctx.deps, "workflow_id", None)
+
+            # No bus → CLI / script mode. Fall back to stdin so HITL works
+            # outside the server. With a bus, emit and wait for the WS path
+            # even if there are zero subscribers — a browser may connect later
+            # (e.g. user just hasn't opened the page yet).
+            if bus is None:
+                raw = await _read_answer_from_stdin(question, header, options)
+                payload = _normalize_raw(raw)
+                return assemble_answer(payload, options, multi_select, allow_custom_input)
+
             future = await _human_io.register(question_id)
 
-            if bus:
-                question_payload: dict[str, Any] = {
+            question_payload: dict[str, Any] = {
+                "node_id": ctx.deps.agent_name,
+                "agent_name": ctx.deps.agent_name,
+                "question_id": question_id,
+                "question": question,
+                "header": header,
+                "options": [o.model_dump() for o in options] if options else None,
+                "multi_select": multi_select,
+                "allow_custom_input": allow_custom_input,
+                "input_type": input_type,
+                "input_placeholder": input_placeholder,
+            }
+            if wid:
+                question_payload["workflow_id"] = wid
+            bus.emit("chat.question", question_payload)
+
+            raw = await _human_io.wait(future, timeout=timeout)
+            if raw is None:
+                bus.emit("chat.timeout", {
+                    "workflow_id": wid,
                     "node_id": ctx.deps.agent_name,
                     "agent_name": ctx.deps.agent_name,
                     "question_id": question_id,
-                    "question": question,
-                    "header": header,
-                    "options": [o.model_dump() for o in options] if options else None,
-                    "multi_select": multi_select,
-                    "allow_custom_input": allow_custom_input,
-                    "input_type": input_type,
-                    "input_placeholder": input_placeholder,
-                }
-                # Stamp workflow_id so the receiving WS client can verify
-                # the event belongs to its active workflow before rendering.
-                wid = getattr(ctx.deps, "workflow_id", None)
-                if wid:
-                    question_payload["workflow_id"] = wid
-                bus.emit("chat.question", question_payload)
-
-            raw = await _human_io.wait(future, timeout=DEFAULT_TIMEOUT_SEC)
-            if raw is None:
+                    "timeout_sec": timeout,
+                })
                 return TIMEOUT_MESSAGE
-            if isinstance(raw, str):
-                payload = {"answer": raw}
-            elif isinstance(raw, dict):
-                payload = raw
-            else:
-                payload = {"answer": str(raw)}
-            return assemble_answer(payload, options, multi_select, allow_custom_input)
+
+            payload = _normalize_raw(raw)
+            answer_str = assemble_answer(payload, options, multi_select, allow_custom_input)
+            # Emit chat.answer so late subscribers (page refresh, new tab)
+            # see the resolved state via WS replay instead of re-prompting.
+            bus.emit("chat.answer", {
+                "workflow_id": wid,
+                "node_id": ctx.deps.agent_name,
+                "agent_name": ctx.deps.agent_name,
+                "question_id": question_id,
+                "answer": answer_str,
+                "raw": payload,
+            })
+            return answer_str
 
         return PydanticAITool(
             self._wrap_fn(ask_user, self.name),
@@ -191,3 +241,83 @@ class AskUserToolFactory(ToolFactory):
 async def resolve_answer(question_id: str, payload: dict[str, Any] | str) -> bool:
     """Public entry for WS handler to deliver a user's structured answer."""
     return await _human_io.resolve(question_id, payload)
+
+
+def _normalize_raw(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, str):
+        return {"answer": raw}
+    if isinstance(raw, dict):
+        return raw
+    return {"answer": str(raw)}
+
+
+async def _read_answer_from_stdin(
+    question: str,
+    header: str | None,
+    options: list[AskUserOption] | None,
+) -> str:
+    """CLI fallback when no Bus is wired (e.g. `python run_workflow(ui=False)`).
+
+    Blocks on stdin via a thread so the event loop isn't frozen. Multiple
+    concurrent ask_user calls would interleave prompts — that's an inherent
+    limitation of stdin and we don't try to serialize. Workflows that need
+    parallel HITL must use the UI.
+    """
+    lines = []
+    if header:
+        lines.append(f"[{header}]")
+    lines.append(question)
+    if options:
+        for i, opt in enumerate(options, 1):
+            label = opt.label
+            desc = f" — {opt.description}" if opt.description else ""
+            lines.append(f"  {i}. {label}{desc}")
+        lines.append("Enter comma-separated indices (or type your own answer):")
+    else:
+        lines.append("Answer:")
+    prompt = "\n".join(lines) + "\n> "
+
+    raw = await _input_blocking(prompt)
+
+    if options:
+        selected = _parse_stdin_indices(raw, options)
+        if selected is not None:
+            return ",".join(selected) if selected else raw.strip()
+    return raw.strip()
+
+
+async def _input_blocking(prompt: str) -> str:
+    """Run input() in a worker thread so the asyncio loop stays responsive."""
+    import asyncio
+    return await asyncio.to_thread(_sync_input, prompt)
+
+
+def _sync_input(prompt: str) -> str:
+    print(prompt, end="", file=sys.stderr, flush=True)
+    try:
+        return input()
+    except EOFError:
+        # No stdin connected (piped script, containerized run). Fail loud
+        # rather than silently returning empty — caller will get "" which
+        # assemble_answer turns into an empty answer, surfacing the issue.
+        return ""
+
+
+def _parse_stdin_indices(raw: str, options: list[AskUserOption]) -> list[str] | None:
+    """Parse '1,3' style input into option labels. Returns None if input
+    doesn't look like an index list (so caller falls back to raw text)."""
+    text = raw.strip()
+    if not text:
+        return []
+    parts = [p.strip() for p in text.split(",") if p.strip()]
+    if not parts:
+        return None
+    indices: list[int] = []
+    for p in parts:
+        if not p.isdigit():
+            return None
+        idx = int(p)
+        if idx < 1 or idx > len(options):
+            return None
+        indices.append(idx)
+    return [options[i - 1].label for i in indices]

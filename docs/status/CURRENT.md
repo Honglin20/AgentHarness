@@ -1,64 +1,48 @@
 # Current Task
 
-**当前任务**: NAS workflow ONNX 导出全输入契约支持 —— 已实现，下次跑 NAS 实测
-**状态**: export_onnx + measure_onnx_latency 重构完，4 个测试项目（tensor/tuple/list/dict）全部跑通；agent MD 更新到位
-**日期**: 2026-06-13
-**分支**: `main`（上次 commit `29cb8c1`）
+**当前任务**: 工具与 Token 问题分阶段修复 —— 阶段 1 已完成，准备阶段 2
+**状态**: 阶段 1 P0 已落地（ask_user 三缺陷修复）；阶段 2-4 待启动
+**日期**: 2026-06-16
+**分支**: `main`
 
-## 必读文件
+## 阶段 1 完成情况
 
-- `~/.claude/projects/-Users-mozzie-Desktop-Projects-AgentHarness/memory/nas-workflow-requirements.md` — NAS 架构决策
-- `workflows/nas/helpers/export_onnx.py` — 自动探测 forward 签号
-- `workflows/nas/helpers/measure_onnx_latency.py` — 按 onnx input_names 反推 feeds
-- `projects/` — 4 个测试项目，覆盖 4 种 forward 签名
+- [x] ask_user emit `chat.answer` / `chat.timeout`（critical priority，进 replay buffer）
+- [x] 前端 chatHandlers 处理 chat.answer / chat.timeout（idempotent + 支持 legacy 形态）
+- [x] `HARNESS_ASK_USER_TIMEOUT` env 替代硬编码 60s（默认 -1=无限）
+- [x] stdin fallback（bus 为 None 时走 stdin，CLI / `python run_workflow(ui=False)` 可用）
+- [x] 测试：后端 28 个 + 前端 8 个全过
+- [x] 前端 build 成功
+- [x] release note + CHANGELOG 已更新
 
-## 输入契约支持矩阵（已 E2E 验证）
+详见 [`docs/releases/2026-06-16-ask-user-refresh-timeout-cli.md`](../releases/2026-06-16-ask-user-refresh-timeout-cli.md)
 
-| 项目 | forward 签名 | dummy_inputs 返回 | export | measure latency |
-|------|-------------|-------------------|--------|-----------------|
-| `mnist` | `model(x)` | Tensor | ✅ 0.018ms | ✅ |
-| `multi_input` | `model(x_a, x_b)` | Tuple[Tensor, Tensor] | ✅ 0.025ms | ✅ |
-| `list_input` | `model(x_list)` | List[Tensor] × 3 | ✅ 0.033ms (wrapper) | ✅ |
-| `dict_input` | `model({"user","item"})` | Dict[str, Tensor] | ✅ 0.024ms (wrapper) | ✅ |
+## 必读文件（阶段 2 启动前）
 
-## 已落地（本轮，待 commit）
+- `docs/plans/2026-06-16-tooling-token-phase-plan.md` — 全四阶段计划
+- `~/.claude/projects/-Users-mozzie-Desktop-Projects-AgentHarness/memory/token-stats-vs-context-window.md` — Token 语义错位根因
+- `harness/engine/token_aggregator.py` + `harness/engine/llm_executor.py:170-183` — record/累加逻辑
+- `frontend/src/components/diagnostics/BudgetBar.tsx` — UI 展示
+- `frontend/src/types/events.ts` — TokenUsage 接口
 
-### export_onnx.py 重构
-- 自动扫 `nn.Module` 子类（MODEL_CLASS 优先 → 单类 → 命名启发式 → 最后定义）
-- 自动调 `model.dummy_inputs(batch_size=1)` 推导输入契约
-- Tensor / Tuple → 直接 positional；List / Dict → wrapper 展开
-- 缺 dummy_inputs → fallback 单 tensor + stderr warning
+## 阶段 2 待启动：Token 统计语义分离
 
-### measure_onnx_latency.py 重构
-- 从 onnx session 读 input_names，按 dummy_inputs 重映射成 feeds
-- 支持 tensor / tuple / list / dict 全部 4 种
-- 缺 dummy_inputs + 多输入 → fail loud 提示
+目标：把「累计消耗」和「当前上下文窗口」分离展示，避免 BudgetBar 上的 500k+ 让用户误以为上下文炸了。
 
-### 4 个项目 model.py 加 dummy_inputs 函数
+要点：
+- `TokenAggregator` 区分 `cumulative_input_tokens`（累加）和 `last_context_tokens`（最近一次快照）
+- `agent.usage_update` 事件增加 `last_context_tokens` 字段
+- `BudgetBar` 改成两个进度条：消耗 / 预算 + 当前窗口 / 模型上限
+- record 时减去 `cache_hit_tokens`（避免重复计费被误读）
 
-### Agent MD 更新
-- `scout.md` domain_analyzer：探测 forward 签名 + 自动补 dummy_inputs 函数
-- `scout.md` baseline_runner / `trainer.md` / `refiner.md`：export 失败 → 读 forward 签名补 dummy_inputs 重试
+预计 1 天。
 
-## 待办
+## 后续阶段
 
-- [ ] **P0 跑 NAS workflow 实测 4 个项目** —— 验证 agent 能正确调 helper
-- [ ] **commit** 当前改动
-- [ ] **trainer sub_agent 写 cwd 问题**（独立架构问题）
-- [ ] **MCP cleanup bug**
+- 阶段 3：工具结果截断（bash/codegraph_explore 等）— 1 天
+- 阶段 4：自动 compaction — 评估中
 
-## 下一阶段：NAS 改进（见 `docs/plans/2026-06-13-nas-improvements.md`）
+## 旁路
 
-设计已确认：
-- **NASAdapter** —— goal-driven，agent 自由生成 `.nas_runner.py`；**必须通过 parity test**（quick_parity / eval_only_parity）验证计算等价
-- **profile_model** —— ONNX in → profile dict，单函数签名锁定，用户后续替换函数体
-
-实施顺序：P0 cwd bug → **P2 adapter（最先做）** → P1 profile → P1 hypothesis 分级 → P1 run_strategy → P2/P3 批量小改
-
-agent 合并（selector+judger+analyzer+validator → synthesizer）单独立项，本计划不涉及。
-
-## 旁路任务
-
-- AppView 重构代码完成，等用户浏览器手测验收（5 场景）→ 见 `docs/releases/2026-06-12-appview-hydration-refactor.md`
-
-
+- NAS workflow ONNX 已完成，等下次跑 NAS 实测验收
+- Pre-existing 测试失败（test_chart × 3, test_sub_agent × 1, 前端 workflowHandlers import 问题）与本次改动无关，单独跟踪

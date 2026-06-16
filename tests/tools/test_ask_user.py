@@ -281,3 +281,175 @@ async def test_ask_user_open_ended_round_trip():
     # Open-ended mode should have options=None
     payload = bus.events[0][1]
     assert payload["options"] is None
+
+
+# ---------- chat.answer / chat.timeout emission (P0 refresh fix) ----------
+
+@pytest.mark.asyncio
+async def test_emits_chat_answer_on_resolve():
+    """When the user resolves a question, chat.answer must be emitted so
+    late WS subscribers (page refresh, new tab) see the resolved state
+    via replay instead of re-prompting."""
+    bus = _StubBus()
+    factory = AskUserToolFactory(event_bus=bus)
+    tool = factory.create()
+
+    async def answer_later():
+        for _ in range(50):
+            if bus.events:
+                break
+            await asyncio.sleep(0.005)
+        qid = bus.events[0][1]["question_id"]
+        await resolve_answer(qid, {"selected": ["a"], "custom_input": ""})
+
+    coro = tool.function(
+        _Ctx(),
+        question="Pick",
+        options=[AskUserOption(label="A", value="a")],
+    )
+    result, _ = await asyncio.gather(coro, answer_later())
+
+    assert result == "A"
+    # chat.question first, chat.answer second
+    event_types = [e[0] for e in bus.events]
+    assert "chat.question" in event_types
+    assert "chat.answer" in event_types
+    assert event_types.index("chat.answer") > event_types.index("chat.question")
+
+    answer_payload = next(p for t, p in bus.events if t == "chat.answer")
+    assert answer_payload["answer"] == "A"
+    assert answer_payload["question_id"] == bus.events[0][1]["question_id"]
+    # raw is included for clients that need the structured form
+    assert answer_payload["raw"] == {"selected": ["a"], "custom_input": ""}
+
+
+@pytest.mark.asyncio
+async def test_emits_chat_timeout_on_timeout(monkeypatch):
+    """When the future times out, chat.timeout must be emitted so the UI
+    can render the timed-out state instead of leaving the prompt open."""
+    bus = _StubBus()
+    factory = AskUserToolFactory(event_bus=bus)
+    tool = factory.create()
+
+    async def instant_timeout(future, timeout):
+        return None
+
+    monkeypatch.setattr(_human_io, "wait", instant_timeout)
+
+    result = await tool.function(_Ctx(), question="Q")
+    assert result == TIMEOUT_MESSAGE
+
+    event_types = [e[0] for e in bus.events]
+    assert "chat.timeout" in event_types
+    timeout_payload = next(p for t, p in bus.events if t == "chat.timeout")
+    assert timeout_payload["question_id"] == bus.events[0][1]["question_id"]
+
+
+# ---------- HARNESS_ASK_USER_TIMEOUT env config ----------
+
+def test_resolve_timeout_default_is_none():
+    """Default (env unset) = wait forever (None)."""
+    import os
+    monkeypatch_env = {"HARNESS_ASK_USER_TIMEOUT": ""}
+    old = os.environ.pop("HARNESS_ASK_USER_TIMEOUT", None)
+    try:
+        if "HARNESS_ASK_USER_TIMEOUT" not in os.environ:
+            from harness.tools.ask_user import _resolve_timeout
+            assert _resolve_timeout() is None
+    finally:
+        if old is not None:
+            os.environ["HARNESS_ASK_USER_TIMEOUT"] = old
+
+
+def test_resolve_timeout_explicit_wait_forever(monkeypatch):
+    monkeypatch.setenv("HARNESS_ASK_USER_TIMEOUT", "-1")
+    from harness.tools.ask_user import _resolve_timeout
+    assert _resolve_timeout() is None
+
+
+def test_resolve_timeout_explicit_seconds(monkeypatch):
+    monkeypatch.setenv("HARNESS_ASK_USER_TIMEOUT", "120")
+    from harness.tools.ask_user import _resolve_timeout
+    assert _resolve_timeout() == 120.0
+
+
+def test_resolve_timeout_rejects_zero(monkeypatch):
+    monkeypatch.setenv("HARNESS_ASK_USER_TIMEOUT", "0")
+    from harness.tools.ask_user import _resolve_timeout
+    with pytest.raises(RuntimeError, match="invalid"):
+        _resolve_timeout()
+
+
+def test_resolve_timeout_rejects_garbage(monkeypatch):
+    monkeypatch.setenv("HARNESS_ASK_USER_TIMEOUT", "soon")
+    from harness.tools.ask_user import _resolve_timeout
+    with pytest.raises(RuntimeError, match="not an integer"):
+        _resolve_timeout()
+
+
+# ---------- CLI / stdin fallback ----------
+
+@pytest.mark.asyncio
+async def test_stdin_fallback_when_no_bus(monkeypatch):
+    """When no bus is wired (CLI mode), ask_user must read from stdin
+    instead of registering a future that will never resolve."""
+    factory = AskUserToolFactory(event_bus=None)
+    tool = factory.create()
+
+    async def fake_input(prompt: str) -> str:
+        return "1"
+
+    monkeypatch.setattr(
+        "harness.tools.ask_user._input_blocking",
+        fake_input,
+    )
+
+    result = await tool.function(
+        _Ctx(),
+        question="Pick one",
+        header="Model",
+        options=[
+            AskUserOption(label="Sonnet", value="sonnet"),
+            AskUserOption(label="Opus", value="opus"),
+        ],
+    )
+    assert result == "Sonnet"
+
+
+@pytest.mark.asyncio
+async def test_stdin_fallback_open_ended(monkeypatch):
+    factory = AskUserToolFactory(event_bus=None)
+    tool = factory.create()
+
+    async def fake_input(prompt: str) -> str:
+        return "free text answer"
+
+    monkeypatch.setattr(
+        "harness.tools.ask_user._input_blocking",
+        fake_input,
+    )
+
+    result = await tool.function(_Ctx(), question="What's your name?")
+    assert result == "free text answer"
+
+
+@pytest.mark.asyncio
+async def test_stdin_fallback_falls_back_to_raw_text(monkeypatch):
+    """If user types text that isn't an index, fall back to raw input."""
+    factory = AskUserToolFactory(event_bus=None)
+    tool = factory.create()
+
+    async def fake_input(prompt: str) -> str:
+        return "  custom model name  "
+
+    monkeypatch.setattr(
+        "harness.tools.ask_user._input_blocking",
+        fake_input,
+    )
+
+    result = await tool.function(
+        _Ctx(),
+        question="Pick",
+        options=[AskUserOption(label="A"), AskUserOption(label="B")],
+    )
+    assert result == "custom model name"
