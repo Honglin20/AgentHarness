@@ -228,11 +228,21 @@ async def run_with_persistence(
         bus.emit("workflow.error", {"workflow_id": run_id, "error": error})
 
     finally:
-        # MCP cleanup is best-effort — never mask the original exception.
+        # MCP cleanup is best-effort. During asyncio.run shutdown MCP's
+        # stdio_client may raise CancelledError as its transport is torn
+        # down; that's expected and does NOT affect the in-memory result
+        # or the persistence step below. Catch BaseException so the
+        # CancelledError doesn't bypass this handler, but re-raise
+        # KeyboardInterrupt so Ctrl+C still propagates to the user.
         try:
             await workflow.cleanup()
-        except Exception:
-            logger.exception("workflow.cleanup failed — process may leak MCP servers")
+        except BaseException as cleanup_exc:  # noqa: BLE001
+            if isinstance(cleanup_exc, KeyboardInterrupt):
+                raise
+            logger.warning(
+                "workflow.cleanup raised %s — MCP servers may leak; persistence continues",
+                type(cleanup_exc).__name__,
+            )
 
         if original_cwd is not None:
             try:
