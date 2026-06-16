@@ -44,9 +44,14 @@ retries: 2
 
 - 改造描述（具体到文件 + layer + op）
 - **`hypothesis_type`**: `[parametric]` / `[structural_local]` / `[structural_global]`
-  - `[parametric]`：调超参（activation / hidden_dim / num_layers / lr / batch_size / ...）— 便宜、低风险、天花板低
-  - `[structural_local]`：换 layer / 插 skip / channel shuffle / op 替换 — 中风险
-  - `[structural_global]`：重构 attention / 替换 backbone / MoE — 高风险、高收益
+  - `[parametric]`：调超参（activation / hidden_dim / num_layers / lr / batch_size / ...）— 便宜、低风险、天花板低；change_count 1..3
+  - `[structural_local]`：换 layer / 插 skip / channel shuffle / op 替换 — 中风险；change_count 1..3
+  - `[structural_global]`：重构 attention / 替换 backbone / **提新模型**（写一个新 .py 文件）— 高风险、高收益；**change_count 强制 =1**
+- **`change_count`**：1..MAX_CHANGE_COUNT（=3）对 parametric/local；structural_global 固定 =1
+- **`new_model_path`** + **`new_model_class`**：**仅 structural_global 必填**，parametric/local **禁止设置**
+  - new_model_path 是 worktree 内的相对路径（如 `model_v2.py`）
+  - new_model_class 是要从该文件 import 的类名（如 `MobileNetLite`）
+  - Coder sub_agent 在 worktree 根目录写新 .py 文件；adapter 通过 `--model-override` 加载（详见 §2.8）
 - 领域依据：cite `domain_insights.md` 哪一条 **或** `baseline_profile.json.top_latency_layers` 哪个 layer
 - 预期效果（降延迟 X% / 保精度 Y%；structural_global 可给范围）
 
@@ -73,27 +78,35 @@ retries: 2
 - 领域特定：DSP 算子 / 卷积分解 / attention 稀疏化 / head 蒸馏 / 量化友好结构
 - 通用：换激活 / 改归一化 / 加 skip / channel shuffle / 结构重排
 
-#### 2.7 小步迭代约束（**强制**，违反即丢弃 strategy）
+#### 2.7 小步迭代约束（**三层契约强制**）
 
-每个 strategy 的 diff 必须**只改动 ≤3 个位置**（"位置"= 单个连续代码块）。
+每个 strategy 的 diff 必须**只改动 ≤3 个位置**（"位置"= 单个连续代码块）。本约束已**三层契约化**，prompt 措辞只是提醒，schema/helper/judger 自动兜底：
+
+- **Layer 1 (schema)**：`StrategyInfo.hypothesis_type` Literal + `change_count: int` 在 Pydantic 校验。框架自动 retry LLM 输出（retries=2）
+- **Layer 2 (helper)**：Coder sub_agent 写完 manifest.json 后**必须**调 `helpers/validate_manifest.py`；exit 1 → 该 strategy 直接丢弃（不计入 K）。详见 §4
+- **Layer 3 (judger)**：fitness.py 的 `contract_violation` 检查兜底；违反 → fitness=0.0，自动沉到排名底部，下轮 elite pool 会淘汰
 
 **位置定义**：
 - 单个 layer 替换（如 `nn.ReLU()` → `nn.GELU()`）= 1 位置
 - 单个 hyperparam 调整（如 `hidden_dim=64` → `128`）= 1 位置
 - 单个 op 插入/删除（如加 skip connection 在 forward 里）= 1 位置
 - 整个 nn.Module 类替换（如 `MLP` → `CNN`）= 1 位置（但内部多 layer 改也算 1）
+- **structural_global 的"新模型"也算 1 位置**（一个 .py 文件 = 一个 change，强制 change_count=1）
 
 **典型例子**：
 - ✅ 1 位置：`nn.ReLU()` → `nn.GELU()`（单点替换）
 - ✅ 2 位置：`hidden_dim=64` → `128` + 加 `nn.BatchNorm1d(...)` 后 Linear
 - ✅ 3 位置：换 activation + 加 skip + 增大 hidden_dim
+- ✅ 1 位置 (structural_global)：在 worktree 根写 `model_v2.py` 实现 `MobileNetLite` 类
 - ❌ 4+ 位置：同时改 lr + batch_size + epochs + optimizer + model
 - ❌ 全局重写：把 MLP 替换成 CNN 同时改 forward + 加 flatten + 改 init
+- ❌ structural_global + 同时调超参（必须 change_count=1，不能再加 parametric 修改）
 
 **严格约束**：
 - ❌ 一次性重写整个 model（多个 class 同时改）
 - ❌ 改 training loop + model + data loader 同时
 - ❌ 改 >3 个 hyperparam 同时
+- ❌ hypothesis_type 混用（一个 strategy 只能 1 种 type）
 
 **理由**：小步迭代让 fitness 变化可归因（哪个改动有效），便于 analyzer 分析 + reporter 推荐。
 
@@ -111,13 +124,15 @@ retries: 2
   "profile_target": "<which top_latency_layer, or null>",
   "direction_tag": "<本次探索的方向分类>",
   "files_changed": ["<file1>", "<file2>"],          // length ≤ 3
-  "ops_modified": ["ReLU→GELU", "hidden_dim 64→128"], // length ≤ 3
-  "change_count": 2,                                  // = len(ops_modified), must ≤ 3
+  "ops_modified": ["ReLU→GELU", "hidden_dim 64→128"], // length == change_count, ≤ 3
+  "change_count": 2,                                  // = len(ops_modified), parametric/local 1..3, structural_global must =1
+  "new_model_path": null,                             // relative path in worktree; ONLY structural_global
+  "new_model_class": null,                            // class name to import; ONLY structural_global
   "diff_path": "..."
 }
 ```
 
-**sub_agent task 模板里必须强调 ≤3 位置约束**（见 §4）。
+**sub_agent task 模板里必须强调 ≤3 位置约束 + 调用 validate_manifest.py**（见 §4）。
 
 ### 3. 去重检查（每个 strategy）
 ```bash
@@ -142,6 +157,8 @@ Parent diff: <parent_diff_path or "baseline">
 Strategy hypothesis: <hypothesis 描述>
 领域依据: <cite domain_insights>
 
+hypothesis_type: <parametric | structural_local | structural_global>
+
 改造方向（具体可执行）:
 - 文件: <file_path 相对路径，如 "model.py" 或 "config.py"，**不要用绝对路径**>
 - Layer / Op: <which>
@@ -152,12 +169,12 @@ Strategy hypothesis: <hypothesis 描述>
 - 不改蒸馏、不改量化
 - 保持对外接口兼容（输入输出 shape 一致）
 - 改完必须能 import 通过
-- **小步迭代**：改动 ≤3 个位置（files_changed.length ≤3 AND ops_modified.length ≤3）
-  - 1 位置 = 单个 layer 替换 / 单个 hyperparam 调整 / 单个 op 插入删除 / 单个 nn.Module 类替换
-  - 禁止：重写整个 model + training loop + data loader 同时
-  - 必须在 manifest 里写 change_count = ops_modified.length（≤3）
-- **路径必须相对**：你已经在 worktree 内（cwd 自动是 worktree path），所有文件操作用相对路径（如 `model.py`）。**绝对禁止**用 `/Users/.../projects/<name>/...` 绝对路径，那会污染主项目目录。
-- **写 diff.patch 用相对路径 header**：`diff --git a/model.py b/model.py`（不是 `diff --git a/projects/<name>/model.py ...`）
+- **小步迭代三层契约**（schema/helper/judger 自动兜底，违反即丢弃）：
+  - parametric / structural_local: change_count 1..3，单 type 不混
+  - structural_global: change_count 强制 =1，**不动**用户 model.py / _construct_model body，而是在 worktree 根目录写一个**新 .py 文件**（如 `model_v2.py`），实现 `<new_model_class>` 类。adapter 通过 `--model-override-path` 加载
+  - 1 位置 = 单个 layer 替换 / 单个 hyperparam 调整 / 单个 op 插入删除 / 单个 nn.Module 类替换 / structural_global 的一个新文件
+- **路径必须相对**：你已经在 worktree 内（cwd 自动是 worktree path），所有文件操作用相对路径（如 `model.py` / `model_v2.py`）。**绝对禁止**用 `/Users/.../projects/<name>/...` 绝对路径，那会污染主项目目录。
+- **写 diff.patch 用相对路径 header**：`diff --git a/model.py b/model.py`（不是 `diff --git a/projects/<name>/model.py ...`）。**注意**：structural_global 写的新 .py 文件**不进 diff.patch**（diff.patch 只记录对用户原 model.py / config.py 等已有文件的改动；新文件直接由 manifest.new_model_path 指向，trainer 阶段 adapter 通过 --model-override-path 加载）
 
 输出:
 - diff: $session_dir/iter_<N>/strategy_<i>/diff.patch
@@ -167,15 +184,26 @@ Strategy hypothesis: <hypothesis 描述>
     "parent_strategy_id": "<...>",
     "is_wild_card": <bool>,
     "hypothesis": "<...>",
-    "hypothesis_type": "parametric | structural_local | structural_global",
+    "hypothesis_type": "<parametric | structural_local | structural_global>",
     "domain_basis": "<from domain_insights>",
     "profile_target": "<which top_latency_layer, or null>",
     "direction_tag": "<本次探索的方向分类>",
-    "files_changed": [...],     // length ≤ 3
-    "ops_modified": [...],      // length ≤ 3
-    "change_count": <int>,      // = len(ops_modified), must ≤ 3
+    "files_changed": [...],     // length ≤ 3 (不含 structural_global 写的新 .py)
+    "ops_modified": [...],      // length == change_count, ≤ 3
+    "change_count": <int>,      // parametric/local: 1..3, structural_global: 必须 =1
+    "new_model_path": null | "<relative path in worktree>",  // 仅 structural_global 非 null
+    "new_model_class": null | "<class name>",                // 仅 structural_global 非 null
     "diff_path": "..."
   }
+
+**写完 manifest.json 后必须调 helper 校验**：
+python $helpers_dir/validate_manifest.py \
+  $session_dir/iter_<N>/strategy_<i>/manifest.json \
+  --worktree <cwd>
+
+- exit 0 → strategy 通过契约，可继续
+- exit 1 → 该 strategy 违反契约，**直接丢弃**（不返回 trainer，planner 用剩余 K-1 个 strategy 继续；如果 K 全部失败则本轮空 iter）
+- stderr 有具体违反原因（如 "ops_modified.length (3) must equal change_count (2)"），用于你修复后重试
 ```
 
 **每个 sub_agent 必须设 `isolation="worktree"`**。

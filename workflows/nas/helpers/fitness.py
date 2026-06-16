@@ -19,7 +19,21 @@ Bonus (P3):
                             AND manifest.profile_target in baseline_profile.top_latency_layers)
                     else 0.0
 
-  fitness = base_fitness + target_hit_bonus
+Change-quota contract (Layer 3 of 3, judger-side backstop):
+  contract_violation = True if manifest.change_count > MAX_CHANGE_COUNT
+                           OR (structural_global + change_count != 1)
+                           OR (structural_global without new_model_path)
+                           OR (parametric/local with new_model_path set)
+                       → fitness = 0.0 (sink to bottom of ranking; elite pool
+                         will drop it next iter)
+
+Type-diversity penalty:
+  cohort = comma-separated hypothesis_types of all K strategies this iter
+  If len(cohort) >= 3 AND any single type's ratio >= 0.8 → that type gets
+  fitness -= 0.05 per strategy. Avoids planner producing all-parametric
+  cohorts that starve structural exploration.
+
+  fitness = base_fitness + target_hit_bonus - type_diversity_penalty
 """
 from __future__ import annotations
 
@@ -28,6 +42,16 @@ import json
 import statistics
 import sys
 from pathlib import Path
+
+
+# Change-quota contract — MUST match devkit/nas/schemas.py:MAX_CHANGE_COUNT.
+# Kept duplicated here so fitness.py stays standalone (judger invokes via bash).
+MAX_CHANGE_COUNT = 3
+
+# Type-diversity penalty tuning knobs.
+TYPE_DIVERSITY_PENALTY = 0.05
+TYPE_DIVERSITY_SATURATION_THRESHOLD = 0.8
+TYPE_DIVERSITY_MIN_COHORT = 3
 
 
 def main() -> None:
@@ -48,6 +72,10 @@ def main() -> None:
                            help="path to manifest.json (for hypothesis_type + profile_target)")
     p_compute.add_argument("--baseline-profile", default=None,
                            help="path to baseline_profile.json (for top_latency_layers)")
+    p_compute.add_argument("--cohort-types", default=None,
+                           help="comma-separated hypothesis_types of ALL K strategies this iter "
+                                "(e.g. 'parametric,structural_local,parametric'). Used for "
+                                "type_diversity_penalty; omit to skip penalty.")
 
     args = p.parse_args()
 
@@ -66,6 +94,7 @@ def main() -> None:
             metrics, baseline, strategy,
             args.target_latency, args.acc_tolerance,
             args.use_onnx_latency, manifest, profile,
+            cohort_types=_parse_cohort(args.cohort_types),
         )
         print(json.dumps(result, indent=2))
 
@@ -101,13 +130,70 @@ def _lookup_metric_value(blob: dict, name: str):
     return blob.get("metrics", {}).get(name, blob.get(name))
 
 
+def _parse_cohort(s: str | None) -> list[str]:
+    """Parse --cohort-types 'parametric,structural_local,...' into a list."""
+    if not s:
+        return []
+    return [t.strip() for t in s.split(",") if t.strip()]
+
+
+def _check_contract_violation(manifest: dict) -> tuple[bool, str]:
+    """Layer 3 backstop: detect change-quota contract breaches.
+
+    Returns (violated, reason). Schema (Layer 1) and validate_manifest.py
+    (Layer 2) should have caught these earlier; this is the last-mile
+    defense before fitness gets recorded.
+    """
+    htype = manifest.get("hypothesis_type", "")
+    change_count = manifest.get("change_count")
+    new_model_path = manifest.get("new_model_path")
+    new_model_class = manifest.get("new_model_class")
+
+    if htype not in ("parametric", "structural_local", "structural_global"):
+        return True, f"unknown hypothesis_type: {htype!r}"
+
+    if not isinstance(change_count, int) or change_count < 1:
+        return True, f"change_count must be positive int, got {change_count!r}"
+
+    if htype == "structural_global":
+        if change_count != 1:
+            return True, f"structural_global requires change_count=1, got {change_count}"
+        if not new_model_path or not new_model_class:
+            return True, "structural_global requires new_model_path + new_model_class"
+    else:
+        if change_count > MAX_CHANGE_COUNT:
+            return True, (
+                f"{htype} requires change_count <= {MAX_CHANGE_COUNT}, got {change_count}"
+            )
+        if new_model_path is not None or new_model_class is not None:
+            return True, (
+                f"{htype} must not set new_model_path/new_model_class "
+                f"(reserved for structural_global)"
+            )
+
+    return False, ""
+
+
+def _type_diversity_penalty(my_type: str, cohort: list[str]) -> float:
+    """Return penalty if my_type saturates the cohort (>=80% when K>=3)."""
+    if len(cohort) < TYPE_DIVERSITY_MIN_COHORT or not my_type:
+        return 0.0
+    same = sum(1 for t in cohort if t == my_type)
+    ratio = same / len(cohort)
+    if ratio >= TYPE_DIVERSITY_SATURATION_THRESHOLD:
+        return TYPE_DIVERSITY_PENALTY
+    return 0.0
+
+
 def _compute(metrics: dict, baseline: dict, strategy: dict,
              target_latency: float, acc_tolerance: float,
              use_onnx_latency: bool = False,
              manifest: dict | None = None,
-             profile: dict | None = None) -> dict:
+             profile: dict | None = None,
+             cohort_types: list[str] | None = None) -> dict:
     manifest = manifest or {}
     profile = profile or {}
+    cohort_types = cohort_types or []
 
     primary_name = metrics.get("primary_metric", "acc")
     primary_dir = _lookup_direction(metrics, primary_name)
@@ -171,11 +257,23 @@ def _compute(metrics: dict, baseline: dict, strategy: dict,
     )
     target_hit_bonus = 0.1 if target_hit else 0.0
 
-    fitness = base_fitness + target_hit_bonus
+    # Layer 3 contract backstop — sinks violating strategies to fitness=0.
+    contract_violated, contract_reason = _check_contract_violation(manifest)
+
+    # Type diversity penalty — discourages planner from emitting all-same-type cohorts.
+    my_type = manifest.get("hypothesis_type", "")
+    diversity_penalty = _type_diversity_penalty(my_type, cohort_types)
+
+    if contract_violated:
+        fitness = 0.0
+    else:
+        fitness = base_fitness + target_hit_bonus - diversity_penalty
 
     return {
         "fitness": fitness,
         "primary_normalized": primary_normalized,
+        "contract_violation": contract_violated,
+        "contract_reason": contract_reason if contract_violated else "",
         "components": {
             "acc_drop": acc_drop,
             "latency_ratio": latency_ratio,
@@ -185,6 +283,7 @@ def _compute(metrics: dict, baseline: dict, strategy: dict,
             "base_fitness": base_fitness,
             "target_hit": target_hit,
             "target_hit_bonus": target_hit_bonus,
+            "type_diversity_penalty": diversity_penalty,
         },
         "primary_metric": primary_name,
         "primary_direction": primary_dir,
