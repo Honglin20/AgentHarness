@@ -125,7 +125,7 @@
       }
     },
     {
-      "name": "scout",
+      "name": "adapter_generator",
       "after": [
         "project_analyzer"
       ],
@@ -135,6 +135,255 @@
         "glob",
         "sub_agent",
         "ask_user"
+      ],
+      "model": null,
+      "retries": 2,
+      "result_type_name": "AdapterGenResult",
+      "result_type_schema": {
+        "description": "adapter_generator agent output. Generates _nas_adapter.py + validates smoke 3-piece.",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "adapter_path": {
+            "description": "Absolute path to <working_dir>/_nas_adapter.py",
+            "title": "Adapter Path",
+            "type": "string"
+          },
+          "adapter_report_path": {
+            "description": "Absolute path to <session_dir>/adapter_report.json",
+            "title": "Adapter Report Path",
+            "type": "string"
+          },
+          "smoke_pass": {
+            "description": "True iff smoke train/export/latency all passed",
+            "title": "Smoke Pass",
+            "type": "boolean"
+          },
+          "epochs_controllable": {
+            "title": "Epochs Controllable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "summary",
+          "adapter_path",
+          "adapter_report_path",
+          "smoke_pass",
+          "epochs_controllable"
+        ],
+        "title": "AdapterGenResult",
+        "type": "object"
+      }
+    },
+    {
+      "name": "domain_analyzer",
+      "after": [
+        "project_analyzer"
+      ],
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "sub_agent"
+      ],
+      "model": null,
+      "retries": 2,
+      "result_type_name": "DomainAnalysisResult",
+      "result_type_schema": {
+        "description": "domain_analyzer agent output. Identifies domain + architecture + recommends NAS directions.",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "domain_insights_path": {
+            "description": "Absolute path to <session_dir>/domain_insights.md",
+            "title": "Domain Insights Path",
+            "type": "string"
+          },
+          "domain": {
+            "description": "cv | nlp | speech | tabular | rl | wireless | timeseries | rec | unknown",
+            "title": "Domain",
+            "type": "string"
+          },
+          "architecture": {
+            "description": "cnn | transformer | rnn | mlp | diffusion | mixed | unknown",
+            "title": "Architecture",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "domain_insights_path",
+          "domain",
+          "architecture"
+        ],
+        "title": "DomainAnalysisResult",
+        "type": "object"
+      }
+    },
+    {
+      "name": "baseline_runner",
+      "after": [
+        "adapter_generator"
+      ],
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "sub_agent"
+      ],
+      "model": null,
+      "retries": 2,
+      "result_type_name": "BaselineRunResult",
+      "result_type_schema": {
+        "description": "baseline_runner agent output. Runs baseline via run_strategy.py + writes baseline.json via helper.",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "baseline_path": {
+            "description": "Absolute path to <session_dir>/baseline.json",
+            "title": "Baseline Path",
+            "type": "string"
+          },
+          "baseline_profile_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Absolute path to <session_dir>/baseline_profile.json (null if profile failed)",
+            "title": "Baseline Profile Path"
+          },
+          "baseline_eval_path": {
+            "description": "Absolute path to <session_dir>/baseline_eval.json",
+            "title": "Baseline Eval Path",
+            "type": "string"
+          },
+          "one_epoch_sec": {
+            "title": "One Epoch Sec",
+            "type": "number"
+          },
+          "total_epochs": {
+            "title": "Total Epochs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "summary",
+          "baseline_path",
+          "baseline_eval_path",
+          "one_epoch_sec",
+          "total_epochs"
+        ],
+        "title": "BaselineRunResult",
+        "type": "object"
+      }
+    },
+    {
+      "name": "tier_planner",
+      "after": [
+        "baseline_runner"
+      ],
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "sub_agent"
+      ],
+      "model": null,
+      "retries": 2,
+      "result_type_name": "TierPlanResult",
+      "result_type_schema": {
+        "description": "tier_planner agent output. Decides tier system based on baseline duration.",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "budget_path": {
+            "description": "Absolute path to <session_dir>/budget.json",
+            "title": "Budget Path",
+            "type": "string"
+          },
+          "max_tier": {
+            "description": "Highest tier index (0=single tier, 1=2-tier)",
+            "title": "Max Tier",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "summary",
+          "budget_path",
+          "max_tier"
+        ],
+        "title": "TierPlanResult",
+        "type": "object"
+      }
+    },
+    {
+      "name": "metrics_identifier",
+      "after": [
+        "baseline_runner"
+      ],
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "sub_agent"
+      ],
+      "model": null,
+      "retries": 2,
+      "result_type_name": "MetricsIdentifyResult",
+      "result_type_schema": {
+        "description": "metrics_identifier agent output. Detects metrics + primary direction.",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "metrics_path": {
+            "description": "Absolute path to <session_dir>/metrics.json",
+            "title": "Metrics Path",
+            "type": "string"
+          },
+          "primary_metric": {
+            "description": "Default 'acc'; else accuracy-like; else first metric",
+            "title": "Primary Metric",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "metrics_path",
+          "primary_metric"
+        ],
+        "title": "MetricsIdentifyResult",
+        "type": "object"
+      }
+    },
+    {
+      "name": "scout",
+      "after": [
+        "adapter_generator",
+        "domain_analyzer",
+        "baseline_runner",
+        "tier_planner",
+        "metrics_identifier"
+      ],
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "sub_agent"
       ],
       "model": null,
       "retries": 2,
@@ -318,7 +567,7 @@
       "result_type_schema": {
         "$defs": {
           "StrategyInfo": {
-            "description": "One strategy entry in planner output.",
+            "description": "One strategy entry in planner output.\n\nChange-quota contract (Layer 1 of 3, schema-enforced):\n  - hypothesis_type is single Literal (no mixing within one strategy)\n  - parametric / structural_local: change_count in [1, MAX_CHANGE_COUNT]\n  - structural_global: change_count FORCED =1 (single new model file)\n  - structural_global REQUIRES new_model_path + new_model_class\n  - parametric / structural_local MUST NOT set new_model_path/new_model_class\n\nLayer 2 (helpers/validate_manifest.py) re-checks at Coder-write time.\nLayer 3 (fitness.py contract_violation) sinks breaches to fitness=0.0.",
             "properties": {
               "id": {
                 "description": "strategy_id, 'iter_<N>_strategy_<i>' or with '_wc' suffix for wild card",
@@ -332,12 +581,55 @@
               "diff_path": {
                 "title": "Diff Path",
                 "type": "string"
+              },
+              "hypothesis_type": {
+                "description": "Single change type per strategy (no mixing)",
+                "enum": [
+                  "parametric",
+                  "structural_local",
+                  "structural_global"
+                ],
+                "title": "Hypothesis Type",
+                "type": "string"
+              },
+              "change_count": {
+                "description": "Independent change units. parametric/local: 1..MAX_CHANGE_COUNT; structural_global: forced =1.",
+                "title": "Change Count",
+                "type": "integer"
+              },
+              "new_model_path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Relative path (within worktree) to new model .py file. Required iff hypothesis_type=structural_global, e.g. 'model_v2.py'. Must be None for parametric/structural_local.",
+                "title": "New Model Path"
+              },
+              "new_model_class": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Class name to import from new_model_path. Required iff new_model_path is set.",
+                "title": "New Model Class"
               }
             },
             "required": [
               "id",
               "hypothesis",
-              "diff_path"
+              "diff_path",
+              "hypothesis_type",
+              "change_count"
             ],
             "title": "StrategyInfo",
             "type": "object"
