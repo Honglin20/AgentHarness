@@ -83,24 +83,34 @@ P0（#5 单行修复）→ P1（#4 重分类 + #1 setup HITL）→ P2（#3 fast_
 
 详细计划见 [`docs/plans/2026-06-16-long-run-replay-architecture.md`](../plans/2026-06-16-long-run-replay-architecture.md)。
 
-**核心架构**：Snapshot + Incremental + On-demand
-- L1 Hot（lifecycle/chat/失败）→ critical 全 replay
-- L2 Warm（tool/todo/chart/text_delta）→ FIFO 1000 + snapshot 摘要
-- L3 Cold（详细 tool 输出 / 历史 agent_io）→ run_store sidecar 按需查
+**核心架构**：Snapshot + Incremental + On-demand（L1 Hot critical / L2 Warm FIFO 1000 + snapshot 摘要 / L3 Cold sidecar 按需查）
 
-**目标态**：
-- 刷新延迟 O(1)，< 500ms（无论 run 长度）
-- Cycle agent 多轮 → 主视图显 latest iter，节点详情用**下拉选择器**按需切历史 iter
-- Conversation **按 iter 隔离**（不再全局时间线），单 iter > 50 条才分页
-- Fitness 序列全量进 snapshot（200 iter ≈ 6KB）
-- 明确放弃"完整回放模式"
+**目标态**：刷新 O(1) < 500ms（无论 run 长度）｜ Cycle 多轮 → 主视图显 latest iter，下拉切历史 iter ｜ Conversation 按 iter 隔离 ｜ Fitness 全量进 snapshot ｜ 放弃"完整回放模式"。
 
-**Phase 排期**：
-| Phase | 工作量 | 价值 |
-|---|---|---|
-| 1 事件分层 + Snapshot API | 4-5 天 | 刷新慢根治 |
-| 2 Cycle iter 持久化 + 查询 API | 2-3 天 | 多轮可追溯 |
-| 3 前端 iter 下拉 + Conversation 隔离 | 3-4 天 | UI 闭环 |
-| 4 Fitness 全量 + Chart 按需 | 2 天 | 趋势图完整 |
+**Phase 进度**：
 
-包含原问题 #4 的重分类作为 Phase 1 第一步；原问题 #5（activateRun showLive）是 Phase 1 前置 surgical fix，独立修。
+| Phase | 工作量 | 状态 | Commit |
+|---|---|---|---|
+| 1 事件分层 + Snapshot API + WS cursor | 4-5 天 | ✅ 完成 | `808e6f7` + `1b57e1b` |
+| 2 后端 Cycle iter 持久化 + 查询 API | 2-3 天 | ✅ 完成（backend） | `7062d51` |
+| 3 前端 iter 下拉 + Conversation 隔离 | 3-4 天 | ⏸️ 待启动 | — |
+| 4 Fitness 全量 + Chart 按需 | 2 天 | ⏸️ 待启动 | — |
+
+包含原问题 #4 的重分类作为 Phase 1 第一步；原问题 #5（activateRun showLive）是 Phase 1 前置 surgical fix，已落地。
+
+### Phase 3 待启动：前端 iter 下拉 + Conversation 隔离
+
+**前置 known limitation**（Phase 2 引入，Phase 3 必须解决）：snapshot.conversation 限到 tail-50，但 Phase 1 的 `hydrateFromSnapshot` 把它当整个 conversation 写入 store → 刷新后看不到 50 条之前的消息（如 scout setup 阶段的 ask_user）。
+
+**实施清单**：
+1. `NodeIterSelector` 下拉组件（读 `snapshot.nodes_latest[id].latest_iter` + 调 `/iters` 拿列表）
+2. `AgentIODrawer` 集成：选中 iter → 调 `/iters/{n}` 拉详情
+3. `useConversationMessages` 按 `selectedIter` 过滤
+4. DAG 节点渲染 "iter N (latest)" 标签
+5. Conversation 历史分页：滚动到顶部调 `/runs/{id}/conversation?before=N&limit=50`
+
+### Phase 4 待启动：Fitness 全量 + Chart 按需
+
+- 后端 `_save_incremental` 写 `fitness_history`（从 judger agent_io 提取）
+- 前端 `FitnessChart` 全量渲染（200 iter ≈ 6KB）
+- 详细 chart（loss_curve / latency_breakdown）按 iter 切换时按需查 sidecar
