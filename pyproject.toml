@@ -7,15 +7,17 @@ dependencies = [
     "pydantic-ai>=0.0.36",
     "langgraph>=0.2.0",
     "python-frontmatter>=1.0",
+    # rich is imported unconditionally by harness/extensions/console.py and the
+    # new harness/extensions/tui/* package, so it belongs in the main deps rather
+    # than a misleading `[console]` extra. The historical extra is removed; the
+    # `console` extra never actually worked without it on a fresh install.
+    "rich>=13.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
-]
-console = [
-    "rich>=13.0",
 ]
 
 [project.scripts]

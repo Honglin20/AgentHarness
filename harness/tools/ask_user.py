@@ -180,6 +180,25 @@ class AskUserToolFactory(ToolFactory):
             timeout = _resolve_timeout()
             wid = getattr(ctx.deps, "workflow_id", None)
 
+            # CLI TUI mode: a StdinCoordinator is registered only by
+            # `harness run` when a TTY is attached. Route through stdin
+            # (with Live pause/resume coordinated via _input_blocking) even
+            # though a Bus may be present — the Bus is injected for hook
+            # event delivery to TuiRenderer / default plugins, but no WS
+            # subscriber will ever resolve a chat.question Future in CLI
+            # mode, so the WS path would deadlock.
+            #
+            # Unregistered → falls through to the bus / stdin branches
+            # below, byte-for-byte preserving server / run_*.py / plain
+            # Python paths. This invariant is locked by
+            # tests/extensions/tui/test_ask_user_coordinator.py.
+            from harness.extensions.tui.coordinator import get_stdin_coordinator
+
+            if get_stdin_coordinator() is not None:
+                raw = await _read_answer_from_stdin(question, header, options)
+                payload = _normalize_raw(raw)
+                return assemble_answer(payload, options, multi_select, allow_custom_input)
+
             # No bus → CLI / script mode. Fall back to stdin so HITL works
             # outside the server. With a bus, emit and wait for the WS path
             # even if there are zero subscribers — a browser may connect later
@@ -310,10 +329,24 @@ async def _input_blocking(prompt: str) -> str:
     finished first. The lock enforces one-at-a-time prompting. If the
     workflow actually has parallel human-in-the-loop needs, the user
     must run with `ui=True` and use the browser.
+
+    When a StdinCoordinator is registered (`harness run` TUI mode), Live
+    is paused before the threaded input and resumed after — preventing
+    the Live refresh loop from stomping the input prompt. Without a
+    coordinator this is the legacy path.
     """
-    lock = _get_stdin_lock()
-    async with lock:
-        return await asyncio.to_thread(_sync_input, prompt)
+    from harness.extensions.tui.coordinator import get_stdin_coordinator
+
+    coord = get_stdin_coordinator()
+    if coord is not None:
+        coord.pause()
+    try:
+        lock = _get_stdin_lock()
+        async with lock:
+            return await asyncio.to_thread(_sync_input, prompt)
+    finally:
+        if coord is not None:
+            coord.resume()
 
 
 def _sync_input(prompt: str) -> str:
