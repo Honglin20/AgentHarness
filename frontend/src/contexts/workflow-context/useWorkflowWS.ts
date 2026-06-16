@@ -11,6 +11,7 @@ import { useBatchWebSocket } from "@/hooks/useBatchWebSocket";
 import { dispatchSingleEvent } from "./eventRouter";
 import { dispatchBatchEvent } from "./eventRouter";
 import { useBatchStore } from "@/stores/batchStore";
+import { useAppViewStore } from "@/stores/appView";
 
 export interface WorkflowWSReturn {
   isConnected: boolean;
@@ -24,6 +25,10 @@ export interface WorkflowWSReturn {
 export function useWorkflowWS(workflowId: string | null): WorkflowWSReturn {
   const activeBatchId = useBatchStore((s) => s.activeBatchId);
   const batchMode = activeBatchId !== null;
+  // WS since_seq cursor — when >0, the WS only fetches events after the
+  // snapshot cursor (set by activateRun after snapshot hydrate). When 0
+  // (default / fallback), the WS replays the entire bus buffer.
+  const wsSinceSeq = useAppViewStore((s) => s.wsSinceSeq);
 
   const onEvent = useCallback((event: WSEvent) => {
     if (batchMode) {
@@ -36,7 +41,7 @@ export function useWorkflowWS(workflowId: string | null): WorkflowWSReturn {
   const singleWs = useWebSocket({
     workflowId: batchMode ? null : workflowId,
     onEvent,
-    sinceSeq: 0,
+    sinceSeq: wsSinceSeq,
   });
 
   const batchWs = useBatchWebSocket({

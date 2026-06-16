@@ -36,25 +36,46 @@ export type RunMode = "live" | "replay-skeleton" | "replay";
 interface AppViewState {
   view: AppView;
   runMode: RunMode;
+  /**
+   * WS since_seq cursor for the currently-active run.
+   *
+   * - 0 (default): subscribe replays the entire bus buffer (legacy behavior)
+   * - >0: subscribe only fetches events with seq > cursor (snapshot-hydrated)
+   *
+   * Set by activateRun after a successful snapshot hydrate, so the live WS
+   * stream doesn't re-deliver events already reflected in the snapshot.
+   * Reset to 0 whenever the active run changes (so a stale cursor from a
+   * prior run doesn't accidentally clip the new run's replay).
+   *
+   * See docs/plans/2026-06-16-long-run-replay-architecture.md Phase 1.
+   */
+  wsSinceSeq: number;
   setView: (view: AppView) => void;
   setRunMode: (mode: RunMode) => void;
+  setWsSinceSeq: (seq: number) => void;
 }
 
 export const useAppViewStore = create<AppViewState>((set) => ({
   view: { kind: "portal-home" },
   runMode: "live",
+  wsSinceSeq: 0,
   setView: (view) =>
     set((s) =>
       s.view === view
         ? s
         : {
             view,
-            // Reset runMode when leaving the run view; entering callers
-            // (activateRun, useWorkflowLaunch) set the appropriate mode
-            // explicitly.
+            // Reset runMode + wsSinceSeq when leaving the run view; entering
+            // callers (activateRun, useWorkflowLaunch) set them explicitly.
             runMode:
               view.kind === "run" ? s.runMode : ("live" as RunMode),
+            // Reset cursor on view change so a stale cursor from a prior run
+            // doesn't clip the new run's WS replay. activateRun sets the
+            // correct cursor after snapshot hydrate succeeds.
+            wsSinceSeq: view.kind === "run" ? s.wsSinceSeq : 0,
           }
     ),
   setRunMode: (runMode) => set({ runMode }),
+  setWsSinceSeq: (wsSinceSeq) =>
+    set({ wsSinceSeq: Number.isFinite(wsSinceSeq) && wsSinceSeq > 0 ? wsSinceSeq : 0 }),
 }));

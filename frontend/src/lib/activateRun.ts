@@ -21,7 +21,13 @@ import { useAppViewStore } from "@/stores/appView";
 import { useViewStore } from "@/stores/viewStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useRunHistoryStore } from "@/stores/runHistoryStore";
-import { hydrateStores, hydratePhase1 } from "@/stores/hydration/hydrateReplay";
+import {
+  hydrateStores,
+  hydratePhase1,
+  hydrateFromSnapshot,
+  fetchSnapshot,
+} from "@/stores/hydration/hydrateReplay";
+import { setHydratedCursor } from "@/contexts/workflow-context/routing";
 
 let _activateSeq = 0;
 let _abortController: AbortController | null = null;
@@ -102,27 +108,58 @@ export async function activateRun(runId: string): Promise<void> {
       full.dag ?? null,
     );
 
-    // Phase 1 (await): minimal data for instant UI feedback — workflow
-    // store + outline sidecar. Keeps setHydration("hydrated") latency
-    // bounded to ~100ms.
-    await hydratePhase1(full);
+    // Long-run replay Phase 1: fetch snapshot for O(1) hydrate.
+    // If snapshot exists, hydrate scoped stores in a single pass and set
+    // the WS since_seq cursor so the live WS stream only delivers events
+    // after seq_cursor — no full-buffer replay on refresh.
+    // Fallback (snapshot absent / fetch failed / stale): legacy path
+    // (hydratePhase1 + WS subscribe(0) full replay). Old runs without
+    // snapshot sidecar hit this branch.
+    // See docs/plans/2026-06-16-long-run-replay-architecture.md.
+    const snapshot = await fetchSnapshot(runId, ac.signal);
     if (seq !== _activateSeq) return;
+
+    if (snapshot && typeof snapshot.seq_cursor === "number") {
+      // Snapshot path — single-pass hydrate.
+      hydrateFromSnapshot(snapshot);
+
+      // Tell dedup.ts to skip any WS event with seq ≤ cursor (defensive —
+      // since_seq=cursor should already prevent them, but late subscribers
+      // racing the WS reconnect can see them).
+      setHydratedCursor(runId, snapshot.seq_cursor);
+
+      // WS connects with since_seq=cursor — only receives post-snapshot
+      // events. useAppViewStore.wsSinceSeq is read by useWorkflowWS.
+      useAppViewStore.getState().setWsSinceSeq(snapshot.seq_cursor);
+    } else {
+      // Legacy path — full WS replay from seq=0. Clear any stale cursor
+      // from a prior run so dedup doesn't accidentally drop live events.
+      setHydratedCursor(runId, null);
+      useAppViewStore.getState().setWsSinceSeq(0);
+      await hydratePhase1(full);
+      if (seq !== _activateSeq) return;
+    }
 
     useAppViewStore.getState().setRunMode("live");
 
-    // WS (sinceSeq=0) replays all buffered events into scoped stores on
-    // connect — conversation / charts / agents / outline are rebuilt from
-    // the live event stream. NO phase 2 hydrateStores call: its internal
-    // resetAllStores would race the WS stream and wipe just-delivered
-    // events (review finding: agent output appears, vanishes, reappears
-    // as phase 2 lands). For paused-resume runs where sidecars exist on
-    // disk, those same events are still in the Bus buffer and reach the
-    // store via WS — no HTTP sidecar fetch needed.
+    // WS now connects with the right since_seq (0 for legacy / cursor for
+    // snapshot path). All live events flow through routing/routeEvent,
+    // which dedups via isDuplicate (honors hydrated cursor).
+    //
+    // NO phase 2 hydrateStores call: its internal resetAllStores would
+    // race the WS stream and wipe just-delivered events. For paused-resume
+    // runs where sidecars exist on disk, those same events are still in
+    // the Bus buffer and reach the store via WS — no HTTP sidecar fetch
+    // needed.
     //
     // Not calling showReplay either — it would flip activeView to replay
     // and clobber the live-mode UX (ConnectionStatusBar, ChatInput).
   } else {
     // Completed / failed / etc — showReplay owns hydration pipeline.
+    // Clear the WS cursor (replay doesn't use WS) + hydration watermark
+    // so a later switch back to a running workflow starts clean.
+    useAppViewStore.getState().setWsSinceSeq(0);
+    setHydratedCursor(runId, null);
     useViewStore.getState().showReplay(full);
     useAppViewStore.getState().setRunMode("replay");
   }

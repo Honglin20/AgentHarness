@@ -42,16 +42,22 @@ vi.mock("@/contexts/workflow-context/WorkflowManager", () => ({
 
 const setViewSpy = vi.fn();
 const setRunModeSpy = vi.fn();
+const setWsSinceSeqSpy = vi.fn();
 vi.mock("@/stores/appView", () => ({
   useAppViewStore: {
-    getState: () => ({ setView: setViewSpy, setRunMode: setRunModeSpy }),
+    getState: () => ({
+      setView: setViewSpy,
+      setRunMode: setRunModeSpy,
+      setWsSinceSeq: setWsSinceSeqSpy,
+    }),
   },
 }));
 
 const showReplaySpy = vi.fn();
+const showLiveSpy = vi.fn();
 vi.mock("@/stores/viewStore", () => ({
   useViewStore: {
-    getState: () => ({ showReplay: showReplaySpy }),
+    getState: () => ({ showReplay: showReplaySpy, showLive: showLiveSpy }),
   },
 }));
 
@@ -69,13 +75,24 @@ vi.mock("@/stores/runHistoryStore", () => ({
   },
 }));
 
-const { hydrateStoresSpy, hydratePhase1Spy } = vi.hoisted(() => ({
+const { hydrateStoresSpy, hydratePhase1Spy, hydrateFromSnapshotSpy, fetchSnapshotSpy, setHydratedCursorSpy } = vi.hoisted(() => ({
   hydrateStoresSpy: vi.fn(),
   hydratePhase1Spy: vi.fn(),
+  hydrateFromSnapshotSpy: vi.fn(),
+  // Default to null (legacy run / no snapshot) so existing phase 1 tests
+  // keep their semantics. Tests that exercise the snapshot path override.
+  fetchSnapshotSpy: vi.fn().mockResolvedValue(null),
+  setHydratedCursorSpy: vi.fn(),
 }));
 vi.mock("@/stores/hydration/hydrateReplay", () => ({
   hydrateStores: hydrateStoresSpy,
   hydratePhase1: hydratePhase1Spy,
+  hydrateFromSnapshot: hydrateFromSnapshotSpy,
+  fetchSnapshot: fetchSnapshotSpy,
+}));
+
+vi.mock("@/contexts/workflow-context/routing", () => ({
+  setHydratedCursor: setHydratedCursorSpy,
 }));
 
 // Import AFTER mocks are declared.
@@ -101,13 +118,20 @@ describe("activateRun", () => {
   beforeEach(() => {
     setViewSpy.mockClear();
     setRunModeSpy.mockClear();
+    setWsSinceSeqSpy.mockClear();
     showReplaySpy.mockClear();
+    showLiveSpy.mockClear();
     setWorkflowSpy.mockClear();
     fetchRunSpy.mockReset();
     hydrateStoresSpy.mockClear();
     hydrateStoresSpy.mockImplementation(async (run: RunRecord) => run);
     hydratePhase1Spy.mockReset();
     hydratePhase1Spy.mockResolvedValue(undefined);
+    hydrateFromSnapshotSpy.mockReset();
+    fetchSnapshotSpy.mockReset();
+    // Default: no snapshot available → activateRun falls back to phase 1.
+    fetchSnapshotSpy.mockResolvedValue(null);
+    setHydratedCursorSpy.mockClear();
     getOrCreateSpy.mockClear();
     getHydrationSpy.mockClear();
     setHydrationSpy.mockClear();
@@ -141,7 +165,8 @@ describe("activateRun", () => {
     // Global workflowStore gets populated (page.tsx workflowId detection)
     expect(setWorkflowSpy).toHaveBeenCalledTimes(1);
     expect(setWorkflowSpy).toHaveBeenCalledWith("r1", "test-wf", running.dag);
-    // Phase 1 awaited (workflow store + outline sidecar)
+    // Phase 1 awaited (workflow store + outline sidecar) — fallback path
+    // (fetchSnapshot returned null, treating this as a legacy run).
     expect(hydratePhase1Spy).toHaveBeenCalledTimes(1);
     expect(hydratePhase1Spy).toHaveBeenCalledWith(running);
     // Phase 2 (hydrateStores) NOT called — WS sinceSeq=0 replays all
@@ -150,6 +175,43 @@ describe("activateRun", () => {
     expect(hydrateStoresSpy).not.toHaveBeenCalled();
     // showReplay NOT called for live runs (would clobber live UX)
     expect(showReplaySpy).not.toHaveBeenCalled();
+    expect(setHydrationSpy).toHaveBeenLastCalledWith("r1", "hydrated");
+    expect(setRunModeSpy).toHaveBeenLastCalledWith("live");
+    // Bug #5 fix: showLive is invoked before setWorkflow so useViewStore
+    // doesn't keep pointing at a prior replay runId.
+    expect(showLiveSpy).toHaveBeenCalledTimes(1);
+    // WS cursor stays at 0 (no snapshot) so full replay runs.
+    expect(setWsSinceSeqSpy).toHaveBeenCalledWith(0);
+  });
+
+  it("hydrates a running run via snapshot when available (Phase 1 long-run replay)", async () => {
+    const running = makeRun({
+      status: "running",
+      dag: { nodes: ["a"], edges: [] },
+    });
+    fetchRunSpy.mockResolvedValueOnce(running);
+    const snapshot = {
+      run_id: "r1",
+      workflow_name: "test-wf",
+      status: "running",
+      seq_cursor: 1234,
+      dag: { nodes: ["a"], edges: [] },
+      conversation: [],
+      charts: null,
+      todo_states: null,
+    };
+    fetchSnapshotSpy.mockResolvedValueOnce(snapshot);
+
+    await activateRun("r1");
+
+    // Snapshot path taken — single-pass hydrate replaces phase 1.
+    expect(hydrateFromSnapshotSpy).toHaveBeenCalledTimes(1);
+    expect(hydrateFromSnapshotSpy).toHaveBeenCalledWith(snapshot);
+    expect(hydratePhase1Spy).not.toHaveBeenCalled();
+    // Hydration watermark set so dedup drops any WS event with seq ≤ 1234
+    expect(setHydratedCursorSpy).toHaveBeenCalledWith("r1", 1234);
+    // WS connects with since_seq=1234 — only delivers post-snapshot events
+    expect(setWsSinceSeqSpy).toHaveBeenCalledWith(1234);
     expect(setHydrationSpy).toHaveBeenLastCalledWith("r1", "hydrated");
     expect(setRunModeSpy).toHaveBeenLastCalledWith("live");
   });

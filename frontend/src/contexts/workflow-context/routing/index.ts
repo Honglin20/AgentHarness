@@ -13,7 +13,7 @@ export type { RouteContext, RouteMode, RoutePersistence };
 export type { EventHandler, EventRegistry } from "./types";
 
 // Re-export utilities
-export { cleanupSeqTracker } from "./dedup";
+export { cleanupSeqTracker, setHydratedCursor } from "./dedup";
 export { resetAllStores, formatOutputAsMd } from "./utils";
 
 // ---------------------------------------------------------------------------

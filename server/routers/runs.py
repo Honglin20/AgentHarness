@@ -263,6 +263,26 @@ async def get_run_outline(
     store, run, user, is_admin = _load_run_for_user(run_id, request, store)
     return store.get_outline(run_id)
 
+@router.get("/runs/{run_id}/snapshot")
+async def get_run_snapshot(
+    run_id: str, request: Request,
+    store: RunStoreInterface = Depends(get_run_store_dep),
+) -> dict | None:
+    """Latest-state snapshot for O(1) frontend refresh (long-run replay).
+
+    Returns a self-contained payload: status / dag / agent_io / conversation /
+    charts / todo_states / nodes_latest / seq_cursor. Frontend hydrates all
+    scoped stores from this single response, then WS-subscribes from
+    seq_cursor onwards — no full buffer replay.
+
+    None = legacy / never written → frontend falls back to legacy replay
+    path (bus.subscribe(since_seq=0)).
+
+    See docs/plans/2026-06-16-long-run-replay-architecture.md.
+    """
+    store, run, user, is_admin = _load_run_for_user(run_id, request, store)
+    return store.get_snapshot(run_id)
+
 @router.get("/runs/{run_id}/conversation")
 async def get_run_conversation(
     run_id: str, request: Request,

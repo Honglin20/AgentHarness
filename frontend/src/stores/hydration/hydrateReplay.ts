@@ -302,3 +302,100 @@ export async function hydratePhase1(run: RunRecord): Promise<void> {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Snapshot-based hydration (Phase 1 long-run replay)
+// ---------------------------------------------------------------------------
+//
+// Fetches /api/runs/{id}/snapshot — a self-contained payload written
+// incrementally by node_factory._save_incremental after each node completion.
+// Hydrates the scoped stores in a single setState pass, so the UI is correct
+// immediately and WS only needs to deliver events after `seq_cursor`.
+//
+// Caller (activateRun) is responsible for:
+//   - setting the hydration watermark via setHydratedCursor (so WS-replayed
+//     events with seq ≤ cursor are deduped by routing/dedup.ts)
+//   - setting useAppViewStore.wsSinceSeq = cursor (so WS connects with
+//     since_seq=cursor and only delivers post-snapshot events)
+//
+// See docs/plans/2026-06-16-long-run-replay-architecture.md.
+
+export interface RunSnapshot {
+  run_id: string;
+  workflow_name: string;
+  status: string;
+  created_at?: string;
+  seq_cursor: number;
+  dag?: { nodes: string[]; edges: [string, string][]; conditional_edges?: { from: string; to: string; label: string }[] } | null;
+  agent_io?: Record<string, unknown>;
+  conversation?: unknown[];
+  charts?: { groupOrder?: string[]; groups?: Record<string, unknown> } | null;
+  todo_states?: Record<string, unknown> | null;
+  nodes_latest?: Record<string, { status?: string }>;
+  current_iter?: number | null;
+  fitness_history?: Array<{ iter: number; fitness: number; latency_ms?: number; acc?: number }>;
+}
+
+/**
+ * Hydrate scoped stores directly from a snapshot payload (single setState per store).
+ *
+ * Does NOT touch:
+ *   - toolCall store (let WS replay repopulate post-cursor tool activity)
+ *   - span store (same)
+ *   - agentIO store (snapshot carries agent_io but the store has its own
+ *     shape — defer until Phase 2 when snapshot shape stabilises)
+ *
+ * The caller MUST follow up with setHydratedCursor + setWsSinceSeq so WS
+ * replay doesn't undo / duplicate this hydration.
+ */
+export function hydrateFromSnapshot(snapshot: RunSnapshot): void {
+  const scoped = getWorkflowManager().getOrCreate(snapshot.run_id).stores;
+
+  // 1. Workflow store: id + name + dag (matches hydratePhase1 contract)
+  scoped.workflow.getState().setWorkflow(
+    snapshot.run_id,
+    snapshot.workflow_name,
+    snapshot.dag ?? null,
+  );
+
+  // 2. Conversation store: replace messages (snapshot.conversation is
+  // already a structured message list from build_conversation on backend).
+  if (Array.isArray(snapshot.conversation)) {
+    scoped.conversation.setState({ messages: snapshot.conversation as never[] });
+  }
+
+  // 3. Chart store: replace groupOrder + groups.
+  if (snapshot.charts && (snapshot.charts.groupOrder || snapshot.charts.groups)) {
+    scoped.chart.setState({
+      groupOrder: snapshot.charts.groupOrder ?? [],
+      groups: (snapshot.charts.groups ?? {}) as never,
+    });
+  }
+
+  // 4. Todo store: replace per-node todo states.
+  if (snapshot.todo_states && typeof snapshot.todo_states === "object") {
+    scoped.todo.setState({ todos: snapshot.todo_states as never });
+  }
+}
+
+/**
+ * Fetch /api/runs/{id}/snapshot. Returns null on 404 / network error / parse
+ * failure — caller falls back to legacy replay path.
+ */
+export async function fetchSnapshot(
+  runId: string,
+  signal?: AbortSignal,
+): Promise<RunSnapshot | null> {
+  try {
+    const { fetchWithAuth } = await import("@/lib/api");
+    const r = await fetchWithAuth(`/api/runs/${encodeURIComponent(runId)}/snapshot`, {
+      signal,
+    });
+    if (!r.ok) return null;
+    const data = (await r.json()) as RunSnapshot | null;
+    if (!data || typeof data !== "object" || !data.run_id) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
