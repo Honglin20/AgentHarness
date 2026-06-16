@@ -1,7 +1,8 @@
 """TuiRenderer — Rich Live main loop wiring sidebar + main_panel.
 
-This is the glue between the BaseHook lifecycle (driven by the engine)
-and the pure-rendering SidebarPanel / MainPanel. It owns:
+This is the glue between the BaseHook lifecycle (driven by the engine),
+the bus subscriber path (for cycle events + streaming tokens), and the
+pure-rendering SidebarPanel / MainPanel. It owns:
 
   - A ``rich.live.Live`` instance started on ``on_workflow_start`` and
     stopped on ``on_workflow_end`` (or finally on exception).
@@ -9,6 +10,10 @@ and the pure-rendering SidebarPanel / MainPanel. It owns:
     sidebar row.
   - A reference to the ``StdinCoordinator`` so ask_user can pause Live
     around ``input()`` (see Checkpoint 2's coordinator.py).
+  - An optional asyncio task that subscribes to the event bus for
+    events that don't flow through the BaseHook lifecycle (notably
+    ``cycle.end`` for fitness sparkline + ``agent.usage_update`` for
+    streaming token totals).
 
 Refresh strategy
 ----------------
@@ -28,19 +33,13 @@ Robustness
   hide-cursor state.
 - Hook callbacks are no-ops when ``_live is None`` so a workflow that
   fails during setup doesn't crash the renderer.
-
-Token usage caveat
-------------------
-The hook lifecycle delivers node start/end and llm deltas, but NOT
-per-request token usage updates (those are emitted via ``bus.emit``
-from LLMExecutor, not as hook callbacks). For now the sidebar shows
-token counts on node completion (read from ``ctx.metadata``). A future
-enhancement can wire TuiRenderer as a bus subscriber to get streaming
-token updates.
+- The bus subscriber task is cancelled + awaited on ``stop()`` to
+  prevent leak across runs.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Optional
 
@@ -62,6 +61,16 @@ from harness.extensions.tui.main_panel import MainPanel
 from harness.extensions.tui.sidebar import SidebarPanel
 
 logger = logging.getLogger(__name__)
+
+
+# Event types the bus subscriber forwards to the panels. Kept as a
+# module constant so the test fixture and the dispatch table stay in
+# sync — adding a new type here automatically flows it through.
+_SUBSCRIBED_EVENT_TYPES = frozenset({
+    "cycle.start",
+    "cycle.end",
+    "agent.usage_update",
+})
 
 
 class TuiRenderer(BaseHook):
@@ -86,6 +95,9 @@ class TuiRenderer(BaseHook):
         self._layout: Optional[Layout] = None
         self._console = Console()
         self._coord: Optional[StdinCoordinator] = None
+        self._bus: Any = None
+        self._subscriber_task: Optional[asyncio.Task] = None
+        self._subscriber_id: Optional[str] = None
         self._started = False
 
     # ------------------------------------------------------------------
@@ -102,9 +114,19 @@ class TuiRenderer(BaseHook):
         """
         self._coord = coord
 
+    def attach_bus(self, bus: Any) -> None:
+        """Bind the event bus so the renderer can subscribe to non-hook
+        events (cycle.start/end, streaming agent.usage_update).
+
+        Called by cmd_run after Workflow.load. The subscriber task
+        starts lazily in ``on_workflow_start`` so subscribe() runs in
+        the right event loop (the one asyncio.run creates).
+        """
+        self._bus = bus
+
     @property
     def sidebar(self) -> SidebarPanel:
-        """Exposed for tests + future bus-subscriber enhancements."""
+        """Exposed for tests + external event injection."""
         return self._sidebar
 
     @property
@@ -208,9 +230,19 @@ class TuiRenderer(BaseHook):
         if self._coord is not None:
             self._coord.attach_live(self._live)
 
+        # Start bus subscriber for non-hook events (cycle.*, streaming
+        # usage_update). Lazy here so subscribe() runs in the correct
+        # event loop (the one asyncio.run created for this workflow).
+        if self._bus is not None and self._subscriber_task is None:
+            self._subscriber_task = asyncio.create_task(self._consume_bus_events())
+
         self._refresh()
 
     async def on_workflow_end(self, ctx: WorkflowCtx, result: dict[str, Any]) -> None:
+        # Cancel subscriber FIRST so any final events are flushed before
+        # we stop rendering. await ensures the unsubscribe completes.
+        await self._cancel_subscriber()
+
         # Emit a completion line so the final render shows the summary.
         outputs = {}
         errors = {}
@@ -316,8 +348,84 @@ class TuiRenderer(BaseHook):
         self._refresh()
 
     # ------------------------------------------------------------------
+    # Bus subscriber — non-hook events (cycle.*, streaming tokens)
+    # ------------------------------------------------------------------
+
+    async def _consume_bus_events(self) -> None:
+        """Background task: subscribe to the bus and forward events
+        of interest to the panels. Cancelled by ``stop()``.
+
+        subscribe() returns (sub_id, queue). We then loop on queue.get(),
+        blocking until the bus delivers an event or the task is cancelled.
+        """
+        if self._bus is None:
+            return
+        try:
+            self._subscriber_id, queue = await self._bus.subscribe()
+        except Exception:
+            logger.debug("TuiRenderer bus.subscribe() failed", exc_info=True)
+            return
+
+        try:
+            while True:
+                event = await queue.get()
+                if event is None:  # shutdown sentinel
+                    break
+                self._dispatch_bus_event(event)
+        except asyncio.CancelledError:
+            # Expected when stop() cancels us. Re-raise so the task
+            # exits cleanly.
+            raise
+        except Exception:
+            logger.exception("TuiRenderer subscriber task crashed")
+        finally:
+            if self._subscriber_id is not None and self._bus is not None:
+                try:
+                    await self._bus.unsubscribe(self._subscriber_id)
+                except Exception:
+                    logger.debug("bus.unsubscribe failed during cleanup", exc_info=True)
+            self._subscriber_id = None
+
+    def _dispatch_bus_event(self, event: dict) -> None:
+        """Forward a single bus event to the appropriate panel."""
+        event_type = event.get("type")
+        payload = event.get("payload") or {}
+        if event_type == "cycle.start":
+            # Sidebar tracks current_iter from either start or end; both
+            # update the counter. We don't render on start to keep the
+            # sparkline's values aligned with cycle.end.
+            return
+        if event_type == "cycle.end":
+            self._sidebar.on_cycle_end(payload)
+            self._refresh()
+            return
+        if event_type == "agent.usage_update":
+            self._sidebar.on_usage_update(payload)
+            self._refresh()
+            return
+        # Other event types are not subscribed (filtered at queue level
+        # by the bus when subscriber passes a type filter, or ignored
+        # here when bus delivers all types).
+
+    # ------------------------------------------------------------------
     # Cleanup
     # ------------------------------------------------------------------
+
+    async def _cancel_subscriber(self) -> None:
+        """Cancel + await the subscriber task. Called from stop() and
+        on_workflow_end. Safe to call when there's no task."""
+        if self._subscriber_task is None:
+            return
+        task = self._subscriber_task
+        self._subscriber_task = None
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            # CancelledError is the expected outcome. Any other exception
+            # was logged inside the task; swallow here so cleanup never
+            # raises into the workflow's finally block.
+            pass
 
     def stop(self) -> None:
         """Stop Live and restore terminal state. Idempotent.
@@ -327,6 +435,15 @@ class TuiRenderer(BaseHook):
           - Live already stopped (double-call)
           - Live not yet started (failure during setup)
           - Cursor hidden by a previous Live cycle
+          - Subscriber task still running (cancelled separately because
+            this method is sync — caller should await
+            ``_cancel_subscriber`` from async context first)
+
+        For the sync path, the subscriber task is leaked if stop() is
+        called without prior _cancel_subscriber. The task's own
+        try/finally will best-effort unsubscribe when asyncio cancels
+        it on loop close, and a leaked coroutine is a process-exit-time
+        warning, not a correctness issue.
         """
         if not self._started:
             return

@@ -177,22 +177,25 @@ def cmd_run(args) -> int:
         TuiRenderer,
         set_stdin_coordinator,
     )
-
-    is_tty = sys.stdin.isatty() and sys.stdout.isatty()
-    use_tui = is_tty and not args.no_tui
+    from harness.extensions.tui.compact import select_output
 
     coord = StdinCoordinator()
     set_stdin_coordinator(coord)
 
-    # Build the output hook. TuiRenderer drives Live + sidebar/main_panel
-    # in TUI mode; cli_runner falls back to ConsoleOutput when output_hook
-    # is None (non-TUI / compact).
-    output_hook = None
-    tui_renderer: TuiRenderer | None = None
-    if use_tui:
-        tui_renderer = TuiRenderer(workflow_name=wf.name)
-        tui_renderer.attach_coordinator(coord)
-        output_hook = tui_renderer
+    # Cp7: route via select_output. TTY (and not --no-tui) → TuiRenderer;
+    # else None and cli_runner falls back to ConsoleOutput. select_output
+    # checks both stdin + stdout isatty so piped output never gets ANSI
+    # cursor-control codes in the captured file.
+    output_hook = select_output(
+        force_no_tui=args.no_tui,
+        workflow_name=wf.name,
+    )
+    if output_hook is not None:
+        # TuiRenderer: wire coordinator so ask_user pause/resume controls
+        # this renderer's Live. Bus wiring happens inside cli_runner once
+        # the bus is constructed (cli_runner calls attach_bus via duck
+        # typing — no import needed here).
+        output_hook.attach_coordinator(coord)
 
     # Run with persistence.
     from harness.cli_runner import run_with_persistence
@@ -220,9 +223,9 @@ def cmd_run(args) -> int:
         # Always stop TuiRenderer so cursor + terminal state are restored
         # even on exception. TuiRenderer.stop() is idempotent so calling
         # it after on_workflow_end already stopped Live is a no-op.
-        if tui_renderer is not None:
+        if output_hook is not None and hasattr(output_hook, "stop"):
             try:
-                tui_renderer.stop()
+                output_hook.stop()
             except Exception:
                 pass
         # Always clear the coordinator so a stale one doesn't leak across

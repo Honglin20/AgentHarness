@@ -186,6 +186,19 @@ async def run_with_persistence(
         bus = Bus()
         workflow._event_bus = bus
 
+    # TuiRenderer (and any future hook that subscribes to non-lifecycle
+    # events like cycle.end) needs a bus reference. Use duck typing so
+    # we don't import the TUI layer here — ConsoleOutput has no
+    # attach_bus method and is silently skipped.
+    attach_bus = getattr(output_hook, "attach_bus", None)
+    if callable(attach_bus):
+        attach_bus(bus)
+    # Workflow.use() guarantees _event_bus is non-None after the call, but
+    # be defensive in case a future Workflow subclass changes that.
+    if bus is None:  # pragma: no cover — defensive
+        bus = Bus()
+        workflow._event_bus = bus
+
     # 2) chdir to work_dir — same semantics as server. This must be in
     # effect before setup() (MCP filesystem) and before get_runs_dir() is
     # first consulted by RunStore.
