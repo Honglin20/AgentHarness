@@ -151,6 +151,10 @@ def _save_incremental(
             "agent_io": agent_io_snapshot,
             # Tail-only — full conversation via sidecar pagination.
             "conversation": conversation_tail,
+            # Total count of the full conversation (pre-tail). Frontend uses
+            # this to set hasEarlier = (total > conversation.length) so the
+            # "Load earlier" trigger knows whether to fetch.
+            "conversation_total": len(conversation_full),
             "charts": chart_groups,
             "todo_states": todo_snapshot,
             "nodes_latest": {

@@ -329,10 +329,13 @@ export interface RunSnapshot {
   dag?: { nodes: string[]; edges: [string, string][]; conditional_edges?: { from: string; to: string; label: string }[] } | null;
   agent_io?: Record<string, unknown>;
   conversation?: unknown[];
+  /** Total message count in the full backend conversation (pre-tail). */
+  conversation_total?: number;
   charts?: { groupOrder?: string[]; groups?: Record<string, unknown> } | null;
   todo_states?: Record<string, unknown> | null;
-  nodes_latest?: Record<string, { status?: string }>;
+  nodes_latest?: Record<string, { status?: string; latest_iter?: number | null }>;
   current_iter?: number | null;
+  iter_index?: Record<string, unknown> | null;
   fitness_history?: Array<{ iter: number; fitness: number; latency_ms?: number; acc?: number }>;
 }
 
@@ -360,8 +363,18 @@ export function hydrateFromSnapshot(snapshot: RunSnapshot): void {
 
   // 2. Conversation store: replace messages (snapshot.conversation is
   // already a structured message list from build_conversation on backend).
+  // Also set hasEarlier so the scroll-to-top loader knows whether to fetch.
   if (Array.isArray(snapshot.conversation)) {
-    scoped.conversation.setState({ messages: snapshot.conversation as never[] });
+    const total = typeof snapshot.conversation_total === "number"
+      ? snapshot.conversation_total
+      : snapshot.conversation.length;
+    const hasEarlier = total > snapshot.conversation.length;
+    scoped.conversation.setState({
+      messages: snapshot.conversation as never[],
+      hasEarlier,
+      conversationTotal: total,
+      loadingEarlier: false,
+    });
   }
 
   // 3. Chart store: replace groupOrder + groups.
