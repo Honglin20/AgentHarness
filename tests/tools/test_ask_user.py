@@ -380,10 +380,17 @@ def test_resolve_timeout_rejects_zero(monkeypatch):
         _resolve_timeout()
 
 
+def test_resolve_timeout_accepts_float_seconds(monkeypatch):
+    """Float seconds (e.g. 1.5) must be accepted, not rejected as 'not an integer'."""
+    monkeypatch.setenv("HARNESS_ASK_USER_TIMEOUT", "1.5")
+    from harness.tools.ask_user import _resolve_timeout
+    assert _resolve_timeout() == 1.5
+
+
 def test_resolve_timeout_rejects_garbage(monkeypatch):
     monkeypatch.setenv("HARNESS_ASK_USER_TIMEOUT", "soon")
     from harness.tools.ask_user import _resolve_timeout
-    with pytest.raises(RuntimeError, match="not an integer"):
+    with pytest.raises(RuntimeError, match="not a number"):
         _resolve_timeout()
 
 
@@ -453,3 +460,64 @@ async def test_stdin_fallback_falls_back_to_raw_text(monkeypatch):
         options=[AskUserOption(label="A"), AskUserOption(label="B")],
     )
     assert result == "custom model name"
+
+
+@pytest.mark.asyncio
+async def test_stdin_eof_raises_loud(monkeypatch):
+    """EOF on stdin (no interactive terminal) must raise, not silently
+    return empty. Returning empty would let the agent proceed on a blank
+    answer with no signal — explicit failure is the contract."""
+    factory = AskUserToolFactory(event_bus=None)
+    tool = factory.create()
+
+    # Patch builtins.input (not _sync_input) so the real try/except path
+    # runs and we verify the EOFError → RuntimeError wrapping.
+    import builtins
+    monkeypatch.setattr(builtins, "input", lambda *a, **kw: (_ for _ in ()).throw(EOFError()))
+
+    with pytest.raises(RuntimeError, match="EOF"):
+        await tool.function(_Ctx(), question="Q")
+
+
+@pytest.mark.asyncio
+async def test_stdin_concurrent_calls_serialize_via_lock(monkeypatch):
+    """Two concurrent ask_user stdin calls must NOT interleave — the
+    process-wide asyncio.Lock enforces one-at-a-time prompting. Verified
+    by recording the prompt windows and asserting no overlap."""
+    factory = AskUserToolFactory(event_bus=None)
+    tool = factory.create()
+
+    windows: list[tuple[str, float, float]] = []
+    counter = {"n": 0}
+
+    def fake_sync_input(prompt: str) -> str:
+        import time
+        counter["n"] += 1
+        my_id = counter["n"]
+        start = time.monotonic()
+        # Hold the "input" for 50ms so a non-serialized sibling would overlap.
+        time.sleep(0.05)
+        end = time.monotonic()
+        windows.append((f"call-{my_id}", start, end))
+        return "yes"
+
+    # Patch the leaf so the real _input_blocking (lock + to_thread) runs.
+    monkeypatch.setattr(
+        "harness.tools.ask_user._sync_input",
+        fake_sync_input,
+    )
+
+    await asyncio.gather(
+        tool.function(_Ctx(), question="Q1"),
+        tool.function(_Ctx(), question="Q2"),
+    )
+
+    assert len(windows) == 2
+    # Sort by start time; assert no overlap.
+    windows.sort(key=lambda w: w[1])
+    _, _, earlier_end = windows[0]
+    _, later_start, _ = windows[1]
+    assert later_start >= earlier_end, (
+        f"stdin calls overlapped: window 0 ended at {earlier_end:.4f}, "
+        f"window 1 started at {later_start:.4f}"
+    )

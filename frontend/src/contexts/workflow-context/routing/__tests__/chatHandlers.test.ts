@@ -224,6 +224,114 @@ describe("chat.timeout handler", () => {
 
     expect(conversation.markQuestionTimeout).not.toHaveBeenCalled();
   });
+
+  it("skips interrupted questions (workflow terminated, then late timeout arrived)", async () => {
+    // markAllPendingQuestionsInterrupted runs on workflow termination; a
+    // chat.timeout delivered afterwards must NOT downgrade interrupted → timeout
+    // (the question was already finalized as "no longer answerable").
+    const { routeEvent } = await import("../index");
+    const { stores, conversation } = makeStoresWithQuestion("qid-t3", "interrupted" as any);
+
+    routeEvent(
+      stores,
+      makeEvent("chat.timeout", { question_id: "qid-t3" }),
+      makeCtx(),
+    );
+
+    expect(conversation.markQuestionTimeout).not.toHaveBeenCalled();
+  });
+});
+
+describe("out-of-order WS replay — chat.answer arrives before chat.question", () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it("drops the orphan answer silently; later question lands as pending", async () => {
+    // Cursor off-by-one or seq tiebreak could in principle deliver answer
+    // before question on reconnect. The answer must be dropped (no matching
+    // question yet) and the question then lands as a fresh pending prompt.
+    // This documents the failure mode: the user would be re-prompted, but
+    // no exception is thrown and the store is left consistent.
+    const { routeEvent } = await import("../index");
+
+    const messages: any[] = [];
+    const addUserQuestion = vi.fn((p: any) => {
+      messages.push({
+        id: `msg-${messages.length + 1}`,
+        type: "question",
+        questionId: p.question_id,
+        status: "pending",
+        content: p.question,
+        timestamp: Date.now(),
+      });
+    });
+    const answerUserQuestion = vi.fn();
+    const markQuestionTimeout = vi.fn();
+    const clearPendingQuestion = vi.fn();
+    const state: any = {
+      messages,
+      pendingQuestionId: null,
+      addUserQuestion,
+      answerUserQuestion,
+      markQuestionTimeout,
+      clearPendingQuestion,
+    };
+    const conversation: any = {
+      ...state,
+      getState: () => state,
+      setState: vi.fn(),
+      subscribe: vi.fn(),
+      getInitialState: vi.fn(),
+    };
+    const noopStore: any = {
+      getState: () => ({}),
+      setState: vi.fn(),
+      subscribe: vi.fn(),
+      getInitialState: vi.fn(),
+    };
+    const stores = {
+      conversation,
+      workflow: noopStore,
+      toolCall: noopStore,
+      output: noopStore,
+      chart: noopStore,
+      todo: noopStore,
+      span: noopStore,
+      agentIO: noopStore,
+      runHistory: noopStore,
+    } as unknown as WorkflowStores;
+
+    // Answer first — no matching question yet
+    routeEvent(
+      stores,
+      makeEvent("chat.answer", {
+        question_id: "qid-orphan",
+        answer: "A",
+        raw: { selected: ["a"], custom_input: "" },
+      }, 1),
+      makeCtx(),
+    );
+    expect(answerUserQuestion).not.toHaveBeenCalled();
+
+    // Question lands second — inserted as pending
+    routeEvent(
+      stores,
+      makeEvent("chat.question", {
+        question_id: "qid-orphan",
+        question: "Pick",
+        options: [{ label: "A", value: "a" }],
+        multi_select: false,
+        allow_custom_input: true,
+        input_type: "text",
+      }, 2),
+      makeCtx(),
+    );
+    expect(addUserQuestion).toHaveBeenCalledTimes(1);
+    // Final state: question is pending (orphan answer was lost).
+    // This is the documented failure mode — not ideal, but consistent.
+    expect(messages[0].status).toBe("pending");
+  });
 });
 
 describe("refresh replay ordering — chat.question then chat.answer", () => {

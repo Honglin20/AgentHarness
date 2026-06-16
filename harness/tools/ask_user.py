@@ -6,6 +6,7 @@ Returns a single string assembled from the user's structured answer.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 import uuid
@@ -36,11 +37,11 @@ class AskUserOption(BaseModel):
 def _resolve_timeout() -> float | None:
     raw = os.environ.get("HARNESS_ASK_USER_TIMEOUT", "-1")
     try:
-        n = int(raw)
+        n = float(raw)
     except ValueError:
         raise RuntimeError(
-            f"HARNESS_ASK_USER_TIMEOUT={raw!r} is not an integer. "
-            "Use -1 (wait forever) or a positive number of seconds."
+            f"HARNESS_ASK_USER_TIMEOUT={raw!r} is not a number. "
+            "Use -1 (wait forever) or a positive number of seconds (e.g. 60 or 1.5)."
         )
     if n == -1:
         return None
@@ -48,7 +49,7 @@ def _resolve_timeout() -> float | None:
         raise RuntimeError(
             f"HARNESS_ASK_USER_TIMEOUT={n} is invalid. Use -1 (wait forever) or >= 1 second."
         )
-    return float(n)
+    return n
 
 
 TIMEOUT_MESSAGE = "User disconnected. Proceed with your best judgment."
@@ -258,10 +259,14 @@ async def _read_answer_from_stdin(
 ) -> str:
     """CLI fallback when no Bus is wired (e.g. `python run_workflow(ui=False)`).
 
-    Blocks on stdin via a thread so the event loop isn't frozen. Multiple
-    concurrent ask_user calls would interleave prompts — that's an inherent
-    limitation of stdin and we don't try to serialize. Workflows that need
-    parallel HITL must use the UI.
+    Blocks on stdin via a thread so the event loop isn't frozen. Serializes
+    concurrent calls via a process-wide lock — without it, two parallel
+    ask_user prompts would interleave on stdin and produce undefined input
+    routing. Workflows that need true parallel HITL must use the UI.
+
+    Does NOT emit chat.question / chat.answer events — there is no bus to
+    emit through. If a workflow wires a bus after the fact (dynamic
+    extension registration), WS subscribers will not see this exchange.
     """
     lines = []
     if header:
@@ -286,21 +291,45 @@ async def _read_answer_from_stdin(
     return raw.strip()
 
 
+_stdin_lock: asyncio.Lock | None = None
+
+
+def _get_stdin_lock() -> asyncio.Lock:
+    global _stdin_lock
+    if _stdin_lock is None:
+        _stdin_lock = asyncio.Lock()
+    return _stdin_lock
+
+
 async def _input_blocking(prompt: str) -> str:
-    """Run input() in a worker thread so the asyncio loop stays responsive."""
-    import asyncio
-    return await asyncio.to_thread(_sync_input, prompt)
+    """Run input() in a worker thread so the asyncio loop stays responsive.
+
+    Serialized via a process-wide asyncio.Lock — two concurrent stdin
+    fallbacks would otherwise interleave their prompts on the terminal
+    and the user's typed answer could route to whichever input() call
+    finished first. The lock enforces one-at-a-time prompting. If the
+    workflow actually has parallel human-in-the-loop needs, the user
+    must run with `ui=True` and use the browser.
+    """
+    lock = _get_stdin_lock()
+    async with lock:
+        return await asyncio.to_thread(_sync_input, prompt)
 
 
 def _sync_input(prompt: str) -> str:
     print(prompt, end="", file=sys.stderr, flush=True)
     try:
         return input()
-    except EOFError:
-        # No stdin connected (piped script, containerized run). Fail loud
-        # rather than silently returning empty — caller will get "" which
-        # assemble_answer turns into an empty answer, surfacing the issue.
-        return ""
+    except EOFError as e:
+        # No stdin connected (piped script, containerized run, daemon mode).
+        # Raise — ask_user is human-in-the-loop and silently returning empty
+        # would let the agent proceed on an empty answer with no signal.
+        # Callers catching at workflow boundary can surface this as a
+        # workflow-level failure.
+        raise RuntimeError(
+            "ask_user stdin fallback got EOF — no interactive stdin available. "
+            "Either run with `ui=True` (opens browser) or pipe an answer into stdin."
+        ) from e
 
 
 def _parse_stdin_indices(raw: str, options: list[AskUserOption]) -> list[str] | None:
