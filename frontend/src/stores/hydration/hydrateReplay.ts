@@ -370,7 +370,13 @@ export function hydrateFromSnapshot(snapshot: RunSnapshot): void {
     snapshot.dag ?? null,
   );
   if (Array.isArray(snapshot.fitness_history)) {
-    scoped.workflow.setState({ fitnessHistory: snapshot.fitness_history as never });
+    scoped.workflow.setState({
+      fitnessHistory: snapshot.fitness_history as never,
+      currentIter: typeof snapshot.current_iter === "number" ? snapshot.current_iter : null,
+      // Reset iter filter on hydrate so switching runs doesn't carry a
+      // stale filter from the prior run.
+      conversationIterFilter: null,
+    });
   }
 
   // 2. Conversation store: replace messages (snapshot.conversation is

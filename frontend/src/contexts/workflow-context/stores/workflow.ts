@@ -34,6 +34,8 @@ export function createWorkflowStore(
     dag: null as WorkflowState["dag"],
     envelope: null as WorkflowState["envelope"],
     fitnessHistory: [] as WorkflowState["fitnessHistory"],
+    currentIter: null as WorkflowState["currentIter"],
+    conversationIterFilter: null as WorkflowState["conversationIterFilter"],
     selectedNodeId: null as string | null,
     selectedTemplate: null as Record<string, unknown> | null,
     activeWorkflowId: workflowId,

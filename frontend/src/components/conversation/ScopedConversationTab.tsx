@@ -21,7 +21,7 @@ import { useShallow } from "zustand/shallow";
 import type { StoreApi } from "zustand/vanilla";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { InlineErrorBoundary } from "@/components/ErrorBoundary";
-import { useConversationMessages, useWorkflowStore as useScopedStore } from "@/contexts/workflow-context";
+import { useConversationMessages, useWorkflowStore as useScopedStore, useScopedWorkflowStore } from "@/contexts/workflow-context";
 import type { TodoState, TodoStep } from "@/contexts/workflow-context/workflowStores";
 import { AgentNodeHeader, ThinkingBlock, type AgentNodeGetAgentIO, type AgentNodeGetNodeState } from "./AgentMessage";
 import { UserMessage } from "./UserMessage";
@@ -486,6 +486,26 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
   // Store already holds a windowed slice (tail N messages after hydration;
   // grows prepend-only via "Load earlier"). No client-side slicing needed.
   const visibleMessages = messages;
+
+  // Phase 3b: iter filter for global conversation view. AgentDetailView
+  // ignores this (always renders one (nodeId, iter) from outline selection);
+  // only ScopedConversationTab honors it.
+  const currentIter = useScopedWorkflowStore((s) => s.currentIter);
+  const conversationIterFilter = useScopedWorkflowStore((s) => s.conversationIterFilter);
+  const workflowStoreApiForIter = useScopedStore("workflow");
+  const setConversationIterFilter = useCallback(
+    (iter: number | null) => {
+      workflowStoreApiForIter?.setState({ conversationIterFilter: iter });
+    },
+    [workflowStoreApiForIter],
+  );
+  const filteredMessages = useMemo(
+    () => conversationIterFilter === null
+      ? visibleMessages
+      : visibleMessages.filter((m) => (m.iteration ?? 1) === conversationIterFilter),
+    [visibleMessages, conversationIterFilter],
+  );
+  const effectiveVisibleMessages = filteredMessages;
   const hasEarlier = useStore(conversationStoreApi!, (s) => s.hasEarlier);
   const loadingEarlier = useStore(conversationStoreApi!, (s) => s.loadingEarlier);
   const conversationTotal = useStore(conversationStoreApi!, (s) => s.conversationTotal);
@@ -530,12 +550,13 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
   const prevGroupingRef = useRef<{ messages: ConversationMessage[]; blocks: Block[] } | null>(null);
   const blocks = useMemo(() => {
     const prev = prevGroupingRef.current;
-    const next = prev && prev.messages === visibleMessages
+    const src = effectiveVisibleMessages;
+    const next = prev && prev.messages === src
       ? prev.blocks
-      : groupMessages(visibleMessages, prev?.messages, prev?.blocks);
-    prevGroupingRef.current = { messages: visibleMessages, blocks: next };
+      : groupMessages(src, prev?.messages, prev?.blocks);
+    prevGroupingRef.current = { messages: src, blocks: next };
     return next;
-  }, [visibleMessages]);
+  }, [effectiveVisibleMessages]);
 
   const virtualizer = useVirtualizer({
     count: blocks.length,
@@ -598,6 +619,34 @@ export function ScopedConversationTab({ autoScroll = true }: ScopedConversationT
 
   return (
     <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto">
+      {/* Phase 3b: iter filter dropdown. Only shown for cycle workflows
+          (currentIter !== null). Default = All (null). Selecting an iter
+          filters messages to that iteration across all cycle agents. */}
+      {currentIter !== null && currentIter > 0 && (
+        <div className="sticky top-0 z-20 flex justify-end gap-2 border-b border-app-border bg-background/80 backdrop-blur px-3 py-1.5">
+          <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span>iter:</span>
+            <select
+              value={conversationIterFilter === null ? "all" : String(conversationIterFilter)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setConversationIterFilter(v === "all" ? null : Number(v));
+              }}
+              className="rounded border border-app-border bg-background px-1.5 py-0.5 text-[11px] text-app-text-primary"
+            >
+              <option value="all">All</option>
+              {Array.from({ length: currentIter }, (_, i) => i + 1)
+                .slice()
+                .reverse()
+                .map((n) => (
+                  <option key={n} value={n}>
+                    iter {n}{n === currentIter ? " (latest)" : ""}
+                  </option>
+                ))}
+            </select>
+          </label>
+        </div>
+      )}
       {hasEarlier && (
         <div className="sticky top-0 z-10 flex justify-center border-b border-app-border bg-background/80 backdrop-blur px-4 py-2">
           <button

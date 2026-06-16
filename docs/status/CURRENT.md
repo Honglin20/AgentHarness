@@ -94,8 +94,10 @@ P0（#5 单行修复）→ P1（#4 重分类 + #1 setup HITL）→ P2（#3 fast_
 | 1 事件分层 + Snapshot API + WS cursor | 4-5 天 | ✅ 完成 | `808e6f7` + `1b57e1b` |
 | 2 后端 Cycle iter 持久化 + 查询 API | 2-3 天 | ✅ 完成（backend） | `7062d51` |
 | 3a Conversation 历史分页（解决 Phase 2 limitation） | 半天 | ✅ 完成 | `5d8f28c` |
-| 3b 前端 iter 下拉 + Conversation 按 iter 隔离 | 2-3 天 | ⏸️ 待启动（依赖事件 iter 标签） | — |
-| 4 Fitness 全量 + Chart 渲染 | 半天 | ✅ 完成 | （本提交） |
+| 3b 全局 Conversation iter filter | 半天 | ✅ 完成 | （本提交） |
+| 4 Fitness 全量 + Chart 渲染 | 半天 | ✅ 完成 | `60ff57b` |
+
+**全部 Phase 1-4 完成**。核心承诺兑现：刷新延迟与 run 长度解耦、cycle 多轮可追溯、fitness 趋势全量可见、conversation 历史可加载 + 按 iter 过滤。待实测验证。
 
 包含原问题 #4 的重分类作为 Phase 1 第一步；原问题 #5（activateRun showLive）是 Phase 1 前置 surgical fix，已落地。
 
@@ -105,14 +107,17 @@ P0（#5 单行修复）→ P1（#4 重分类 + #1 setup HITL）→ P2（#3 fast_
 
 **已知事实**：原计划的 iter 下拉切换器已经存在（`OutlineMode` 左侧 outline 列表就是 iter 切换器，`OutlineItemRow` 通过 iteration badge 显示 "#N"），不需要新建。
 
-### Phase 3b 待启动（依赖事件 iter 标签）
+### Phase 3b 完成：全局 Conversation iter filter
 
-conversation 按 iter 隔离需要每个事件携带 iter 字段（Phase 2 跳过的原 Task #3）。当前 conversation message 已有 `iteration` 字段（`AgentDetailView` 已使用），但事件流到 conversation message 的映射在 collector 层，需要审计。
+**关键发现**：原计划"conversation 按 iter 隔离"的核心需求已被 `AgentDetailView` + `OutlineMode` 满足（点击 outline 切 iter，AgentDetailView 已按 `(m.iteration ?? 1) === iteration` 过滤）。message.iteration 字段已存在，**不需要事件级 iter 标签**。
 
-**实施清单**：
-1. 事件持久化时打 iter 字段（`harness/run_store.py` events 写入路径）
-2. `useConversationMessages` 按 `selectedIter` 过滤
-3. （可选）`AgentDetailView` 调 `/iters/{n}` 拿后端持久化的 input_prompt 完整内容
+**实质工作**：给全局 ScopedConversationTab 加 iter filter dropdown。
+- `workflowStore` 加 `currentIter` + `conversationIterFilter` 字段
+- `hydrateFromSnapshot` 写入 currentIter + 重置 filter
+- `ScopedConversationTab` 顶部加 dropdown（All / iter 1..N），filter 在渲染前生效
+- `AgentDetailView` 不受影响（继续按 outline 选择过滤）
+
+**用户视图**：刷新后主对话视图顶部有 iter 选择器。默认 All 显示全部消息；选某 iter 时只显示该 iter 所有 cycle agent 的消息。Outline + AgentDetailView 仍然按 (nodeId, iter) 单点查看。
 
 ### Phase 4 完成：Fitness 全量序列 + Chart 渲染
 

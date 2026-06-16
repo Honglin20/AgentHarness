@@ -114,6 +114,21 @@ export interface WorkflowState {
     primary_metric?: string | null;
   }>;
 
+  /**
+   * Max iter across all cycle agents (from snapshot.current_iter).
+   * Drives the iter filter dropdown range in ScopedConversationTab.
+   * null = no cycle has run yet (setup-only / non-cycle workflow).
+   */
+  currentIter: number | null;
+
+  /**
+   * Iter filter for the global conversation view (ScopedConversationTab).
+   * null = show all iters; N = show only messages with iteration === N.
+   * AgentDetailView ignores this — it always renders one (nodeId, iter)
+   * pair selected from the outline list. Phase 3b.
+   */
+  conversationIterFilter: number | null;
+
   selectedNodeId: string | null;
   selectedTemplate: Record<string, unknown> | null;
 
@@ -177,6 +192,8 @@ const initialState = {
   dag: null as { nodes: string[]; edges: [string, string][] } | null,
   envelope: null as Record<string, number> | null,
   fitnessHistory: [] as NonNullable<WorkflowState["fitnessHistory"]>,
+  currentIter: null as number | null,
+  conversationIterFilter: null as number | null,
   _cache: {} as Record<string, WorkflowSnapshot>,
 };
 
