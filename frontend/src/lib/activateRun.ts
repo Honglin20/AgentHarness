@@ -21,6 +21,7 @@ import { useAppViewStore } from "@/stores/appView";
 import { useViewStore } from "@/stores/viewStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useRunHistoryStore } from "@/stores/runHistoryStore";
+import { hydrateStores } from "@/stores/hydration/hydrateReplay";
 
 let _activateSeq = 0;
 let _abortController: AbortController | null = null;
@@ -36,12 +37,17 @@ let _abortController: AbortController | null = null;
  *   3. Fetch the full run record (aborting any prior in-flight fetch).
  *
  * Then per status:
- *   - running: fill BOTH scoped + global workflowStore, set runMode "live"
- *     (WS will connect via useWorkflowWS gate).
+ *   - running: populate global workflowStore (so layout detects workflowId),
+ *     run hydrateStores to fill scoped stores from sidecars (events /
+ *     conversation / agents / charts that WS won't replay), then set
+ *     runMode "live" so WS connects for new events.
  *   - other:   call showReplay(full) which owns the hydration pipeline
- *     (resetAllStores → loadSidecars → applyHydration).
+ *     (resetAllStores → hydrateStores) AND switches activeView to replay.
  *
- * Finally set hydration → "hydrated" (or "failed" on error/null result).
+ * Hydration → "hydrated" is set AFTER hydrateStores resolves so the UI
+ * doesn't enter the hydrated render branch with empty scoped stores
+ * (which would flash empty conversation before sidecars land).
+ *
  * All post-await state writes are guarded by the seq counter so a
  * superseding activateRun can't have its writes clobbered by a stale one.
  */
@@ -77,20 +83,24 @@ export async function activateRun(runId: string): Promise<void> {
   }
 
   if (full.status === "running") {
-    // Live run — populate scoped AND global store, then switch to live
-    // mode so WS connects. Critical: scoped store must be filled here,
-    // not just global, or ScopedCenterPanel falls through to portal.
-    const scoped = manager.getOrCreate(runId).stores;
-    scoped.workflow.getState().setWorkflow(
-      runId,
-      full.workflow_name,
-      full.dag ?? null,
-    );
+    // Live run — populate global workflowStore so page.tsx detects the
+    // workflowId and switches to run layout. Scoped workflow store gets
+    // populated by hydrateStores below along with conversation/agents/etc.
     useWorkflowStore.getState().setWorkflow(
       runId,
       full.workflow_name,
       full.dag ?? null,
     );
+
+    // Critical: run the hydration pipeline so scoped stores reflect prior
+    // events / conversation / outline / charts. Without this, clicking a
+    // running workflow shows an empty conversation because WS only pushes
+    // new events — anything that happened before WS connect is invisible.
+    // Not calling showReplay because that would flip activeView to replay
+    // and clobber the live-mode UX (ConnectionStatusBar, ChatInput).
+    await hydrateStores(full, seq, () => _activateSeq);
+    if (seq !== _activateSeq) return;
+
     useAppViewStore.getState().setRunMode("live");
   } else {
     // Completed / failed / etc — showReplay owns hydration pipeline.

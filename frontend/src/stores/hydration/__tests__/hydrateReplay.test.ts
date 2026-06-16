@@ -13,6 +13,7 @@ import {
   decideStrategy,
   loadSidecars,
   applyHydration,
+  hydrateStores,
   type SidecarData,
 } from "@/stores/hydration/hydrateReplay";
 
@@ -267,5 +268,51 @@ describe("applyHydration", () => {
     expect(merged.chart_groups).toEqual(sidecars.charts);
     expect(merged.events).toEqual(sidecars.events);
     expect(merged.conversation).toEqual(sidecars.conversation?.messages);
+  });
+});
+
+describe("hydrateStores", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("applies hydration via the loadSidecars → decideStrategy → applyHydration pipeline", async () => {
+    const run = makeRun({
+      agent_io: { writer: { input_prompt: "x", output_result: "y" } },
+      conversation: [{ id: "m1", type: "user", content: "hi" }],
+      dag: { nodes: ["writer"], edges: [] },
+      result: {
+        outputs: {},
+        errors: {},
+        trace: [{ agent_name: "writer", status: "success", duration_ms: 100, error: null }],
+      },
+    });
+
+    let seq = 1;
+    const merged = await hydrateStores(run, seq, () => seq);
+
+    expect(loadRunFromPersistedData).toHaveBeenCalledTimes(1);
+    // Merged record reflects sidecar application (chart_groups mirrored)
+    expect(merged.run_id).toBe("r1");
+  });
+
+  it("bails (no applyHydration) when a newer call supersedes via getCurrentSeq", async () => {
+    const run = makeRun({
+      agent_io: { writer: { input_prompt: "x", output_result: "y" } },
+      conversation: [{ id: "m1", type: "user", content: "hi" }],
+      dag: { nodes: ["writer"], edges: [] },
+      result: {
+        outputs: {},
+        errors: {},
+        trace: [{ agent_name: "writer", status: "success", duration_ms: 100, error: null }],
+      },
+    });
+
+    // Caller passed seq=1, but getCurrentSeq now returns 2 — superseded.
+    const merged = await hydrateStores(run, 1, () => 2);
+
+    expect(loadRunFromPersistedData).not.toHaveBeenCalled();
+    // Returns the original run untouched (no merge applied)
+    expect(merged).toBe(run);
   });
 });

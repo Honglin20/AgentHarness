@@ -5,10 +5,7 @@ import { getWorkflowManager } from "@/contexts/workflow-context/WorkflowManager"
 import { resetAllStores } from "@/contexts/workflow-context/routing/utils";
 import { useOutlineStore } from "@/components/outline/outlineStore";
 import {
-  applyHydration,
-  decideStrategy,
-  loadSidecars,
-  type SidecarData,
+  hydrateStores,
 } from "./hydration/hydrateReplay";
 
 let _replaySeq = 0;
@@ -102,8 +99,8 @@ export const useViewStore = create<ViewState>()((set, get) => ({
     // Ensure scoped stores exist for this workflow, then RESET them
     // synchronously BEFORE the UI switches. Without this, the previous
     // run's conversation/workflow/etc data leaks into the new run during
-    // the async hydration window (loadSidecars → applyHydration runs
-    // after the set() below). P0-A fix.
+    // the async hydration window (hydrateStores runs after the set()
+    // below). P0-A fix.
     const manager = getWorkflowManager();
     const scoped = manager.getOrCreate(run.run_id);
     resetAllStores(scoped.stores);
@@ -122,37 +119,15 @@ export const useViewStore = create<ViewState>()((set, get) => ({
 
     // Hydration pipeline (see stores/hydration/hydrateReplay.ts):
     //   loadSidecars → decideStrategy → applyHydration
-    // The seq guard at each await point discards stale results if a newer
-    // showReplay call supersedes this one.
-    loadSidecars(run)
-      .then((sidecars: SidecarData) => {
-        if (seq !== _replaySeq) return;
-        const strategy = decideStrategy(run, sidecars);
-        const merged = applyHydration(run.run_id, run, sidecars, strategy);
-        if (seq !== _replaySeq) return;
+    // The seq guard discards stale results if a newer showReplay call
+    // supersedes this one.
+    hydrateStores(run, seq, () => _replaySeq).then((merged) => {
+      if (seq !== _replaySeq) return;
+      if (merged !== run) {
         set({
           activeView: { type: "replay", runId: run.run_id, run: merged },
         });
-      })
-      .catch((err) => {
-        // Sidecar load or hydration threw — fall back to whatever we have
-        // inline. Don't leave the UI stuck on the skeleton forever.
-        console.error("[viewStore] Sidecar hydration failed:", err);
-        if (seq !== _replaySeq) return;
-        const fallbackSidecars: SidecarData = {
-          charts: run.chart_groups ?? null,
-          events: run.events,
-          conversation: run.conversation && run.conversation.length > 0
-            ? { messages: run.conversation, has_more: false, total: run.conversation.length }
-            : null,
-          outline: null,
-        };
-        const strategy = decideStrategy(run, fallbackSidecars);
-        const merged = applyHydration(run.run_id, run, fallbackSidecars, strategy);
-        if (seq !== _replaySeq) return;
-        set({
-          activeView: { type: "replay", runId: run.run_id, run: merged },
-        });
-      });
+      }
+    });
   },
 }));

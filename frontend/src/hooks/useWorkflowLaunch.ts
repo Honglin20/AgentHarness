@@ -4,6 +4,7 @@ import { useViewStore } from "@/stores/viewStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useAppViewStore } from "@/stores/appView";
 import { useSettingsStore } from "@/stores/settingsStore";
+import { useRunHistoryStore, invalidateRunsCache } from "@/stores/runHistoryStore";
 import { getWorkflowManager } from "@/contexts/workflow-context";
 
 interface StoreActions {
@@ -71,6 +72,13 @@ export function useWorkflowLaunch(
         manager.setHydration(data.workflow_id, "hydrated");
         useAppViewStore.getState().setView({ kind: "run", runId: data.workflow_id });
         useAppViewStore.getState().setRunMode("live");
+
+        // Refresh sidebar so the new run shows up immediately. RunHistoryList
+        // otherwise waits for workflowStore.status idle→running (WS workflow.started)
+        // or its 30s polling fallback — a multi-second gap where the user can't
+        // tell if launch succeeded.
+        invalidateRunsCache();
+        void useRunHistoryStore.getState().refreshRuns();
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error("Failed to start workflow:", msg);

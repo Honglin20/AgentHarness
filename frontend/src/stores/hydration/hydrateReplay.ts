@@ -223,3 +223,43 @@ export function applyHydration(
 
   return merged;
 }
+
+/**
+ * Orchestrator: load sidecars → pick strategy → apply to scoped stores.
+ *
+ * Extracted from viewStore.showReplay so activateRun's running branch can
+ * reuse the same hydration pipeline without going through showReplay (which
+ * owns activeView switching and is replay-specific). The caller is fully
+ * responsible for the race-safety seq guard — pass your own (whether
+ * `_replaySeq` from viewStore or `_activateSeq` from activateRun) plus a
+ * reader so the post-await staleness check uses the live value.
+ *
+ * Does NOT reset scoped stores — the caller must `resetAllStores(scoped.stores)`
+ * synchronously BEFORE any state write that flips the UI to the new run,
+ * otherwise the previous run's data bleeds into the new run's render window.
+ */
+export async function hydrateStores(
+  run: RunRecord,
+  seq: number,
+  getCurrentSeq: () => number,
+): Promise<RunRecord> {
+  try {
+    const sidecars = await loadSidecars(run);
+    if (seq !== getCurrentSeq()) return run;
+    const strategy = decideStrategy(run, sidecars);
+    return applyHydration(run.run_id, run, sidecars, strategy);
+  } catch (err) {
+    if (seq !== getCurrentSeq()) return run;
+    console.error("[hydrateStores] failed:", err);
+    const fallback: SidecarData = {
+      charts: run.chart_groups ?? null,
+      events: run.events,
+      conversation: run.conversation && run.conversation.length > 0
+        ? { messages: run.conversation, has_more: false, total: run.conversation.length }
+        : null,
+      outline: null,
+    };
+    const fallbackStrategy = decideStrategy(run, fallback);
+    return applyHydration(run.run_id, run, fallback, fallbackStrategy);
+  }
+}
