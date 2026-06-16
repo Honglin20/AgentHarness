@@ -145,6 +145,42 @@ def test_multibyte_utf8_not_split():
     assert not out.rstrip().endswith("�")
 
 
+def test_multibyte_byte_budget_respected():
+    """Stage 3 critical invariant: final encoded payload MUST be ≤ limit
+    even for multibyte content. The original implementation sliced by
+    character count (result[:body_budget]) which overshoots the byte
+    budget for CJK / emoji. This test pins the byte-domain invariant.
+    """
+    # Each '中' is 3 bytes in UTF-8.
+    text = "中" * 3000  # 9000 bytes, bash limit = 8192
+    out, was_cut, _ = truncate_tool_result("bash", text)
+    assert was_cut is True
+    final_bytes = len(out.encode("utf-8"))
+    assert final_bytes <= 8192, (
+        f"byte budget overshoot: final={final_bytes}B, limit=8192B — "
+        f"multibyte cut is slicing in the wrong domain"
+    )
+
+    # Also check codegraph (6KB limit, even tighter)
+    out2, _, _ = truncate_tool_result("codegraph_explore", text)
+    assert len(out2.encode("utf-8")) <= 6144
+
+    # 4-byte emoji (rarer but worst case for overshoot per char)
+    emoji = "🚀" * 2000  # 8000 bytes, fits in bash limit just barely
+    out3, _, _ = truncate_tool_result("codegraph_explore", emoji)
+    assert len(out3.encode("utf-8")) <= 6144
+
+
+def test_byte_budget_respected_with_small_env_limit(monkeypatch):
+    """Tight env limit (1024) + multibyte content — verifies the
+    defensive re-trim path engages correctly."""
+    monkeypatch.setenv("HARNESS_TOOL_RESULT_LIMIT_BYTES", "1024")
+    text = "中" * 500  # 1500 bytes
+    out, was_cut, _ = truncate_tool_result("bash", text)
+    assert was_cut is True
+    assert len(out.encode("utf-8")) <= 1024
+
+
 # ── truncation_context + event emission ───────────────────────────────
 
 def test_emit_outside_context_is_noop():

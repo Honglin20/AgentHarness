@@ -63,6 +63,7 @@ class ToolFactory(ABC):
         opt-in via the dedup guard config. Preserves sync/async nature.
         """
         from harness.tools._truncate import (
+            _resolve_limit,
             emit_tool_output_truncated,
             truncate_tool_result,
         )
@@ -85,7 +86,7 @@ class ToolFactory(ABC):
                         original_bytes=original_bytes,
                         truncated_bytes=len(truncated.encode("utf-8"))
                         if isinstance(truncated, str) else 0,
-                        limit_bytes=_lookup_limit_for_event(tool_name),
+                        limit_bytes=_resolve_limit(tool_name),
                     )
                 return truncated
             return _async_wrapped
@@ -104,21 +105,10 @@ class ToolFactory(ABC):
                         original_bytes=original_bytes,
                         truncated_bytes=len(truncated.encode("utf-8"))
                         if isinstance(truncated, str) else 0,
-                        limit_bytes=_lookup_limit_for_event(tool_name),
+                        limit_bytes=_resolve_limit(tool_name),
                     )
                 return truncated
             return _sync_wrapped
-
-
-def _lookup_limit_for_event(tool_name: str) -> int:
-    """Resolve the effective limit for the truncated event payload.
-
-    Imported lazily so registry.py doesn't pay the import cost when no
-    truncation happens. Mirrors _resolve_limit but always returns an int
-    (0 means "disabled" — useful telemetry signal).
-    """
-    from harness.tools._truncate import _resolve_limit
-    return _resolve_limit(tool_name)
 
 
 class ToolRegistry:

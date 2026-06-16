@@ -9,6 +9,7 @@
 
 ## 2026-06
 
+- **2026-06-16** — **阶段 3 review follow-ups**：修 C1 critical bug —— UTF-8 字节预算超限（CJK / emoji 内容原代码会超 limit 50%+）；改在字节域切分 + 加防御性 re-trim。补 G1 测试（`test_multibyte_byte_budget_respected` + 小 env 极限用例）。同步把 `import logging` 和 `_lookup_limit_for_event` 移到模块 top-level（消除误导性 lazy 注释）。
 - **2026-06-16** — **阶段 3 工具结果截断**：新增 `harness/tools/_truncate.py` 模块，按工具类型限制返回值字节数（bash 8KB / codegraph_* 6KB / sub_agent 4KB），从源头降低 message_history 增长。`_wrap_fn` 重构为无条件截断（不再依赖 dedup_guard），`LLMExecutor.run()` 用 `truncation_context` 注入 (bus, wid, node, agent) 让截断事件 emit `agent.tool_output_truncated`。env `HARNESS_TOOL_RESULT_LIMIT_BYTES` 全局覆盖（0 禁用）。19 个新测试。
   → [详情](../releases/2026-06-16-tool-result-truncation.md)
 

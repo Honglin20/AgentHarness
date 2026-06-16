@@ -24,8 +24,11 @@ Set to 0 to disable truncation entirely (debugging only).
 from __future__ import annotations
 
 import contextvars
+import logging
 import os
 from typing import Any, Literal
+
+logger = logging.getLogger(__name__)
 
 # ── Per-tool byte limits ────────────────────────────────────────────────
 #
@@ -126,33 +129,31 @@ def truncate_tool_result(
     if original_bytes <= limit:
         return result, False, original_bytes
 
-    # Reserve room for the tail notice so the final payload ≤ limit.
+    # Cut in the BYTE domain, not the character domain. Slicing result[:N]
+    # indexes by character; for multibyte content (CJK / emoji) the encoded
+    # length would overshoot the byte limit. Encode first, cut bytes, then
+    # decode with errors='ignore' to drop any incomplete trailing sequence.
     notice = _TAIL_NOTICE.format(removed=original_bytes - limit)
     notice_bytes = len(notice.encode("utf-8"))
-    # Cut the body so body + notice ≤ limit. If notice itself > limit
-    # (extreme: limit=512 with huge result), still leave at least half
-    # the limit for actual content.
+    # Reserve room for the tail notice so body + notice ≤ limit. If notice
+    # itself would consume more than half the limit (extreme: tiny limit),
+    # still leave at least half the limit for actual content.
     body_budget = max(limit - notice_bytes, limit // 2)
-    truncated_body = result[:body_budget]
-    # Walk back to a UTF-8 char boundary to avoid emitting half a multibyte
-    # sequence (which would crash JSON serialization downstream).
-    truncated_body = _safe_utf8_cut(truncated_body)
+    encoded = result.encode("utf-8")[:body_budget]
+    truncated_body = encoded.decode("utf-8", errors="ignore")
     final = truncated_body + notice
+    # Final defensive check — body_budget arithmetic should guarantee this,
+    # but if a future refactor changes notice formatting we want to fail
+    # safe (extra trim) rather than ship an over-budget payload.
+    final_bytes = len(final.encode("utf-8"))
+    if final_bytes > limit:
+        # Trim the body further to make room. notice is ASCII so its byte
+        # length equals its char length; trim the body by the overshoot.
+        overshoot = final_bytes - limit
+        body_chars = max(0, len(truncated_body) - overshoot)
+        truncated_body = truncated_body[:body_chars]
+        final = truncated_body + notice
     return final, True, original_bytes
-
-
-def _safe_utf8_cut(s: str) -> str:
-    """If s ends with an incomplete UTF-8 sequence, trim it.
-
-    Python str slicing by character count is safe — but we sliced by byte
-    budget via len(s.encode()). result[:body_budget] indexes by CHARACTER,
-    not byte, so the actual encoded length may overshoot. Re-encode and
-    cut at byte boundary, then decode.
-    """
-    encoded = s.encode("utf-8")
-    # Decode with errors='ignore' as a safety net; we already cut on a char
-    # boundary by indexing the original str, so this should be a no-op.
-    return encoded.decode("utf-8", errors="ignore")
 
 
 # ── Runtime context for truncated-event emission ───────────────────────
@@ -238,7 +239,6 @@ def emit_tool_output_truncated(
     except Exception:
         # Never let event emission break the tool call. The truncation
         # itself already happened; this is best-effort telemetry.
-        import logging
-        logging.getLogger(__name__).debug(
+        logger.debug(
             "Failed to emit agent.tool_output_truncated", exc_info=True,
         )
