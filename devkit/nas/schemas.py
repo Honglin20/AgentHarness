@@ -19,7 +19,19 @@ uncontrollable.
 from __future__ import annotations
 
 from typing import Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Change-quota contract constants (Layer 1 of 3)
+# ═══════════════════════════════════════════════════════════════════════
+# Also enforced by helpers/validate_manifest.py (Layer 2) and fitness.py
+# contract_violation check (Layer 3). See plans/flickering-twirl-kay.md.
+MAX_CHANGE_COUNT = 3
+"""Upper bound on change_count for parametric / structural_local strategies.
+
+structural_global is forced to change_count=1 (single new model file).
+"""
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -183,6 +195,50 @@ class ProjectAnalysis(BaseModel):
     )
 
 
+class AdapterGenResult(BaseModel):
+    """adapter_generator agent output. Generates _nas_adapter.py + validates smoke 3-piece."""
+    summary: str
+    adapter_path: str = Field(description="Absolute path to <working_dir>/_nas_adapter.py")
+    adapter_report_path: str = Field(description="Absolute path to <session_dir>/adapter_report.json")
+    smoke_pass: bool = Field(description="True iff smoke train/export/latency all passed")
+    epochs_controllable: bool
+
+
+class DomainAnalysisResult(BaseModel):
+    """domain_analyzer agent output. Identifies domain + architecture + recommends NAS directions."""
+    summary: str
+    domain_insights_path: str = Field(description="Absolute path to <session_dir>/domain_insights.md")
+    domain: str = Field(description="cv | nlp | speech | tabular | rl | wireless | timeseries | rec | unknown")
+    architecture: str = Field(description="cnn | transformer | rnn | mlp | diffusion | mixed | unknown")
+
+
+class BaselineRunResult(BaseModel):
+    """baseline_runner agent output. Runs baseline via run_strategy.py + writes baseline.json via helper."""
+    summary: str
+    baseline_path: str = Field(description="Absolute path to <session_dir>/baseline.json")
+    baseline_profile_path: str | None = Field(
+        default=None,
+        description="Absolute path to <session_dir>/baseline_profile.json (null if profile failed)",
+    )
+    baseline_eval_path: str = Field(description="Absolute path to <session_dir>/baseline_eval.json")
+    one_epoch_sec: float
+    total_epochs: int
+
+
+class TierPlanResult(BaseModel):
+    """tier_planner agent output. Decides tier system based on baseline duration."""
+    summary: str
+    budget_path: str = Field(description="Absolute path to <session_dir>/budget.json")
+    max_tier: int = Field(description="Highest tier index (0=single tier, 1=2-tier)")
+
+
+class MetricsIdentifyResult(BaseModel):
+    """metrics_identifier agent output. Detects metrics + primary direction."""
+    summary: str
+    metrics_path: str = Field(description="Absolute path to <session_dir>/metrics.json")
+    primary_metric: str = Field(description="Default 'acc'; else accuracy-like; else first metric")
+
+
 class ScoutResult(BaseModel):
     """scout agent output. Pure path summary; sub_agent-written files validated separately."""
     summary: str
@@ -215,10 +271,70 @@ class SelectorResult(BaseModel):
 
 
 class StrategyInfo(BaseModel):
-    """One strategy entry in planner output."""
+    """One strategy entry in planner output.
+
+    Change-quota contract (Layer 1 of 3, schema-enforced):
+      - hypothesis_type is single Literal (no mixing within one strategy)
+      - parametric / structural_local: change_count in [1, MAX_CHANGE_COUNT]
+      - structural_global: change_count FORCED =1 (single new model file)
+      - structural_global REQUIRES new_model_path + new_model_class
+      - parametric / structural_local MUST NOT set new_model_path/new_model_class
+
+    Layer 2 (helpers/validate_manifest.py) re-checks at Coder-write time.
+    Layer 3 (fitness.py contract_violation) sinks breaches to fitness=0.0.
+    """
     id: str = Field(description="strategy_id, 'iter_<N>_strategy_<i>' or with '_wc' suffix for wild card")
     hypothesis: str
     diff_path: str
+    hypothesis_type: Literal["parametric", "structural_local", "structural_global"] = Field(
+        description="Single change type per strategy (no mixing)"
+    )
+    change_count: int = Field(
+        description=(
+            "Independent change units. parametric/local: 1..MAX_CHANGE_COUNT; "
+            "structural_global: forced =1."
+        ),
+    )
+    new_model_path: str | None = Field(
+        default=None,
+        description=(
+            "Relative path (within worktree) to new model .py file. "
+            "Required iff hypothesis_type=structural_global, e.g. 'model_v2.py'. "
+            "Must be None for parametric/structural_local."
+        ),
+    )
+    new_model_class: str | None = Field(
+        default=None,
+        description=(
+            "Class name to import from new_model_path. "
+            "Required iff new_model_path is set."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_change_quota(self):
+        if self.hypothesis_type == "structural_global":
+            if self.change_count != 1:
+                raise ValueError(
+                    f"structural_global requires change_count=1 (single new model), "
+                    f"got {self.change_count}"
+                )
+            if not self.new_model_path or not self.new_model_class:
+                raise ValueError(
+                    "structural_global requires both new_model_path and new_model_class"
+                )
+        else:
+            if not (1 <= self.change_count <= MAX_CHANGE_COUNT):
+                raise ValueError(
+                    f"{self.hypothesis_type} requires 1 <= change_count <= {MAX_CHANGE_COUNT}, "
+                    f"got {self.change_count}"
+                )
+            if self.new_model_path is not None or self.new_model_class is not None:
+                raise ValueError(
+                    f"{self.hypothesis_type} must not set new_model_path/new_model_class "
+                    f"(reserved for structural_global)"
+                )
+        return self
 
 
 class PlannerResult(BaseModel):

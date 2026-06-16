@@ -8,11 +8,16 @@ Usage:
     python devkit/nas/register.py --check    # print registered agents, don't save
 
 Design:
-  - All 10 top-level agents declare a Pydantic result_type (schemas.py).
-  - Tools explicitly listed PER AGENT. scout includes ask_user for setup-phase
-    fallback (smoke failure / missing fields / dummy_inputs confirmation).
-    Cycle agents (selector/planner/trainer/judger/analyzer/validator/refiner)
-    exclude ask_user — they must be deterministic or fail loud.
+  - 15 top-level agents (5 setup + scout collector + selector + 6 cycle + reporter).
+  - Setup phase is a static DAG (no sub_agent nesting):
+        project_analyzer
+          ├── adapter_generator ──→ baseline_runner ──┬── tier_planner
+          │                                            └── metrics_identifier
+          └── domain_analyzer
+        scout (collector) after all 5 setup nodes
+  - Tools explicitly listed PER AGENT. adapter_generator keeps ask_user
+    for setup-phase fallback (smoke failure / dummy_inputs confirmation).
+    scout collector and all cycle agents exclude ask_user (deterministic or fail loud).
   - TodoTool is FORCED by the framework, always injected regardless of tools list.
   - render_chart is EXPLICIT-tier, listed only for analyzer/reporter.
 """
@@ -28,14 +33,17 @@ from harness.api import Agent, Workflow
 from harness.extensions.bus import Bus
 
 from schemas import (
-    ProjectAnalysis, ScoutResult, SelectorResult, PlannerResult, TrainerResult,
+    ProjectAnalysis,
+    AdapterGenResult, DomainAnalysisResult, BaselineRunResult,
+    TierPlanResult, MetricsIdentifyResult,
+    ScoutResult, SelectorResult, PlannerResult, TrainerResult,
     JudgerResult, AnalyzerResult, ValidatorResult, RefinerResult, ReporterResult,
 )
 
 
 # Tools — explicitly listed per agent role.
 # Cycle agents exclude ask_user (deterministic or fail loud).
-# scout includes ask_user for setup-phase fallback (smoke failure / missing fields).
+# adapter_generator keeps ask_user for smoke-failure / dummy_inputs fallback.
 NAS_TOOLS = ["bash", "grep", "glob", "sub_agent"]
 NAS_TOOLS_WITH_CHART = NAS_TOOLS + ["render_chart"]
 NAS_TOOLS_WITH_ASK = NAS_TOOLS + ["ask_user"]
@@ -46,13 +54,19 @@ WORKFLOW_DIR = Path(__file__).resolve().parent.parent.parent / "workflows" / "na
 
 
 def build_workflow() -> Workflow:
-    """Construct the NAS workflow with all 10 agents + Pydantic result_types."""
+    """Construct the NAS workflow with 15 agents + Pydantic result_types.
+
+    Setup phase is a static DAG (no sub_agent nesting inside scout):
+      project_analyzer → {adapter_generator, domain_analyzer} parallel
+      adapter_generator → baseline_runner → {tier_planner, metrics_identifier} parallel
+      scout collects all 5 setup outputs into ScoutResult path summary.
+    """
     wf = Workflow(
         name="nas",
         event_bus=Bus(),
-        request_limit=500,  # NAS has many sub_agent calls (project_analyzer + scout + 5-6 sub_agents in setup; K×2 sub_agents per cycle iter)
+        request_limit=200,  # was 500 (scout-nested sub_agent era). Setup is now 5 flat nodes × ~5 calls; cycle unchanged.
         agents=[
-            # ── Setup (one-shot) ────────────────────────────────────────
+            # ── Setup (one-shot, flat DAG) ────────────────────────────────
             Agent(
                 name="project_analyzer",
                 after=[],
@@ -62,9 +76,55 @@ def build_workflow() -> Workflow:
                 result_type=ProjectAnalysis,
             ),
             Agent(
-                name="scout",
+                name="adapter_generator",
                 after=["project_analyzer"],
-                tools=NAS_TOOLS_WITH_ASK,
+                tools=NAS_TOOLS_WITH_ASK,  # smoke failure / dummy_inputs fallback
+                model=None,
+                retries=2,
+                result_type=AdapterGenResult,
+            ),
+            Agent(
+                name="domain_analyzer",
+                after=["project_analyzer"],  # parallel with adapter_generator; does NOT need baseline
+                tools=NAS_TOOLS,
+                model=None,
+                retries=2,
+                result_type=DomainAnalysisResult,
+            ),
+            Agent(
+                name="baseline_runner",
+                after=["adapter_generator"],  # needs adapter smoke pass
+                tools=NAS_TOOLS,
+                model=None,
+                retries=2,
+                result_type=BaselineRunResult,
+            ),
+            Agent(
+                name="tier_planner",
+                after=["baseline_runner"],  # needs baseline duration
+                tools=NAS_TOOLS,
+                model=None,
+                retries=2,
+                result_type=TierPlanResult,
+            ),
+            Agent(
+                name="metrics_identifier",
+                after=["baseline_runner"],  # needs baseline metrics; parallel with tier_planner
+                tools=NAS_TOOLS,
+                model=None,
+                retries=2,
+                result_type=MetricsIdentifyResult,
+            ),
+            Agent(
+                name="scout",
+                after=[
+                    "adapter_generator",
+                    "domain_analyzer",
+                    "baseline_runner",
+                    "tier_planner",
+                    "metrics_identifier",
+                ],
+                tools=NAS_TOOLS,  # collector — no ask_user (cycle non-interactive principle)
                 model=None,
                 retries=2,
                 result_type=ScoutResult,
