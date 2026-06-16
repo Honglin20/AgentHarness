@@ -499,6 +499,7 @@ def make_node_func(
             try:
                 last = executor.get_last_request_usage()
                 cache_hit = getattr(usage_obj, "cache_read_tokens", 0) or 0
+                last_cache_hit = last.get("last_cache_hit", 0)
                 token_usage = {
                     # Legacy fields (cumulative semantics — unchanged)
                     "input": usage_obj.input_tokens,
@@ -513,7 +514,10 @@ def make_node_func(
                     # AI accrues across requests in the same iter().
                     "last_input": last.get("last_input", 0),
                     "last_output": last.get("last_output", 0),
-                    # Cache hit (cumulative — prompt caching dedup)
+                    # Cache hit split for symmetry with input/output.
+                    "cumulative_cache_hit": cache_hit,
+                    "last_cache_hit": last_cache_hit,
+                    # Legacy short alias kept for backward compat.
                     "cache_hit": cache_hit,
                 }
             except Exception:

@@ -74,6 +74,11 @@ function BudgetBarInner({ envelope, nodes }: BudgetBarProps) {
   // "Max" not "sum" because each agent has its own message_history; the
   // workflow's context pressure is the worst agent, not the total.
   let maxWindowTokens = 0;
+  // Whether ANY node has reported stage-2 last_* fields. Old runs / pre-stage-2
+  // replayed events lack last_*; falling back to cumulative for them would
+  // show a misleading 125% red bar (cumulative can be > modelContextLimit).
+  // Instead, we hide the Window bar entirely when no node has real last data.
+  let anyNodeHasLastUsage = false;
 
   for (const node of Object.values(nodes)) {
     // Only count nodes that have actually started (status !== "idle") toward
@@ -85,12 +90,18 @@ function BudgetBarInner({ envelope, nodes }: BudgetBarProps) {
     nodeCount += 1;
     if (node.tokenUsage) {
       totalTokens += node.tokenUsage.input + node.tokenUsage.output;
-      // Window = most recent single-shot request. Falls back to cumulative
-      // (input + output) when last_* missing — old events / replayed data.
-      const lastIn = node.tokenUsage.lastInput ?? node.tokenUsage.input;
-      const lastOut = node.tokenUsage.lastOutput ?? node.tokenUsage.output;
-      const window = lastIn + lastOut;
-      if (window > maxWindowTokens) maxWindowTokens = window;
+      // Window = most recent single-shot request. Only count when the node
+      // has real last_* (stage-2 backend). Without this guard, cumulative
+      // usage on old runs would render against modelContextLimit and look
+      // like context exploded — the exact panic this stage is meant to fix.
+      if (
+        node.tokenUsage.lastInput != null &&
+        node.tokenUsage.lastOutput != null
+      ) {
+        anyNodeHasLastUsage = true;
+        const window = node.tokenUsage.lastInput + node.tokenUsage.lastOutput;
+        if (window > maxWindowTokens) maxWindowTokens = window;
+      }
     }
     if (node.toolCallCount) {
       totalSteps += node.toolCallCount;
@@ -110,8 +121,10 @@ function BudgetBarInner({ envelope, nodes }: BudgetBarProps) {
   // before any envelope exists) — request budget is a per-agent concept that
   // doesn't depend on the workflow envelope.
   const showRequestsBar = totalRequests > 0 && nodeCount > 0;
-  // Show Window bar only when at least one node has reported usage.
-  const showWindowBar = maxWindowTokens > 0 && nodeCount > 0;
+  // Show Window bar only when at least one node has reported stage-2 last_*.
+  // Old runs without last_* would otherwise show misleading cumulative-against-
+  // limit bars.
+  const showWindowBar = anyNodeHasLastUsage && maxWindowTokens > 0 && nodeCount > 0;
 
   if (!hasMaxTokens && !hasMaxSteps && !hasMaxDuration && !showRequestsBar && !showWindowBar) return null;
 

@@ -181,10 +181,12 @@ export const agentHandlers: [string, EventHandler][] = [
         p.requests,
         p.input_tokens,
         p.output_tokens,
-        // New stage-2 fields — undefined on old events, store handles fallback.
+        // Stage-2 fields — undefined on old events. BudgetBar hides the
+        // Window bar when last_* is missing rather than misleading users.
         p.last_input,
         p.last_output,
-        p.cache_hit,
+        p.cumulative_cache_hit ?? p.cache_hit,
+        p.last_cache_hit,
       );
     },
   ],

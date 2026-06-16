@@ -395,6 +395,8 @@ async def test_last_input_single_request():
     assert payload["last_input"] == 50         # single-shot
     assert payload["last_output"] == 10
     assert payload["cache_hit"] == 5
+    assert payload["cumulative_cache_hit"] == 5
+    assert payload["last_cache_hit"] == 5
 
 
 @pytest.mark.asyncio
@@ -524,3 +526,75 @@ def test_get_last_request_usage_returns_zero_before_any_run():
     executor = LLMExecutor(agent, MagicMock())
     last = executor.get_last_request_usage()
     assert last == {"last_input": 0, "last_output": 0, "last_cache_hit": 0}
+
+
+@pytest.mark.asyncio
+async def test_negative_delta_clamps_and_emits_ext_error():
+    """If usage.incr lowered input_tokens between baseline capture and exit
+    (instrumentation bug, mocked behavior, or a future refactor), delta goes
+    negative. Must clamp to 0 and surface ext.error so operators notice —
+    silently propagating negative numbers to the UI would be worse.
+    """
+    from pydantic_graph import End
+    end_node = End("done")
+
+    node = MagicMock()
+    node._type = "model_request"
+
+    # Mutable usage that drops between baseline capture (entry) and exit.
+    # First read at entry returns 100; stream_response flips it to 50; the
+    # exit read sees 50 → delta = 50 - 100 = -50.
+    usage = SimpleNamespace(
+        input_tokens=100, output_tokens=20, requests=1,
+        total_tokens=120, cache_read_tokens=0,
+    )
+
+    class _StreamCtx:
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *a):
+            return False
+        async def stream_response(self):
+            # Flip usage to a value LOWER than baseline to force negative delta.
+            usage.input_tokens = 50
+            usage.output_tokens = 10
+            yield SimpleNamespace(parts=[])
+
+    class _MockIter:
+        def __init__(self):
+            self.next_node = node
+            self.ctx = MagicMock()
+            self.ctx.state = SimpleNamespace(usage=usage, message_history=[])
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *a):
+            return False
+        async def next(self, n):
+            return end_node
+
+    agent = MagicMock()
+    iter_ctx = _MockIter()
+    agent.iter = MagicMock(return_value=iter_ctx)
+    agent.is_model_request_node = lambda n: getattr(n, "_type", None) == "model_request"
+    agent.is_call_tools_node = lambda n: False
+    node.stream = lambda ctx: _StreamCtx()
+
+    bus = MagicMock()
+    executor = LLMExecutor(
+        agent, MagicMock(),
+        event_bus=bus,
+        workflow_id="wf1", node_id="n1", agent_name="a1",
+    )
+    # Bypass run()'s reset by calling _handle_model_request directly so
+    # our mock usage values flow through unchanged.
+    await executor._handle_model_request(node, iter_ctx.ctx)
+
+    # ext.error emitted with the diagnostic
+    error_events = [c for c in bus.emit.call_args_list if c.args[0] == "ext.error"]
+    assert len(error_events) == 1
+    assert "negative usage delta" in error_events[0].args[1]["error"]
+
+    # Last values clamped to 0, not negative
+    last = executor.get_last_request_usage()
+    assert last["last_input"] == 0
+    assert last["last_output"] == 0

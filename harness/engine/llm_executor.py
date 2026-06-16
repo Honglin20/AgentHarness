@@ -356,17 +356,23 @@ class LLMExecutor:
                     "node_id": self._node_id,
                     "agent_name": self._agent_name,
                     "requests": getattr(ctx.state.usage, "requests", 0) or 0,
-                    # Legacy fields (cumulative semantics, unchanged)
+                    # Legacy fields (cumulative semantics — deprecated aliases
+                    # for cumulative_input/output; kept for backward compat
+                    # with pre-stage-2 consumers).
                     "input_tokens": current_input,
                     "output_tokens": current_output,
                     "total_tokens": current_input + current_output,
-                    # New: explicit cumulative aliases
+                    # Stage 2: explicit cumulative (numerically == legacy).
                     "cumulative_input": current_input,
                     "cumulative_output": current_output,
-                    # New: per-request single-shot
+                    # Stage 2: per-request single-shot (most recent LLM call).
                     "last_input": last_input,
                     "last_output": last_output,
-                    # New: cache hit (cumulative — prompt caching dedup)
+                    # Stage 2: cache hit split into cumulative + last for
+                    # symmetry with input/output. `cache_hit` short alias
+                    # kept for convenience but duplicates cumulative value.
+                    "cumulative_cache_hit": current_cache_hit,
+                    "last_cache_hit": last_cache_hit,
                     "cache_hit": current_cache_hit,
                 }, priority="normal")
             except Exception:

@@ -171,6 +171,8 @@ describe("PR-D agent handlers — workflow filtering", () => {
         cumulative_output: 30,
         last_input: 80,            // single-shot
         last_output: 10,
+        cumulative_cache_hit: 15,
+        last_cache_hit: 5,
         cache_hit: 15,
       }),
       makeCtx(),
@@ -182,7 +184,8 @@ describe("PR-D agent handlers — workflow filtering", () => {
       30,
       80,
       10,
-      15,
+      15,  // cumulative_cache_hit (preferred over legacy cache_hit)
+      5,   // last_cache_hit
     );
   });
 
@@ -202,9 +205,15 @@ describe("PR-D agent handlers — workflow filtering", () => {
       }),
       makeCtx(),
     );
-    // Last three args undefined — store handles fallback in BudgetBar.
+    // Stage-2 args all undefined — store leaves lastInput etc. undefined,
+    // which BudgetBar uses to hide the Window bar (no misleading cumulative
+    // against modelContextLimit).
     expect(stores.workflow.getState().setNodeUsage).toHaveBeenCalledWith(
-      "agent_a", 1, 100, 20, undefined, undefined, undefined,
+      "agent_a", 1, 100, 20,
+      undefined,  // lastInput
+      undefined,  // lastOutput
+      undefined,  // cumulativeCacheHit
+      undefined,  // lastCacheHit
     );
   });
 

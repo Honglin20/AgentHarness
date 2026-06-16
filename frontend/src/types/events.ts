@@ -484,6 +484,12 @@ export interface AgentUsageUpdatePayload {
   cumulative_output?: number;
   last_input?: number;
   last_output?: number;
+  // Cumulative cache hits across the iter(). Preferred over the legacy
+  // `cache_hit` short alias when present.
+  cumulative_cache_hit?: number;
+  // Single-shot cache hit for the most recent model request.
+  last_cache_hit?: number;
+  // Legacy short alias (== cumulative_cache_hit). Deprecated.
   cache_hit?: number;
 }
 

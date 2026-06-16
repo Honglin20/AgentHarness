@@ -27,11 +27,15 @@ export interface NodeState {
     total: number;
     // Stage 2 — explicit cumulative aliases + per-request single-shot.
     // Optional: missing on old runs / replayed events from before stage 2.
-    // BudgetBar Window bar falls back to cumulative when lastInput missing.
+    // BudgetBar Window bar is HIDDEN when lastInput missing (no fallback to
+    // cumulative — that would mislead users with 125% red bars on long runs).
     cumulativeInput?: number;
     cumulativeOutput?: number;
     lastInput?: number;
     lastOutput?: number;
+    cumulativeCacheHit?: number;
+    lastCacheHit?: number;
+    // Legacy alias (== cumulativeCacheHit). Deprecated.
     cacheHit?: number;
   };
   /** Per-agent token breakdown — present when backend emits `token_breakdown`. */
@@ -140,6 +144,7 @@ export interface WorkflowState {
     lastInput?: number,
     lastOutput?: number,
     cacheHit?: number,
+    lastCacheHit?: number,
   ) => void;
 
   // Cache management for batch mode
@@ -304,7 +309,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
       },
     })),
 
-  setNodeUsage: (nodeId, requests, inputTokens, outputTokens, lastInput, lastOutput, cacheHit) =>
+  setNodeUsage: (nodeId, requests, inputTokens, outputTokens, lastInput, lastOutput, cacheHit, lastCacheHit) =>
     set((state) => ({
       nodes: {
         ...state.nodes,
@@ -320,6 +325,8 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
             cumulativeOutput: outputTokens,
             lastInput,
             lastOutput,
+            cumulativeCacheHit: cacheHit,
+            lastCacheHit,
             cacheHit,
           },
         },

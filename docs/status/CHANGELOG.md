@@ -9,6 +9,9 @@
 
 ## 2026-06
 
+- **2026-06-16** — **阶段 2 review follow-ups**：(1) BudgetBar 缺 last_* 时不再 fallback 到 cumulative（否则会显示误导的 125% 红条），改为隐藏 Window 行；(2) `cache_hit` 拆为 `cumulative_cache_hit` + `last_cache_hit`（对称）；(3) 加 `negative delta` 测试（clamp + ext.error）+ `setNodeUsage` store 行为测试（确保 last 缺失时保持 undefined）。
+  → [详情](../releases/2026-06-16-token-stats-semantic-split.md)
+
 - **2026-06-16** — **阶段 2 Token 统计语义分离**：区分「累计消耗」（cost）和「当前上下文窗口」（window）。LLMExecutor 加 baseline + delta 计算，`agent.usage_update` 事件附 last_input/output/cache_hit；BudgetBar 拆双进度条：Cost 行（累计 / envelope）+ Window 行（max 单次 / 模型上下文上限）。retry 边界 + 旧事件兼容全覆盖。78 后端 + 8 前端测试全过。
   → [详情](../releases/2026-06-16-token-stats-semantic-split.md)
 
