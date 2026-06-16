@@ -457,7 +457,11 @@ def make_node_func(
                 io_data = {
                     "input_prompt": context,
                     "system_prompt": augmented_prompt,
-                    "output_result": str(output),
+                    # Mirror the model_dump pattern used at lines 435 / 626 so
+                    # any future caller passing a BaseModel here serialises
+                    # consistently. Today `output` is always a string (partial
+                    # text or sentinel), so the BaseModel branch is defensive.
+                    "output_result": output.model_dump() if isinstance(output, BaseModel) else str(output),
                 }
                 builder_self.agent_io[agent_def.name] = io_data
                 _collect_todo_state(builder_self, deps, agent_def.name)
