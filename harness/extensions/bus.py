@@ -54,6 +54,7 @@ logger = logging.getLogger(__name__)
 # To add a new critical event type, append here. safe_emit/emit default to
 # priority=None, which auto-resolves via this set; explicit priority= overrides.
 CRITICAL_EVENT_TYPES: frozenset[str] = frozenset({
+    # ── L1 Hot: missing one permanently corrupts UI state ──────────────
     # Workflow lifecycle
     "workflow.started",
     "workflow.completed",
@@ -72,34 +73,29 @@ CRITICAL_EVENT_TYPES: frozenset[str] = frozenset({
     "node.started",
     "node.completed",
     "node.failed",
-    # Tool state changes (agent decisions hang on these — UI must show them)
-    "agent.tool_call",
-    "agent.tool_result",
-    "agent.tool_output_truncated",
-    # LLM retry/failure visibility (PR-D) — late subscribers MUST see these so
-    # they can reconstruct retry history and final classified failure reason.
-    "agent.retry_attempted",
+    # Final classified failure (PR-D) — losing this loses the durable
+    # failure summary. Earlier retry_attempted events are normal because
+    # the final classified reason subsumes them.
     "agent.failed_with_classified_reason",
-    # Async tool completion (run_in_background)
-    "bash.background_completed",
-    # Interactive prompts: chat.question is emitted by ask_user.py today.
-    # chat.answer / chat.timeout are reserved for PR-C — when ask_user starts
-    # emitting answer/timeout as Bus events (so late subscribers can replay
-    # them), they should already be critical. See harness/tools/_human_io.py.
+    # Interactive prompts: chat.question/answer/timeout are HITL anchors.
+    # Missing any of these permanently blocks a human-in-the-loop decision
+    # (ask_user would re-fire on refresh, but the original answer is lost).
     "chat.question",
     "chat.answer",
     "chat.timeout",
-    # TODO planning (UI renders TodoStepList from these)
-    "todo.created",
-    "todo.updated",
-    "todo.bulk_completed",  # complete_remaining — bulk finish all non-terminal steps
-    "todo.replaced",        # replace — discard current plan and create new one
-    # Followup lifecycle
-    "followup.started",
-    "followup.completed",
-    "followup.failed",
-    # Chart rendering (final render results — losing them drops a chart)
-    "chart.render",
+    # ── Note on demoted types (2026-06-16 long-run replay refactor) ────
+    # The following used to be critical but were demoted to normal because
+    # they are reconstructable from snapshot (snapshots/latest.json) or
+    # later state:
+    #   agent.tool_call / tool_result / tool_output_truncated
+    #   agent.retry_attempted
+    #   bash.background_completed
+    #   todo.created / updated / bulk_completed / replaced
+    #   chart.render
+    #   followup.started / completed / failed
+    # Late subscribers now rely on the snapshot API + iter sidecars for
+    # historical detail; the buffer only carries live updates.
+    # See docs/plans/2026-06-16-long-run-replay-architecture.md.
 })
 
 

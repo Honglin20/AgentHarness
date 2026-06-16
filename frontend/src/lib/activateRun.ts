@@ -83,6 +83,17 @@ export async function activateRun(runId: string): Promise<void> {
   }
 
   if (full.status === "running") {
+    // Surgical fix for "history → running switch doesn't update middle panel":
+    // activateRun was only updating useAppViewStore + global workflowStore,
+    // leaving useViewStore.activeView pointing at the prior replay runId.
+    // useActiveWorkflowId (WorkflowCenterPanel.tsx:35-50) prioritises
+    // useViewStore, so WorkflowScope wrapped the wrong workflowId and all
+    // scoped hooks kept reading history's stores. showLive() resets the
+    // replay state (resetAllStores on the prior runId + activeView → live)
+    // so the fallback `return workflowId` branch returns the running id.
+    // See docs/plans/2026-06-16-nas-run-findings-and-arch-issues.md #5.
+    useViewStore.getState().showLive();
+
     // Live run — populate global workflowStore so page.tsx detects the
     // workflowId and switches to run layout.
     useWorkflowStore.getState().setWorkflow(

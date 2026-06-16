@@ -191,6 +191,23 @@ class RunStoreInterface(ABC):
         """
         ...
 
+    @abstractmethod
+    def save_snapshot(self, run_id: str, snapshot: dict) -> None:
+        """Write the latest-state snapshot sidecar (long-run replay O(1) refresh).
+
+        Snapshot is incrementally maintained by node_factory after each node
+        completion. Carries run metadata, DAG nodes' latest invocation status,
+        current-iter state slice, and fitness_history (full series).
+
+        See docs/plans/2026-06-16-long-run-replay-architecture.md.
+        """
+        ...
+
+    @abstractmethod
+    def get_snapshot(self, run_id: str) -> dict | None:
+        """Load the snapshot sidecar, or None if absent (legacy / never written)."""
+        ...
+
     # ------------------------------------------------------------------ #
     # Delete paths
     # ------------------------------------------------------------------ #

@@ -330,8 +330,21 @@ def test_resolve_priority_whitelist_membership():
     assert _resolve_priority("node.completed", None) == "critical"
     assert _resolve_priority("workflow.started", None) == "critical"
     assert _resolve_priority("chat.question", None) == "critical"
-    assert _resolve_priority("todo.created", None) == "critical"
-    assert _resolve_priority("bash.background_completed", None) == "critical"
+
+    # Lifecycle stays critical; tool/todo/chart events are normal (snapshot-reconstructable)
+    assert _resolve_priority("agent.failed_with_classified_reason", None) == "critical"
+    assert _resolve_priority("workflow.interrupted", None) == "critical"
+
+    # Demoted to normal (2026-06-16 long-run replay refactor) — snapshot covers these
+    assert _resolve_priority("todo.created", None) == "normal"
+    assert _resolve_priority("todo.updated", None) == "normal"
+    assert _resolve_priority("todo.bulk_completed", None) == "normal"
+    assert _resolve_priority("bash.background_completed", None) == "normal"
+    assert _resolve_priority("agent.tool_call", None) == "normal"
+    assert _resolve_priority("agent.tool_result", None) == "normal"
+    assert _resolve_priority("agent.retry_attempted", None) == "normal"
+    assert _resolve_priority("chart.render", None) == "normal"
+    assert _resolve_priority("followup.started", None) == "normal"
 
     # Streaming deltas are normal (reconstructable from later state)
     assert _resolve_priority("agent.text_delta", None) == "normal"
@@ -390,7 +403,7 @@ def test_critical_event_survives_normal_buffer_eviction():
     # Sprinkle critical events at various points
     bus.emit("node.completed", {"node_id": "n1"})
     bus.emit("workflow.completed", {"workflow_id": "wf"})
-    bus.emit("agent.tool_output_truncated", {"node_id": "n1"})
+    bus.emit("chat.answer", {"workflow_id": "wf", "question_id": "q1", "answer": "yes"})
 
     # Normal buffer is capped at 100 — older normals evicted
     assert len(bus._buffer) == 100
@@ -399,7 +412,7 @@ def test_critical_event_survives_normal_buffer_eviction():
     crit_types = [e["type"] for e in bus._critical_buffer]
     assert "node.completed" in crit_types
     assert "workflow.completed" in crit_types
-    assert "agent.tool_output_truncated" in crit_types
+    assert "chat.answer" in crit_types
 
 
 def test_late_subscriber_receives_critical_events():

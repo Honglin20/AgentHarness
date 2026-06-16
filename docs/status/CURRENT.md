@@ -55,3 +55,52 @@
 - 阶段 1 review 标记的 3 个 P2 推后项仍跟踪（chat.answer dev warning / rawToAnswer legacy 双模式 / 端到端 WS replay 集成测试）
 - NAS workflow ONNX 已完成，等下次跑 NAS 实测验收
 - Pre-existing 测试失败（test_chart × 3, test_sub_agent × 1, 前端 workflowHandlers import 问题）单独跟踪
+
+## 旁路：NAS run 实测发现 + Harness 架构问题（2026-06-16）
+
+跑完 NAS workflow（timeseries / cifar_cnn）后梳理出 5 个跨 NAS 业务层 / Harness 框架层的问题，**已写完整分析待排期**，与当前阶段 3 任务**并行跟踪**，不冲突。
+
+详细分析与修复方案见 [`docs/plans/2026-06-16-nas-run-findings-and-arch-issues.md`](../plans/2026-06-16-nas-run-findings-and-arch-issues.md)。
+
+### NAS Workflow 问题（业务设计层）
+
+- **#1 Latency 目标 HITL 缺失**：cycle 非交互前提下，把"目标确认 + 宽放策略"上提到 setup（scout）一次性捕获，cycle 内 `check_target.py` deterministic 判定。建议用 LangGraph `interrupt()` 而非 ask_user。**P1 / 1.5-2 天**
+- **#3 Coder + Runner sub_agent 合并（fast_mode）**：用户提议把 coder sub_agent 写完 diff 后直接跑 training，省掉 trainer 重新 spawn runner。客观判断：部分场景合理但不应作默认，建议保留解耦默认 + 新增 `fast_mode` 配置。**P2 / 2-3 天**
+
+### Harness 架构问题（通用框架层）
+
+- **#2 HITL 机制盘点**：框架已有 LangGraph `interrupt()` 路径（`workflow_runtime.py:130-134`）+ 预留事件类型（`workflow.interrupted` / `workflow.waiting_for_guidance`），但**零业务调用方**。问题 #1 实施时顺带启用。跟随 #1
+- **#4 CRITICAL_EVENT_TYPES 错分类**：`agent.tool_call` / `tool_result` / `todo.*` / `chart.render` / `bash.background_completed` 等被错标 critical，导致 buffer 单调增长、刷新 replay 风暴。不会导致数据错误，但长跑后刷新慢。重分类前需验证前端 sidecar 兜底。**P1 / 半天-1 天**
+- **#5 历史切到运行中切不过去（Bug）**：`useAppViewStore` 与 `useViewStore` 不同步 —— `activateRun` running 分支没调 `showLive()`，`useActiveWorkflowId()` 优先读 useViewStore 仍返回 history runId。单行修复：`activateRun.ts:85` 加 `useViewStore.getState().showLive()`。**P0 / 半小时**
+
+### 建议执行顺序
+
+P0（#5 单行修复）→ P1（#4 重分类 + #1 setup HITL）→ P2（#3 fast_mode）。可与阶段 3 工具结果截断并行排期。
+
+## 旁路：长 Run Replay 架构专项（2026-06-16，单独立项）
+
+问题 #4 的"方案 A 重分类"只是 80% 解，长 run（NAS 200+ iter）刷新仍可能 1-2s。用户决策**从根本上解决** —— 刷新延迟与 run 长度完全解耦。单独立项，4 phase 共 11-14 天。
+
+详细计划见 [`docs/plans/2026-06-16-long-run-replay-architecture.md`](../plans/2026-06-16-long-run-replay-architecture.md)。
+
+**核心架构**：Snapshot + Incremental + On-demand
+- L1 Hot（lifecycle/chat/失败）→ critical 全 replay
+- L2 Warm（tool/todo/chart/text_delta）→ FIFO 1000 + snapshot 摘要
+- L3 Cold（详细 tool 输出 / 历史 agent_io）→ run_store sidecar 按需查
+
+**目标态**：
+- 刷新延迟 O(1)，< 500ms（无论 run 长度）
+- Cycle agent 多轮 → 主视图显 latest iter，节点详情用**下拉选择器**按需切历史 iter
+- Conversation **按 iter 隔离**（不再全局时间线），单 iter > 50 条才分页
+- Fitness 序列全量进 snapshot（200 iter ≈ 6KB）
+- 明确放弃"完整回放模式"
+
+**Phase 排期**：
+| Phase | 工作量 | 价值 |
+|---|---|---|
+| 1 事件分层 + Snapshot API | 4-5 天 | 刷新慢根治 |
+| 2 Cycle iter 持久化 + 查询 API | 2-3 天 | 多轮可追溯 |
+| 3 前端 iter 下拉 + Conversation 隔离 | 3-4 天 | UI 闭环 |
+| 4 Fitness 全量 + Chart 按需 | 2 天 | 趋势图完整 |
+
+包含原问题 #4 的重分类作为 Phase 1 第一步；原问题 #5（activateRun showLive）是 Phase 1 前置 surgical fix，独立修。

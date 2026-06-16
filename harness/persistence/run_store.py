@@ -27,6 +27,7 @@ _SAFE_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 _CHARTS_SUFFIX = "+charts.json"
 _EVENTS_SUFFIX = "+events.json"
 _OUTLINE_SUFFIX = "+outline.json"
+_SNAPSHOT_SUFFIX = "+snapshot.json"
 
 
 class RunStore(RunStoreInterface):
@@ -36,6 +37,8 @@ class RunStore(RunStoreInterface):
       {run_id}.json           — main record (metadata, conversation, agent_io, etc.)
       {run_id}_charts.json    — chart_groups data
       {run_id}_events.json    — events buffer (with chart.render data deduplicated)
+      {run_id}_outline.json   — outline summary
+      {run_id}_snapshot.json  — latest-state snapshot for fast refresh (long-run replay)
     """
 
     def __init__(self, runs_dir: str | Path | None = None):
@@ -137,6 +140,11 @@ class RunStore(RunStoreInterface):
         if not _SAFE_ID_RE.match(run_id):
             return None
         return self._dir / f"{run_id}{_OUTLINE_SUFFIX}"
+
+    def _snapshot_path(self, run_id: str) -> Path | None:
+        if not _SAFE_ID_RE.match(run_id):
+            return None
+        return self._dir / f"{run_id}{_SNAPSHOT_SUFFIX}"
 
     def _atomic_write(self, path: Path, content: str) -> None:
         """Write content atomically via tmp + rename.
@@ -626,6 +634,41 @@ class RunStore(RunStoreInterface):
             record = json.loads(path.read_text())
             record["_has_outline"] = bool(outline)
             self._atomic_write(path, json.dumps(record, separators=(",", ":"), ensure_ascii=False))
+
+    def save_snapshot(self, run_id: str, snapshot: dict) -> None:
+        """Write the latest-state snapshot sidecar (overwrites; not append-only).
+
+        Snapshot is the O(1) refresh payload for long-run replay. It carries:
+          - run metadata (status, current_iter, seq_cursor)
+          - DAG nodes' latest invocation status (per-node latest iter only)
+          - current-iter state slice (todo, conversation tail, chart tail)
+          - fitness_history (full series, every cycle agent's iter 1..N)
+
+        Incrementally maintained: node_factory._save_incremental calls this
+        after each node completion with the up-to-date aggregation. Reads
+        are O(1) — get_snapshot just loads and returns the file.
+
+        Failures here should not abort the workflow (incremental_save wraps
+        us in try/except), but we still raise so callers can decide.
+        """
+        snapshot_path = self._snapshot_path(run_id)
+        if snapshot_path is None:
+            return
+        self._atomic_write(
+            snapshot_path,
+            json.dumps(snapshot, separators=(",", ":"), ensure_ascii=False),
+        )
+
+    def get_snapshot(self, run_id: str) -> dict | None:
+        """Load the snapshot sidecar, or None if absent (legacy / never written)."""
+        snapshot_path = self._snapshot_path(run_id)
+        if snapshot_path is None or not snapshot_path.exists():
+            return None
+        try:
+            return json.loads(snapshot_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            logger.warning("Failed to read snapshot for %s", run_id, exc_info=True)
+            return None
 
 
 # ---------------------------------------------------------------------------
