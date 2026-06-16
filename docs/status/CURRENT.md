@@ -93,21 +93,26 @@ P0（#5 单行修复）→ P1（#4 重分类 + #1 setup HITL）→ P2（#3 fast_
 |---|---|---|---|
 | 1 事件分层 + Snapshot API + WS cursor | 4-5 天 | ✅ 完成 | `808e6f7` + `1b57e1b` |
 | 2 后端 Cycle iter 持久化 + 查询 API | 2-3 天 | ✅ 完成（backend） | `7062d51` |
-| 3 前端 iter 下拉 + Conversation 隔离 | 3-4 天 | ⏸️ 待启动 | — |
+| 3a Conversation 历史分页（解决 Phase 2 limitation） | 半天 | ✅ 完成 | `5d8f28c` |
+| 3b 前端 iter 下拉 + Conversation 按 iter 隔离 | 2-3 天 | ⏸️ 待启动（依赖事件 iter 标签） | — |
 | 4 Fitness 全量 + Chart 按需 | 2 天 | ⏸️ 待启动 | — |
 
 包含原问题 #4 的重分类作为 Phase 1 第一步；原问题 #5（activateRun showLive）是 Phase 1 前置 surgical fix，已落地。
 
-### Phase 3 待启动：前端 iter 下拉 + Conversation 隔离
+### Phase 3a 完成内容（`5d8f28c`）
 
-**前置 known limitation**（Phase 2 引入，Phase 3 必须解决）：snapshot.conversation 限到 tail-50，但 Phase 1 的 `hydrateFromSnapshot` 把它当整个 conversation 写入 store → 刷新后看不到 50 条之前的消息（如 scout setup 阶段的 ask_user）。
+后端 snapshot 加 `conversation_total`；前端 `hydrateFromSnapshot` 据此设置 `hasEarlier`。`ScopedConversationTab` 已有的 "Load earlier messages" 按钮自动生效 → 用户刷新后能滚动加载更早消息。
+
+**已知事实**：原计划的 iter 下拉切换器已经存在（`OutlineMode` 左侧 outline 列表就是 iter 切换器，`OutlineItemRow` 通过 iteration badge 显示 "#N"），不需要新建。
+
+### Phase 3b 待启动（依赖事件 iter 标签）
+
+conversation 按 iter 隔离需要每个事件携带 iter 字段（Phase 2 跳过的原 Task #3）。当前 conversation message 已有 `iteration` 字段（`AgentDetailView` 已使用），但事件流到 conversation message 的映射在 collector 层，需要审计。
 
 **实施清单**：
-1. `NodeIterSelector` 下拉组件（读 `snapshot.nodes_latest[id].latest_iter` + 调 `/iters` 拿列表）
-2. `AgentIODrawer` 集成：选中 iter → 调 `/iters/{n}` 拉详情
-3. `useConversationMessages` 按 `selectedIter` 过滤
-4. DAG 节点渲染 "iter N (latest)" 标签
-5. Conversation 历史分页：滚动到顶部调 `/runs/{id}/conversation?before=N&limit=50`
+1. 事件持久化时打 iter 字段（`harness/run_store.py` events 写入路径）
+2. `useConversationMessages` 按 `selectedIter` 过滤
+3. （可选）`AgentDetailView` 调 `/iters/{n}` 拿后端持久化的 input_prompt 完整内容
 
 ### Phase 4 待启动：Fitness 全量 + Chart 按需
 
