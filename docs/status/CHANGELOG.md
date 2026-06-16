@@ -9,8 +9,11 @@
 
 ## 2026-06
 
+- **2026-06-16** — **ask_user P1 review follow-ups**：float timeout 接受 / stdin EOFError raise（不再 silent return）/ 进程级 asyncio.Lock 防止并发 prompt 交错。补 5 个测试缺口（float、EOF、stdin lock 序列化、interrupted skip、orphan answer）。
+  → [详情](../releases/2026-06-16-ask-user-refresh-timeout-cli.md)（commit `01b5c6d`）
+
 - **2026-06-16** — **ask_user 三缺陷 P0 修复**：(1) emit `chat.answer` / `chat.timeout` 让 WS replay 后刷新场景正确还原（不再"刷新后再次询问"）；(2) `HARNESS_ASK_USER_TIMEOUT` env 替代硬编码 60s，默认 `-1`=无限；(3) bus 为 None 时走 stdin fallback，CLI / `python run_workflow(ui=False)` 模式可用。
-  → [详情](../releases/2026-06-16-ask-user-refresh-timeout-cli.md)
+  → [详情](../releases/2026-06-16-ask-user-refresh-timeout-cli.md)（commit `af923ad`）
 
 - **2026-06-12** — **失败节点 IO 展示（浅版本）**：`node.failed` 事件加 `io_data`（input_prompt + system_prompt）,前端 agentIO store 路由打通,`AgentMessage` 去掉 `isDone` 门控,output tab fallback 到 streaming 累积文本。格式错误时终于能看到 agent 实际输入/输出了。
   → [详情](../releases/2026-06-12-failed-node-io-display.md)
