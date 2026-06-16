@@ -42,6 +42,42 @@ harness ui --project-root /path/to/project  # 显式指定项目根
 harness list              # 列出已发现的 workflow 和 benchmark
 ```
 
+### 从命令行运行 workflow（无 UI）
+
+除 Web UI 外，也可以直接在终端跑 workflow。运行记录会写到与 server 相同的
+`runs/` 目录（`$HARNESS_RUNS_DIR` 或 `CWD/runs/`），所以**事后启动 `harness ui`
+能在浏览器历史里看到 CLI 跑过的 run 并完整 replay**。
+
+```bash
+# 列出可用 workflow
+harness list
+#   Workflows:
+#     [project] ask_user_demo  (...)
+#     [project] nas            (...)
+#     [builtin]  demo_pipeline (...)
+
+# 跑一个 workflow（inputs 用 JSON 字符串）
+harness run demo_pipeline --input '{"task":"Analyze def add(a,b): return a+b"}'
+
+# inputs 从文件读（适合复杂 JSON）
+harness run nas --input-file /path/to/inputs.json --work-dir ./my-ml-project
+
+# 自定义 runs/ 输出位置（默认 $HARNESS_RUNS_DIR 或 CWD/runs）
+harness run demo_pipeline --runs-dir /tmp/my-runs --input '{"task":"..."}'
+
+# 非 TTY 环境（CI / 管道）自动降级到 compact 模式；--no-tui 强制
+harness run demo_pipeline --no-tui --input '...'
+```
+
+**Exit codes**：`0` 成功 / `1` workflow 失败（仍持久化 failed run）/ `2` workflow
+未找到 / `3` workflow.json 解析错误 / `130` Ctrl+C。
+
+**HITL（ask_user）**：CLI 模式下 ask_user 自动走 stdin。TTY 环境会暂停渲染等待
+用户输入；非 TTY（如 `< /dev/null`）会 fail loud（EOFError），不会死锁。
+
+**Replay**：`harness ui` 启动浏览器，左侧历史列表自动出现 CLI 跑过的 run（含
+失败 run），点击可看完整 agents / DAG / conversation / events。
+
 ### 方式二：源码安装
 
 ```bash

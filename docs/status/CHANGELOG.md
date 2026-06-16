@@ -9,6 +9,9 @@
 
 ## 2026-06
 
+- **2026-06-17** — **`harness run` CLI + 持久化（Cp1-4）**：新增 `harness run <name>` 命令端到端跑 workflow 并写到与 server 相同的 `runs/` 目录，前端 `GET /api/runs` 自动发现 CLI 历史、零前端修改可 replay。`StdinCoordinator` 单例让 ask_user 在 CLI 模式 opt-in 走 stdin（不影响 WS 路径），`cli_runner.run_with_persistence()` 封装 bus 注入 + Collectors + RunStore.save。`demo_pipeline` 端到端验证通过（3 agents success / 518 events）。Cp5-8（Rich Live TUI 渲染）待启动。
+  → [详情](../releases/2026-06-17-cli-run-persistence.md)
+
 - **2026-06-16** — **阶段 3 review follow-ups**：修 C1 critical bug —— UTF-8 字节预算超限（CJK / emoji 内容原代码会超 limit 50%+）；改在字节域切分 + 加防御性 re-trim。补 G1 测试（`test_multibyte_byte_budget_respected` + 小 env 极限用例）。同步把 `import logging` 和 `_lookup_limit_for_event` 移到模块 top-level（消除误导性 lazy 注释）。
 - **2026-06-16** — **阶段 3 工具结果截断**：新增 `harness/tools/_truncate.py` 模块，按工具类型限制返回值字节数（bash 8KB / codegraph_* 6KB / sub_agent 4KB），从源头降低 message_history 增长。`_wrap_fn` 重构为无条件截断（不再依赖 dedup_guard），`LLMExecutor.run()` 用 `truncation_context` 注入 (bus, wid, node, agent) 让截断事件 emit `agent.tool_output_truncated`。env `HARNESS_TOOL_RESULT_LIMIT_BYTES` 全局覆盖（0 禁用）。19 个新测试。
   → [详情](../releases/2026-06-16-tool-result-truncation.md)
