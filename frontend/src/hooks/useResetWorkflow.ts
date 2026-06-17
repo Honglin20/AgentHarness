@@ -16,6 +16,7 @@
 import { useCallback } from "react";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { usePortalStore } from "@/stores/portalStore";
+import { useAppViewStore } from "@/stores/appView";
 import { resetAllGlobalStores } from "@/stores/resetGlobalStores";
 
 async function waitForDomainsLoaded() {
@@ -46,9 +47,12 @@ export function useResetWorkflow() {
     const target = ownDomain ?? domains.find((d) => d.status === "active");
 
     if (target) {
-      usePortalStore.getState().showWorkflows(target.id);
+      useAppViewStore.getState().setView({
+        kind: "workflows",
+        domainId: target.id,
+      });
     } else {
-      usePortalStore.getState().goHome();
+      useAppViewStore.getState().setView({ kind: "portal-home" });
     }
   }, []);
 }

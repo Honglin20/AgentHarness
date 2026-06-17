@@ -14,13 +14,23 @@ import { Breadcrumb } from "@/components/portal/Breadcrumb";
 import type { TutorialDetail } from "@/types/domains";
 
 export function DomainTutorialPage() {
-  const { tutorialContext, goHome } = usePortalStore();
+  // Two primitive selectors (not a returned object) keep identity stable
+  // across unrelated store changes and let fetch useEffect depend on the
+  // raw strings instead of an object that changes every render.
+  const tutorialDomainId = useAppViewStore((s) =>
+    s.view.kind === "tutorial" ? s.view.domainId : null,
+  );
+  const tutorialId = useAppViewStore((s) =>
+    s.view.kind === "tutorial" ? s.view.tutorialId : null,
+  );
   const domains = usePortalStore((s) => s.domains);
   const ensureDomains = usePortalStore((s) => s.ensureDomains);
   const workflowDefs = usePortalStore((s) => s.workflowDefs);
   const ensureWorkflowDefs = usePortalStore((s) => s.ensureWorkflowDefs);
   const setSelectedTemplate = useWorkflowStore((s) => s.setSelectedTemplate);
   const previewTemplate = useWorkflowStore((s) => s.previewTemplate);
+
+  const goHome = () => useAppViewStore.getState().setView({ kind: "portal-home" });
 
   const [tutorial, setTutorial] = useState<TutorialDetail | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -35,16 +45,16 @@ export function DomainTutorialPage() {
 
   // Fetch tutorial detail
   useEffect(() => {
-    if (!tutorialContext) return;
+    if (!tutorialDomainId || !tutorialId) return;
     setTutorial(null);
     setActiveIndex(0);
     fetchWithAuth(
-      `/api/domains/${tutorialContext.domainId}/tutorials/${tutorialContext.tutorialId}`
+      `/api/domains/${tutorialDomainId}/tutorials/${tutorialId}`
     )
       .then((r) => r.json())
       .then((data: TutorialDetail) => setTutorial(data))
       .catch(() => {});
-  }, [tutorialContext]);
+  }, [tutorialDomainId, tutorialId]);
 
   // IntersectionObserver
   useEffect(() => {
@@ -107,22 +117,18 @@ export function DomainTutorialPage() {
       useAppViewStore.getState().setView({
         kind: "template-preview",
         workflowName: wfName,
-        domainId: tutorialContext?.domainId,
+        domainId: tutorialDomainId ?? undefined,
       });
     }
-  }, [tutorial, workflowDefs, setSelectedTemplate, previewTemplate, tutorialContext]);
+  }, [tutorial, workflowDefs, setSelectedTemplate, previewTemplate, tutorialDomainId]);
 
-  // Not found state
-  if (!tutorialContext) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center bg-app-bg-primary">
-        <p className="text-sm text-muted-foreground">Tutorial not found</p>
-        <button onClick={goHome} className="mt-2 text-xs text-blue-500 hover:underline">Back to portal</button>
-      </div>
-    );
-  }
-
-  // Loading state
+  // Loading state — covers the brief window before fetch resolves. The
+  // previous "Tutorial not found" early-return is gone: ScopedCenterPanel
+  // routes here only when view.kind === "tutorial", so tutorialDomainId /
+  // tutorialId are always non-null in practice. A genuinely-unknown tutorial
+  // id makes the fetch fail and tutorial stays null — see the loading branch
+  // below for that terminal state (currently swallowed by .catch; tracked
+  // separately, do not fix here).
   if (!tutorial) {
     return (
       <div className="flex flex-1 flex-col bg-app-bg-primary overflow-hidden">
@@ -151,7 +157,7 @@ export function DomainTutorialPage() {
     );
   }
 
-  const domain = domains.find((d) => d.id === tutorialContext.domainId);
+  const domain = domains.find((d) => d.id === tutorialDomainId);
   const domainTutorials = domain?.tutorials ?? [];
 
   // Determine active agent node for MiniDag
@@ -173,11 +179,17 @@ export function DomainTutorialPage() {
         {/* Level tabs + Try it */}
         <div className="ml-auto flex items-center gap-1.5 shrink-0">
           {domainTutorials.length > 1 && domainTutorials.map((t) => {
-            const isActive = t.id === tutorialContext.tutorialId;
+            const isActive = t.id === tutorialId;
             return (
               <button
                 key={t.id}
-                onClick={() => usePortalStore.getState().showTutorial(tutorialContext.domainId, t.id)}
+                onClick={() =>
+                  useAppViewStore.getState().setView({
+                    kind: "tutorial",
+                    domainId: tutorialDomainId!,
+                    tutorialId: t.id,
+                  })
+                }
                 className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
                   isActive
                     ? "bg-foreground text-background"

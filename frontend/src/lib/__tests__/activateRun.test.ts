@@ -75,13 +75,14 @@ vi.mock("@/stores/runHistoryStore", () => ({
   },
 }));
 
-const { hydrateStoresSpy, hydratePhase1Spy, hydrateFromSnapshotSpy, fetchSnapshotSpy, setHydratedCursorSpy } = vi.hoisted(() => ({
+const { hydrateStoresSpy, hydratePhase1Spy, hydrateFromSnapshotSpy, fetchSnapshotSpy, hydrateOutlineSidecarSpy, setHydratedCursorSpy } = vi.hoisted(() => ({
   hydrateStoresSpy: vi.fn(),
   hydratePhase1Spy: vi.fn(),
   hydrateFromSnapshotSpy: vi.fn(),
   // Default to null (legacy run / no snapshot) so existing phase 1 tests
   // keep their semantics. Tests that exercise the snapshot path override.
   fetchSnapshotSpy: vi.fn().mockResolvedValue(null),
+  hydrateOutlineSidecarSpy: vi.fn().mockResolvedValue(undefined),
   setHydratedCursorSpy: vi.fn(),
 }));
 vi.mock("@/stores/hydration/hydrateReplay", () => ({
@@ -89,6 +90,7 @@ vi.mock("@/stores/hydration/hydrateReplay", () => ({
   hydratePhase1: hydratePhase1Spy,
   hydrateFromSnapshot: hydrateFromSnapshotSpy,
   fetchSnapshot: fetchSnapshotSpy,
+  hydrateOutlineSidecar: hydrateOutlineSidecarSpy,
 }));
 
 vi.mock("@/contexts/workflow-context/routing", () => ({

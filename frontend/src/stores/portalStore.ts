@@ -1,34 +1,22 @@
 /**
- * Portal store — domain/tutorial/api-doc DATA cache + entry transitions.
+ * Portal store — domain/tutorial/workflow-def DATA cache only.
  *
- * URL responsibility has moved to `useAppViewUrlSync` (single source of
- * truth). This store now keeps only:
- *   - Cached domain/tutorial/workflow-def data (fetched once, shared)
- *   - `activeDomain` / `tutorialContext` / `apiDocContext` for child
- *     components to read which entity they should render
- *   - Transition actions that ALSO call `useAppViewStore.setView` so the
- *     URL stays in sync via the new single hook
+ * "Which page am I on" view state lives entirely in `appViewStore.view`
+ * (URL-derived single source of truth, kept in sync by
+ * `useAppViewUrlSync`). This store holds the data that those views
+ * consume — fetched once, shared across all portal pages.
  *
- * `syncUrl` and `restoreFromUrl` are gone — the URL is not this store's
- * concern anymore.
+ * Transitions (navigate to workflows / tutorial / api-doc / home) are
+ * done inline at call sites via `useAppViewStore.getState().setView(...)`.
+ * Previous transition actions (showWorkflows / showTutorial / showApiDoc /
+ * goHome) and the duplicated `activeDomain / tutorialContext / apiDocContext`
+ * fields were removed because URL-sync only wrote appViewStore — keeping
+ * them in two places caused "Domain not found" on every URL-direct entry.
  */
 
 import { create } from "zustand";
 import type { DomainMeta } from "@/types/domains";
 import { fetchWithAuth } from "@/lib/api";
-import { useAppViewStore } from "@/stores/appView";
-
-export type PortalView = "home" | "workflows" | "tutorial" | "api-doc";
-
-interface TutorialContext {
-  domainId: string;
-  tutorialId: string;
-}
-
-interface ApiDocContext {
-  domainId: string;
-  apiName: string;
-}
 
 export interface WorkflowDef {
   name: string;
@@ -37,93 +25,21 @@ export interface WorkflowDef {
 }
 
 interface PortalState {
-  portalView: PortalView;
-  activeDomain: string | null;
-  tutorialContext: TutorialContext | null;
-  apiDocContext: ApiDocContext | null;
   // Cached data — fetched once, shared across all portal views
   domains: DomainMeta[];
   domainsLoading: boolean;
   workflowDefs: WorkflowDef[];
   workflowDefsLoading: boolean;
   // Actions
-  setPortalView: (view: PortalView) => void;
-  showWorkflows: (domainId: string) => void;
-  showTutorial: (domainId: string, tutorialId: string) => void;
-  showApiDoc: (domainId: string, apiName: string) => void;
-  goHome: () => void;
   ensureDomains: () => void;
   ensureWorkflowDefs: () => void;
 }
 
 export const usePortalStore = create<PortalState>((set, get) => ({
-  portalView: "home",
-  activeDomain: null,
-  tutorialContext: null,
-  apiDocContext: null,
   domains: [],
   domainsLoading: false,
   workflowDefs: [],
   workflowDefsLoading: false,
-
-  setPortalView: (view) => {
-    set({ portalView: view });
-    // URL sync happens via appViewStore subscription in useAppViewUrlSync.
-    if (view === "home") {
-      useAppViewStore.getState().setView({ kind: "portal-home" });
-    }
-    // Other portal sub-views are set by their specific action
-    // (showWorkflows/showTutorial/showApiDoc) — calling setView here
-    // would lose the domainId / tutorialId / apiName context.
-  },
-
-  showWorkflows: (domainId) => {
-    set({
-      portalView: "workflows",
-      activeDomain: domainId,
-      tutorialContext: null,
-      apiDocContext: null,
-    });
-    useAppViewStore.getState().setView({ kind: "workflows", domainId });
-  },
-
-  showTutorial: (domainId, tutorialId) => {
-    set({
-      portalView: "tutorial",
-      activeDomain: domainId,
-      tutorialContext: { domainId, tutorialId },
-      apiDocContext: null,
-    });
-    useAppViewStore.getState().setView({
-      kind: "tutorial",
-      domainId,
-      tutorialId,
-    });
-  },
-
-  showApiDoc: (domainId, apiName) => {
-    set({
-      portalView: "api-doc",
-      activeDomain: domainId,
-      tutorialContext: null,
-      apiDocContext: { domainId, apiName },
-    });
-    useAppViewStore.getState().setView({
-      kind: "api-doc",
-      domainId,
-      apiName,
-    });
-  },
-
-  goHome: () => {
-    set({
-      portalView: "home",
-      activeDomain: null,
-      tutorialContext: null,
-      apiDocContext: null,
-    });
-    useAppViewStore.getState().setView({ kind: "portal-home" });
-  },
 
   ensureDomains: () => {
     const { domains, domainsLoading } = get();

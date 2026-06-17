@@ -26,6 +26,7 @@ import {
   hydratePhase1,
   hydrateFromSnapshot,
   fetchSnapshot,
+  hydrateOutlineSidecar,
 } from "@/stores/hydration/hydrateReplay";
 import { setHydratedCursor } from "@/contexts/workflow-context/routing";
 
@@ -131,6 +132,18 @@ export async function activateRun(runId: string): Promise<void> {
       // WS connects with since_seq=cursor — only receives post-snapshot
       // events. useAppViewStore.wsSinceSeq is read by useWorkflowWS.
       useAppViewStore.getState().setWsSinceSeq(snapshot.seq_cursor);
+
+      // hydrateFromSnapshot doesn't touch the outline store — fetch the
+      // outline sidecar separately so the sidebar renders immediately
+      // (sidecar is fresh-written by _save_incremental on each node
+      // completion; before Fix 1 it only existed after final-save, which
+      // never fired for interrupted runs). Best-effort: fetchRunOutline
+      // returns null on 404, useAgentOutline falls back to deriveOutlineItems.
+      // Fire-and-forget — seq guard above already protected pre-await writes;
+      // a stale post-await write would land on a newer run's scoped store,
+      // but hydrateOutlineSidecar fetches by runId (no scope capture), and
+      // getOrCreate is a no-op if the entry already exists.
+      void hydrateOutlineSidecar(runId);
     } else {
       // Legacy path — full WS replay from seq=0. Clear any stale cursor
       // from a prior run so dedup doesn't accidentally drop live events.

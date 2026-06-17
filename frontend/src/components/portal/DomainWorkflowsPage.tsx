@@ -46,7 +46,12 @@ function WorkflowGrid({
 }
 
 export function DomainWorkflowsPage() {
-  const { activeDomain, goHome } = usePortalStore();
+  // domainId is the URL-derived "which domain am I on". ScopedCenterPanel
+  // routes here only when view.kind === "workflows", so domainId is non-null
+  // in practice; null just means we briefly rendered before routing settled.
+  const domainId = useAppViewStore((s) =>
+    s.view.kind === "workflows" ? s.view.domainId : null,
+  );
   const domains = usePortalStore((s) => s.domains);
   const domainsLoading = usePortalStore((s) => s.domainsLoading);
   const ensureDomains = usePortalStore((s) => s.ensureDomains);
@@ -56,22 +61,15 @@ export function DomainWorkflowsPage() {
   const setSelectedTemplate = useWorkflowStore((s) => s.setSelectedTemplate);
   const previewTemplate = useWorkflowStore((s) => s.previewTemplate);
 
+  const goHome = () => useAppViewStore.getState().setView({ kind: "portal-home" });
+
   useEffect(() => {
     ensureDomains();
     ensureWorkflowDefs();
   }, [ensureDomains, ensureWorkflowDefs]);
 
-  const domain = domains.find((d) => d.id === activeDomain);
+  const domain = domains.find((d) => d.id === domainId);
   const defMap = new Map(workflowDefs.map((w) => [w.name, w]));
-
-  if (!activeDomain) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center bg-app-bg-primary">
-        <p className="text-sm text-muted-foreground">Domain not found</p>
-        <button onClick={goHome} className="mt-2 text-xs text-blue-500 hover:underline">Back to portal</button>
-      </div>
-    );
-  }
 
   if (domainsLoading || workflowDefsLoading) {
     return (
@@ -88,6 +86,9 @@ export function DomainWorkflowsPage() {
     );
   }
 
+  // Real "not found" — domainId is in the URL but absent from the cached
+  // domains list (stale bookmark / unknown id). Only fires after the loading
+  // guard above, so an in-flight fetch can't transiently trigger it.
   if (!domain) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center bg-app-bg-primary">
@@ -109,7 +110,7 @@ export function DomainWorkflowsPage() {
       useAppViewStore.getState().setView({
         kind: "template-preview",
         workflowName: wfName,
-        domainId: activeDomain ?? undefined,
+        domainId: domainId ?? undefined,
       });
     }
   };
@@ -142,7 +143,7 @@ export function DomainWorkflowsPage() {
               workflow without bouncing between pages. Coming-soon domains
               stay collapsed. */}
           {domains
-            .filter((d) => d.id !== activeDomain)
+            .filter((d) => d.id !== domainId)
             .map((otherDomain) => {
               const oc = COLOR_MAP[otherDomain.color] || COLOR_MAP.blue;
               const isComingSoon = otherDomain.status === "coming_soon" || otherDomain.workflows.length === 0;

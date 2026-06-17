@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { Logo } from "@/components/ui/logo";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePortalStore } from "@/stores/portalStore";
+import { useAppViewStore } from "@/stores/appView";
 import { COLOR_MAP, DEFAULT_COLOR } from "./colors";
 import { Layers, Search, Flame, Scissors, ArrowRight, Lock, Terminal } from "lucide-react";
 import type { DomainMeta, TutorialMeta } from "@/types/domains";
@@ -110,8 +111,6 @@ export function DomainPortal({ workflowCountByDomain = {} }: Props) {
   const domains = usePortalStore((s) => s.domains);
   const domainsLoading = usePortalStore((s) => s.domainsLoading);
   const ensureDomains = usePortalStore((s) => s.ensureDomains);
-  const showWorkflows = usePortalStore((s) => s.showWorkflows);
-  const showTutorial = usePortalStore((s) => s.showTutorial);
 
   useEffect(() => {
     ensureDomains();
@@ -139,7 +138,12 @@ export function DomainPortal({ workflowCountByDomain = {} }: Props) {
                   <span className="text-sm font-semibold text-app-text-primary">{domain.title}</span>
                   {!isComingSoon && (
                     <button
-                      onClick={() => showWorkflows(domain.id)}
+                      onClick={() =>
+                        useAppViewStore.getState().setView({
+                          kind: "workflows",
+                          domainId: domain.id,
+                        })
+                      }
                       className="ml-auto flex items-center gap-0.5 text-xs text-muted-foreground hover:text-app-text-primary transition-colors"
                     >
                       Workflows <ArrowRight className="h-3 w-3" />
@@ -159,7 +163,13 @@ export function DomainPortal({ workflowCountByDomain = {} }: Props) {
                         key={tutorial.id}
                         tutorial={tutorial}
                         domain={domain}
-                        onClick={() => showTutorial(domain.id, tutorial.id)}
+                        onClick={() =>
+                          useAppViewStore.getState().setView({
+                            kind: "tutorial",
+                            domainId: domain.id,
+                            tutorialId: tutorial.id,
+                          })
+                        }
                       />
                     ))}
                   </div>

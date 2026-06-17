@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { BookOpen } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { usePortalStore } from "@/stores/portalStore";
+import { useAppViewStore } from "@/stores/appView";
 import { fetchWithAuth } from "@/lib/api";
 import { MarkdownText } from "@/components/conversation/MarkdownText";
 import { COLOR_DOT, COLOR_TEXT } from "./colors";
@@ -28,30 +28,35 @@ interface ApiDocData {
 }
 
 export function ApiDocPage() {
-  const { apiDocContext, goHome } = usePortalStore();
-  const showApiDoc = usePortalStore((s) => s.showApiDoc);
-  const showTutorial = usePortalStore((s) => s.showTutorial);
+  // Two primitive selectors (not a returned object) keep identity stable
+  // across unrelated store changes and let fetch useEffect depend on the
+  // raw strings instead of an object that changes every render.
+  const apiDomainId = useAppViewStore((s) =>
+    s.view.kind === "api-doc" ? s.view.domainId : null,
+  );
+  const apiName = useAppViewStore((s) =>
+    s.view.kind === "api-doc" ? s.view.apiName : null,
+  );
 
   const [data, setData] = useState<ApiDocData | null>(null);
 
+  const goHome = () => useAppViewStore.getState().setView({ kind: "portal-home" });
+
   useEffect(() => {
-    if (!apiDocContext) return;
+    if (!apiDomainId || !apiName) return;
     setData(null);
-    fetchWithAuth(`/api/domains/${apiDocContext.domainId}/api/${apiDocContext.apiName}`)
+    fetchWithAuth(`/api/domains/${apiDomainId}/api/${apiName}`)
       .then((r) => r.json())
       .then((d: ApiDocData) => setData(d))
       .catch(() => {});
-  }, [apiDocContext]);
+  }, [apiDomainId, apiName]);
 
-  if (!apiDocContext) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center bg-app-bg-primary">
-        <p className="text-sm text-muted-foreground">API doc not found</p>
-        <button onClick={goHome} className="mt-2 text-xs text-blue-500 hover:underline">Back to portal</button>
-      </div>
-    );
-  }
-
+  // Loading state — covers the brief window before fetch resolves. The
+  // previous "API doc not found" early-return is gone: ScopedCenterPanel
+  // routes here only when view.kind === "api-doc", so apiDomainId / apiName
+  // are always non-null in practice. A genuinely-unknown api makes the fetch
+  // fail and data stays null — see the loading branch below for that
+  // terminal state (currently swallowed by .catch; tracked separately).
   if (!data) {
     return (
       <div className="flex flex-1 flex-col bg-app-bg-primary overflow-hidden">
@@ -112,7 +117,13 @@ export function ApiDocPage() {
               {data.other_apis.map((api) => (
                 <button
                   key={api.id}
-                  onClick={() => showApiDoc(data.domain_id, api.id)}
+                  onClick={() =>
+                    useAppViewStore.getState().setView({
+                      kind: "api-doc",
+                      domainId: data.domain_id,
+                      apiName: api.id,
+                    })
+                  }
                   className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:text-app-text-primary hover:bg-muted/30 transition-colors"
                 >
                   {api.title}
@@ -134,7 +145,13 @@ export function ApiDocPage() {
                 {data.referenced_by.map((ref, i) => (
                   <button
                     key={i}
-                    onClick={() => showTutorial(data.domain_id, ref.tutorial_id)}
+                    onClick={() =>
+                      useAppViewStore.getState().setView({
+                        kind: "tutorial",
+                        domainId: data.domain_id,
+                        tutorialId: ref.tutorial_id,
+                      })
+                    }
                     className="flex flex-col text-left rounded-md px-2 py-1.5 hover:bg-muted/30 transition-colors group"
                   >
                     <span className={`text-xs font-medium ${accent} group-hover:underline`}>
