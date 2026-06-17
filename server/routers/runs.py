@@ -319,16 +319,90 @@ async def get_node_iter_detail(
 async def get_run_conversation(
     run_id: str, request: Request,
     before: int | None = None, limit: int = 50,
+    node_id: str | None = None,
+    iter_num: int | None = None,
     store: RunStoreInterface = Depends(get_run_store_dep),
     repo: WorkflowRepository = Depends(get_repository_dep),
 ) -> dict:
-    """Windowed conversation slice. before=exclusive upper bound on array index."""
+    """Windowed conversation slice, or per-(node, iter) slice when filtered.
+
+    Default mode (no node_id / iter_num): windowed slice of the full
+    conversation. ``before`` is an exclusive upper bound on array index.
+
+    Per-iter mode (both node_id + iter_num given): returns the conversation
+    messages for that specific (nodeId, iter) by reading the per-iter
+    sidecar (`{run_id}+iters+{node}+{iter}.json`). The frontend uses this
+    to lazy-load historical iterations of cycle agents without inflating
+    the main snapshot. Response shape mirrors the default mode for client
+    compatibility: {messages, has_more, total}.
+    """
+    # Per-iter shortcut: read sidecar, shape as conversation messages.
+    if node_id is not None and iter_num is not None:
+        store, _run, _user, _is_admin = _load_run_for_user(run_id, request, store)
+        sidecar = store.get_iter_sidecar(run_id, node_id, iter_num)
+        if sidecar is None:
+            return {"messages": [], "has_more": False, "total": 0}
+        messages = _iter_sidecar_to_messages(sidecar, node_id, iter_num)
+        return {"messages": messages, "has_more": False, "total": len(messages)}
+
     limit = max(1, min(limit, 200))
     conv = _load_conversation_for_user(run_id, request, store, repo)
+    if node_id is not None:
+        conv = [m for m in conv if m.get("nodeId") == node_id]
     total = len(conv)
     upper = total if before is None else max(0, min(before, total))
     start = max(0, upper - limit)
     return {"messages": conv[start:upper], "has_more": start > 0, "total": total}
+
+
+def _iter_sidecar_to_messages(sidecar: dict, node_id: str, iter_num: int) -> list[dict]:
+    """Project a per-iter sidecar to ConversationMessage-shaped dicts.
+
+    Sidecar shape (from incremental_save._save_incremental):
+        {iter, node_id, status, duration_ms, input_prompt, system_prompt,
+         output, summary}
+
+    Emits one agent message per non-empty field, mirroring build_conversation's
+    shape so the frontend's dtoListToMessages maps fields identically.
+    """
+    out: list[dict]
+    out = []
+    counter = 0
+
+    def _next_id() -> str:
+        nonlocal counter
+        counter += 1
+        return f"iter-{node_id}-{iter_num}-{counter}"
+
+    output_result = sidecar.get("output")
+    input_prompt = sidecar.get("input_prompt")
+    if output_result is not None:
+        # Reuse build_conversation's formatter so the message text is
+        # identical regardless of which path produced it.
+        from harness.extensions.collectors import _format_output
+        content = _format_output(output_result)
+        out.append({
+            "id": _next_id(),
+            "type": "agent",
+            "nodeId": node_id,
+            "agentName": node_id,
+            "content": content,
+            "status": "done",
+            "timestamp": 0,
+            "iteration": iter_num,
+        })
+    if output_result is None and input_prompt:
+        out.append({
+            "id": _next_id(),
+            "type": "agent",
+            "nodeId": node_id,
+            "agentName": node_id,
+            "content": str(input_prompt),
+            "status": "done",
+            "timestamp": 0,
+            "iteration": iter_num,
+        })
+    return out
 
 @router.patch("/runs/{run_id}/conversation")
 async def update_run_conversation(

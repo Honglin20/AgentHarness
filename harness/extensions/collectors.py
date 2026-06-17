@@ -9,6 +9,7 @@ ChartCollector         ->  chart_groups dict            (groups + groupOrder)
 
 from __future__ import annotations
 
+import json as _json
 from typing import Any
 
 
@@ -268,7 +269,10 @@ class ChartCollector:
         return {"groups": groups, "groupOrder": group_order}
 
 
-def build_conversation(agent_io: dict[str, dict]) -> list[dict]:
+def build_conversation(
+    agent_io: dict[str, dict],
+    invocation_counts: dict[str, int] | None = None,
+) -> list[dict]:
     """Build conversation messages from ``agent_io`` (per-node output data).
 
     This is the backend's authoritative source for conversation data,
@@ -284,9 +288,13 @@ def build_conversation(agent_io: dict[str, dict]) -> list[dict]:
 
     Returns a list of ``ConversationMessage``-shaped dicts matching the
     frontend's ``ConversationMessage`` type.
-    """
-    import json as _json
 
+    ``invocation_counts`` maps ``node_id`` → latest iteration number. Each
+    emitted message carries ``iteration`` (1-indexed); when omitted the
+    field is absent and the frontend treats it as iter=1. Caller is
+    responsible for providing accurate counts — typically from
+    ``builder.node_invocation_counts`` (live) or ``iter_index`` (replay).
+    """
     messages: list[dict] = []
     counter = 0
 
@@ -303,6 +311,8 @@ def build_conversation(agent_io: dict[str, dict]) -> list[dict]:
         tool_calls = io_data.get("tool_calls", [])
         output_result = io_data.get("output_result")
         input_prompt = io_data.get("input_prompt")
+        iter_num = invocation_counts.get(agent_name) if invocation_counts else None
+        iter_field = {"iteration": iter_num} if iter_num else {}
 
         # Agent text from output_result
         if output_result is not None:
@@ -315,6 +325,7 @@ def build_conversation(agent_io: dict[str, dict]) -> list[dict]:
                 "content": content,
                 "status": "done",
                 "timestamp": 0,
+                **iter_field,
             })
 
         # Tool calls
@@ -334,6 +345,7 @@ def build_conversation(agent_io: dict[str, dict]) -> list[dict]:
                 "toolResult": str(tool_result) if tool_result is not None else None,
                 "toolStatus": "done",
                 "timestamp": 0,
+                **iter_field,
             })
 
         # Agent with only input_prompt, no output
@@ -346,6 +358,7 @@ def build_conversation(agent_io: dict[str, dict]) -> list[dict]:
                 "content": str(input_prompt),
                 "status": "done",
                 "timestamp": 0,
+                **iter_field,
             })
 
     return messages

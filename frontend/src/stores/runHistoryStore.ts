@@ -168,11 +168,19 @@ interface RunHistoryState {
    * upper bound on the server-side array index (oldest→newest order set by
    * ConversationCollector). Omit `before` for the most recent `limit` messages.
    * Returns `{messages, has_more, total}` or null on fetch failure.
+   *
+   * When `nodeId` + `iterNum` are both provided, the backend serves from
+   * the per-iter sidecar instead of the main conversation buffer. Used by
+   * AgentDetailView to lazy-load historical iters of cycle agents without
+   * inflating the main snapshot — main snapshot only carries latest-iter
+   * content; older iters load on demand when the user picks them from the
+   * iter dropdown.
    */
   fetchRunConversation: (
     runId: string,
     before?: number,
     limit?: number,
+    options?: { nodeId?: string; iterNum?: number },
   ) => Promise<{ messages: ConversationMessageDTO[]; has_more: boolean; total: number } | null>;
   /**
    * Fetch the outline summary sidecar. Returns null when the sidecar is
@@ -510,11 +518,18 @@ export const useRunHistoryStore = create<RunHistoryState>()((set, get) => ({
     return null;
   },
 
-  fetchRunConversation: async (runId: string, before?: number, limit?: number) => {
+  fetchRunConversation: async (
+    runId: string,
+    before?: number,
+    limit?: number,
+    options?: { nodeId?: string; iterNum?: number },
+  ) => {
     try {
       const params = new URLSearchParams();
       if (before !== undefined) params.set("before", String(before));
       if (limit !== undefined) params.set("limit", String(limit));
+      if (options?.nodeId) params.set("node_id", options.nodeId);
+      if (typeof options?.iterNum === "number") params.set("iter_num", String(options.iterNum));
       const qs = params.toString();
       const r = await fetchWithAuth(`/api/runs/${runId}/conversation${qs ? `?${qs}` : ""}`);
       if (r.ok) return await r.json();

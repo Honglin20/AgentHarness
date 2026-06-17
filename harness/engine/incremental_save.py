@@ -55,7 +55,26 @@ def _save_incremental(
         if not data or not data.get("workflow"):
             return
 
-        conversation_full = build_conversation(dict(builder.agent_io))
+        # Compute invocation counts from iter_index — agent_io only retains
+        # the latest iter per node, but conversation messages need an
+        # `iteration` field so the frontend's per-iter filtering works.
+        # iter_index shape: {node_id: [{iter: 1, ...}, {iter: 2, ...}]}
+        try:
+            invocation_counts_raw = get_run_store().get_iter_index(wid) or {}
+        except Exception:
+            invocation_counts_raw = {}
+        invocation_counts: dict[str, int] = {}
+        for node_id, iter_entries in invocation_counts_raw.items():
+            if not isinstance(iter_entries, list):
+                continue
+            iters = [e.get("iter") for e in iter_entries if isinstance(e, dict) and isinstance(e.get("iter"), int)]
+            if iters:
+                invocation_counts[node_id] = max(iters)
+
+        conversation_full = build_conversation(
+            dict(builder.agent_io),
+            invocation_counts=invocation_counts or None,
+        )
 
         chart_groups = None
         if event_bus:
@@ -120,11 +139,18 @@ def _save_incremental(
                 )
 
         # Latest-state snapshot — O(1) refresh payload for long-run replay.
-        # conversation_tail keeps the snapshot small (Phase 2 optimization):
-        # long runs accumulated >700KB snapshot because conversation grew
-        # unbounded. Tail of 50 keeps the snapshot ~50KB regardless of run
-        # length; older messages load via /api/runs/{id}/conversation pagination.
-        conversation_tail = conversation_full[-50:] if len(conversation_full) > 50 else conversation_full
+        # agent_io already only retains the latest-iter io_data per node
+        # (builder.agent_io[node] = io_data overwrites on each invocation),
+        # so conversation_full is naturally the latest-iter view across all
+        # agents. Historical iters load on demand from
+        # /api/runs/{id}/conversation?node_id=X&iter_num=Y (per-iter sidecar).
+        #
+        # Previously we sliced conversation_full[-50:] to cap snapshot size,
+        # but that truncated multi-agent workflows to just the trailing
+        # agent's tool calls (NAS bug: refresh showed only `refiner` content
+        # while outline listed all 9 agents). agent_io-driven build_conversation
+        # is already iter-bounded, so no further slicing is needed.
+        conversation_latest = conversation_full
 
         # iter_index snapshot mirror — lets the frontend render the iter
         # dropdown without an extra API call on initial hydrate.
@@ -169,11 +195,15 @@ def _save_incremental(
             "seq_cursor": getattr(event_bus, "_seq", 0),
             "dag": dag,
             "agent_io": agent_io_snapshot,
-            # Tail-only — full conversation via sidecar pagination.
-            "conversation": conversation_tail,
-            # Total count of the full conversation (pre-tail). Frontend uses
-            # this to set hasEarlier = (total > conversation.length) so the
-            # "Load earlier" trigger knows whether to fetch.
+            # Latest-iter conversation across all agents. Historical iters
+            # load on demand from per-iter sidecars via
+            # /api/runs/{id}/conversation?node_id=X&iter_num=Y.
+            "conversation": conversation_latest,
+            # Total count of the conversation (same as len(conversation_latest)
+            # for running snapshot since agent_io only retains latest iter).
+            # Kept as a separate field for protocol compat — frontend uses
+            # this to size the "Load earlier" cursor; running snapshot's
+            # pagination is bounded by iter sidecars, not by this total.
             "conversation_total": len(conversation_full),
             "charts": chart_groups,
             "todo_states": todo_snapshot,
@@ -204,6 +234,30 @@ def _save_incremental(
             # Frontend will fall back to the legacy replay path for this run.
             logger.warning(
                 "Snapshot save failed for workflow %s — frontend will replay",
+                wid,
+                exc_info=True,
+            )
+
+        # Outline sidecar — same freshness contract as snapshot. Without this,
+        # a NAS run that gets interrupted before final-save leaves the frontend
+        # with no outline sidecar at all, so refresh falls back to deriving
+        # from the (possibly partial) conversation and misses idle nodes.
+        # Best-effort: failures are logged inside save_outline_sidecar.
+        try:
+            from harness.persistence.outline_save import save_outline_sidecar
+
+            save_outline_sidecar(
+                workflow_id=wid,
+                conversation=conversation_full,
+                events=list(event_bus.buffer) if event_bus else None,
+                trace=[],
+                todo_steps=todo_snapshot,
+                agents_snapshot=data.get("agents_snapshot", []),
+                dag=dag,
+            )
+        except Exception:
+            logger.warning(
+                "Outline sidecar save failed for workflow %s — frontend will derive",
                 wid,
                 exc_info=True,
             )

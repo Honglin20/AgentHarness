@@ -44,6 +44,14 @@ export interface ConversationMessageDTO {
   durationMs?: number;
   /** Defaults to 0 when missing (legacy data). */
   timestamp?: number;
+  /**
+   * 1-indexed loop iteration that produced this message. Undefined for
+   * legacy data (frontend treats as iter=1) and for non-cycle messages.
+   * Backend writes this from `builder.node_invocation_counts` (live) or
+   * `iter_index` (snapshot save). Per-iter sidecar responses stamp it
+   * from the requested iter_num.
+   */
+  iteration?: number;
   // ── question-specific (only meaningful when type === "question") ──
   questionId?: string;
   questionHeader?: string | null;
@@ -102,6 +110,7 @@ export function dtoToMessage(dto: ConversationMessageDTO, fallbackIndex: number)
     status: coerceStatus(dto.status),
     durationMs: dto.durationMs,
     timestamp: dto.timestamp ?? 0,
+    iteration: dto.iteration,
     questionId: dto.questionId,
     questionHeader: dto.questionHeader,
     questionOptions: dto.questionOptions,

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { InlineErrorBoundary } from "@/components/ErrorBoundary";
@@ -19,6 +19,9 @@ import { NodeBlockCard } from "@/components/conversation/ScopedConversationTab";
 import { useOutlineStore } from "./outlineStore";
 import { NodeIterSelector } from "./NodeIterSelector";
 import type { OutlineItem } from "./types";
+import { useRunHistoryStore } from "@/stores/runHistoryStore";
+import { dtoListToMessages, type ConversationMessageDTO } from "@/lib/conversion/dtoToMessage";
+import type { ConversationMessage } from "@/stores/conversationStore";
 
 /**
  * AgentDetailView — conversation for ONE (nodeId, iteration) pair.
@@ -28,6 +31,16 @@ import type { OutlineItem } from "./types";
  *   - iter is read from outlineStore.selectedIterByNode[nodeId], falling
  *     back to latestIteration. The dropdown (NodeIterSelector) lets the
  *     user switch; selection persists across agent switches.
+ *
+ * Data source:
+ *   - Latest iter (`selectedIter === latestIteration`): reads from the
+ *     scoped conversation store, which is hydrated from snapshot / main
+ *     conversation sidecar. agent_io only retains the latest iter, so
+ *     the store carries exactly this iter's content.
+ *   - Historical iter (`selectedIter < latestIteration`): fetched on
+ *     demand from /api/runs/{id}/conversation?node_id=X&iter_num=Y (per-
+ *     iter sidecar written by _save_incremental). Cached locally so
+ *     switching back to the same iter is instant.
  *
  * Reuses NodeBlockCard from ScopedConversationTab verbatim so visual
  * parity is guaranteed (header badge, tokens, model, IO buttons,
@@ -57,17 +70,68 @@ export function AgentDetailView({ nodeId, latestIteration, iterCount, iters }: P
   const todoStore = useScopedStore("todo");
   const agentIOStore = useScopedStore("agentIO");
   const workflowStoreApi = useScopedStore("workflow");
+  const workflowId = useStore(workflowStoreApi!, (s) => s.workflowId);
 
   const { sendStructuredAnswer } = useWSMethods();
   const conversationActions = useConversationActions();
 
-  const filtered = useMemo(
-    () =>
-      allMessages.filter(
+  // ── Per-iter lazy loading for historical iters ────────────────────────
+  //
+  // Main store only carries latest-iter content (agent_io overwrites on
+  // each invocation). When the user picks an older iter from the dropdown,
+  // we fetch the per-iter sidecar on demand and cache it in component state.
+  // Latest iter is read directly from the scoped conversation store.
+  //
+  // Cache is keyed by `${nodeId}__iter${n}` and survives agent switches
+  // within the same component instance (parent stays mounted). Workflow
+  // switch unmounts this component (WorkflowScope changes workflowId),
+  // dropping the cache — correct, since the cache is meaningless for a
+  // different run.
+  const [iterCache, setIterCache] = useState<Record<string, ConversationMessage[]>>({});
+  const [iterLoading, setIterLoading] = useState(false);
+  const isLatestIter = selectedIter >= latestIteration;
+  const iterCacheKey = `${nodeId}__iter${selectedIter}`;
+
+  useEffect(() => {
+    if (isLatestIter) return;             // latest iter reads from store
+    if (iterCache[iterCacheKey]) return;  // already cached
+    if (!workflowId) return;
+
+    let cancelled = false;
+    setIterLoading(true);
+    useRunHistoryStore
+      .getState()
+      .fetchRunConversation(workflowId, undefined, undefined, {
+        nodeId,
+        iterNum: selectedIter,
+      })
+      .then((resp) => {
+        if (cancelled) return;
+        const messages = resp
+          ? dtoListToMessages(resp.messages as ConversationMessageDTO[])
+          : [];
+        setIterCache((prev) => ({ ...prev, [iterCacheKey]: messages }));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setIterCache((prev) => ({ ...prev, [iterCacheKey]: [] }));
+      })
+      .finally(() => {
+        if (!cancelled) setIterLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workflowId, nodeId, selectedIter, isLatestIter, iterCacheKey, iterCache]);
+
+  const filtered = useMemo(() => {
+    if (isLatestIter) {
+      return allMessages.filter(
         (m) => m.nodeId === nodeId && (m.iteration ?? 1) === selectedIter,
-      ),
-    [allMessages, nodeId, selectedIter],
-  );
+      );
+    }
+    return iterCache[iterCacheKey] ?? [];
+  }, [allMessages, nodeId, selectedIter, isLatestIter, iterCache, iterCacheKey]);
 
   const block = useMemo<NodeBlock | null>(() => {
     if (filtered.length === 0) return null;
@@ -112,7 +176,9 @@ export function AgentDetailView({ nodeId, latestIteration, iterCount, iters }: P
       <div className="flex h-full flex-col">
         {iterCount > 1 && <IterBar {...{ nodeId, latestIteration, iterCount, iters }} />}
         <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-          This agent hasn&apos;t produced any output for iter {selectedIter} yet.
+          {iterLoading
+            ? `Loading iter ${selectedIter}…`
+            : `This agent hasn't produced any output for iter ${selectedIter} yet.`}
         </div>
       </div>
     );
