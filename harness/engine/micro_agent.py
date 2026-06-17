@@ -56,9 +56,13 @@ class MicroAgentFactory:
 
         effective_result_type = result_type if result_type is not None else AgentResult
         client = LLMClient(model=agent_model) if model else LLMClient()
-        # retries as dict: tools budget from caller, output budget=1 for
-        # step_gate validator retry path (see ADR 2026-06-10-todo-step-gate-adr.md).
-        retries_dict = {"tools": retries, "output": 1}
+        # retries as dict: tools budget from caller. output budget=2 gives the
+        # model a second chance after pydantic-ai feeds back the ValidationError
+        # (or after step_gate raises ModelRetry). 1 was too tight — agents that
+        # finished real work but emitted markdown instead of JSON had no room
+        # to correct, and the failure cascaded into downstream skips. See
+        # 2026-06-17 adapter_generator incident.
+        retries_dict = {"tools": retries, "output": 2}
         agent = client.agent(
             system_prompt=prompt,
             output_type=effective_result_type,

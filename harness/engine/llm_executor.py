@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from pydantic_graph import End
-from pydantic_ai.messages import ModelRequest, SystemPromptPart
+from pydantic_ai.messages import ModelRequest, SystemPromptPart, RetryPromptPart
 
 from harness.extensions.base import ToolCtx
 from harness.extensions.bus import safe_emit
@@ -114,6 +114,57 @@ class LLMExecutor:
     def _next_span_id(self) -> str:
         self._span_seq += 1
         return f"{self._node_id}-s{self._span_seq}"
+
+    def _build_schema_retry_reminder(self, message_history: list) -> str | None:
+        """If the previous model request ended with a RetryPromptPart, build
+        a schema-recovery reminder telling the model exactly what to emit.
+
+        Returns None when:
+          - the last message is not a RetryPromptPart (no retry in flight)
+          - the agent has no ``output_type`` BaseModel (free-text output)
+          - schema introspection fails (defensive — never blocks the run)
+
+        The reminder content is identical in spirit to the system prompt
+        already injected at node_factory, but it is re-emphasised here
+        because RetryPromptPart is the *immediate* feedback the model is
+        responding to. Naming the tool (``final_result``) and re-showing
+        the schema gives the model the clearest path back to a valid call.
+        """
+        if not message_history:
+            return None
+        last = message_history[-1]
+        # RetryPromptPart lives inside a ModelRequest's parts list.
+        has_retry = False
+        if isinstance(last, ModelRequest):
+            has_retry = any(isinstance(p, RetryPromptPart) for p in last.parts)
+        if not has_retry:
+            return None
+
+        # Introspect the agent's output_type. For free-text agents (no
+        # BaseModel) there's no schema to remind about.
+        import json as _json
+        try:
+            from harness.engine.schema_utils import strip_schema
+            schema_obj = getattr(self._agent, "_output_schema", None)
+            toolset = getattr(self._agent, "_output_toolset", None)
+            if toolset is None or not getattr(toolset, "_tool_defs", None):
+                return None
+            td = toolset._tool_defs[0]
+            schema = strip_schema(td.parameters_json_schema)
+            return (
+                "## Output rejected — please retry correctly\n"
+                "Your previous response did not match the required output schema. "
+                f"You MUST call the `{td.name}` tool with arguments matching this JSON schema:\n\n"
+                + _json.dumps(schema, indent=2, ensure_ascii=False)
+                + "\n\nDo NOT emit the schema as plain text or markdown. Switch to a "
+                f"`{td.name}` tool call now and fill every required field with concrete values."
+            )
+        except Exception:
+            logger.debug(
+                "schema-retry reminder build failed for %s; relying on default pydantic-ai feedback",
+                self._agent_name, exc_info=True,
+            )
+            return None
 
     async def run(self, context: str) -> AgentRunResult:
         """Execute the agent and return the result.
@@ -238,6 +289,21 @@ class LLMExecutor:
                 ctx.state.message_history.append(
                     ModelRequest(parts=[SystemPromptPart(content=reminder)])
                 )
+
+        # Schema-retry reminder: when the previous request ended with a
+        # RetryPromptPart (pydantic-ai's signal that the model's output
+        # failed schema validation — typically "Invalid JSON" because the
+        # model emitted text instead of a ``final_result`` tool call),
+        # inject a fresh reminder naming the tool and showing the expected
+        # schema. The default pydantic-ai RetryPromptPart only says
+        # "Invalid JSON: expected value at line 1 column 1" — models that
+        # have drifted into a markdown-summary mode often can't tell what
+        # to switch to. See 2026--06-17 adapter_generator incident.
+        schema_reminder = self._build_schema_retry_reminder(ctx.state.message_history)
+        if schema_reminder:
+            ctx.state.message_history.append(
+                ModelRequest(parts=[SystemPromptPart(content=schema_reminder)])
+            )
 
         span_id = self._next_span_id()
         model_name = ""

@@ -7,6 +7,7 @@ Returns a single string assembled from the user's structured answer.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import sys
 import uuid
@@ -18,6 +19,8 @@ from pydantic_ai import RunContext, Tool as PydanticAITool
 from harness.tools import _human_io
 from harness.tools.deps import AgentDeps
 from harness.tools.registry import ToolFactory
+
+logger = logging.getLogger(__name__)
 
 
 class AskUserOption(BaseModel):
@@ -228,6 +231,10 @@ class AskUserToolFactory(ToolFactory):
 
             raw = await _human_io.wait(future, timeout=timeout)
             if raw is None:
+                logger.warning(
+                    "ask_user.return TIMEOUT qid=%s timeout=%r agent=%s",
+                    question_id, timeout, ctx.deps.agent_name,
+                )
                 bus.emit("chat.timeout", {
                     "workflow_id": wid,
                     "node_id": ctx.deps.agent_name,
@@ -239,6 +246,16 @@ class AskUserToolFactory(ToolFactory):
 
             payload = _normalize_raw(raw)
             answer_str = assemble_answer(payload, options, multi_select, allow_custom_input)
+            option_values = (
+                [(o.value if o.value is not None else o.label) for o in options]
+                if options else None
+            )
+            logger.info(
+                "ask_user.return OK qid=%s agent=%s raw=%r option_values=%s "
+                "multi_select=%s allow_custom=%s answer_str=%r",
+                question_id, ctx.deps.agent_name, raw, option_values,
+                multi_select, allow_custom_input, answer_str,
+            )
             # Emit chat.answer so late subscribers (page refresh, new tab)
             # see the resolved state via WS replay instead of re-prompting.
             bus.emit("chat.answer", {

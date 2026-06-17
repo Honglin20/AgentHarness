@@ -277,3 +277,74 @@ def test_order_field_is_sequence_index():
         dag=dag,
     )
     assert [it["order"] for it in out] == [0, 1, 2]
+
+
+# ── Safety cap: oversized outline collapses to latest-iter-per-node ────
+
+
+def test_outline_under_cap_not_truncated():
+    """Below MAX_OUTLINE_ITEMS (50), every iter stays in the output."""
+    dag = {"nodes": [f"n{i}" for i in range(10)], "edges": []}
+    events = [_started(f"n{i}", ts=1000 + i) for i in range(10)]
+    out = compute_outline(
+        conversation=[],
+        events=events,
+        trace=[],
+        todo_steps={},
+        agents_snapshot=[{"name": f"n{i}"} for i in range(10)],
+        dag=dag,
+    )
+    assert len(out) == 10
+
+
+def test_outline_over_cap_collapses_to_latest_iter_per_node():
+    """When items > MAX_OUTLINE_ITEMS, keep only the highest-iter item per node.
+
+    Regression: the 2026-06-17 cycle-loop incident produced 29999 outline
+    items (5000 cycle iterations × 6 cycle agents), which froze the browser
+    on hydration. The cap collapses this to one entry per node so the
+    outline sidecar stays bounded."""
+    # 1 node, 100 iterations — would normally produce 100 outline items.
+    dag = {"nodes": ["validator"], "edges": []}
+    events = [_started("validator", iteration=i, ts=1000 + i) for i in range(1, 101)]
+    out = compute_outline(
+        conversation=[],
+        events=events,
+        trace=[],
+        todo_steps={},
+        agents_snapshot=[{"name": "validator"}],
+        dag=dag,
+    )
+    # Collapsed to a single item — the highest-iter one.
+    assert len(out) == 1
+    assert out[0]["node_id"] == "validator"
+    assert out[0]["iteration"] == 100
+    # order field re-indexed after collapse so the frontend renders cleanly
+    assert out[0]["order"] == 0
+
+
+def test_outline_cap_preserves_multi_node_distinction():
+    """Even after collapse, distinct nodes remain distinct items.
+
+    A 5000-iter runaway on one node shouldn't merge with another node's
+    single iter — the cap is per-node, not global."""
+    dag = {"nodes": ["selector", "validator"], "edges": []}
+    events = []
+    events += [_started("selector", iteration=i, ts=1000 + i) for i in range(1, 60)]
+    events += [_started("validator", iteration=1, ts=2000)]
+    out = compute_outline(
+        conversation=[],
+        events=events,
+        trace=[],
+        todo_steps={},
+        agents_snapshot=[{"name": "selector"}, {"name": "validator"}],
+        dag=dag,
+    )
+    assert len(out) == 2
+    node_ids = {it["node_id"] for it in out}
+    assert node_ids == {"selector", "validator"}
+    # selector kept its latest (59th) iter; validator kept its only (1st).
+    sel = next(it for it in out if it["node_id"] == "selector")
+    val = next(it for it in out if it["node_id"] == "validator")
+    assert sel["iteration"] == 59
+    assert val["iteration"] == 1

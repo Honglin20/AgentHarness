@@ -9,6 +9,7 @@ import pytest
 from harness.api import Agent, Workflow
 from harness.compiler.dag_builder import build_dag
 from harness.engine.macro_graph import MacroGraphBuilder
+from harness.engine.routing import _route_decision
 from server.schemas import AgentDef
 
 
@@ -189,6 +190,75 @@ class TestConditionalRoutingGraphBuild:
 
 
 # ── 3. list_saved: after=None must not crash ───────────────────────────
+
+
+# ── 3a. _route_decision: skipped → terminate vs fail → on_fail ─────────
+
+
+class TestRouteDecisionSkippedTermination:
+    """Regression: the 2026-06-17 cycle-loop incident.
+
+    When a node was skipped because an upstream dependency failed, the
+    conditional router used to return "fail" → routing to ``on_fail`` →
+    re-entering the cycle → all cycle nodes skipped again → infinite loop
+    until LangGraph's recursion limit (or bus buffer overflow).
+
+    Fix: skipped nodes route to "terminate" (→ END, fail-fast the workflow).
+    Real fail decisions (agent produced a fail verdict) still route to
+    "fail" → ``on_fail`` so the cycle can retry with feedback.
+    """
+
+    def test_skipped_node_routes_to_terminate(self):
+        """Node with output=None + metadata.skipped=True → terminate."""
+        state = {
+            "outputs": {"validator": None},
+            "metadata": {"validator": {"skipped": True, "duration_ms": 0}},
+        }
+        assert _route_decision(state, "validator") == "terminate"
+
+    def test_max_iterations_reached_routes_to_terminate(self):
+        """Node hit cycle cap → terminate (don't re-enter the loop)."""
+        state = {
+            "outputs": {"validator": None},
+            "metadata": {"validator": {"max_iterations_reached": True}},
+        }
+        assert _route_decision(state, "validator") == "terminate"
+
+    def test_no_output_no_metadata_routes_to_fail(self):
+        """Node produced no output AND no skip metadata — treat as recoverable fail.
+
+        This is the path where pydantic-ai raised UnexpectedModelBehavior
+        before any output materialised. Routing to on_fail lets the cycle
+        retry once; if it fails again, max_iterations will eventually catch
+        it and flip metadata to terminate."""
+        state = {"outputs": {"validator": None}, "metadata": {}}
+        assert _route_decision(state, "validator") == "fail"
+
+    def test_pass_decision_routes_to_pass(self):
+        """Agent emitted a pass decision → route to on_pass."""
+        from harness.engine.schema_utils import ReviewDecision
+        state = {"outputs": {"validator": ReviewDecision(decision="pass", reason="ok")}}
+        assert _route_decision(state, "validator") == "pass"
+
+    def test_fail_decision_routes_to_fail(self):
+        """Agent emitted a fail decision → route to on_fail (cycle retry)."""
+        from harness.engine.schema_utils import ReviewDecision
+        state = {"outputs": {"validator": ReviewDecision(decision="fail", reason="too slow")}}
+        assert _route_decision(state, "validator") == "fail"
+
+    def test_unknown_decision_defaults_to_pass(self):
+        """Garbage output (not pass/fail) defaults to pass — preserves prior behaviour."""
+        state = {"outputs": {"validator": "🤷"}}
+        assert _route_decision(state, "validator") == "pass"
+
+    def test_metadata_not_dict_does_not_crash(self):
+        """Defensive: malformed metadata (non-dict) should not raise."""
+        state = {"outputs": {"validator": None}, "metadata": {"validator": "oops"}}
+        # Falls through to "fail" — no exception, just conservative routing.
+        assert _route_decision(state, "validator") == "fail"
+
+
+# ── 4. list_saved: after=None must not crash ───────────────────────────
 
 
 class TestListSavedAfterNone:

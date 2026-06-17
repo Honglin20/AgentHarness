@@ -598,3 +598,80 @@ async def test_negative_delta_clamps_and_emits_ext_error():
     last = executor.get_last_request_usage()
     assert last["last_input"] == 0
     assert last["last_output"] == 0
+
+
+# ── _build_schema_retry_reminder: schema-recovery reminder after RetryPromptPart ──
+
+
+class TestSchemaRetryReminder:
+    """Regression: 2026-06-17 adapter_generator incident.
+
+    When the model emits text/markdown instead of a ``final_result`` tool
+    call, pydantic-ai appends a ``RetryPromptPart`` to message_history
+    with a terse "Invalid JSON" message. Models that drifted into
+    markdown-summary mode often couldn't recover because the feedback
+    didn't name the tool or show the expected schema.
+
+    LLMExecutor._build_schema_retry_reminder detects this case and emits
+    a fresh reminder naming ``final_result`` + dumping the schema.
+    """
+
+    def _make_executor(self, output_type):
+        from harness.engine.llm_executor import LLMExecutor
+        from pydantic_ai import Agent
+        agent = Agent(output_type=output_type, retries={"tools": 0, "output": 2}, defer_model_check=True)
+
+        class _Fe(LLMExecutor):
+            def __init__(self, ag):
+                self._agent = ag
+                self._agent_name = "adapter_generator"
+        return _Fe(agent)
+
+    def test_empty_history_returns_none(self):
+        from pydantic import BaseModel
+        class Out(BaseModel):
+            x: int
+        ex = self._make_executor(Out)
+        assert ex._build_schema_retry_reminder([]) is None
+
+    def test_no_retry_prompt_returns_none(self):
+        from pydantic import BaseModel
+        from pydantic_ai.messages import ModelRequest, UserPromptPart
+        class Out(BaseModel):
+            x: int
+        ex = self._make_executor(Out)
+        history = [ModelRequest(parts=[UserPromptPart(content="hi")])]
+        assert ex._build_schema_retry_reminder(history) is None
+
+    def test_retry_prompt_triggers_reminder_with_tool_name_and_schema(self):
+        from pydantic import BaseModel, Field
+        from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, RetryPromptPart, UserPromptPart
+        class AdapterGenResult(BaseModel):
+            summary: str
+            adapter_path: str = Field(description="Absolute path")
+            smoke_pass: bool
+
+        ex = self._make_executor(AdapterGenResult)
+        history = [
+            ModelRequest(parts=[UserPromptPart(content="Generate adapter.")]),
+            ModelResponse(parts=[TextPart(content="Adapter:\n## Done\nGenerated.")]),
+            ModelRequest(parts=[RetryPromptPart(content=[{"type": "json_invalid", "loc": [], "msg": "Invalid JSON"}])]),
+        ]
+        reminder = ex._build_schema_retry_reminder(history)
+        assert reminder is not None
+        # Names the tool explicitly
+        assert "`final_result`" in reminder
+        # Shows the expected schema (all three required fields surface)
+        assert "summary" in reminder
+        assert "adapter_path" in reminder
+        assert "smoke_pass" in reminder
+        # Tells the model not to emit text — the core instruction that was
+        # missing from pydantic-ai's default "Invalid JSON" feedback.
+        assert "tool call" in reminder.lower()
+
+    def test_free_text_agent_returns_none(self):
+        """Agents with str output_type have no schema to remind about."""
+        from pydantic_ai.messages import ModelRequest, RetryPromptPart
+        ex = self._make_executor(str)
+        history = [ModelRequest(parts=[RetryPromptPart(content=[{"type": "x", "loc": [], "msg": "y"}])])]
+        assert ex._build_schema_retry_reminder(history) is None

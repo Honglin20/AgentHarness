@@ -634,3 +634,106 @@ def test_delete_run_removes_outline_sidecar():
 
         assert store.delete_run("run-del") is True
         assert not sidecar.exists()
+
+
+def test_index_rebuilds_after_external_write(tmp_path):
+    """list_runs must pick up files written by external processes after the
+    index was first built. Regression test for the macOS dir-mtime bug:
+    atomic write (tmp + rename) doesn't always bump the directory's mtime,
+    so the old dir-mtime invalidation never noticed new files arriving."""
+    store = RunStore(runs_dir=str(tmp_path))
+
+    # First call builds an empty index.
+    assert store.list_runs(summary_only=True)["total"] == 0
+
+    # External writer drops a main run record straight to disk (simulating
+    # CLI runner / NAS workflow that doesn't go through store.save()).
+    external_run = {
+        "run_id": "ext-001",
+        "workflow_name": "nas",
+        "status": "running",
+        "inputs": {"task": "search"},
+        "created_at": "2026-06-17T00:00:00Z",
+    }
+    (tmp_path / "ext-001.json").write_text(json.dumps(external_run))
+
+    # Second call MUST rebuild and see the new run. Old code returned 0
+    # because directory mtime didn't change.
+    result = store.list_runs(summary_only=True)
+    assert result["total"] == 1
+    assert result["runs"][0]["run_id"] == "ext-001"
+
+
+def test_index_ignores_sidecar_files(tmp_path):
+    """Sidecars (charts/events/outline/snapshot/iter_index/iter sidecar)
+    must not be indexed as run records. Snapshot files are the trickiest —
+    they contain a run_id field, so without the suffix filter they would
+    pollute the index with partial data and shadow the real main record."""
+    store = RunStore(runs_dir=str(tmp_path))
+
+    # Drop every kind of sidecar file directly to disk.
+    (tmp_path / "run-x+charts.json").write_text(json.dumps({"groups": {}}))
+    (tmp_path / "run-x+events.json").write_text("[]")
+    (tmp_path / "run-x+outline.json").write_text(json.dumps([]))
+    # Snapshot has a run_id — must NOT be picked up as a main record.
+    (tmp_path / "run-x+snapshot.json").write_text(json.dumps({
+        "run_id": "run-x",
+        "workflow_name": "shadow",
+        "status": "completed",
+    }))
+    (tmp_path / "run-x+iter_index.json").write_text(json.dumps({}))
+    (tmp_path / "run-x+iters+selector+1.json").write_text(json.dumps({"iter": 1}))
+
+    result = store.list_runs(summary_only=True)
+    assert result["total"] == 0, "sidecars leaked into the index"
+
+
+def test_index_skips_rebuild_when_unchanged(tmp_path):
+    """list_runs called twice in a row (no writes between) must reuse the
+    cached index rather than rescanning disk. Guards the perf invariant
+    and confirms fingerprint equality short-circuits rebuild."""
+    store = RunStore(runs_dir=str(tmp_path))
+    store.save(
+        run_id="run-1", workflow_name="w", agents_snapshot=[],
+        status="completed", inputs={}, result=None,
+    )
+
+    store.list_runs(summary_only=True)
+    cached = store._summary_index
+    assert cached is not None
+
+    store.list_runs(summary_only=True)
+    # Same object identity = no rebuild.
+    assert store._summary_index is cached
+
+
+def test_index_rebuilds_when_main_record_overwritten(tmp_path):
+    """Overwriting a main run record (e.g. status flip running→success)
+    must invalidate the cached index entry. Catches the case where file
+    set is unchanged but content (mtime) changed."""
+    store = RunStore(runs_dir=str(tmp_path))
+    store.save(
+        run_id="run-1", workflow_name="w", agents_snapshot=[],
+        status="running", inputs={}, result=None,
+    )
+
+    first = store.list_runs(summary_only=True)
+    assert first["runs"][0]["status"] == "running"
+
+    # External rewrite (not via store.save, so _update_index_entry doesn't
+    # fire) — simulates another process touching the file.
+    import time
+    path = tmp_path / "run-1.json"
+    old_mtime = path.stat().st_mtime
+    data = json.loads(path.read_text())
+    data["status"] = "success"
+    path.write_text(json.dumps(data))
+    # macOS file mtime is second-resolution — bump past it to be safe.
+    new_mtime = path.stat().st_mtime
+    if new_mtime <= old_mtime:
+        time.sleep(1.1)
+        import os
+        os.utime(path, None)
+
+    second = store.list_runs(summary_only=True)
+    assert second["runs"][0]["status"] == "success", "overwrite didn't invalidate index"

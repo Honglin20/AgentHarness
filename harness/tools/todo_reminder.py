@@ -26,7 +26,7 @@ class TodoReminderTracker:
     """
 
     CREATE_THRESHOLD = 1
-    UPDATE_THRESHOLD = 5
+    UPDATE_THRESHOLD = 10
 
     def __init__(self, deps: AgentDeps) -> None:
         self._deps = deps
@@ -66,14 +66,15 @@ class TodoReminderTracker:
             if active:
                 return (
                     f"<system-reminder>"
-                    f"你正在执行步骤「{active.content}」，有一段时间没更新进度了。"
-                    f"如果此步骤已完成，请调用 TodoTool(op='update', task_id='{active.task_id}', status='completed')。"
-                    f"如果还在进行中，可以调用 TodoTool(op='update', task_id='{active.task_id}', detail='当前在做什么') 更新细节。"
+                    f"你有一段时间没更新 task 状态了。当前 in_progress: 「{active.content}」。"
+                    f"如果这个 stage 已完成，调用 TodoTool(op='update', task_id='{active.task_id}', status='completed')；"
+                    f"如果还在做，可以忽略此提醒，不需要中途更新 detail。"
                     f"</system-reminder>"
                 )
             return (
                 "<system-reminder>"
-                "你有一段时间没更新任务进度了。请调用 TodoTool 工具更新状态。"
+                "你有一段时间没更新 task 状态了。如果当前 stage 已完成，"
+                "调用 TodoTool(op='update', ..., status='completed')；如果还在做，可以忽略此提醒。"
                 "</system-reminder>"
             )
 

@@ -19,6 +19,12 @@ from __future__ import annotations
 from typing import Any
 
 
+# Safety cap — see docstring. Above this, we collapse to latest-iter-per-node.
+# 50 is roughly 5 cycle agents × 8 iters + setup nodes; legitimate runs stay
+# well under this.
+MAX_OUTLINE_ITEMS = 50
+
+
 def compute_outline(
     *,
     conversation: list[dict] | None,
@@ -32,6 +38,12 @@ def compute_outline(
 
     See module docstring for the contract. Returns ``[]`` when there is not
     enough data to derive anything (caller writes no sidecar in that case).
+
+    Safety cap: if the run somehow produced more than ``MAX_ITEMS`` outline
+    entries (e.g. a misbehaving cycle kept firing node.started), collapse
+    each node to its latest iteration only. This prevents the 30k-item /
+    multi-MB sidecar blowup observed during the 2026-06-17 cycle-loop
+    incident, which made the frontend OOM on hydration.
     """
     conversation = conversation or []
     events = events or []
@@ -258,7 +270,34 @@ def compute_outline(
             "order": order,
         })
 
-    return items
+    return _cap_items(items)
+
+
+def _cap_items(items: list[dict]) -> list[dict]:
+    """Collapse oversized outlines to latest-iter-per-node.
+
+    When a cycle misbehaves (the 2026-06-17 incident produced 29999 items),
+    rendering that many OutlineItemRow components freezes the browser.
+    Keep only the highest-iteration item per node — that's the only one the
+    UI surfaces in the latest-state view anyway. Historical iters remain
+    queryable via the per-iter sidecars.
+    """
+    if len(items) <= MAX_OUTLINE_ITEMS:
+        return items
+    latest_per_node: dict[str, dict] = {}
+    for item in items:
+        node_id = item["node_id"]
+        prev = latest_per_node.get(node_id)
+        if prev is None or item["iteration"] > prev["iteration"]:
+            latest_per_node[node_id] = item
+    # Re-sort + re-index order to keep display stable.
+    collapsed = sorted(
+        latest_per_node.values(),
+        key=lambda it: (it["first_ts"], it["order"], it["iteration"]),
+    )
+    for new_order, item in enumerate(collapsed):
+        item["order"] = new_order
+    return collapsed
 
 
 # ---------------------------------------------------------------------------

@@ -91,16 +91,18 @@ class TodoToolFactory(ToolFactory):
 
     name = "TodoTool"
     description = (
-        "Plan and track your task steps. "
-        "You MUST call this with op='create' to define your step list BEFORE starting any work, "
-        "even for single-step tasks. "
-        "Update step status with op='update' as you progress. "
-        "Use op='complete_remaining' to bulk-finish all remaining steps when the goal is achieved early "
-        "(status='completed' if you actually did the work, or 'skipped' if not needed). "
+        "Plan and track your task in OUTCOME-level steps, not micro-actions. "
+        "You MUST call op='create' BEFORE starting any work, even for single-step tasks. "
+        "Mark a step in_progress when you BEGIN it; mark it completed/skipped when the OUTCOME is done. "
+        "Do NOT call update mid-step just to log progress — only at stage boundaries. "
+        "Use op='complete_remaining' to bulk-finish when the goal is achieved early "
+        "(status='completed' if done, 'skipped' if not needed). "
         "Use op='replace' to discard the current plan and create a new one when you discover the original plan was wrong. "
         "Use op='list' to view current steps. "
         "ALL steps MUST be terminal (completed or skipped) before the agent can finish — "
-        "the framework will reject your final output otherwise."
+        "the framework will reject your final output otherwise.\n"
+        "Granularity — GOOD (outcome-level): 'Fix auth bug in login flow', 'Add retry tests', 'Refactor session module'. "
+        "BAD (too granular, fold into the outcome): 'Read auth.py', 'Edit line 42', 'Run pytest'."
     )
 
     def __init__(self, event_bus: Any | None = None):

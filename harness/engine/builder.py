@@ -41,7 +41,7 @@ class MacroGraphBuilder:
         self,
         tool_registry: ToolRegistry | None = None,
         event_bus: Any | None = None,
-        max_iterations: int = 3,
+        max_iterations: int = 8,
         envelope: dict[str, int] | None = None,
         request_limit: int | None = None,
     ):
@@ -305,6 +305,9 @@ class MacroGraphBuilder:
                 targets = {}
                 targets["pass"] = agent.on_pass if agent.on_pass is not None else END
                 targets["fail"] = agent.on_fail if agent.on_fail is not None else END
+                # Terminate outcome (skipped / max-iter) — fail-fast END.
+                # Without this the cycle would re-enter on_fail forever.
+                targets["terminate"] = END
 
                 # All nodes route from outputs (ReviewDecision.decision or
                 # plain string) — no metadata special-casing.

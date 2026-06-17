@@ -82,31 +82,67 @@ class RunStore(RunStoreInterface):
         self._migrate_lock = threading.Lock()
         # Summary index for fast list_runs(summary_only=True). Lazily built
         # on first list_runs; updated incrementally by save() / delete_run().
-        # _index_dir_mtime tracks dir mtime at last build to detect external
-        # writes (NFS / other processes touching runs/).
+        #
+        # _index_fingerprint maps each main run record filename → its mtime,
+        # captured at the last rebuild. The next list_runs rebuilds iff the
+        # fingerprint changes (file added / removed / overwritten). We can't
+        # rely on the directory's own mtime — macOS doesn't always bump it
+        # when a file is replaced via tmp + atomic rename, which left the
+        # index stale when an external writer (CLI runner, NAS workflow)
+        # added runs after the server started (bug observed 2026-06-17).
         self._summary_index: dict[str, dict] | None = None
-        self._index_dir_mtime: float | None = None
+        self._index_fingerprint: dict[str, float] | None = None
 
     # ---- Index management ----
+
+    def _is_sidecar(self, name: str) -> bool:
+        """True if filename is a sidecar (charts/events/outline/snapshot/
+        iter_index/iter sidecar), not a main run record. Sidecars don't
+        contribute to the summary index — they're either summaries of one
+        aspect (charts/outline) or per-iter details (iter sidecars)."""
+        return (
+            name.endswith(_CHARTS_SUFFIX)
+            or name.endswith(_EVENTS_SUFFIX)
+            or name.endswith(_OUTLINE_SUFFIX)
+            or name.endswith(_SNAPSHOT_SUFFIX)
+            or name.endswith(_ITER_INDEX_SUFFIX)
+            or _ITER_SIDECAR_PREFIX in name
+        )
 
     def _maybe_rebuild_index(self) -> None:
         """Build the summary index if it's stale or uninitialized.
 
-        Detects external writes by comparing directory mtime; falls back to
-        a full scan if mtime changed since the last build. Safe to call
-        on every list_runs — it's a no-op when the index is fresh.
+        Detects external writes by comparing a fingerprint of (main run
+        record filename → mtime). Safe to call on every list_runs — it's
+        a no-op when nothing changed.
         """
         try:
-            current_mtime = self._dir.stat().st_mtime
+            main_records = [
+                f for f in self._dir.glob("*.json") if not self._is_sidecar(f.name)
+            ]
         except OSError:
             return
-        if self._summary_index is not None and self._index_dir_mtime == current_mtime:
+
+        # Build candidate fingerprint. stat() may fail if a writer deletes
+        # the file between glob and stat — skip those entries; the next
+        # list_runs call will pick up the final state.
+        fingerprint: dict[str, float] = {}
+        for f in main_records:
+            try:
+                fingerprint[f.name] = f.stat().st_mtime
+            except OSError:
+                continue
+
+        if self._summary_index is not None and self._index_fingerprint == fingerprint:
+            # Disk unchanged since last build — keep the cached index.
+            # Refresh fingerprint so future comparisons include any files we
+            # couldn't stat this round (avoids repeated rebuild attempts).
+            self._index_fingerprint = fingerprint
             return
+
         # Rebuild from disk
         new_index: dict[str, dict] = {}
-        for f in self._dir.glob("*.json"):
-            if f.name.endswith(_CHARTS_SUFFIX) or f.name.endswith(_EVENTS_SUFFIX) or f.name.endswith(_OUTLINE_SUFFIX):
-                continue
+        for f in main_records:
             try:
                 data = json.loads(f.read_text())
             except (json.JSONDecodeError, OSError):
@@ -124,7 +160,7 @@ class RunStore(RunStoreInterface):
                 "user_id": data.get("user_id"),
             }
         self._summary_index = new_index
-        self._index_dir_mtime = current_mtime
+        self._index_fingerprint = fingerprint
 
     def _update_index_entry(self, run_id: str, summary: dict) -> None:
         """Insert or replace a single entry in the summary index.
@@ -132,28 +168,31 @@ class RunStore(RunStoreInterface):
         No-op if the index hasn't been built yet (lazy init on first
         list_runs). Called by save() so a successful write doesn't force
         the next list_runs to re-scan the whole directory.
+
+        Also refreshes the fingerprint entry for this run's main record so
+        the next list_runs doesn't redundantly rebuild (save() just wrote
+        the file, so its mtime is fresh in our cache).
         """
         if self._summary_index is not None:
             self._summary_index[run_id] = summary
-            try:
-                self._index_dir_mtime = self._dir.stat().st_mtime
-            except OSError:
-                logger.warning(
-                    "Could not refresh runs dir mtime after indexing update",
-                    exc_info=True,
-                )
+            if self._index_fingerprint is not None:
+                path = self._safe_path(run_id)
+                if path is not None:
+                    try:
+                        self._index_fingerprint[path.name] = path.stat().st_mtime
+                    except OSError:
+                        # stat failed — leave fingerprint stale so next
+                        # list_runs rebuilds (defensive).
+                        pass
 
     def _remove_index_entry(self, run_id: str) -> None:
         """Drop an entry from the summary index (no-op if not built)."""
         if self._summary_index is not None:
             self._summary_index.pop(run_id, None)
-            try:
-                self._index_dir_mtime = self._dir.stat().st_mtime
-            except OSError:
-                logger.warning(
-                    "Could not refresh runs dir mtime after indexing remove",
-                    exc_info=True,
-                )
+            if self._index_fingerprint is not None:
+                path = self._safe_path(run_id)
+                if path is not None:
+                    self._index_fingerprint.pop(path.name, None)
 
     def _safe_path(self, run_id: str) -> Path | None:
         """Return the JSON path if run_id is safe, else None."""
@@ -387,7 +426,7 @@ class RunStore(RunStoreInterface):
                     logger.warning("Corrupted run file skipped: %s", path.name)
         else:
             for f in self._dir.glob("*.json"):
-                if f.name.endswith(_CHARTS_SUFFIX) or f.name.endswith(_EVENTS_SUFFIX) or f.name.endswith(_OUTLINE_SUFFIX):
+                if self._is_sidecar(f.name):
                     continue
                 try:
                     data = json.loads(f.read_text())
