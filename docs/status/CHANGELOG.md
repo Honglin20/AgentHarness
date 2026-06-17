@@ -9,6 +9,9 @@
 
 ## 2026-06
 
+- **2026-06-17** — **Conversation latest-iter 全量加载 + 历史 iter 按需**：修历史刷新后 outline 列出所有 agent 但点任意一个显示 "iter 1 yet" 的多层 bug。根因：snapshot 切 `conversation[-50:]` 把 NAS 9-agent × 500+ 消息切到只剩最后 agent 尾部 tool_call；`build_conversation` 没写 `iteration` 字段；`hydrateFromSnapshot` 直接 setState raw dict 未经 DTO 转换。修复：(1) `build_conversation` 加 `invocation_counts` 参数 + `message.iteration` 字段；(2) snapshot 不再切 tail，全量 latest-iter 写入（`agent_io` 本来就只保留最新 iter，所以 conversation 天然 latest-iter）；(3) `/runs/{id}/conversation` 加 `node_id`+`iter_num` 参数，按需读 `+iters+{node}+{iter}.json` sidecar；(4) `hydrateFromSnapshot` 改用 `dtoListToMessages`；(5) `AgentDetailView` 切历史 iter 时拉 sidecar + 本地 cache。24 backend + 267 frontend 测试全过。
+  → [详情](../releases/2026-06-17-conversation-latest-iter-fix.md)
+
 - **2026-06-17** — **Outline iter collapse + node iter dropdown**：长 loop workflow（NAS）下 cycle agent 跑 N 轮时，sidebar 从"每个 iter 一行"改为"按 nodeId 折叠成一行 + ⇡N badge"。Detail panel 顶部新增 sticky iter dropdown（`NodeIterSelector`，Radix Select），默认显示 latestIter，用户切换后**按 nodeId 保留选择** —— 切到别的 agent 再切回来仍停在原 iter。`outlineStore.selectedKey` → `selectedNodeId` + `selectedIterByNode: Record`，新增 `selectIter` action。`useAgentOutline` 末端加 `groupOutlineByNode` 派生（view 层折叠，sidecar schema 不动）；`useAutoFollowSelection` / `useWaitingAgentToast` 跟着切到 `OutlineGroup[]`。`OutlineItemRow.tsx` 删除（被 `OutlineGroupRow.tsx` 替代）。57 个 outline 测试 + 260 个全量前端测试全过；TypeScript 0 outline 相关错误。
   → [详情](../releases/2026-06-17-outline-iter-collapse.md)
 
