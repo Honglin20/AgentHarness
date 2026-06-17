@@ -125,6 +125,24 @@ describe("dtoToMessage", () => {
     const dto: ConversationMessageDTO = { type: "user", followup: true };
     expect(dtoToMessage(dto, 0).followup).toBe(true);
   });
+
+  it("preserves iteration when DTO carries it (Plan B cycle support)", () => {
+    const dto: ConversationMessageDTO = {
+      type: "agent",
+      nodeId: "analyzer",
+      content: "iter-3 output",
+      iteration: 3,
+    };
+    expect(dtoToMessage(dto, 0).iteration).toBe(3);
+  });
+
+  it("leaves iteration undefined when DTO omits it (legacy data)", () => {
+    // Frontend treats undefined iteration as iter=1 via `m.iteration ?? 1`
+    // in AgentDetailView / deriveOutlineItems. Don't synthesise iter=1 here —
+    // that would mask missing data and break the legacy-data signal.
+    const dto: ConversationMessageDTO = { type: "agent", content: "legacy" };
+    expect(dtoToMessage(dto, 0).iteration).toBeUndefined();
+  });
 });
 
 describe("dtoListToMessages", () => {

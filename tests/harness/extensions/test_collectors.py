@@ -1,7 +1,12 @@
 import pytest
 
 from harness.extensions.bus import Bus
-from harness.extensions.collectors import ConversationCollector, ChartCollector
+from harness.extensions.collectors import (
+    ConversationCollector,
+    ChartCollector,
+    build_conversation,
+    _format_output,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +116,205 @@ def test_conversation_collector_unfinalized_streaming():
     assert len(messages) == 1
     assert messages[0]["content"] == "Partial"
     assert messages[0]["status"] == "done"
+
+
+# ---------------------------------------------------------------------------
+# _format_output — regression tests for struct-shaped outputs
+#
+# NAS agents emit Pydantic result_types whose model_dump is a dict. Before
+# the _json scope fix, _format_output raised NameError on any dict /
+# JSON-string output, which broke incremental_save and froze the run in
+# "running" forever. These tests guard against that regression.
+# ---------------------------------------------------------------------------
+
+def test_format_output_dict_renders_markdown_table():
+    """Dict output with extra keys renders as a markdown table — exercises _json.dumps."""
+    out = {"summary": "ok", "strategy_id": "s1", "metrics": {"acc": 0.9, "loss": 0.1}}
+    rendered = _format_output(out)
+    assert "ok" in rendered
+    assert "| strategy_id | s1 |" in rendered
+    # Nested dict/list values must be JSON-serialised, not repr'd.
+    assert '{"acc": 0.9' in rendered or '"acc": 0.9' in rendered
+
+
+def test_format_output_json_string_round_trips():
+    """JSON-string output is parsed and formatted as a dict (recurses through _json.loads)."""
+    rendered = _format_output('{"summary": "done", "score": 0.85}')
+    assert "done" in rendered
+    assert "| score | 0.85 |" in rendered
+
+
+def test_format_output_plain_string_passthrough():
+    """Plain non-JSON string is returned as-is."""
+    assert _format_output("just text") == "just text"
+
+
+def test_format_output_none_returns_empty():
+    assert _format_output(None) == ""
+
+
+def test_format_output_list_is_json_serialised():
+    """Non-dict/list-passing-through, a raw list hits the fallback _json.dumps branch."""
+    rendered = _format_output([1, 2, {"k": "v"}])
+    assert "[\n  1," in rendered  # indent=2 pretty-print
+    assert '"k": "v"' in rendered
+
+
+def test_build_conversation_with_structured_output_does_not_raise():
+    """End-to-end regression: agent_io whose output_result is a dict (the
+    NAS pattern) must not raise NameError. This is the exact failure mode
+    that froze fb24e1f8 in 'running' forever."""
+    agent_io = {
+        "selector": {
+            "agent_name": "selector",
+            "output_result": {
+                "summary": "picked s2",
+                "decision": "accept",
+                "ranking": [{"strategy_id": "s2", "fitness": 0.82}],
+            },
+            "tool_calls": [],
+        }
+    }
+    messages = build_conversation(agent_io)
+    assert len(messages) == 1
+    assert messages[0]["type"] == "agent"
+    assert "picked s2" in messages[0]["content"]
+
+
+def test_build_conversation_without_invocation_counts_omits_iteration():
+    """Backward compat: callers that don't pass invocation_counts get messages
+    without an `iteration` field. Frontend treats absent iteration as iter=1
+    via `m.iteration ?? 1`, so this preserves legacy run replay."""
+    agent_io = {
+        "analyzer": {
+            "agent_name": "analyzer",
+            "output_result": "ok",
+            "tool_calls": [],
+        }
+    }
+    messages = build_conversation(agent_io)
+    assert len(messages) == 1
+    assert "iteration" not in messages[0]
+
+
+def test_build_conversation_with_invocation_counts_stamps_iteration():
+    """ invocation_counts is the per-node latest iter. Each message emitted
+    for a node carries that node's iter — frontend's per-iter filter then
+    works without scanning the conversation. NAS multi-iter scenario:
+    agent_io only retains latest iter (overwrites), so the stamped iter
+    matches the latest invocation of each node. """
+    agent_io = {
+        "analyzer": {
+            "agent_name": "analyzer",
+            "output_result": "analyzed",
+            "tool_calls": [
+                {"tool_name": "bash", "tool_args": {"cmd": "ls"}, "result": "ok"},
+            ],
+        },
+        "planner": {
+            "agent_name": "planner",
+            "output_result": None,
+            "input_prompt": "plan X",
+            "tool_calls": [],
+        },
+    }
+    messages = build_conversation(
+        agent_io,
+        invocation_counts={"analyzer": 3, "planner": 1},
+    )
+    # 2 from analyzer (output + tool_call) + 1 from planner (input_prompt fallback)
+    assert len(messages) == 3
+    for m in messages:
+        if m["nodeId"] == "analyzer":
+            assert m["iteration"] == 3
+        else:
+            assert m["nodeId"] == "planner"
+            assert m["iteration"] == 1
+
+
+def test_build_conversation_invocation_counts_unknown_node_omits_iter():
+    """A node present in agent_io but missing from invocation_counts emits
+    messages WITHOUT iteration (defensive — caller should pass complete
+    counts, but we don't synthesise iter=1 to avoid masking the gap)."""
+    agent_io = {
+        "scout": {"agent_name": "scout", "output_result": "x", "tool_calls": []},
+    }
+    messages = build_conversation(agent_io, invocation_counts={"other": 2})
+    assert len(messages) == 1
+    assert "iteration" not in messages[0]
+
+
+def test_iter_sidecar_to_messages_projects_output():
+    """Backend /runs/{id}/conversation?node_id=X&iter_num=Y uses this helper
+    to shape per-iter sidecars into the same ConversationMessage format the
+    main conversation endpoint returns. Output → one agent message stamped
+    with the requested iter_num. Verifies field shape + iter stamping."""
+    from server.routers.runs import _iter_sidecar_to_messages
+
+    sidecar = {
+        "iter": 2,
+        "node_id": "analyzer",
+        "status": "completed",
+        "duration_ms": 1500,
+        "input_prompt": "context...",
+        "system_prompt": "you are...",
+        "output": {"summary": "picked s2"},
+        "summary": "picked s2",
+    }
+    messages = _iter_sidecar_to_messages(sidecar, "analyzer", 2)
+    assert len(messages) == 1
+    m = messages[0]
+    assert m["type"] == "agent"
+    assert m["nodeId"] == "analyzer"
+    assert m["agentName"] == "analyzer"
+    assert m["iteration"] == 2
+    assert "picked s2" in m["content"]
+    assert m["status"] == "done"
+
+
+def test_iter_sidecar_to_messages_input_prompt_fallback_when_no_output():
+    """Sidecar without `output` but with input_prompt emits a single message
+    carrying the prompt content (matches build_conversation's fallback branch
+    for agents that produced only input, no result)."""
+    from server.routers.runs import _iter_sidecar_to_messages
+
+    sidecar = {
+        "iter": 1,
+        "node_id": "starter",
+        "input_prompt": "initial context",
+        "output": None,
+    }
+    messages = _iter_sidecar_to_messages(sidecar, "starter", 1)
+    assert len(messages) == 1
+    assert messages[0]["content"] == "initial context"
+    assert messages[0]["iteration"] == 1
+
+
+def test_iter_sidecar_to_messages_empty_when_no_content():
+    """Sidecar with neither output nor input_prompt emits zero messages —
+    the frontend's iter detail view then shows the empty-state message."""
+    from server.routers.runs import _iter_sidecar_to_messages
+
+    sidecar = {"iter": 1, "node_id": "noop", "output": None}
+    messages = _iter_sidecar_to_messages(sidecar, "noop", 1)
+    assert messages == []
+
+
+def test_conversation_collector_handles_dict_output_result():
+    """ConversationCollector._on_node_completed also calls _format_output —
+    same regression path via the bus replay route."""
+    bus = Bus()
+    bus.emit("node.started", {"workflow_id": "w1", "node_id": "a1", "agent_name": "a1"})
+    bus.emit("node.completed", {
+        "workflow_id": "w1", "node_id": "a1", "agent_name": "a1",
+        "output_result": {"summary": "done", "rank": 1, "extra": {"k": "v"}},
+        "duration_ms": 100,
+    })
+    collector = ConversationCollector(bus)
+    collector.collect_from_buffer()  # must not raise
+    messages = collector.get_messages()
+    assert len(messages) == 1
+    assert "done" in messages[0]["content"]
 
 
 # ---------------------------------------------------------------------------
