@@ -234,16 +234,6 @@ async def run_with_persistence(
             if hasattr(workflow._builder, "register_active"):
                 workflow._builder.register_active()
 
-        # Cp8: Explicit start signal for hooks that own resources like Live.
-        # The engine only dispatches on_node_* / on_llm_delta / on_tool_call
-        # hooks — on_workflow_start is NEVER called (pre-existing framework
-        # gap). So hooks like TuiRenderer expose start() and we invoke it
-        # explicitly here, after MCP setup but before arun. Duck-typed so
-        # ConsoleOutput silently skips.
-        start_hook = getattr(output_hook, "start", None)
-        if callable(start_hook):
-            start_hook()
-
         # Emit workflow.started BEFORE arun so it lands at the head of the
         # event stream — server does this in _helpers.py:358, and the
         # frontend uses it to initialize UI state (DAG, inputs, envelope).
@@ -263,6 +253,10 @@ async def run_with_persistence(
             },
         )
 
+        # arun_workflow now dispatches on_workflow_start/end hooks on the
+        # bus (engine fix in this commit). TuiRenderer.on_workflow_start
+        # starts Live; on_workflow_end stops it. No explicit start signal
+        # needed from cli_runner anymore.
         result = await workflow.arun(inputs, config=config)
         status = "completed"
         error: Optional[str] = None

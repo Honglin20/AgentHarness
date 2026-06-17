@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from harness.constants import STATE_ERRORS, STATE_INPUTS, STATE_METADATA, STATE_OUTPUTS
+from harness.extensions.base import WorkflowCtx
 from harness.tools.defaults import default_tool_registry, setup_default_mcp
 from harness.tools.mcp_bridge import McpBridge
 from harness.types import NodeTrace, TokenUsage, WorkflowResult
@@ -90,6 +91,12 @@ async def arun_workflow(
 
     Caller is responsible for MCP lifecycle (call setup/cleanup if needed).
 
+    Dispatches ``on_workflow_start`` / ``on_workflow_end`` hooks on the
+    workflow's event bus so BaseHook subclasses (ConsoleOutput,
+    TuiRenderer, future plugins) can react to workflow-level lifecycle.
+    Node-level hooks (``on_node_start`` etc.) are dispatched separately
+    by the engine during ainvoke.
+
     Args:
         workflow: the workflow to run.
         inputs: Task input dict. None when resuming.
@@ -111,27 +118,89 @@ async def arun_workflow(
     if config is None and workflow.checkpointer is not None:
         config = {"configurable": {"thread_id": workflow.name}}
 
-    if resume_value is not None:
-        from langgraph.types import Command
-        final_state = await workflow._compiled.ainvoke(
-            Command(resume=resume_value), config=config,
-        )
-    else:
-        initial_state = {
-            STATE_INPUTS: inputs or {},
-            STATE_OUTPUTS: {},
-            STATE_ERRORS: {},
-            STATE_METADATA: {},
-        }
-        final_state = await workflow._compiled.ainvoke(initial_state, config=config)
+    # Build the WorkflowCtx that hooks receive. thread_id comes from the
+    # LangGraph config (set by server._helpers or cli_runner); fall back
+    # to the workflow name so plain-script runs (no config) still get a
+    # stable id.
+    thread_id = (
+        (config or {}).get("configurable", {}).get("thread_id")
+        or workflow.name
+    )
+    wf_ctx = WorkflowCtx(
+        workflow_id=thread_id,
+        workflow_name=workflow.name,
+        inputs=inputs or {},
+    )
+
+    # Dispatch on_workflow_start BEFORE ainvoke so hooks can initialize
+    # resources (ConsoleOutput's header panel, TuiRenderer's Live, etc.).
+    # Guards on bus presence + duck-typed run_hooks so this function
+    # stays usable in unit tests that construct a Workflow without a bus.
+    bus = getattr(workflow, "_event_bus", None)
+    has_hooks_bus = bus is not None and hasattr(bus, "run_hooks")
+    if has_hooks_bus:
+        await bus.run_hooks("on_workflow_start", wf_ctx)
+
+    try:
+        if resume_value is not None:
+            from langgraph.types import Command
+            final_state = await workflow._compiled.ainvoke(
+                Command(resume=resume_value), config=config,
+            )
+        else:
+            initial_state = {
+                STATE_INPUTS: inputs or {},
+                STATE_OUTPUTS: {},
+                STATE_ERRORS: {},
+                STATE_METADATA: {},
+            }
+            final_state = await workflow._compiled.ainvoke(initial_state, config=config)
+    except BaseException:
+        # Even on failure, dispatch on_workflow_end so hooks can release
+        # resources (Live.stop(), subscriber cancellation, etc.). The
+        # exception propagates after hooks finish.
+        if has_hooks_bus:
+            try:
+                await bus.run_hooks(
+                    "on_workflow_end", wf_ctx,
+                    {"outputs": {}, "errors": {"_workflow": "workflow raised"}, "trace": []},
+                )
+            except Exception:
+                logger.exception("on_workflow_end hook raised during exception path")
+        raise
 
     result = _build_workflow_result(workflow, final_state)
 
-    # Detect LangGraph interrupt: ainvoke returns {__interrupt__: [Interrupt(...)]}
-    if isinstance(final_state, dict) and "__interrupt__" in final_state:
+    # Detect LangGraph interrupt FIRST so we don't tell hooks the workflow
+    # ended when it actually paused for human input. langgraph.types.interrupt
+    # returns {__interrupt__: [Interrupt(...)]} from ainvoke (does NOT raise),
+    # so without this guard the success-path on_workflow_end dispatch would
+    # fire — for TuiRenderer that means Live gets torn down while the user
+    # is still looking at the prompt, then re-started when they resume
+    # (flicker + broken cursor state).
+    interrupted = isinstance(final_state, dict) and "__interrupt__" in final_state
+    if interrupted:
         interrupts = final_state["__interrupt__"]
         result.interrupted = True
         result.interrupt_value = interrupts[0].value if interrupts else None
+
+    # Dispatch on_workflow_end on the success path — but NOT on interrupt.
+    # Interrupt is a pause, not an end; resume will re-fire on_workflow_start.
+    # Bus._safe_invoke already swallows per-hook exceptions, so a broken
+    # cleanup hook won't mask the original error. This outer guard is only
+    # for bugs in Bus itself.
+    if has_hooks_bus and not interrupted:
+        try:
+            await bus.run_hooks(
+                "on_workflow_end", wf_ctx,
+                {
+                    "outputs": result.outputs,
+                    "errors": result.errors,
+                    "trace": [t.model_dump() for t in result.trace],
+                },
+            )
+        except Exception:
+            logger.exception("on_workflow_end hook dispatch raised")
 
     return result
 

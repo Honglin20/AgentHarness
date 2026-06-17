@@ -118,102 +118,24 @@ class TuiRenderer(BaseHook):
         """Bind the event bus so the renderer can subscribe to non-hook
         events (cycle.start/end, streaming agent.usage_update).
 
-        Called by cmd_run after Workflow.load. The subscriber task
-        starts lazily in ``on_workflow_start`` so subscribe() runs in
-        the right event loop (the one asyncio.run creates).
+        Called by cli_runner after workflow.use() registers the hook.
+        The subscriber task starts lazily in ``on_workflow_start`` so
+        subscribe() runs in the right event loop (the one asyncio.run
+        created for this workflow).
         """
         self._bus = bus
 
     def set_workflow(self, workflow: Any) -> None:
-        """Inject the workflow reference so ``start()`` can seed the
-        sidebar with DAG topology before arun fires any hooks.
+        """Inject the workflow reference so ``on_workflow_start`` can
+        seed the sidebar with DAG topology.
 
-        Engine only dispatches ``on_node_*`` / ``on_llm_delta`` /
-        ``on_tool_call`` hooks — ``on_workflow_start`` is **never**
-        called (pre-existing framework gap, also affects ConsoleOutput's
-        workflow header). So we can't rely on the hook lifecycle to
-        start Live; cmd_run calls ``start()`` explicitly via cli_runner.
+        WorkflowCtx (the ctx on_workflow_start receives) doesn't carry
+        the agents list — only workflow_id/name/inputs. cli_runner calls
+        this after workflow.load() to give us the workflow object so we
+        can call ``build_dag(workflow.agents)`` for the sidebar's Agents
+        panel.
         """
         self._workflow_ref = workflow
-
-    def start(self) -> None:
-        """Start Live + seed sidebar with DAG topology.
-
-        Called by ``cli_runner.run_with_persistence`` after
-        ``workflow.setup()`` but before ``workflow.arun()``. Synchronous
-        because Live.start() is sync — the asyncio.create_task for the
-        bus subscriber also works from sync context as long as we're
-        inside the running event loop.
-
-        Idempotent: a second call is a no-op (returns immediately).
-        """
-        if self._started:
-            return
-
-        import time
-        from harness.compiler.dag_builder import build_dag
-
-        # Seed sidebar with DAG topology from the injected workflow ref.
-        # Falls back to empty DAG if set_workflow wasn't called.
-        dag_payload: dict[str, Any] = {"nodes": [], "edges": []}
-        envelope = None
-        wf_name = self._sidebar.state.workflow_name
-        wf = getattr(self, "_workflow_ref", None)
-        if wf is not None:
-            try:
-                nodes = build_dag(wf.agents)
-                edges = [[dep, a.name] for a in wf.agents for dep in (a.after or [])]
-                dag_payload = {"nodes": nodes, "edges": edges}
-                envelope = getattr(wf, "envelope", None)
-                wf_name = wf.name or wf_name
-            except Exception:
-                logger.debug("TuiRenderer.start: could not extract DAG", exc_info=True)
-
-        self._sidebar.on_workflow_started({
-            "name": wf_name,
-            "dag": dag_payload,
-            "envelope": envelope,
-            "started_ts_ms": int(time.time() * 1000),
-        })
-
-        # Build + start Live.
-        self._layout = self._build_layout()
-        self._live = Live(
-            self._layout,
-            console=self._console,
-            refresh_per_second=self._refresh_per_second,
-            transient=False,
-        )
-        try:
-            self._live.start()
-            self._started = True
-        except Exception:
-            logger.warning(
-                "TuiRenderer Live.start() failed — degrading to no-op "
-                "(workflow continues without TUI)",
-                exc_info=True,
-            )
-            self._live = None
-            return
-
-        # Forward Live to coordinator so ask_user pause/resume controls
-        # this renderer.
-        if self._coord is not None:
-            self._coord.attach_live(self._live)
-
-        # Start bus subscriber. asyncio.create_task works from sync
-        # context as long as we're inside a running loop — cli_runner
-        # calls start() inside asyncio.run.
-        if self._bus is not None and self._subscriber_task is None:
-            try:
-                self._subscriber_task = asyncio.create_task(
-                    self._consume_bus_events()
-                )
-            except RuntimeError:
-                # No running loop — subscriber is best-effort.
-                logger.debug("TuiRenderer.start: no running loop, skip subscriber")
-
-        self._refresh()
 
     @property
     def sidebar(self) -> SidebarPanel:
@@ -264,21 +186,85 @@ class TuiRenderer(BaseHook):
     # ------------------------------------------------------------------
     # BaseHook lifecycle
     # ------------------------------------------------------------------
-    #
-    # Note: the engine currently does NOT dispatch ``on_workflow_start``
-    # or ``on_workflow_end`` (only ``on_node_*`` / ``on_llm_delta`` /
-    # ``on_tool_call``). This is a pre-existing framework gap —
-    # ``ConsoleOutput.on_workflow_start`` has the same problem.
-    #
-    # TuiRenderer therefore exposes an explicit ``start()`` method that
-    # ``cli_runner`` calls between ``workflow.setup()`` and
-    # ``workflow.arun()``. The hook methods below are kept as idempotent
-    # wrappers so that if the engine ever starts dispatching them,
-    # behavior is correct without code changes here.
 
     async def on_workflow_start(self, ctx: WorkflowCtx) -> None:
-        # Idempotent — start() returns immediately if already started.
-        self.start()
+        """Start Live + seed sidebar with DAG topology.
+
+        Called by ``arun_workflow`` (after the engine was fixed in this
+        commit to dispatch workflow-level hooks). The ctx carries
+        workflow_id / name / inputs but NOT the agents list — we get
+        that from the workflow ref injected via ``set_workflow()`` by
+        cli_runner.
+
+        Live is started here (not in __init__) because BaseHook is
+        constructed before workflow setup, and Live needs to run in the
+        same event loop as the workflow.
+        """
+        if self._started:
+            # Idempotent — defensive against double-dispatch.
+            return
+
+        import time
+        from harness.compiler.dag_builder import build_dag
+
+        # Seed sidebar with DAG topology from the injected workflow ref.
+        dag_payload: dict[str, Any] = {"nodes": [], "edges": []}
+        envelope = None
+        wf_name = ctx.workflow_name or self._sidebar.state.workflow_name
+        wf = getattr(self, "_workflow_ref", None)
+        if wf is not None:
+            try:
+                nodes = build_dag(wf.agents)
+                edges = [[dep, a.name] for a in wf.agents for dep in (a.after or [])]
+                dag_payload = {"nodes": nodes, "edges": edges}
+                envelope = getattr(wf, "envelope", None)
+            except Exception:
+                logger.debug("on_workflow_start: could not extract DAG", exc_info=True)
+
+        self._sidebar.on_workflow_started({
+            "name": wf_name,
+            "dag": dag_payload,
+            "envelope": envelope,
+            "started_ts_ms": int(time.time() * 1000),
+        })
+
+        # Build + start Live.
+        self._layout = self._build_layout()
+        self._live = Live(
+            self._layout,
+            console=self._console,
+            refresh_per_second=self._refresh_per_second,
+            transient=False,
+        )
+        try:
+            self._live.start()
+            self._started = True
+        except Exception:
+            logger.warning(
+                "TuiRenderer Live.start() failed — degrading to no-op "
+                "(workflow continues without TUI)",
+                exc_info=True,
+            )
+            self._live = None
+            return
+
+        # Forward Live to coordinator so ask_user pause/resume controls
+        # this renderer.
+        if self._coord is not None:
+            self._coord.attach_live(self._live)
+
+        # Start bus subscriber for non-hook events (cycle.*, streaming
+        # usage_update). on_workflow_start runs in the same event loop
+        # as the workflow, so asyncio.create_task is safe here.
+        if self._bus is not None and self._subscriber_task is None:
+            try:
+                self._subscriber_task = asyncio.create_task(
+                    self._consume_bus_events()
+                )
+            except RuntimeError:
+                logger.debug("on_workflow_start: no running loop, skip subscriber")
+
+        self._refresh()
 
     async def on_workflow_end(self, ctx: WorkflowCtx, result: dict[str, Any]) -> None:
         # Cancel subscriber so any final events are flushed before we
@@ -294,9 +280,9 @@ class TuiRenderer(BaseHook):
         self._sidebar.on_workflow_completed({"status": status, "outputs": outputs})
         self._main.on_workflow_completed({"outputs": outputs, "errors": errors})
         self._refresh()
-        # Stop Live after the final refresh. Idempotent — cmd_run's
-        # finally block calls stop() again as a safety net for the
-        # exception path; the second call is a no-op.
+        # Stop Live after the final refresh. Idempotent — cli's finally
+        # block calls stop() again as a safety net for the exception
+        # path; the second call is a no-op.
         self.stop()
 
     async def on_node_start(self, ctx: NodeCtx) -> None:
