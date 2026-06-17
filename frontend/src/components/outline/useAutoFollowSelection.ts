@@ -1,6 +1,6 @@
 /**
  * useAutoFollowSelection — when autoFollow is on and a new "running" or
- * "waiting-for-user" item appears, automatically select it.
+ * "waiting-for-user" agent appears, automatically select it.
  *
  * Selection priority (highest first):
  *   1. waiting-for-user  — never miss an ask_user
@@ -9,6 +9,11 @@
  *
  * When autoFollow is off, this hook does nothing — user's manual selection
  * sticks.
+ *
+ * Folding (2026-06-17): the hook now consumes OutlineGroup[] instead of
+ * per-iter OutlineItem[]. Status lookups go through `group.latest`, which
+ * is always the highest iter — historical iters can never be "running" or
+ * "waiting" (they're sealed), so semantics are unchanged.
  *
  * Toast notifications for waiting agents live in useWaitingAgentToast
  * (split out so this hook has a single responsibility and so toast behavior
@@ -19,29 +24,29 @@
 
 import { useEffect } from "react";
 import { useOutlineStore } from "./outlineStore";
-import type { OutlineItem } from "./types";
+import type { OutlineGroup } from "./types";
 
-export function useAutoFollowSelection(items: OutlineItem[]): void {
+export function useAutoFollowSelection(groups: OutlineGroup[]): void {
   const autoFollow = useOutlineStore((s) => s.autoFollow);
   const select = useOutlineStore((s) => s.select);
-  const selectedKey = useOutlineStore((s) => s.selectedKey);
+  const selectedNodeId = useOutlineStore((s) => s.selectedNodeId);
 
   useEffect(() => {
     if (!autoFollow) return;
 
-    // Priority 1: any waiting-for-user item.
-    const waiting = items.find((i) => i.status === "waiting-for-user");
+    // Priority 1: any waiting-for-user agent.
+    const waiting = groups.find((g) => g.latest.status === "waiting-for-user");
     if (waiting) {
-      if (selectedKey !== waiting.key) select(waiting.key, true);
+      if (selectedNodeId !== waiting.nodeId) select(waiting.nodeId, true);
       return;
     }
 
-    // Priority 2: the most-recently-started running item.
-    const running = items
-      .filter((i) => i.status === "running")
+    // Priority 2: the most-recently-started running agent.
+    const running = groups
+      .filter((g) => g.latest.status === "running")
       .sort((a, b) => b.order - a.order)[0];
-    if (running && selectedKey !== running.key) {
-      select(running.key, true);
+    if (running && selectedNodeId !== running.nodeId) {
+      select(running.nodeId, true);
     }
-  }, [items, autoFollow, selectedKey, select]);
+  }, [groups, autoFollow, selectedNodeId, select]);
 }

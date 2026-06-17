@@ -5,37 +5,38 @@ import { useAgentOutline } from "./useAgentOutline";
 import { useAutoFollowSelection } from "./useAutoFollowSelection";
 import { useWaitingAgentToast } from "./useWaitingAgentToast";
 import { useOutlineStore } from "./outlineStore";
-import { OutlineItemRow } from "./OutlineItemRow";
+import { OutlineGroupRow } from "./OutlineGroupRow";
 
 /**
- * AgentOutline — left-side list of agents.
+ * AgentOutline — left-side list of agents (one row per nodeId).
  *
- * Performance: each OutlineItemRow is React.memo'd and only re-renders
- * when its specific item object changes (deriveOutlineItems returns the
- * same item reference for unchanged nodes).
+ * Performance: each OutlineGroupRow is React.memo'd and only re-renders
+ * when its specific group object changes (groupOutlineByNode returns the
+ * same reference for unchanged nodeIds when the underlying items don't
+ * change).
  */
 export function AgentOutline() {
-  const items = useAgentOutline();
-  useWaitingAgentToast(items);
-  useAutoFollowSelection(items);
+  const groups = useAgentOutline();
+  useWaitingAgentToast(groups);
+  useAutoFollowSelection(groups);
 
-  const selectedKey = useOutlineStore((s) => s.selectedKey);
+  const selectedNodeId = useOutlineStore((s) => s.selectedNodeId);
   const select = useOutlineStore((s) => s.select);
   const autoFollow = useOutlineStore((s) => s.autoFollow);
   const setAutoFollow = useOutlineStore((s) => s.setAutoFollow);
 
-  const handleSelect = useCallback((key: string) => select(key, false), [select]);
+  const handleSelect = useCallback((nodeId: string) => select(nodeId, false), [select]);
 
   // j/k vim-style navigation. Guard against INPUT/TEXTAREA/contentEditable
   // so typing in ChatInput isn't hijacked.
   //
-  // Refs hold the latest items/selectedKey/select so the listener binds
+  // Refs hold the latest groups/selectedNodeId/select so the listener binds
   // once on mount. Without refs, every store update (each streamed token)
-  // invalidates the `items` array reference and would re-bind the listener.
-  const itemsRef = useRef(items);
-  itemsRef.current = items;
-  const selectedKeyRef = useRef(selectedKey);
-  selectedKeyRef.current = selectedKey;
+  // invalidates the `groups` array reference and would re-bind the listener.
+  const groupsRef = useRef(groups);
+  groupsRef.current = groups;
+  const selectedNodeIdRef = useRef(selectedNodeId);
+  selectedNodeIdRef.current = selectedNodeId;
   const selectRef = useRef(select);
   selectRef.current = select;
 
@@ -47,22 +48,22 @@ export function AgentOutline() {
       }
       if (e.key !== "j" && e.key !== "k") return;
 
-      const curItems = itemsRef.current;
-      const curSelected = selectedKeyRef.current;
-      const idx = curItems.findIndex((i) => i.key === curSelected);
+      const curGroups = groupsRef.current;
+      const curSelected = selectedNodeIdRef.current;
+      const idx = curGroups.findIndex((g) => g.nodeId === curSelected);
       let nextIdx: number;
-      if (e.key === "j") nextIdx = Math.min(curItems.length - 1, (idx < 0 ? -1 : idx) + 1);
-      else nextIdx = Math.max(0, (idx < 0 ? curItems.length : idx) - 1);
+      if (e.key === "j") nextIdx = Math.min(curGroups.length - 1, (idx < 0 ? -1 : idx) + 1);
+      else nextIdx = Math.max(0, (idx < 0 ? curGroups.length : idx) - 1);
       if (nextIdx === idx) return;
 
       e.preventDefault();
-      selectRef.current(curItems[nextIdx].key, false);
+      selectRef.current(curGroups[nextIdx].nodeId, false);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  if (items.length === 0) {
+  if (groups.length === 0) {
     return (
       <div className="flex h-full items-center justify-center px-4 text-center text-xs text-muted-foreground">
         No agents yet. Start a workflow to see the outline.
@@ -92,13 +93,13 @@ export function AgentOutline() {
         </button>
       </div>
 
-      {/* List — no virtualizer needed; outline is O(agents), usually <20 items */}
+      {/* List — no virtualizer needed; outline is O(agents), usually <20 groups */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {items.map((item) => (
-          <OutlineItemRow
-            key={item.key}
-            item={item}
-            selected={item.key === selectedKey}
+        {groups.map((group) => (
+          <OutlineGroupRow
+            key={group.nodeId}
+            group={group}
+            selected={group.nodeId === selectedNodeId}
             onSelect={handleSelect}
           />
         ))}

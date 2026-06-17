@@ -1,29 +1,41 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, cleanup } from "@testing-library/react";
 import { useWaitingAgentToast } from "../useWaitingAgentToast";
-import type { OutlineItem } from "../types";
+import type { OutlineGroup, OutlineItem } from "../types";
 
 // Mock sonner.toast so we can assert on calls without spawning real toasts.
 const toastInfo = vi.fn();
 vi.mock("sonner", () => ({ toast: { info: (...args: unknown[]) => toastInfo(...args) } }));
 
-function waitingItem(name: string, questionId: string, key?: string): OutlineItem {
+function wrap(item: OutlineItem): OutlineGroup {
   return {
-    key: key ?? `${name}__iter1`,
+    nodeId: item.nodeId,
+    name: item.name,
+    latest: item,
+    iterCount: 1,
+    latestIteration: item.iteration,
+    iters: [item],
+    order: item.order,
+  };
+}
+
+function waitingItem(name: string, questionId: string, iter: number = 1): OutlineGroup {
+  return wrap({
+    key: `${name}__iter${iter}`,
     nodeId: name,
     name,
-    iteration: 1,
-    hasMultipleIterations: false,
+    iteration: iter,
+    hasMultipleIterations: iter > 1,
     isLatestIter: true,
     status: "waiting-for-user",
     activity: { kind: "waiting-for-user", questionId, questionCount: 1 },
     badges: [],
     order: 0,
-  };
+  });
 }
 
-function idleItem(name: string): OutlineItem {
-  return {
+function idleItem(name: string): OutlineGroup {
+  return wrap({
     key: `${name}__iter1`,
     nodeId: name,
     name,
@@ -34,16 +46,16 @@ function idleItem(name: string): OutlineItem {
     activity: { kind: "idle" },
     badges: [],
     order: 0,
-  };
+  });
 }
 
 // renderHelper re-renders the hook with successive items arrays.
 function renderHelper() {
   return renderHook(
-    ({ items }: { items: OutlineItem[] }) => {
+    ({ items }: { items: OutlineGroup[] }) => {
       useWaitingAgentToast(items);
     },
-    { initialProps: { items: [] as OutlineItem[] } },
+    { initialProps: { items: [] as OutlineGroup[] } },
   );
 }
 
@@ -103,8 +115,8 @@ describe("useWaitingAgentToast", () => {
     // for the first one's questionId.
     r.rerender({
       items: [
-        waitingItem("analyzer", "q-early", "analyzer__iter1"),
-        waitingItem("runner", "q-late", "runner__iter1"),
+        waitingItem("analyzer", "q-early"),
+        waitingItem("runner", "q-late"),
       ],
     });
     expect(toastInfo).toHaveBeenCalledTimes(1);
@@ -114,16 +126,17 @@ describe("useWaitingAgentToast", () => {
     );
   });
 
-  it("fallback path — missing questionId degrades to key-based identity", () => {
+  it("fallback path — missing questionId degrades to iter-based identity", () => {
     const r = renderHelper();
     // Engine regression case: questionId unset on the question message.
-    r.rerender({ items: [waitingItem("analyzer", "", "analyzer__iter1")] });
+    r.rerender({ items: [waitingItem("analyzer", "")] });
     expect(toastInfo).toHaveBeenCalledTimes(1);
-    // Same key, empty questionId again → no re-fire.
-    r.rerender({ items: [waitingItem("analyzer", "", "analyzer__iter1")] });
+    // Same iter, empty questionId again → no re-fire.
+    r.rerender({ items: [waitingItem("analyzer", "")] });
     expect(toastInfo).toHaveBeenCalledTimes(1);
-    // Different key (e.g. iter bumped) → fires again even though qid empty.
-    r.rerender({ items: [waitingItem("analyzer", "", "analyzer__iter2")] });
+    // Iter bumped → fires again even though qid empty (fallback id includes
+    // nodeId + latestIteration, so the new iter is a fresh identity).
+    r.rerender({ items: [waitingItem("analyzer", "", 2)] });
     expect(toastInfo).toHaveBeenCalledTimes(2);
   });
 });

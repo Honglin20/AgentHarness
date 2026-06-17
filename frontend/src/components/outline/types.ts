@@ -37,6 +37,31 @@ export interface OutlineBadge {
   title?: string;
 }
 
+/** A folded view of one nodeId's OutlineItems across all iterations.
+ *
+ *  Produced by `groupOutlineByNode` at the view layer; the sidebar renders
+ *  one `OutlineGroup` per agent instead of one `OutlineItem` per (agent, iter).
+ *  `latest` drives the row's status / activity / badges; `iters` feeds the
+ *  per-node iter dropdown in the detail panel.
+ *
+ *  Folding is view-only — sidecar / deriveOutlineItems still emit one item
+ *  per iter (cheaper incremental writes + preserves per-iter metadata). */
+export interface OutlineGroup {
+  nodeId: string;
+  /** Display name — taken from the latest iter so renames mid-run surface. */
+  name: string;
+  /** Highest-iteration item — drives sidebar row rendering. */
+  latest: OutlineItem;
+  /** Number of iters seen for this nodeId (≥1). */
+  iterCount: number;
+  /** = latest.iteration. Convenience field for dropdowns / "Iter N (latest)". */
+  latestIteration: number;
+  /** All iters in ascending iteration order. */
+  iters: OutlineItem[];
+  /** Earliest (min) order across iters — preserves first-appearance position. */
+  order: number;
+}
+
 /** One row in the outline list. */
 export interface OutlineItem {
   /** Stable key — `${nodeId}__iter${iteration}` for loops, just nodeId otherwise. */

@@ -11,37 +11,56 @@ export type OutlineViewMode = "outline" | "timeline";
  *   - Detail view consumers don't re-render when unrelated conversation
  *     mutations happen.
  *
+ * Selection model (Phase 3 of outline-iter-collapse, 2026-06-17):
+ *   - `selectedNodeId` — which agent is shown in the detail panel. The
+ *     sidebar now folds iters into one row per agent, so selection is by
+ *     nodeId, not by `${nodeId}__iter${n}` key.
+ *   - `selectedIterByNode` — per-agent iter choice made via the detail
+ *     panel's iter dropdown. Absent entry means "use latestIter". Preserved
+ *     across agent switches so flipping back to an agent restores the user's
+ *     last-viewed iter (Decision 2 in the plan).
+ *
  * Lifecycle:
- *   - selectedKey follows the `${nodeId}__iter${n}` shape from OutlineItem.
  *   - autoFollow defaults on; selecting an item manually turns it off
  *     (so the user's choice "sticks" when a new agent starts running).
  *     The user can re-enable autoFollow via a button.
  */
 interface OutlineState {
-  selectedKey: string | null;
+  selectedNodeId: string | null;
+  /** Per-nodeId iter choice; absence = latestIter fallback. */
+  selectedIterByNode: Record<string, number>;
   autoFollow: boolean;
   viewMode: OutlineViewMode;
 
-  /** Select an outline entry. keepAutoFollow=true preserves autoFollow
-   *  (rare — used when autoFollow itself triggers the selection). */
-  select: (key: string | null, keepAutoFollow?: boolean) => void;
+  /** Select an agent (by nodeId). keepAutoFollow=true preserves autoFollow
+   *  (rare — used when autoFollow itself triggers the selection).
+   *  Does NOT touch selectedIterByNode — user's per-agent iter choice persists. */
+  select: (nodeId: string | null, keepAutoFollow?: boolean) => void;
+  /** Switch the iter shown for a given agent in the detail panel. */
+  selectIter: (nodeId: string, iter: number) => void;
   setAutoFollow: (on: boolean) => void;
   setViewMode: (mode: OutlineViewMode) => void;
   /** Low-level setter for tests + advanced callers. */
-  setState: (partial: Partial<Pick<OutlineState, "selectedKey" | "autoFollow" | "viewMode">>) => void;
+  setState: (partial: Partial<Pick<OutlineState, "selectedNodeId" | "selectedIterByNode" | "autoFollow" | "viewMode">>) => void;
   /** Reset to defaults but preserve viewMode (user preference). */
   reset: () => void;
 }
 
 export const useOutlineStore = create<OutlineState>()((set) => ({
-  selectedKey: null,
+  selectedNodeId: null,
+  selectedIterByNode: {},
   autoFollow: true,
   viewMode: "outline",
 
-  select: (key, keepAutoFollow = false) =>
+  select: (nodeId, keepAutoFollow = false) =>
     set((s) => ({
-      selectedKey: key,
+      selectedNodeId: nodeId,
       autoFollow: keepAutoFollow ? s.autoFollow : false,
+    })),
+
+  selectIter: (nodeId, iter) =>
+    set((s) => ({
+      selectedIterByNode: { ...s.selectedIterByNode, [nodeId]: iter },
     })),
 
   setAutoFollow: (on) => set({ autoFollow: on }),
@@ -52,7 +71,8 @@ export const useOutlineStore = create<OutlineState>()((set) => ({
 
   reset: () =>
     set((s) => ({
-      selectedKey: null,
+      selectedNodeId: null,
+      selectedIterByNode: {},
       autoFollow: true,
       viewMode: s.viewMode,
     })),

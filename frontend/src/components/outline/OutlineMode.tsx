@@ -11,14 +11,17 @@ import { useAgentOutline } from "./useAgentOutline";
  *
  * If no selection and autoFollow didn't pick anything yet, show a hint
  * in the detail pane instead of an empty NodeBlockCard.
+ *
+ * Selection is per-agent (nodeId); the iter shown is decided inside
+ * AgentDetailView (defaults to latestIter, switchable via dropdown).
  */
 export function OutlineMode() {
-  const items = useAgentOutline();
-  const selectedKey = useOutlineStore((s) => s.selectedKey);
+  const groups = useAgentOutline();
+  const selectedNodeId = useOutlineStore((s) => s.selectedNodeId);
 
   const selected = useMemo(
-    () => items.find((i) => i.key === selectedKey) ?? null,
-    [items, selectedKey],
+    () => groups.find((g) => g.nodeId === selectedNodeId) ?? null,
+    [groups, selectedNodeId],
   );
 
   return (
@@ -30,7 +33,9 @@ export function OutlineMode() {
         {selected ? (
           <AgentDetailView
             nodeId={selected.nodeId}
-            iteration={selected.iteration}
+            latestIteration={selected.latestIteration}
+            iterCount={selected.iterCount}
+            iters={selected.iters}
           />
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">

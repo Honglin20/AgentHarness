@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import type { OutlineItem, OutlineStatus } from "./types";
+import type { OutlineGroup, OutlineStatus, OutlineBadge } from "./types";
 
 const STATUS_ICON: Record<OutlineStatus, string> = {
   idle: "○",
@@ -31,19 +31,45 @@ const STATUS_ROW_TONE: Record<OutlineStatus, string> = {
 };
 
 interface Props {
-  item: OutlineItem;
+  group: OutlineGroup;
   selected: boolean;
-  onSelect: (key: string) => void;
+  onSelect: (nodeId: string) => void;
 }
 
-export const OutlineItemRow = React.memo(function OutlineItemRow({ item, selected, onSelect }: Props) {
-  const subtitle = computeSubtitle(item);
-  const waiting = item.status === "waiting-for-user";
+/**
+ * OutlineGroupRow — one sidebar row per agent (folds N iters).
+ *
+ * Visual parity with the prior per-iter row: status icon + tone, name, badges,
+ * subtitle. Differences from the old OutlineItemRow:
+ *   - Renders `group.latest` (highest iter) as the row's status source.
+ *   - `⇡N` badge replaces the per-iter `#N` iteration badge (Decision 4 in
+ *     the plan). The latest iter's retry / tokens badges still show.
+ *   - onClick emits nodeId (not `${nodeId}__iter${n}`) since selection is
+ *     per-agent now; iter is chosen inside the detail panel's dropdown.
+ */
+export const OutlineGroupRow = React.memo(function OutlineGroupRow({ group, selected, onSelect }: Props) {
+  const latest = group.latest;
+  const subtitle = computeSubtitle(latest.activity);
+  const waiting = latest.status === "waiting-for-user";
+
+  // ⇡N replaces #N iteration badge; retry / tokens still come from latest.
+  const badges: OutlineBadge[] = [];
+  if (group.iterCount > 1) {
+    badges.push({
+      kind: "iteration",
+      text: `⇡${group.iterCount}`,
+      title: `${group.iterCount} iterations — latest is iter ${group.latestIteration}`,
+    });
+  }
+  for (const b of latest.badges) {
+    if (b.kind === "iteration") continue; // drop per-iter #N badge
+    badges.push(b);
+  }
 
   return (
     <button
       type="button"
-      onClick={() => onSelect(item.key)}
+      onClick={() => onSelect(group.nodeId)}
       className={[
         "group flex w-full items-start gap-2 px-3 py-1.5 text-left text-xs transition-colors",
         selected && !waiting
@@ -51,7 +77,7 @@ export const OutlineItemRow = React.memo(function OutlineItemRow({ item, selecte
           : selected
             ? "bg-blue-50 dark:bg-blue-900/30"
             : "hover:bg-muted/50",
-        STATUS_ROW_TONE[item.status],
+        STATUS_ROW_TONE[latest.status],
       ].join(" ")}
       aria-current={selected ? "true" : undefined}
     >
@@ -59,19 +85,19 @@ export const OutlineItemRow = React.memo(function OutlineItemRow({ item, selecte
         aria-hidden
         className={[
           "mt-0.5 shrink-0 text-sm leading-none",
-          STATUS_TONE[item.status],
+          STATUS_TONE[latest.status],
           waiting ? "animate-pulse" : "",
         ].join(" ")}
       >
-        {STATUS_ICON[item.status]}
+        {STATUS_ICON[latest.status]}
       </span>
 
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex items-center gap-1.5">
           <span className={`truncate font-medium ${selected ? "text-app-text-primary" : "text-app-text-secondary"}`}>
-            {item.name}
+            {group.name}
           </span>
-          {item.badges.map((b, i) => (
+          {badges.map((b, i) => (
             <span
               key={`${b.kind}-${i}`}
               className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
@@ -89,18 +115,18 @@ export const OutlineItemRow = React.memo(function OutlineItemRow({ item, selecte
   );
 });
 
-function computeSubtitle(item: OutlineItem): string | null {
-  switch (item.activity.kind) {
+function computeSubtitle(activity: OutlineGroup["latest"]["activity"]): string | null {
+  switch (activity.kind) {
     case "running":
-      return item.activity.currentStepContent ?? "Working…";
+      return activity.currentStepContent ?? "Working…";
     case "waiting-for-user":
-      return `Waiting for answer (${item.activity.questionCount})`;
+      return `Waiting for answer (${activity.questionCount})`;
     case "retrying":
-      return `Retrying — ${item.activity.attempt}/${item.activity.maxAttempts}`;
+      return `Retrying — ${activity.attempt}/${activity.maxAttempts}`;
     case "failed":
-      return item.activity.errorSummary;
+      return activity.errorSummary;
     case "completed":
-      return item.activity.durationMs ? `${(item.activity.durationMs / 1000).toFixed(1)}s` : null;
+      return activity.durationMs ? `${(activity.durationMs / 1000).toFixed(1)}s` : null;
     default:
       return null;
   }

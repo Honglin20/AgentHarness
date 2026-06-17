@@ -16,9 +16,18 @@ import {
 import { useWSMethods } from "@/contexts/workflow-context/WorkflowScope";
 import { useConversationActions } from "@/contexts/workflow-context/hooks";
 import { NodeBlockCard } from "@/components/conversation/ScopedConversationTab";
+import { useOutlineStore } from "./outlineStore";
+import { NodeIterSelector } from "./NodeIterSelector";
+import type { OutlineItem } from "./types";
 
 /**
  * AgentDetailView — conversation for ONE (nodeId, iteration) pair.
+ *
+ * Selection model (Phase 4, 2026-06-17):
+ *   - nodeId is supplied by the parent (OutlineMode) — which agent.
+ *   - iter is read from outlineStore.selectedIterByNode[nodeId], falling
+ *     back to latestIteration. The dropdown (NodeIterSelector) lets the
+ *     user switch; selection persists across agent switches.
  *
  * Reuses NodeBlockCard from ScopedConversationTab verbatim so visual
  * parity is guaranteed (header badge, tokens, model, IO buttons,
@@ -35,10 +44,15 @@ import { NodeBlockCard } from "@/components/conversation/ScopedConversationTab";
  */
 interface Props {
   nodeId: string;
-  iteration: number;
+  latestIteration: number;
+  iterCount: number;
+  iters: OutlineItem[];
 }
 
-export function AgentDetailView({ nodeId, iteration }: Props) {
+export function AgentDetailView({ nodeId, latestIteration, iterCount, iters }: Props) {
+  const selectedIter = useOutlineStore(
+    (s) => s.selectedIterByNode[nodeId] ?? latestIteration,
+  );
   const allMessages = useConversationMessages();
   const todoStore = useScopedStore("todo");
   const agentIOStore = useScopedStore("agentIO");
@@ -50,9 +64,9 @@ export function AgentDetailView({ nodeId, iteration }: Props) {
   const filtered = useMemo(
     () =>
       allMessages.filter(
-        (m) => m.nodeId === nodeId && (m.iteration ?? 1) === iteration,
+        (m) => m.nodeId === nodeId && (m.iteration ?? 1) === selectedIter,
       ),
-    [allMessages, nodeId, iteration],
+    [allMessages, nodeId, selectedIter],
   );
 
   const block = useMemo<NodeBlock | null>(() => {
@@ -65,7 +79,7 @@ export function AgentDetailView({ nodeId, iteration }: Props) {
     };
   }, [filtered, nodeId]);
 
-  // Live store reads via refs — same pattern as ScopedConversationTab
+  // Live store read via refs — same pattern as ScopedConversationTab
   // (lines 478-484). Subscribe to the store slices that drive the header.
   const agentIOData = useStore(agentIOStore!, (s) => s.data);
   const workflowNodes = useStore(workflowStoreApi!, (s) => s.nodes);
@@ -95,42 +109,67 @@ export function AgentDetailView({ nodeId, iteration }: Props) {
 
   if (!block) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        This agent hasn&apos;t produced any output yet.
+      <div className="flex h-full flex-col">
+        {iterCount > 1 && <IterBar {...{ nodeId, latestIteration, iterCount, iters }} />}
+        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+          This agent hasn&apos;t produced any output for iter {selectedIter} yet.
+        </div>
       </div>
     );
   }
 
   return (
-    <div ref={scrollRef} className="h-full overflow-y-auto px-6 py-3">
-      <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
-        {virtualizer.getVirtualItems().map((row) => (
-          <div
-            key={row.key}
-            ref={virtualizer.measureElement}
-            data-index={row.index}
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              width: "100%",
-              transform: `translateY(${row.start}px)`,
-            }}
-          >
-            <InlineErrorBoundary label={`agent-${nodeId}-iter${iteration}`}>
-              <NodeBlockCard
-                block={block}
-                getAgentIO={getAgentIO}
-                getNodeState={getNodeState}
-                sendStructuredAnswer={sendStructuredAnswer}
-                conversationActions={conversationActions}
-                todoStore={todoStore}
-                iteration={iteration}
-              />
-            </InlineErrorBoundary>
-          </div>
-        ))}
+    <div className="flex h-full flex-col">
+      {iterCount > 1 && <IterBar {...{ nodeId, latestIteration, iterCount, iters }} />}
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-6 py-3">
+        <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+          {virtualizer.getVirtualItems().map((row) => (
+            <div
+              key={row.key}
+              ref={virtualizer.measureElement}
+              data-index={row.index}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                transform: `translateY(${row.start}px)`,
+              }}
+            >
+              <InlineErrorBoundary label={`agent-${nodeId}-iter${selectedIter}`}>
+                <NodeBlockCard
+                  block={block}
+                  getAgentIO={getAgentIO}
+                  getNodeState={getNodeState}
+                  sendStructuredAnswer={sendStructuredAnswer}
+                  conversationActions={conversationActions}
+                  todoStore={todoStore}
+                  iteration={selectedIter}
+                />
+              </InlineErrorBoundary>
+            </div>
+          ))}
+        </div>
       </div>
+    </div>
+  );
+}
+
+function IterBar({ nodeId, latestIteration, iterCount, iters }: Props) {
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-b border-app-border bg-app-bg-primary px-6 py-2">
+      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        Iter
+      </span>
+      <NodeIterSelector
+        nodeId={nodeId}
+        latestIteration={latestIteration}
+        iterCount={iterCount}
+        iters={iters}
+      />
+      <span className="text-xs text-muted-foreground">
+        of {iterCount}
+      </span>
     </div>
   );
 }

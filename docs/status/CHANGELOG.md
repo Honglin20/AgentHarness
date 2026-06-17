@@ -9,6 +9,9 @@
 
 ## 2026-06
 
+- **2026-06-17** — **Outline iter collapse + node iter dropdown**：长 loop workflow（NAS）下 cycle agent 跑 N 轮时，sidebar 从"每个 iter 一行"改为"按 nodeId 折叠成一行 + ⇡N badge"。Detail panel 顶部新增 sticky iter dropdown（`NodeIterSelector`，Radix Select），默认显示 latestIter，用户切换后**按 nodeId 保留选择** —— 切到别的 agent 再切回来仍停在原 iter。`outlineStore.selectedKey` → `selectedNodeId` + `selectedIterByNode: Record`，新增 `selectIter` action。`useAgentOutline` 末端加 `groupOutlineByNode` 派生（view 层折叠，sidecar schema 不动）；`useAutoFollowSelection` / `useWaitingAgentToast` 跟着切到 `OutlineGroup[]`。`OutlineItemRow.tsx` 删除（被 `OutlineGroupRow.tsx` 替代）。57 个 outline 测试 + 260 个全量前端测试全过；TypeScript 0 outline 相关错误。
+  → [详情](../releases/2026-06-17-outline-iter-collapse.md)
+
 - **2026-06-17** — **`harness run` TUI 渲染层（Cp5-7）**：Rich Live 双栏 TUI 落地 —— `TuiRenderer(BaseHook)` 把 `SidebarPanel`（Agents / Fitness sparkline / Tokens / Tools）+ `MainPanel`（流式 LLM 思考 + tool 调用）通过 `rich.live.Live` + `Layout` 组合成实时刷新 UI。`compact.py` 在非 TTY 自动降级到 `ConsoleOutput`（防 ANSI 光标码污染 CI 日志）。`cycle_events.py` 提供可选 `cycle.start/end` 契约让迭代 workflow 显示 "iter N/M" + fitness sparkline。TuiRenderer 同时是 BaseHook **和** bus subscriber，订阅 cycle.end + streaming `agent.usage_update`。106 个测试全过。
   → [详情](../releases/2026-06-17-cli-run-tui.md)
 

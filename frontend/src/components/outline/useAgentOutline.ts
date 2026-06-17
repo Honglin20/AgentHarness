@@ -20,6 +20,11 @@
  * component first renders, so we derive from the (possibly still-empty)
  * messages until the sidecar arrives.
  *
+ * Folding: after deriving/loading per-iter items, we fold by nodeId at the
+ * view layer (`groupOutlineByNode`). Sidebar renders one row per agent;
+ * iter is chosen inside the detail panel's dropdown. See plan
+ * `2026-06-17-outline-iter-collapse.md` Decision 1.
+ *
  * Note: useWorkflowStore returns StoreApi | null (no active workflow on the
  * start page). The non-null assertion on the useStore calls matches the
  * convention at ScopedConversationTab.tsx:476 — the surrounding
@@ -36,9 +41,10 @@ import {
   useWorkflowStore as useScopedStore,
 } from "@/contexts/workflow-context";
 import { deriveOutlineItems } from "./deriveOutlineItems";
-import type { OutlineItem } from "./types";
+import { groupOutlineByNode } from "./groupOutlineByNode";
+import type { OutlineGroup } from "./types";
 
-export function useAgentOutline(): OutlineItem[] {
+export function useAgentOutline(): OutlineGroup[] {
   const messages = useConversationMessages();
   const workflowStoreApi = useScopedStore("workflow");
   const todoStoreApi = useScopedStore("todo");
@@ -52,8 +58,7 @@ export function useAgentOutline(): OutlineItem[] {
     // Sidecar ready (replay mode + backend wrote outline) → render directly.
     // `sidecarItems === null` means "no sidecar"; an empty array would be a
     // valid sidecar with zero items (e.g. a workflow that hasn't started).
-    if (sidecarItems !== null) return sidecarItems;
-    // Live mode or fallback — derive from full conversation.
-    return deriveOutlineItems(nodes, messages, todos);
+    const items = sidecarItems !== null ? sidecarItems : deriveOutlineItems(nodes, messages, todos);
+    return groupOutlineByNode(items);
   }, [sidecarItems, nodes, messages, todos]);
 }
