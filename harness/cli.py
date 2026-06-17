@@ -10,6 +10,46 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# mcp + asyncio shutdown noise filter
+# ---------------------------------------------------------------------------
+#
+# When ``asyncio.run`` tears down the event loop at process exit, MCP's
+# stdio_client transport finalizer fires ``loop.call_soon`` on a closed
+# loop, raising ``RuntimeError: Event loop is closed``. anyio's cancel
+# scope also raises ``RuntimeError: Attempted to exit a cancel scope
+# that isn't the current tasks's current cancel scope`` during the same
+# window. Both are emitted via ``sys.unraisablehook`` (gc-time
+# exceptions) and dump ~30 lines of traceback into stderr that drown
+# out real errors.
+#
+# This is a known mcp/asyncio compatibility issue (the child MCP server
+# gets reaped at process exit anyway, so cleanup failure is cosmetic).
+# Filter both messages at the unraisablehook level so stderr stays
+# clean. cli.py is the entry point — installing here scopes the filter
+# to actual CLI invocations without affecting library use.
+_NOISE_PATTERNS = (
+    "Event loop is closed",
+    "cancel scope that isn't the current",
+)
+
+_orig_unraisablehook = sys.unraisablehook if hasattr(sys, "unraisablehook") else None
+
+
+def _filtered_unraisablehook(err):
+    """Drop mcp/asyncio shutdown noise; forward everything else."""
+    msg = str(getattr(err, "err_msg", "") or "")
+    if any(pattern in msg for pattern in _NOISE_PATTERNS):
+        return
+    if _orig_unraisablehook is not None:
+        _orig_unraisablehook(err)
+
+
+# Install once at import. Reversible in tests by reassigning
+# sys.unraisablehook (the original is preserved in _orig_unraisablehook).
+sys.unraisablehook = _filtered_unraisablehook
+
+
 def cmd_ui(args) -> None:
     from harness.registry import configure_registry
 

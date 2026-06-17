@@ -182,11 +182,28 @@ class McpBridge:
             if cm is not None:
                 try:
                     await cm.__aexit__(None, None, None)
-                except (RuntimeError, Exception):
+                except BaseException as e:
+                    # mcp + asyncio shutdown compatibility issue: anyio's
+                    # cancel scope raises when exited from a different
+                    # task than the one that entered (MCP SDK limitation
+                    # under LangGraph's task wrapper). asyncio's
+                    # subprocess transport also raises CancelledError
+                    # here during loop teardown.
+                    #
+                    # ``except BaseException`` is required because
+                    # CancelledError inherits BaseException (not
+                    # Exception) on Python 3.8+ — the previous narrower
+                    # catch let it escape to ``cleanup_workflow`` which
+                    # then logged a full traceback.
+                    #
+                    # Log message only, NOT exc_info=True. The traceback
+                    # is identical every run and adds 30+ lines of stderr
+                    # noise that drowns out real errors. cli_runner
+                    # already catches BaseException around cleanup so
+                    # this never blocks the run record from persisting.
                     logger.warning(
-                        "MCP %s disconnect failed — process cleanup is sufficient",
-                        cm_attr,
-                        exc_info=True,
+                        "MCP %s disconnect failed (%s: %s) — process cleanup is sufficient",
+                        cm_attr, type(e).__name__, str(e)[:120],
                     )
                 setattr(self, cm_attr, None)
         self._session = None

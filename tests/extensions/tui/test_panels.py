@@ -116,6 +116,47 @@ class TestSidebarTokens:
         out = _render_to_str(sb, width=40)
         assert "0" in out  # zero tokens
 
+    def test_usage_update_resilient_to_field_rename(self):
+        """If LLMExecutor renames cumulative_input/output to one of the
+        plausible future schemas (total_input_tokens / input_tokens_cumulative),
+        the sidebar must keep working instead of silently zeroing out.
+        Locks the resilience contract added after Cp7."""
+        sb = SidebarPanel()
+
+        # Future name pattern 1: total_input_tokens / total_output_tokens
+        sb.on_usage_update({
+            "agent_name": "x",
+            "total_input_tokens": 3000,
+            "total_output_tokens": 1500,
+        })
+        assert sb.state.cumulative_tokens == 4500
+
+        # Future name pattern 2: input_tokens_cumulative / output_tokens_cumulative
+        sb2 = SidebarPanel()
+        sb2.on_usage_update({
+            "agent_name": "y",
+            "input_tokens_cumulative": 2000,
+            "output_tokens_cumulative": 700,
+        })
+        assert sb2.state.cumulative_tokens == 2700
+
+    def test_usage_update_falls_back_to_total_tokens(self):
+        """Older event streams may only carry the per-call total_tokens
+        field — sidebar must use it rather than render blank."""
+        sb = SidebarPanel()
+        sb.on_usage_update({
+            "agent_name": "x",
+            "total_tokens": 9000,
+        })
+        assert sb.state.cumulative_tokens == 9000
+
+    def test_usage_update_missing_all_fields_does_not_crash(self):
+        """Garbage event with no recognized token fields must not raise.
+        Sidebar stays at 0; the workflow continues."""
+        sb = SidebarPanel()
+        sb.on_usage_update({"agent_name": "x"})  # no token fields
+        assert sb.state.cumulative_tokens == 0
+
 
 class TestSidebarFitness:
     def test_no_cycle_events_renders_dash(self):

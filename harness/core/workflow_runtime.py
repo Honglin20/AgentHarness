@@ -281,8 +281,16 @@ async def cleanup_workflow(workflow: "Workflow") -> None:
     for bridge in workflow._mcp_bridges:
         try:
             await bridge.disconnect()
-        except BaseException:
-            logger.exception("MCP bridge disconnect failed — process may leak")
+        except BaseException as e:
+            # McpBridge.disconnect() already swallows + logs internally;
+            # this outer catch is defense-in-depth against bugs in
+            # disconnect itself (e.g. AttributeError on a partially-
+            # constructed bridge). Short message only — disconnect
+            # already logged the underlying cause with context.
+            logger.warning(
+                "MCP bridge disconnect raised %s: %s — process may leak",
+                type(e).__name__, str(e)[:120],
+            )
     workflow._mcp_bridges = []
     workflow._mcp_setup_done = False
 

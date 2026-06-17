@@ -130,10 +130,30 @@ class SidebarPanel:
 
     def on_usage_update(self, payload: dict[str, Any]) -> None:
         """Token usage. Uses cumulative fields when present (server emits
-        both cumulative and last-delta; we want running totals)."""
+        both cumulative and last-delta; we want running totals).
+
+        Field-name-resilient: tries multiple naming conventions so a
+        future rename in ``LLMExecutor.emit("agent.usage_update", ...)``
+        doesn't silently zero out the sidebar. If none of the known
+        fields are present, logs at debug level (not warning — this
+        fires on every event, warning would spam).
+        """
         name = payload.get("agent_name") or payload.get("node_id")
-        cumulative_input = int(payload.get("cumulative_input") or 0)
-        cumulative_output = int(payload.get("cumulative_output") or 0)
+
+        # Try canonical field, then 2 plausible future names. ``or 0``
+        # coerces None / missing key to 0 without raising.
+        cumulative_input = int(
+            payload.get("cumulative_input")
+            or payload.get("total_input_tokens")
+            or payload.get("input_tokens_cumulative")
+            or 0
+        )
+        cumulative_output = int(
+            payload.get("cumulative_output")
+            or payload.get("total_output_tokens")
+            or payload.get("output_tokens_cumulative")
+            or 0
+        )
         cumulative_total = cumulative_input + cumulative_output
 
         # Fallback: some event streams only carry per-call totals —
