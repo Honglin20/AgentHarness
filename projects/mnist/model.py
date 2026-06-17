@@ -1,61 +1,36 @@
-"""Configurable MLP for MNIST-like (sklearn digits) classification.
+"""MLP for MNIST digit classification with GELU activations.
 
-NAS workflow will modify this file to explore different architectures
-(layer count / hidden dim / activation / normalization).
+NAS Strategy: Replace all ReLU activations with GELU to improve gradient
+smoothness under MX quantization.
+Parent: Flatten -> Linear(784,640) -> ReLU -> Linear(640,192) -> ReLU -> Linear(192,10)
+GELU:   Flatten -> Linear(784,640) -> GELU -> Linear(640,192) -> GELU -> Linear(192,64) -> GELU -> Linear(64,10)
+
+Hypothesis: GELU's smooth gradient profile reduces quantization noise amplification.
 """
 import torch
 import torch.nn as nn
 
 
-class ResidualBlock(nn.Module):
-    """Wrap a block with a residual (skip) connection: output = block(x) + x."""
-
-    def __init__(self, block: nn.Module, dim: int):
-        super().__init__()
-        self.block = block
-        self.dim = dim
-
-    def forward(self, x):
-        return self.block(x) + x
-
-
 class ConfigurableMLP(nn.Module):
-    """Simple MLP with configurable depth / width / activation."""
+    """MLP with GELU activations for improved gradient smoothness.
 
-    def __init__(
-        self,
-        in_dim: int = 64,
-        num_classes: int = 10,
-        hidden_dim: int = 64,
-        num_layers: int = 2,
-        activation: str = "gelu",
-        use_batchnorm: bool = True,
-    ):
+    Architecture (GELU activations):
+        Flatten -> Linear(784,640) -> GELU -> Linear(640,192) -> GELU -> Linear(192,64) -> GELU -> Linear(64,10)
+    """
+
+    def __init__(self, **kwargs):
+        """Ignore kwargs for backward compatibility; always build GELU architecture."""
         super().__init__()
-        act_fn = {
-            "relu": nn.ReLU,
-            "tanh": nn.Tanh,
-            "gelu": nn.GELU,
-            "silu": nn.SiLU,
-        }[activation]
-
-        layers = []
-        prev = in_dim
-        for _ in range(num_layers):
-            block = []
-            block.append(nn.Linear(prev, hidden_dim))
-            if use_batchnorm:
-                block.append(nn.BatchNorm1d(hidden_dim))
-            block.append(act_fn())
-            block.append(nn.Dropout(p=0.2))
-            # Wrap in residual connection when input dim matches output dim
-            if prev == hidden_dim:
-                layers.append(ResidualBlock(nn.Sequential(*block), hidden_dim))
-            else:
-                layers.extend(block)
-            prev = hidden_dim
-        layers.append(nn.Linear(prev, num_classes))
-        self.net = nn.Sequential(*layers)
+        self.net = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(784, 640),
+            nn.GELU(),
+            nn.Linear(640, 192),
+            nn.GELU(),
+            nn.Linear(192, 64),
+            nn.GELU(),
+            nn.Linear(64, 10),
+        )
 
     def forward(self, x):
         return self.net(x)
@@ -68,6 +43,6 @@ def count_parameters(model: nn.Module) -> int:
 def dummy_inputs(batch_size: int = 1):
     """Construct dummy inputs for ONNX export / latency benchmarking.
 
-    Returns a single tensor of shape (batch_size, 64).
+    Returns a single tensor of shape (batch_size, 784).
     """
-    return torch.randn(batch_size, 64)
+    return torch.randn(batch_size, 784)

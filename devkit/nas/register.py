@@ -203,7 +203,14 @@ def build_workflow() -> Workflow:
             ),
         ],
         workflow_dir=WORKFLOW_DIR,
-        max_iterations=1_000_000,  # selector↔validator cycle cap; override per-run via inputs.max_iters
+        # Cycle cap: 8 rounds of selector↔validator gives the search enough
+        # room to converge or abandon. Higher values do NOT improve outcomes —
+        # they just burn tokens when the model can't fix what validator flags.
+        # Was 1_000_000 (typo-era); the 2026-06-17 cycle-loop incident was
+        # caused by an upstream-failed adapter_generator triggering
+        # validator→selector→skip→validator→... forever because routing
+        # couldn't escape. Both bugs (this cap + routing) are now fixed.
+        max_iterations=8,
     )
     return wf
 

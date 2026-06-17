@@ -608,7 +608,15 @@ async def websocket_endpoint(
                     # "answer": "x"} and lose its answer.
                     raw_payload = payload.model_dump(exclude_unset=True)
                     answer_payload = parse_chat_answer_payload(raw_payload)
-                    await resolve_answer(question_id, answer_payload)
+                    logger.info(
+                        "ws.chat.answer.recv wf=%s qid=%s raw_payload=%r normalized=%r",
+                        workflow_id, question_id, raw_payload, answer_payload,
+                    )
+                    resolved = await resolve_answer(question_id, answer_payload)
+                    logger.info(
+                        "ws.chat.answer.resolved wf=%s qid=%s future_resolved=%s",
+                        workflow_id, question_id, resolved,
+                    )
 
             # Handle stop + regenerate requests
             elif isinstance(msg, WSStopAndRegenerate):
