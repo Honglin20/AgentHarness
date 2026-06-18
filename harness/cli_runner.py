@@ -30,7 +30,7 @@ import logging
 import os
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel
 
@@ -234,6 +234,32 @@ async def run_with_persistence(
             if hasattr(workflow._builder, "register_active"):
                 workflow._builder.register_active()
 
+        # Register in server.repository so the per-node incremental-save
+        # pipeline (_save_incremental in harness/engine/incremental_save.py)
+        # can resolve this workflow and emit per-iter sidecars + outline +
+        # snapshot. Without this, _save_incremental silently no-ops at
+        # `repo.get(wid)` and the frontend sees a run with no iter_index /
+        # outline / per-iter sidecars.
+        # See docs/refactor/single-source-index-driven/ (Phase 1+2 ADR).
+        from datetime import datetime, timezone
+        from server.repository import get_repository
+        dag = build_workflow_dag(workflow)
+        repo = get_repository()
+        repo.put(run_id, {
+            "workflow": workflow,
+            "status": "running",
+            "result": None,
+            "inputs": inputs,
+            "thread_id": run_id,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "agents_snapshot": build_agents_snapshot(workflow),
+            "batch_id": None,
+            "event_bus": bus,
+            "user_id": None,
+            "work_dir": work_dir,
+        })
+        repo.put_dag(run_id, dag)
+
         # Emit workflow.started BEFORE arun so it lands at the head of the
         # event stream — server does this in _helpers.py:358, and the
         # frontend uses it to initialize UI state (DAG, inputs, envelope).
@@ -247,7 +273,7 @@ async def run_with_persistence(
                 "name": workflow.name,
                 "workflow": workflow.name,
                 "inputs": inputs,
-                "dag": build_workflow_dag(workflow),
+                "dag": dag,
                 "envelope": getattr(workflow, "envelope", None),
                 "started_ts_ms": int(_time.time() * 1000),
             },
@@ -291,6 +317,17 @@ async def run_with_persistence(
                 os.chdir(original_cwd)
             except Exception:
                 logger.warning("Could not restore original CWD", exc_info=True)
+
+        # Drop the CLI's registration from server.repository — without this
+        # the repo would still report the run as "running" on /api/runs even
+        # after the CLI exits, since nothing flips its status. The persisted
+        # run record on disk is the authoritative source; the in-memory repo
+        # entry was only needed during arun() for _save_incremental.
+        try:
+            from server.repository import get_repository
+            get_repository().remove(run_id)
+        except Exception:
+            logger.debug("Could not unregister CLI run from repository", exc_info=True)
 
     # 4) Collect conversation + events + charts from the Bus buffer.
     conv_collector = ConversationCollector(bus)
@@ -348,6 +385,30 @@ async def run_with_persistence(
         work_dir=work_dir,
         todo_steps=todo_steps,
     )
+
+    # Outline sidecar — refresh after the main save so the final on-disk
+    # outline reflects every iter that completed. RunStore.save() now uses
+    # merge semantics and preserves _has_outline across calls (see
+    # run_store.py), so this call only needs to recompute the content with
+    # the latest iter_index — no flag gymnastics required.
+    try:
+        from harness.persistence.outline_save import save_outline_sidecar
+
+        save_outline_sidecar(
+            workflow_id=run_id,
+            conversation=conversation,
+            events=events,
+            trace=(result_payload or {}).get("trace", []),
+            todo_steps=todo_steps or {},
+            agents_snapshot=build_agents_snapshot(workflow),
+            dag=build_workflow_dag(workflow),
+        )
+    except Exception:
+        logger.warning(
+            "Outline sidecar save failed for CLI run %s — frontend will fall back to deriving",
+            run_id,
+            exc_info=True,
+        )
 
     # 6) Re-raise on failure AFTER persisting — caller (cmd_run) sets exit code.
     if status == "failed" and error is not None:

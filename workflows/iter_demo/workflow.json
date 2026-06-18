@@ -1,0 +1,39 @@
+{
+  "name": "iter_demo",
+  "max_iterations": 3,
+  "agents": [
+    {
+      "name": "worker",
+      "after": [],
+      "tools": ["bash"],
+      "model": null,
+      "retries": 2,
+      "on_pass": "done",
+      "on_fail": "worker",
+      "result_type_name": "WorkerResult",
+      "result_type_schema": {
+        "title": "WorkerResult",
+        "description": "worker agent output. Self-loop demo: iter<2 forced fail.",
+        "type": "object",
+        "properties": {
+          "decision": {
+            "title": "Decision",
+            "type": "string",
+            "enum": ["pass", "fail"]
+          },
+          "reason": {"title": "Reason", "type": "string"},
+          "summary": {"title": "Summary", "type": "string"},
+          "iter_num": {"title": "Iter Num", "type": "integer"}
+        },
+        "required": ["decision", "reason", "summary", "iter_num"]
+      }
+    },
+    {
+      "name": "done",
+      "after": null,
+      "tools": ["bash"],
+      "model": null,
+      "retries": 2
+    }
+  ]
+}

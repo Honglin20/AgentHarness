@@ -77,8 +77,12 @@ class UserManager:
                 if data.get("user_id") == user_id:
                     return User(**data)
 
-        # 降级：使用默认用户（向后兼容）
-        return User(user_id="default", name="Default User", role="developer")
+        # 降级：使用默认用户（向后兼容）。
+        # role=admin：项目当前不启用用户隔离，所有请求（含 CLI 跑的
+        # user_id=None run）都按 admin 处理，能在 portal 看到全部 run。
+        # 若未来要恢复隔离，把这行改回 role="developer" 并保留 users.json
+        # 的多用户配置即可。
+        return User(user_id="default", name="Default User", role="admin")
 
     def is_admin(self, user: User) -> bool:
         """检查是否是管理员"""

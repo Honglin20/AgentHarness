@@ -64,12 +64,15 @@ def _save_incremental(
         except Exception:
             invocation_counts_raw = {}
         invocation_counts: dict[str, int] = {}
-        for node_id, iter_entries in invocation_counts_raw.items():
+        # Loop var must not shadow the `node_id` parameter — that bug
+        # silently re-targeted every per-iter sidecar write to whatever
+        # the last iter_index key was.
+        for idx_node, iter_entries in invocation_counts_raw.items():
             if not isinstance(iter_entries, list):
                 continue
             iters = [e.get("iter") for e in iter_entries if isinstance(e, dict) and isinstance(e.get("iter"), int)]
             if iters:
-                invocation_counts[node_id] = max(iters)
+                invocation_counts[idx_node] = max(iters)
 
         conversation_full = build_conversation(
             dict(builder.agent_io),

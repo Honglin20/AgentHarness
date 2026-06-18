@@ -16,7 +16,7 @@ from __future__ import annotations
 import json as _json
 import logging
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
@@ -677,7 +677,7 @@ def make_node_func(
                 iter_key = f"{agent_def.name}_loop"
                 # Determine decision from output
                 decision = _extract_decision(output)
-                if decision == "fail" and agent.on_fail is not None:
+                if decision == "fail" and agent_def.on_fail is not None:
                     iter_update[iter_key] = state.get("iteration_counts", {}).get(iter_key, 0) + 1
 
             result_dict = {

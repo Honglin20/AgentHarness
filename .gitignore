@@ -42,3 +42,6 @@ palindrome.py
 
 # Claude local-only settings (mcp.json is shared)
 .claude/settings.local.json
+
+# parallel_iter_demo iteration history (workflow runtime state, not source)
+.HISTORY/

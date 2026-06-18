@@ -305,6 +305,25 @@ class RunStore(RunStoreInterface):
         work_dir: str | None = None,
         todo_steps: dict | None = None,
     ) -> Path:
+        # Single-source-of-truth contract: each sidecar flag is owned by the
+        # method that writes that sidecar (save_outline owns _has_outline,
+        # save owns _has_charts / _has_events because charts+events are
+        # passed in here). Before this merge, save() built a fresh dict
+        # and silently clobbered _has_outline=True that save_outline() had
+        # set during the run — so every final-save wiped the outline flag
+        # and the frontend fell back to a derive path that doesn't carry
+        # multi-iter metadata. Now we read the existing record first and
+        # preserve sidecar flags this method doesn't own.
+        path = self._safe_path(run_id)
+        if path is None:
+            raise ValueError(f"Invalid run_id: {run_id}")
+        existing: dict = {}
+        if path.exists():
+            try:
+                existing = json.loads(path.read_text()) or {}
+            except (json.JSONDecodeError, OSError):
+                existing = {}
+
         record = {
             "run_id": run_id,
             "workflow_name": workflow_name,
@@ -328,9 +347,15 @@ class RunStore(RunStoreInterface):
         record["_has_charts"] = bool(chart_groups and chart_groups.get("groupOrder"))
         record["_has_events"] = bool(events)
 
-        path = self._safe_path(run_id)
-        if path is None:
-            raise ValueError(f"Invalid run_id: {run_id}")
+        # Preserve sidecar flags owned by OTHER methods. Anything matched
+        # here must NOT also be a key set above (otherwise we'd overwrite
+        # the caller's intent). Add new sidecar flags here as they're
+        # introduced — the list is intentionally explicit so ownership
+        # stays auditable.
+        for sidecar_flag in ("_has_outline",):
+            if sidecar_flag not in record and sidecar_flag in existing:
+                record[sidecar_flag] = existing[sidecar_flag]
+
         self._atomic_write(path, json.dumps(record, separators=(",", ":"), ensure_ascii=False))
 
         # Write chart_groups sidecar
@@ -385,7 +410,12 @@ class RunStore(RunStoreInterface):
                     continue
                 if not include_batch and entry.get("batch_id"):
                     continue
-                if user_id is not None and entry.get("user_id", "default") != user_id:
+                # `entry.get("user_id") or "default"` — explicit None (CLI runs
+                # that never set a user) collapses to "default" so it shows up
+                # for default/admin viewers. The old `entry.get("user_id",
+                # "default")` form returned None when the key was present with
+                # value None, silently hiding every CLI-produced run.
+                if user_id is not None and (entry.get("user_id") or "default") != user_id:
                     continue
                 filtered.append(entry)
             # Status-priority sort: running / waiting-for-user floats to top
@@ -414,7 +444,7 @@ class RunStore(RunStoreInterface):
                 entry["run_id"] for entry in self._summary_index.values()
                 if (not workflow_name or entry.get("workflow_name") == workflow_name)
                 and (include_batch or not entry.get("batch_id"))
-                and (user_id is None or entry.get("user_id", "default") == user_id)
+                and (user_id is None or (entry.get("user_id") or "default") == user_id)
             ]
             for run_id in candidate_ids:
                 path = self._safe_path(run_id)
@@ -443,7 +473,9 @@ class RunStore(RunStoreInterface):
                     continue
                 if not include_batch and data.get("batch_id"):
                     continue
-                if user_id is not None and data.get("user_id", "default") != user_id:
+                # See fast-path note: `or "default"` correctly collapses None
+                # (CLI runs) instead of letting None != "default" hide them.
+                if user_id is not None and (data.get("user_id") or "default") != user_id:
                     continue
                 runs.append(data)
         # Status-priority sort — see summary_index branch above for rationale.
