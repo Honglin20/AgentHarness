@@ -1,0 +1,115 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agent-harness.local/schemas/snapshot.v2.schema.json",
+  "title": "Snapshot v2",
+  "description": "Persistent snapshot/manifest for a run. ADR D3: snapshot is a manifest. P0 allows legacy heavy fields (conversation/agent_io/todo_states) as optional — they will be removed in P4.",
+  "type": "object",
+  "required": ["run_id", "workflow_name", "status", "created_at", "dag"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Schema major version. v2 = 2. Absent on legacy snapshots (treated as v1)."
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique run identifier (UUID or slug)."
+    },
+    "workflow_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["running", "completed", "failed", "cancelled", "paused", "waiting-for-user"]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Optional timestamp of last snapshot write."
+    },
+    "completed_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Set when status transitions to completed/failed/cancelled."
+    },
+    "dag": {
+      "type": "object",
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": {"type": "array"},
+        "edges": {"type": "array"},
+        "conditional_edges": {"type": "array"}
+      },
+      "additionalProperties": true
+    },
+    "current_iter": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "node_statuses": {
+      "type": "object",
+      "additionalProperties": {"type": "string"},
+      "description": "Map: node_id -> 'streaming' | 'completed' | 'failed' | 'idle'. Target (D3)."
+    },
+    "latest_iter_by_node": {
+      "type": "object",
+      "additionalProperties": {"type": "integer"},
+      "description": "Map: node_id -> latest iter number. Derived from iter_index. Target (D3)."
+    },
+    "fitness_history": {
+      "type": "array",
+      "items": {"type": "object"},
+      "description": "NAS-specific optimization trace."
+    },
+    "agents_snapshot": {
+      "type": "array",
+      "items": {"type": "object"},
+      "description": "DAG node metadata for outline rendering."
+    },
+    "last_seq": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Global event_bus seq at last snapshot write. WS reconnect sync point (D5/D7)."
+    },
+    "seq_cursor": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Legacy alias for last_seq. Renamed in P4-T05; allowed here for v1 read compat."
+    },
+    "agent_io": {
+      "type": ["object", "null"],
+      "description": "Legacy (P0-P3). Removed in P4 (D3)."
+    },
+    "conversation": {
+      "type": ["array", "null"],
+      "description": "Legacy (P0-P3). Removed in P4 (D3)."
+    },
+    "conversation_total": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Legacy (P0-P3). Removed in P4 (D3)."
+    },
+    "nodes_latest": {
+      "type": ["object", "null"],
+      "description": "Legacy (P0-P3). Merged into latest_iter_by_node in P4 (O2)."
+    },
+    "todo_states": {
+      "type": ["object", "null"],
+      "description": "Legacy (P0-P3). Removed in P4 — todo_steps live in sidecar (O1, I9)."
+    },
+    "iter_index": {
+      "type": ["object", "null"],
+      "description": "Legacy embed of iter_index inside snapshot. Sidecar iter_index.json is authoritative (D1)."
+    },
+    "charts": {
+      "type": ["object", "null"]
+    }
+  }
+}

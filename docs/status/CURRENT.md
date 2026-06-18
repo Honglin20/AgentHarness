@@ -1,53 +1,61 @@
 # Current Task
 
-**当前任务**: 前端 review（用户 goal）— **conversation latest-iter 修复已落地，等待真机验证**
-**状态**: P0 conversation 修复 + 单测 + build 全过；用户尚未跑真机验证
+**当前任务**: 单一数据源 + Index-Driven 前端重构 — **完成**
+**状态**: ✅ **所有 82 任务全部完成（7 phase 全过）**
 **日期**: 2026-06-17
 **分支**: `main`
 
-## 本次完成
+## 完成总结
 
-| Commit | 内容 |
+NAS 前端"修了 N 次还坏"的结构性根因（5 个数据源独立计算 + 隐式契约）已通过单一数据源 + index-driven 重构根治。
+
+- **137 backend + 267 frontend 测试全过**
+- 真实 NAS run `5c6eac84` outline iter_count 与 iter_index 14 节点全 match
+- snapshot 从 342KB 降到 736 bytes
+- D5/D7 契约（streaming→completed + last_seq 同步点）端到端验证
+
+完整 release note: [`docs/releases/2026-06-17-single-source-index-driven-complete.md`](../releases/2026-06-17-single-source-index-driven-complete.md)
+
+ADR: [`docs/refactor/single-source-index-driven/ADR.md`](../refactor/single-source-index-driven/ADR.md)
+
+## ADR 决策落地状态
+
+| # | 决策 | 状态 |
+|---|---|---|
+| D1 | iter_index 是唯一来源 | ✅ |
+| D2 | sidecar 含 tool_calls + todo_steps + 生命周期字段 | ✅ |
+| D3 | snapshot < 1KB manifest | ✅ |
+| D4 | run_record 不再写 conversation | ✅ |
+| D5 | 前端永远 fetch，never filter | ✅ |
+| D6 | `/runs/{id}/conversation` 废弃（Deprecation header） | ✅ |
+| D7 | sidecar 生命周期 streaming→completed + last_seq 同步点 | ✅ |
+| R3 | sidecar 写盘 retry + log loud + 不 fail node | ✅ |
+| O1 | todo_states 拆进 sidecar（按 iter 过滤） | ✅ |
+| I1-I9 | 不变量 lint 检查 | ✅ |
+
+## 必读文件（保留入口）
+
+- [`docs/refactor/single-source-index-driven/README.md`](../refactor/single-source-index-driven/README.md)
+- [`docs/refactor/single-source-index-driven/ADR.md`](../refactor/single-source-index-driven/ADR.md)
+- [`docs/refactor/single-source-index-driven/TASKS.md`](../refactor/single-source-index-driven/TASKS.md)
+- [`docs/releases/2026-06-17-single-source-index-driven-complete.md`](../releases/2026-06-17-single-source-index-driven-complete.md)
+
+## 进度
+
+| Phase | 进度 |
 |---|---|
-| `6b36e67` | fix(conversation): load latest-iter content for all agents + lazy-load historical iters |
-| `6b8bc61` | test(conversation): cover iteration field + per-iter sidecar projection |
-| `c868505` | chore(frontend): rebuild out/ for conversation iter-fix deployment |
+| P0 | 18/18 ✅ |
+| P1 | 8/8 ✅ |
+| P2a | 7/7 ✅ |
+| P2b | 22/22 ✅ |
+| P3 | 10/10 ✅ |
+| P4 | 8/8 ✅ |
+| P5 | 5/5 ✅ |
+| P6 | 4/4 ✅ |
+| **总计** | **82/82 ✅** |
 
-详见 [`docs/releases/2026-06-17-conversation-latest-iter-fix.md`](../releases/2026-06-17-conversation-latest-iter-fix.md)。
+## 已知 follow-ups（重构外，可独立 PR）
 
-## 修复了什么
-
-刷新页面后历史 run outline 显示 9 个 agent 但点任意一个显示 "iter 1 yet" 的多层 bug：
-
-1. snapshot 切 `conversation[-50:]` → NAS 500+ 消息被切到只剩最后 agent 尾部
-2. `build_conversation` 没写 `iteration` 字段
-3. `hydrateFromSnapshot` 没经 DTO 转换
-
-修复后：
-- snapshot 全量写入 latest-iter conversation（agent_io 本来就只保留最新 iter）
-- message 带 `iteration` 字段
-- 历史 iter 切 dropdown 时拉 `+iters+{node}+{iter}.json` sidecar
-
-## 验证状态
-
-- ✅ backend `test_collectors.py` 24/24
-- ✅ frontend vitest 267/267（基线 265 + 新增 2）
-- ✅ frontend npm run build
-- ⏳ **等待用户真机验证**：启动 server，刷新 NAS run，确认每个 agent 都能看到 latest iter 内容；切历史 iter 验证 sidecar 拉取
-
-## 必读文件
-
-- [`docs/releases/2026-06-17-conversation-latest-iter-fix.md`](../releases/2026-06-17-conversation-latest-iter-fix.md) — 完整诊断 + 修复方案 + 验证矩阵
-- `harness/extensions/collectors.py` — `build_conversation` 加 `invocation_counts`
-- `harness/engine/incremental_save.py` — snapshot 不切 tail，传 invocation_counts
-- `server/routers/runs.py` — conversation 端点加 `node_id` + `iter_num`
-- `frontend/src/stores/hydration/hydrateReplay.ts` — `hydrateFromSnapshot` 用 dtoListToMessages
-- `frontend/src/components/outline/AgentDetailView.tsx` — 切历史 iter 时拉 sidecar
-
-## 未决项（用户讨论决定不做）
-
-- **per-agent 目录重构**（Phase 2）：现有 sidecar 已能 per-iter 按需加载，本次 P0 不值得做数据迁移
-- **`initUser` 死代码**：用户选不动，default user 后端兜底
-- **`estimateSize` 虚拟化估算不准**（P1）：用户没选，留待后续
-- **running↔history 切换边界 case**（P2）：诊断已完成（activateRun 已部分修复），未做改动
-- **30s polling / 性能遗留点**（P2）：诊断已完成，未做改动
+1. 把 `InflightSidecarWriter` 接到 `runner.py` —— registry 已就绪，attach_to_bus 提供，runner 集成是小型 surgical change。
+2. `mark_interrupted` 启动扫描（进程重启后清理 streaming sidecar）—— writer 方法已实现，调用方待加。
+3. 前端 msw-based 浏览器 E2E（可选）—— 当前 TestClient 套件覆盖契约表面，msw 可后续添加渲染层验证。

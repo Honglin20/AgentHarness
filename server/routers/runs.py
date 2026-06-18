@@ -1,8 +1,11 @@
 """Run persistence + lifecycle endpoints (list/get/delete/update/resume/rerun)."""
+import logging
 import time
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+
+logger = logging.getLogger(__name__)
 
 from harness.api import Agent, Workflow
 from harness.run_store_interface import RunStoreInterface
@@ -318,6 +321,7 @@ async def get_node_iter_detail(
 @router.get("/runs/{run_id}/conversation")
 async def get_run_conversation(
     run_id: str, request: Request,
+    response: Response,
     before: int | None = None, limit: int = 50,
     node_id: str | None = None,
     iter_num: int | None = None,
@@ -325,6 +329,17 @@ async def get_run_conversation(
     repo: WorkflowRepository = Depends(get_repository_dep),
 ) -> dict:
     """Windowed conversation slice, or per-(node, iter) slice when filtered.
+
+    **DEPRECATED (D6, post-P5).** This endpoint is retained for one release
+    to keep old frontends working. New clients should use:
+      - ``GET /runs/{id}/snapshot``       for the manifest
+      - ``GET /runs/{id}/iter_index``     for outline data
+      - ``GET /runs/{id}/nodes/{n}/iters/{i}``  for per-iter sidecars
+
+    The ``node_id`` + ``iter_num`` query mode is the only path that still
+    sees active use (AgentDetailView fetches sidecars through it). The
+    default mode (no filters) reads from the run_record's deprecated
+    ``conversation`` field, which is no longer written for new runs (D4).
 
     Default mode (no node_id / iter_num): windowed slice of the full
     conversation. ``before`` is an exclusive upper bound on array index.
@@ -336,6 +351,19 @@ async def get_run_conversation(
     the main snapshot. Response shape mirrors the default mode for client
     compatibility: {messages, has_more, total}.
     """
+    # Deprecation signal (ADR D6) — log + headers so monitors can track
+    # remaining usage before the endpoint is removed in the next release.
+    logger.warning(
+        "Deprecated /runs/%s/conversation called (node_id=%s iter_num=%s) — "
+        "clients should migrate to /nodes/{n}/iters/{i}",
+        run_id, node_id, iter_num,
+    )
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = "Mon, 17 Sept 2026 00:00:00 GMT"
+    response.headers["Link"] = (
+        f'</api/runs/{run_id}/nodes/{{node_id}}/iters/{{iter_num}}>; rel="successor-version"'
+    )
+
     # Per-iter shortcut: read sidecar, shape as conversation messages.
     if node_id is not None and iter_num is not None:
         store, _run, _user, _is_admin = _load_run_for_user(run_id, request, store)
@@ -358,12 +386,16 @@ async def get_run_conversation(
 def _iter_sidecar_to_messages(sidecar: dict, node_id: str, iter_num: int) -> list[dict]:
     """Project a per-iter sidecar to ConversationMessage-shaped dicts.
 
-    Sidecar shape (from incremental_save._save_incremental):
+    Sidecar shape (from incremental_save._save_incremental, post-P2a):
         {iter, node_id, status, duration_ms, input_prompt, system_prompt,
-         output, summary}
+         output, tool_calls, todo_steps, summary}
 
-    Emits one agent message per non-empty field, mirroring build_conversation's
-    shape so the frontend's dtoListToMessages maps fields identically.
+    Emits messages mirroring build_conversation's shape so the frontend's
+    dtoListToMessages maps fields identically:
+      - input_prompt → 1 agent message (only when output is absent — fallback view)
+      - output       → 1 agent message
+      - tool_calls   → 1 tool_call message each (D2: sidecar is the source of
+                       truth for historical iter tool history)
     """
     out: list[dict]
     out = []
@@ -402,6 +434,33 @@ def _iter_sidecar_to_messages(sidecar: dict, node_id: str, iter_num: int) -> lis
             "timestamp": 0,
             "iteration": iter_num,
         })
+    # D2 / P2a-T03: project tool_calls. Each tool_call in the sidecar becomes
+    # a tool_call message so the historical iter view shows the same tool
+    # history the live run did. Field mapping mirrors build_conversation
+    # (frontend's ConversationMessage type).
+    tool_calls = sidecar.get("tool_calls")
+    if isinstance(tool_calls, list):
+        for tc in tool_calls:
+            if not isinstance(tc, dict):
+                continue
+            tool_result = tc.get("tool_result")
+            out.append({
+                "id": _next_id(),
+                "type": "tool_call",
+                "nodeId": node_id,
+                "agentName": node_id,
+                "content": "",
+                "toolName": tc.get("tool_name", ""),
+                "toolArgs": tc.get("tool_args", {}),
+                # tool_result may be any shape (str, dict, list, None). The
+                # frontend renders it via JSON.stringify for non-strings, so
+                # pass through as-is; only stringify when it's already a str
+                # to avoid double-encoding.
+                "toolResult": tool_result,
+                "toolStatus": "done",
+                "timestamp": tc.get("ts") or tc.get("seq") or 0,
+                "iteration": iter_num,
+            })
     return out
 
 @router.patch("/runs/{run_id}/conversation")

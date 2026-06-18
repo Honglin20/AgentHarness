@@ -98,7 +98,10 @@ def _save_incremental(
             agent_io=agent_io_snapshot,
             batch_id=data.get("batch_id"),
             user_id=data.get("user_id"),
-            conversation=conversation_full,
+            # D4: conversation is NOT passed — run_record no longer persists
+            # it. The full conversation lives in per-iter sidecars (D2) and
+            # the snapshot no longer embeds it either (D3 / P4). Old run
+            # records retain their conversation field for read-only compat.
             chart_groups=chart_groups,
             created_at=data.get("created_at"),
             work_dir=data.get("work_dir"),
@@ -108,23 +111,27 @@ def _save_incremental(
         # Per-iter sidecar (Phase 2). Skip when caller didn't pass
         # invocation info (defensive — every callsite should pass it).
         if node_id is not None and iter_num is not None:
-            node_io = agent_io_snapshot.get(node_id) or {}
-            output_result = node_io.get("output_result") if isinstance(node_io, dict) else None
-            iter_data = {
-                "iter": iter_num,
-                "node_id": node_id,
-                "status": status,
-                "duration_ms": duration_ms,
-                "input_prompt": node_io.get("input_prompt") if isinstance(node_io, dict) else None,
-                "system_prompt": node_io.get("system_prompt") if isinstance(node_io, dict) else None,
-                "output": output_result,
-                # Short summary for iter dropdown — extract from common shapes.
-                "summary": _extract_iter_summary(output_result),
-                # Phase 3 fills events_seq_range by intersecting event seqs
-                # with iter boundaries; for now, omit.
-            }
+            iter_data = _build_iter_data(
+                agent_io_snapshot=agent_io_snapshot,
+                todo_states=builder.todo_states,
+                node_id=node_id,
+                iter_num=iter_num,
+                duration_ms=duration_ms,
+                status=status,
+            )
+            # R3 (ADR §R3): route sidecar write through save_iter_sidecar_safe —
+            # atomic + verify + retry + log loud + don't raise. Index update
+            # still goes through RunStore (separate small write, not
+            # R3-protected yet — same atomic_write primitive though).
             try:
-                get_run_store().save_iter_sidecar(wid, node_id, iter_num, iter_data)
+                from harness.persistence.sidecar_io import save_iter_sidecar_safe
+
+                saved = save_iter_sidecar_safe(wid, node_id, iter_num, iter_data)
+                if not saved:
+                    logger.warning(
+                        "Iter sidecar persistently failed for %s/%s/iter=%s — iter UI will miss this entry",
+                        wid, node_id, iter_num,
+                    )
                 get_run_store().update_iter_index(wid, node_id, {
                     "iter": iter_num,
                     "status": status,
@@ -187,45 +194,47 @@ def _save_incremental(
                     if current_iter is None or e["iter"] > current_iter:
                         current_iter = e["iter"]
 
+        # Build latest_iter_by_node from iter_index. Replaces the old
+        # nodes_latest shape ({node_id: {status, latest_iter}}) with the
+        # ADR D3 manifest shape ({node_id: <int>}). Iter_index is the
+        # authoritative source (D1) — deriving latest here avoids a
+        # separate client-side computation.
+        latest_iter_by_node: dict[str, int] = {}
+        for nid, entries in iter_index.items():
+            iters = [
+                e.get("iter") for e in entries
+                if isinstance(e, dict) and isinstance(e.get("iter"), int)
+            ]
+            if iters:
+                latest_iter_by_node[nid] = max(iters)
+
         snapshot = {
+            "version": 2,
             "run_id": wid,
             "workflow_name": data["workflow"].name,
             "status": "running",
             "created_at": data.get("created_at"),
-            "seq_cursor": getattr(event_bus, "_seq", 0),
+            # D7 sync point: WS reconnect uses since_seq = snapshot.last_seq.
+            # Renamed from seq_cursor (P4-T05).
+            "last_seq": getattr(event_bus, "_seq", 0),
             "dag": dag,
-            "agent_io": agent_io_snapshot,
-            # Latest-iter conversation across all agents. Historical iters
-            # load on demand from per-iter sidecars via
-            # /api/runs/{id}/conversation?node_id=X&iter_num=Y.
-            "conversation": conversation_latest,
-            # Total count of the conversation (same as len(conversation_latest)
-            # for running snapshot since agent_io only retains latest iter).
-            # Kept as a separate field for protocol compat — frontend uses
-            # this to size the "Load earlier" cursor; running snapshot's
-            # pagination is bounded by iter sidecars, not by this total.
-            "conversation_total": len(conversation_full),
-            "charts": chart_groups,
-            "todo_states": todo_snapshot,
-            "nodes_latest": {
-                nid: {
-                    "status": "completed",
-                    # Attach latest iter num for this node so the DAG UI can
-                    # show "iter 7 (latest)" without an extra API call.
-                    "latest_iter": max(
-                        (e["iter"] for e in iter_index.get(nid, []) if isinstance(e.get("iter"), int)),
-                        default=None,
-                    ),
-                }
-                for nid in agent_io_snapshot.keys()
-            },
-            # Phase 2 fields.
+            # D3 manifest fields — ADR D3 / D5:
+            #   - conversation / agent_io / todo_states REMOVED from snapshot
+            #     (Phase 4). They live in per-iter sidecars. Frontend
+            #     hydrates by fetching sidecars on demand, never by reading
+            #     these heavy fields from the manifest.
+            #   - nodes_latest REMOVED → use latest_iter_by_node instead.
+            #   - conversation_total REMOVED → pagination is per-sidecar.
+            "latest_iter_by_node": latest_iter_by_node,
             "current_iter": current_iter,
             "iter_index": iter_index,
             # Phase 4: NAS fitness series. Each judger completion appends
             # one entry {iter, best_fitness, best_strategy_id, ...}. Empty
             # for non-NAS workflows or pre-judger setup phase.
             "fitness_history": fitness_history,
+            # Charts stay in snapshot for now (chart sidecar is separate
+            # but the snapshot points to it). P5+ may revisit.
+            "charts": chart_groups,
         }
         try:
             get_run_store().save_snapshot(wid, snapshot)
@@ -254,6 +263,7 @@ def _save_incremental(
                 todo_steps=todo_snapshot,
                 agents_snapshot=data.get("agents_snapshot", []),
                 dag=dag,
+                iter_index=invocation_counts_raw,
             )
         except Exception:
             logger.warning(
@@ -263,6 +273,70 @@ def _save_incremental(
             )
     except Exception:
         logger.exception("Incremental save failed for workflow %s", wid)
+
+
+def _build_iter_data(
+    *,
+    agent_io_snapshot: dict,
+    todo_states: dict,
+    node_id: str,
+    iter_num: int,
+    duration_ms: int | None,
+    status: str,
+) -> dict:
+    """Construct the per-iter sidecar payload from builder state.
+
+    Pure helper extracted from _save_incremental so the field projection
+    (D2 content + O1 todo filtering) is unit-testable without mocking
+    the full save pipeline.
+
+    Args:
+        agent_io_snapshot: builder.agent_io snapshot (node_id → io dict).
+        todo_states: builder.todo_states (node_id → list of step dicts,
+            each carrying an ``iteration`` field per O1).
+        node_id, iter_num, duration_ms, status: identity + lifecycle.
+
+    Returns:
+        Dict shaped per ``schemas/iter_sidecar.v2.schema.json``. Always
+        contains ``tool_calls`` (possibly []) and ``todo_steps`` (only
+        the entries whose iteration == iter_num).
+    """
+    node_io = agent_io_snapshot.get(node_id) or {}
+    output_result = node_io.get("output_result") if isinstance(node_io, dict) else None
+    # D2: sidecar must carry tool_calls. tool_calls come straight from
+    # agent_io[node] — they're already in memory, just weren't persisted.
+    # Each call shape: {tool_name, tool_args, tool_result}
+    node_tool_calls = (
+        node_io.get("tool_calls")
+        if isinstance(node_io, dict) and isinstance(node_io.get("tool_calls"), list)
+        else []
+    )
+    # O1: per-iter todo steps. snapshot.todo_states[node] is a list of
+    # {task_id, content, status, iteration, ...} across all iters. Filter
+    # to just this iter. Steps missing iteration field are excluded — a
+    # malformed step shouldn't pollute the sidecar.
+    node_todo_all = todo_states.get(node_id)
+    if not isinstance(node_todo_all, list):
+        node_todo_all = []
+    iter_todo_steps = [
+        s for s in node_todo_all
+        if isinstance(s, dict) and s.get("iteration") == iter_num
+    ]
+    return {
+        "iter": iter_num,
+        "node_id": node_id,
+        "status": status,
+        "duration_ms": duration_ms,
+        "input_prompt": node_io.get("input_prompt") if isinstance(node_io, dict) else None,
+        "system_prompt": node_io.get("system_prompt") if isinstance(node_io, dict) else None,
+        "output": output_result,
+        "tool_calls": node_tool_calls,
+        "todo_steps": iter_todo_steps,
+        # Short summary for iter dropdown — extract from common shapes.
+        "summary": _extract_iter_summary(output_result),
+        # Phase 3 fills events_seq_range by intersecting event seqs with
+        # iter boundaries; for now, omit.
+    }
 
 
 def _extract_iter_summary(output: Any, max_len: int = 120) -> str:

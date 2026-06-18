@@ -89,3 +89,18 @@ Bus 的 replay buffer 满了会 FIFO 淘汰 normal 事件，**critical 事件永
 | **GraphMutator** | 改写 DAG | 修改运行时数据 |
 
 违反职责分界 = 架构问题，不允许打补丁绕过。
+
+---
+
+## Runs/ 持久化契约（single-source 重构）
+
+详见 [`docs/refactor/single-source-index-driven/ADR.md`](docs/refactor/single-source-index-driven/ADR.md)。
+
+**写盘契约**：
+- 所有 iter sidecar 写盘**必须**走 `harness.persistence.sidecar_io.save_iter_sidecar_safe`（R3：atomic + verify + retry + log loud + 不 raise）。**禁止**直接调 `RunStore.save_iter_sidecar` 写 iter sidecar（已 deprecated，P5 移除）。
+- 所有写盘**必须** atomic（tmpfile + `os.replace`）—— 复用 `sidecar_io.atomic_write_json` 或 `RunStore._atomic_write`。
+
+**校验契约**：
+- 改 schema 字段前先改 `schemas/*.v2.schema.json` —— `additionalProperties: false`，未声明字段直接被拒。
+- `make lint-runs` 是 CI 门槛 —— 默认模式 warn-only（pre-P2b/P4 baseline），`--strict` 全 error（post-P4 启用）。
+- 新增不变量：在 `scripts/lint_runs.py` 加 `check_iN_*` 函数 + 在 ADR `不变量` 节同步描述。

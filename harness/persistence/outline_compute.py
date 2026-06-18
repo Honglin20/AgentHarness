@@ -33,11 +33,20 @@ def compute_outline(
     todo_steps: dict[str, list[dict]] | None,
     agents_snapshot: list[dict] | None,
     dag: dict | None,
+    iter_index: dict[str, list[dict]] | None = None,
 ) -> list[dict]:
     """Project raw run data into an OutlineItem-shaped summary list.
 
     See module docstring for the contract. Returns ``[]`` when there is not
     enough data to derive anything (caller writes no sidecar in that case).
+
+    Iter metadata source (ADR D1): ``iter_index`` is the **single source of
+    truth** for which (node, iter) pairs ran. Pre-P1 this came from scanning
+    ``node.started`` events — but the bus replay buffer is FIFO and drops
+    early events on long runs, so the scan was structurally unreliable.
+    Now outline reads iter_index directly. When iter_index is absent or
+    empty (legacy runs / setup-only runs), we fall back to synthesizing
+    iter=1 per DAG node so idle nodes still render.
 
     Safety cap: if the run somehow produced more than ``MAX_ITEMS`` outline
     entries (e.g. a misbehaving cycle kept firing node.started), collapse
@@ -58,40 +67,69 @@ def compute_outline(
     # is just the node id. Keep a snapshot set so unknown nodes still render.
     snapshot_names = {a.get("name") for a in agents_snapshot if a.get("name")}
 
-    # trace lookup by agent_name (trace is agent-level, no iteration dim)
+    # trace lookup by agent_name (trace is agent-level, no iteration dim).
+    # Two sources, merged:
+    #   1. Explicit ``trace`` parameter (authoritative — WorkflowResult.trace
+    #      from final-save). Used by server/runner.py final-save path.
+    #   2. Fallback: synthesize from ``node.completed`` events when trace=[]
+    #      (incremental_save path + failed-run path). Each node.completed
+    #      event payload carries duration_ms + token_usage — same data the
+    #      frontend's live deriveOutlineItems uses, so post-refresh badges
+    #      match what the user saw pre-refresh.
     trace_by_agent: dict[str, dict] = {}
     for entry in trace:
         agent = entry.get("agent_name")
         if agent:
             trace_by_agent[agent] = entry
 
-    # 1. Collect (nodeId, iteration) pairs from node.started events.
-    #    These are the source of truth for "which iterations ran" — bus
-    #    emits one node.started per invocation with the iteration counter.
+    # Fallback: extract trace from node.completed events. Walk in order so
+    # the LATEST completion per node wins (matches outline's latest-iter
+    # semantics). Only fills agents not already in trace_by_agent — the
+    # explicit trace param stays authoritative when both sources have data.
+    if events:
+        for ev in events:
+            if ev.get("type") != "node.completed":
+                continue
+            payload = ev.get("payload") or {}
+            node_id = payload.get("node_id") or payload.get("agent_name")
+            if not node_id or node_id in trace_by_agent:
+                continue
+            entry: dict = {"agent_name": node_id}
+            if payload.get("duration_ms") is not None:
+                entry["duration_ms"] = payload.get("duration_ms")
+            if payload.get("token_usage") is not None:
+                entry["token_usage"] = payload.get("token_usage")
+            if payload.get("status"):
+                entry["status"] = payload.get("status")
+            if len(entry) > 1:  # has more than just agent_name
+                trace_by_agent[node_id] = entry
+
+    # 1. Collect (nodeId, iteration) pairs from iter_index (ADR D1).
+    #    iter_index shape: {node_id: [{iter: int, started_at: ts, ...}, ...]}.
+    #    node.started events are NO LONGER scanned for iter discovery —
+    #    the event buffer is FIFO and drops early events on long runs, so
+    #    the events-based path was structurally broken (see ADR §问题量化).
+    #    Events are still used below for status/retry detection.
     iter_set: dict[str, dict] = {}
-    started_ts: dict[str, int] = {}
-    for ev in events:
-        if ev.get("type") != "node.started":
+    for node_id, entries in (iter_index or {}).items():
+        if not isinstance(entries, list):
             continue
-        payload = ev.get("payload") or {}
-        node_id = payload.get("node_id")
-        if not node_id:
-            continue
-        iteration = int(payload.get("iteration") or 1)
-        key = f"{node_id}__iter{iteration}"
-        ts = payload.get("ts") or ev.get("ts") or 0
-        if key not in iter_set:
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            iter_num = entry.get("iter")
+            if not isinstance(iter_num, int) or iter_num < 1:
+                continue
+            key = f"{node_id}__iter{iter_num}"
+            if key in iter_set:
+                continue
+            started = entry.get("started_at")
             iter_set[key] = {
                 "node_id": node_id,
-                "iteration": iteration,
-                "first_ts": ts,
+                "iteration": iter_num,
+                # Prefer started_at from iter_index; msg_first_ts refines below.
+                "first_ts": started if isinstance(started, (int, float)) else float("inf"),
             }
-            started_ts[key] = ts
-        else:
-            # Keep earliest ts for stable sort.
-            if ts < iter_set[key]["first_ts"]:
-                iter_set[key]["first_ts"] = ts
-                started_ts[key] = ts
 
     # 2. Refine first_ts from conversation messages (sub-event granularity).
     #    node.started fires before any agent output; the conversation's first
@@ -109,9 +147,25 @@ def compute_outline(
         if node_id not in msg_first_ts_by_node or ts < msg_first_ts_by_node[node_id]:
             msg_first_ts_by_node[node_id] = ts
 
-    # 3. Idle nodes (no node.started, no messages) — synthesize iter=1 entry
-    #    so they show up in the outline. Mirrors deriveOutlineItems.ts:57-62.
+    # 3. Fallback: no iter_index (legacy / setup-only run) — synthesize
+    #    iter=1 for every DAG node so the outline is non-empty. Without
+    #    this, refresh on an old run shows no outline at all. iter_index
+    #    becomes authoritative once the run emits its first cycle iter.
+    if not iter_set:
+        for node_id in dag_nodes:
+            key = f"{node_id}__iter1"
+            iter_set[key] = {
+                "node_id": node_id,
+                "iteration": 1,
+                "first_ts": msg_first_ts_by_node.get(node_id) or float("inf"),
+            }
+
+    # 3b. Idle DAG nodes (no entry in iter_index at all) — synthesize iter=1
+    #     so they still render in the outline. Mirrors deriveOutlineItems.ts:57-62.
+    nodes_in_index = {entry["node_id"] for entry in iter_set.values()}
     for node_id in dag_nodes:
+        if node_id in nodes_in_index:
+            continue
         key = f"{node_id}__iter1"
         if key not in iter_set:
             iter_set[key] = {

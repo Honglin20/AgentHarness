@@ -32,15 +32,16 @@ import type { ConversationMessage } from "@/stores/conversationStore";
  *     back to latestIteration. The dropdown (NodeIterSelector) lets the
  *     user switch; selection persists across agent switches.
  *
- * Data source:
- *   - Latest iter (`selectedIter === latestIteration`): reads from the
- *     scoped conversation store, which is hydrated from snapshot / main
- *     conversation sidecar. agent_io only retains the latest iter, so
- *     the store carries exactly this iter's content.
- *   - Historical iter (`selectedIter < latestIteration`): fetched on
- *     demand from /api/runs/{id}/conversation?node_id=X&iter_num=Y (per-
- *     iter sidecar written by _save_incremental). Cached locally so
- *     switching back to the same iter is instant.
+ * Data source (ADR D5, post-P4):
+ *   - **Every** iter — latest AND historical — is fetched on demand from
+ *     /api/runs/{id}/conversation?node_id=X&iter_num=Y. The snapshot
+ *     no longer carries conversation (P4-T01 removed it from the
+ *     manifest); per-iter sidecars are the single source of truth.
+ *   - Live streaming exception: when the workflow is actively running
+ *     and WS is pushing text_delta for THIS (nodeId, iter), the scoped
+ *     conversation store accumulates those messages in real time. We
+ *     prefer live data when present so the user sees streaming tokens
+ *     without waiting for a sidecar flush.
  *
  * Reuses NodeBlockCard from ScopedConversationTab verbatim so visual
  * parity is guaranteed (header badge, tokens, model, IO buttons,
@@ -75,12 +76,13 @@ export function AgentDetailView({ nodeId, latestIteration, iterCount, iters }: P
   const { sendStructuredAnswer } = useWSMethods();
   const conversationActions = useConversationActions();
 
-  // ── Per-iter lazy loading for historical iters ────────────────────────
+  // ── Per-iter fetch (ADR D5 — every iter fetches, never filters) ──────
   //
-  // Main store only carries latest-iter content (agent_io overwrites on
-  // each invocation). When the user picks an older iter from the dropdown,
-  // we fetch the per-iter sidecar on demand and cache it in component state.
-  // Latest iter is read directly from the scoped conversation store.
+  // Post-P4 the snapshot no longer carries conversation. Every iter —
+  // including the latest — fetches its sidecar on demand and caches
+  // locally. The exception: if the scoped conversation store already
+  // has messages for THIS (nodeId, iter), they came from live WS
+  // streaming — prefer those so the user sees real-time tokens.
   //
   // Cache is keyed by `${nodeId}__iter${n}` and survives agent switches
   // within the same component instance (parent stays mounted). Workflow
@@ -89,11 +91,22 @@ export function AgentDetailView({ nodeId, latestIteration, iterCount, iters }: P
   // different run.
   const [iterCache, setIterCache] = useState<Record<string, ConversationMessage[]>>({});
   const [iterLoading, setIterLoading] = useState(false);
-  const isLatestIter = selectedIter >= latestIteration;
   const iterCacheKey = `${nodeId}__iter${selectedIter}`;
 
+  // Live messages from the scoped store (populated by WS during active
+  // streaming). When non-empty, these take precedence over the fetched
+  // sidecar — they're newer.
+  const liveMessages = useMemo(
+    () =>
+      allMessages.filter(
+        (m) => m.nodeId === nodeId && (m.iteration ?? 1) === selectedIter,
+      ),
+    [allMessages, nodeId, selectedIter],
+  );
+  const hasLiveMessages = liveMessages.length > 0;
+
   useEffect(() => {
-    if (isLatestIter) return;             // latest iter reads from store
+    if (hasLiveMessages) return;          // live WS stream — don't fetch
     if (iterCache[iterCacheKey]) return;  // already cached
     if (!workflowId) return;
 
@@ -122,16 +135,12 @@ export function AgentDetailView({ nodeId, latestIteration, iterCount, iters }: P
     return () => {
       cancelled = true;
     };
-  }, [workflowId, nodeId, selectedIter, isLatestIter, iterCacheKey, iterCache]);
+  }, [workflowId, nodeId, selectedIter, iterCacheKey, iterCache, hasLiveMessages]);
 
   const filtered = useMemo(() => {
-    if (isLatestIter) {
-      return allMessages.filter(
-        (m) => m.nodeId === nodeId && (m.iteration ?? 1) === selectedIter,
-      );
-    }
+    if (hasLiveMessages) return liveMessages;
     return iterCache[iterCacheKey] ?? [];
-  }, [allMessages, nodeId, selectedIter, isLatestIter, iterCache, iterCacheKey]);
+  }, [hasLiveMessages, liveMessages, iterCache, iterCacheKey]);
 
   const block = useMemo<NodeBlock | null>(() => {
     if (filtered.length === 0) return null;

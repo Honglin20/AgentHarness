@@ -4,6 +4,11 @@ Validates the projection mirrors the frontend deriveOutlineItems algorithm.
 Each test case exercises a distinct branch of the computation: single iter,
 multi iter, idle nodes, failed status, pending questions, retry, running
 active step.
+
+ADR D1 (post-P1): iter_index is the single source of truth for iter
+discovery. Tests that previously relied on events to populate iter_set now
+construct iter_index directly. Events are still used for status detection
+(running / failed / retrying) — that path is unchanged.
 """
 from harness.persistence.outline_compute import compute_outline
 
@@ -42,6 +47,20 @@ def _msg(node_id, status, ts, m_type="agent"):
     return {"nodeId": node_id, "status": status, "timestamp": ts, "type": m_type}
 
 
+def _iter_index(node_id, iters):
+    """Build an iter_index entry: {node_id: [{iter: 1, ...}, ...]}.
+
+    iters can be a list of int (iter numbers) or a list of dicts (full entries).
+    """
+    entries = []
+    for it in iters:
+        if isinstance(it, dict):
+            entries.append(it)
+        else:
+            entries.append({"iter": it, "status": "completed", "summary": f"iter {it}"})
+    return {node_id: entries}
+
+
 def test_single_iter_completed():
     dag = {"nodes": ["scout"], "edges": []}
     out = compute_outline(
@@ -51,6 +70,7 @@ def test_single_iter_completed():
         todo_steps={},
         agents_snapshot=[{"name": "scout"}],
         dag=dag,
+        iter_index=_iter_index("scout", [1]),
     )
     assert len(out) == 1
     item = out[0]
@@ -80,6 +100,7 @@ def test_multi_iter_emits_one_entry_per_iter():
         todo_steps={},
         agents_snapshot=[{"name": "trainer"}],
         dag=dag,
+        iter_index=_iter_index("trainer", [1, 2, 3]),
     )
     assert len(out) == 3
     assert [it["iteration"] for it in out] == [1, 2, 3]
@@ -93,7 +114,11 @@ def test_multi_iter_emits_one_entry_per_iter():
 
 
 def test_idle_nodes_synthesized_iter1():
-    """Nodes in DAG but no node.started events get an iter=1 idle entry."""
+    """No iter_index entries + nodes in DAG → idle iter=1 entries.
+
+    P1-T03 fallback path: legacy runs / setup-only runs have no iter_index,
+    so every DAG node synthesizes an iter=1 entry to keep outline non-empty.
+    """
     dag = {"nodes": ["scout", "planner"], "edges": []}
     out = compute_outline(
         conversation=[],
@@ -102,6 +127,7 @@ def test_idle_nodes_synthesized_iter1():
         todo_steps={},
         agents_snapshot=[{"name": "scout"}, {"name": "planner"}],
         dag=dag,
+        iter_index=None,
     )
     assert len(out) == 2
     assert all(it["status"] == "idle" for it in out)
@@ -120,6 +146,7 @@ def test_failed_node_status():
         todo_steps={},
         agents_snapshot=[{"name": "trainer"}],
         dag=dag,
+        iter_index=_iter_index("trainer", [1]),
     )
     assert out[0]["status"] == "failed"
     assert out[0]["activity"] == {"kind": "failed", "errorSummary": "OOM"}
@@ -134,6 +161,7 @@ def test_retrying_status_when_will_retry():
         todo_steps={},
         agents_snapshot=[{"name": "trainer"}],
         dag=dag,
+        iter_index=_iter_index("trainer", [1]),
     )
     assert out[0]["status"] == "retrying"
 
@@ -147,6 +175,7 @@ def test_running_node_with_active_step():
         todo_steps={"trainer": [{"content": "train model", "activeForm": "training", "status": "in_progress"}]},
         agents_snapshot=[{"name": "trainer"}],
         dag=dag,
+        iter_index=_iter_index("trainer", [1]),
     )
     assert out[0]["status"] == "running"
     assert out[0]["activity"] == {"kind": "running", "currentStepContent": "training"}
@@ -163,6 +192,7 @@ def test_pending_question_blocks_node():
         todo_steps={},
         agents_snapshot=[{"name": "scout"}],
         dag=dag,
+        iter_index=_iter_index("scout", [1]),
     )
     assert out[0]["status"] == "waiting-for-user"
     assert out[0]["activity"] == {"kind": "waiting-for-user", "questionId": "", "questionCount": 1}
@@ -195,6 +225,7 @@ def test_retrying_emits_activity_and_badge():
         todo_steps={},
         agents_snapshot=[{"name": "trainer"}],
         dag=dag,
+        iter_index=_iter_index("trainer", [1]),
     )
     item = out[0]
     assert item["status"] == "retrying"
@@ -228,6 +259,7 @@ def test_followup_messages_excluded_from_projections():
         todo_steps={},
         agents_snapshot=[{"name": "scout"}],
         dag=dag,
+        iter_index=_iter_index("scout", [1]),
     )
     # Only scout appears — followup-trainer is not in DAG and its messages
     # don't pollute scout's first_ts or pending_q.
@@ -248,8 +280,9 @@ def test_sort_by_first_ts_then_dag_order():
         todo_steps={},
         agents_snapshot=[{"name": "a"}, {"name": "b"}, {"name": "c"}],
         dag=dag,
+        iter_index={"c": [{"iter": 1, "started_at": 1000}]},
     )
-    # c ran first (earliest ts), a/b idle in DAG order
+    # c ran first (earliest started_at), a/b idle in DAG order
     assert [it["node_id"] for it in out] == ["c", "a", "b"]
 
 
@@ -261,6 +294,7 @@ def test_empty_inputs_returns_empty_list():
         todo_steps=None,
         agents_snapshot=None,
         dag=None,
+        iter_index=None,
     )
     assert out == []
 
@@ -275,6 +309,7 @@ def test_order_field_is_sequence_index():
         todo_steps={},
         agents_snapshot=[{"name": "a"}, {"name": "b"}, {"name": "c"}],
         dag=dag,
+        iter_index=None,
     )
     assert [it["order"] for it in out] == [0, 1, 2]
 
@@ -285,14 +320,16 @@ def test_order_field_is_sequence_index():
 def test_outline_under_cap_not_truncated():
     """Below MAX_OUTLINE_ITEMS (50), every iter stays in the output."""
     dag = {"nodes": [f"n{i}" for i in range(10)], "edges": []}
-    events = [_started(f"n{i}", ts=1000 + i) for i in range(10)]
+    # 10 nodes × 1 iter each = 10 outline items — under cap.
+    iter_index = {f"n{i}": [{"iter": 1}] for i in range(10)}
     out = compute_outline(
         conversation=[],
-        events=events,
+        events=[],
         trace=[],
         todo_steps={},
         agents_snapshot=[{"name": f"n{i}"} for i in range(10)],
         dag=dag,
+        iter_index=iter_index,
     )
     assert len(out) == 10
 
@@ -306,14 +343,15 @@ def test_outline_over_cap_collapses_to_latest_iter_per_node():
     outline sidecar stays bounded."""
     # 1 node, 100 iterations — would normally produce 100 outline items.
     dag = {"nodes": ["validator"], "edges": []}
-    events = [_started("validator", iteration=i, ts=1000 + i) for i in range(1, 101)]
+    iter_index = _iter_index("validator", list(range(1, 101)))
     out = compute_outline(
         conversation=[],
-        events=events,
+        events=[],
         trace=[],
         todo_steps={},
         agents_snapshot=[{"name": "validator"}],
         dag=dag,
+        iter_index=iter_index,
     )
     # Collapsed to a single item — the highest-iter one.
     assert len(out) == 1
@@ -329,16 +367,18 @@ def test_outline_cap_preserves_multi_node_distinction():
     A 5000-iter runaway on one node shouldn't merge with another node's
     single iter — the cap is per-node, not global."""
     dag = {"nodes": ["selector", "validator"], "edges": []}
-    events = []
-    events += [_started("selector", iteration=i, ts=1000 + i) for i in range(1, 60)]
-    events += [_started("validator", iteration=1, ts=2000)]
+    iter_index = {
+        "selector": [{"iter": i} for i in range(1, 60)],
+        "validator": [{"iter": 1}],
+    }
     out = compute_outline(
         conversation=[],
-        events=events,
+        events=[],
         trace=[],
         todo_steps={},
         agents_snapshot=[{"name": "selector"}, {"name": "validator"}],
         dag=dag,
+        iter_index=iter_index,
     )
     assert len(out) == 2
     node_ids = {it["node_id"] for it in out}
@@ -348,3 +388,174 @@ def test_outline_cap_preserves_multi_node_distinction():
     val = next(it for it in out if it["node_id"] == "validator")
     assert sel["iteration"] == 59
     assert val["iteration"] == 1
+
+
+# ── P1-T07 / P1-T08: iter_index-driven + legacy fallback ────────────────
+
+
+def test_outline_with_multi_iter_index():
+    """ADR D1: iter_index is the source of truth for iter discovery.
+
+    Construct an iter_index with 3 scout iters; outline must emit 3 scout
+    entries with iter_count=3, regardless of events buffer state.
+    """
+    dag = {"nodes": ["scout"], "edges": []}
+    iter_index = {
+        "scout": [
+            {"iter": 1, "status": "completed", "summary": "iter 1", "started_at": 1000},
+            {"iter": 2, "status": "completed", "summary": "iter 2", "started_at": 2000},
+            {"iter": 3, "status": "completed", "summary": "iter 3", "started_at": 3000},
+        ]
+    }
+    out = compute_outline(
+        conversation=[],
+        events=[],
+        trace=[],
+        todo_steps={},
+        agents_snapshot=[{"name": "scout"}],
+        dag=dag,
+        iter_index=iter_index,
+    )
+    assert len(out) == 3
+    assert [it["iteration"] for it in out] == [1, 2, 3]
+    assert all(it["iter_count"] == 3 for it in out)
+    assert all(it["node_id"] == "scout" for it in out)
+    # started_at from iter_index flows through to first_ts (refined later by
+    # conversation, which is empty here).
+    assert out[0]["first_ts"] == 1000
+    assert out[1]["first_ts"] == 2000
+    assert out[2]["first_ts"] == 3000
+
+
+def test_outline_fallback_no_iter_index():
+    """P1-T03: iter_index=None → synthesize iter=1 for every DAG node."""
+    dag = {"nodes": ["a", "b", "c"], "edges": []}
+    out = compute_outline(
+        conversation=[],
+        events=[],
+        trace=[],
+        todo_steps={},
+        agents_snapshot=[{"name": "a"}, {"name": "b"}, {"name": "c"}],
+        dag=dag,
+        iter_index=None,
+    )
+    assert len(out) == 3
+    assert all(it["iteration"] == 1 for it in out)
+    assert all(it["iter_count"] == 1 for it in out)
+    assert {it["node_id"] for it in out} == {"a", "b", "c"}
+
+
+def test_outline_fallback_empty_iter_index():
+    """P1-T03: iter_index={} (empty dict) → same fallback as None."""
+    dag = {"nodes": ["a", "b"], "edges": []}
+    out = compute_outline(
+        conversation=[],
+        events=[],
+        trace=[],
+        todo_steps={},
+        agents_snapshot=[{"name": "a"}, {"name": "b"}],
+        dag=dag,
+        iter_index={},
+    )
+    assert len(out) == 2
+    assert all(it["iteration"] == 1 for it in out)
+
+
+# ── Token / duration badge recovery (regression for refresh-loses-badges bug) ──
+
+
+def test_outline_recovers_token_duration_from_events_when_trace_empty():
+    """Regression: incremental_save passes trace=[] to save_outline_sidecar.
+    Before this fix, refresh wiped token/duration badges because trace_by_agent
+    was empty. Now compute_outline synthesizes trace from node.completed events
+    (same data source as the frontend's live deriveOutlineItems).
+    """
+    dag = {"nodes": ["scout"], "edges": []}
+    completed_event = {
+        "type": "node.completed",
+        "seq": 10,
+        "ts": 2000,
+        "payload": {
+            "node_id": "scout",
+            "agent_name": "scout",
+            "duration_ms": 5555,
+            "status": "success",
+            "token_usage": {"input": 1000, "output": 500, "total": 1500},
+        },
+    }
+    out = compute_outline(
+        conversation=[],
+        events=[completed_event],
+        trace=[],  # ← simulates _save_incremental's call
+        todo_steps={},
+        agents_snapshot=[{"name": "scout"}],
+        dag=dag,
+        iter_index={"scout": [{"iter": 1, "started_at": 1000}]},
+    )
+    assert len(out) == 1
+    item = out[0]
+    # Token badge must be present (regression check).
+    token_badges = [b for b in item["badges"] if b["kind"] == "tokens"]
+    assert len(token_badges) == 1
+    assert token_badges[0]["text"] == "1.5k"
+    # Duration must be in activity (regression check).
+    assert item["activity"]["kind"] == "completed"
+    assert item["activity"]["durationMs"] == 5555
+
+
+def test_outline_explicit_trace_takes_precedence_over_events_trace():
+    """When both explicit trace AND events-derived trace exist for a node,
+    the explicit trace wins (it's the authoritative final-save source)."""
+    dag = {"nodes": ["scout"], "edges": []}
+    completed_event = {
+        "type": "node.completed",
+        "seq": 10,
+        "ts": 2000,
+        "payload": {
+            "node_id": "scout",
+            "agent_name": "scout",
+            "duration_ms": 9999,  # events-derived value
+            "status": "success",
+            "token_usage": {"input": 1, "output": 1, "total": 2},
+        },
+    }
+    explicit_trace = [{
+        "agent_name": "scout",
+        "duration_ms": 1111,  # authoritative value
+        "token_usage": {"input": 100, "output": 50, "total": 150},
+    }]
+    out = compute_outline(
+        conversation=[],
+        events=[completed_event],
+        trace=explicit_trace,
+        todo_steps={},
+        agents_snapshot=[{"name": "scout"}],
+        dag=dag,
+        iter_index={"scout": [{"iter": 1}]},
+    )
+    item = out[0]
+    # Explicit trace wins → 1111 not 9999.
+    assert item["activity"]["durationMs"] == 1111
+    token_badges = [b for b in item["badges"] if b["kind"] == "tokens"]
+    assert len(token_badges) == 1
+    assert token_badges[0]["text"] == "150"  # explicit trace's total
+
+
+def test_outline_no_badge_when_node_never_completed():
+    """Node that started but hasn't completed yet → no token/duration badge.
+    (No node.completed event in buffer → no trace data.)"""
+    dag = {"nodes": ["scout"], "edges": []}
+    out = compute_outline(
+        conversation=[],
+        events=[],  # no completion event
+        trace=[],
+        todo_steps={},
+        agents_snapshot=[{"name": "scout"}],
+        dag=dag,
+        iter_index={"scout": [{"iter": 1}]},
+    )
+    item = out[0]
+    # No tokens badge (no completion to derive from).
+    assert not any(b["kind"] == "tokens" for b in item["badges"])
+    # Activity is idle (no completion, no running status).
+    assert item["activity"] == {"kind": "idle"}

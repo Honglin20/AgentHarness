@@ -166,6 +166,13 @@ class Bus:
         self._middleware: dict[str, BaseMiddleware] = {}
         self._mutators: dict[str, BaseGraphMutator] = {}
 
+        # Sync listeners — internal in-process callbacks invoked on every emit.
+        # Used by InflightSidecarWriter (ADR D7) to react to streaming events
+        # in real time without going through the async WS subscriber queue.
+        # Each callback receives the full event dict. Exceptions are logged
+        # and swallowed (a buggy listener must not break emit for WS clients).
+        self._sync_listeners: list = []
+
         # User context for WebSocket user isolation
         self._user_context: dict[str, Any] = {}
 
@@ -294,9 +301,36 @@ class Bus:
             except Exception as e:
                 logger.error(f"Error emitting to {sub_id}: {e}")
 
+        # Sync listeners — fire-and-forget; listener exceptions must NOT
+        # propagate (a buggy listener would otherwise take down emit()).
+        for cb in list(self._sync_listeners):
+            try:
+                cb(event)
+            except Exception:
+                logger.exception("sync listener raised; continuing")
+
     @property
     def subscriber_count(self) -> int:
         return len(self._subscribers)
+
+    def add_sync_listener(self, callback) -> None:
+        """Register a sync in-process callback invoked on every emit.
+
+        Used by InflightSidecarWriter (ADR D7) to react to streaming events
+        in real time without going through the async WS subscriber queue.
+
+        The callback receives one argument: the full event dict. Exceptions
+        raised by the callback are logged and swallowed (emit() never
+        raises for listener bugs).
+        """
+        self._sync_listeners.append(callback)
+
+    def remove_sync_listener(self, callback) -> None:
+        """Unregister a previously-added sync listener. No-op if absent."""
+        try:
+            self._sync_listeners.remove(callback)
+        except ValueError:
+            pass
 
     @property
     def buffer(self) -> list[dict]:

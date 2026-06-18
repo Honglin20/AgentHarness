@@ -379,17 +379,13 @@ export function hydrateFromSnapshot(snapshot: RunSnapshot): void {
     });
   }
 
-  // 2. Conversation store: replace messages (snapshot.conversation is
-  // already a structured message list from build_conversation on backend).
-  // Also set hasEarlier so the scroll-to-top loader knows whether to fetch.
-  // DTO conversion is required even though the wire shape looks compatible —
-  // build_conversation emits raw dicts that bypass the safety defaults
-  // (status coercion, id synthesis, iteration fallback) applied by
-  // dtoToMessage. Without this, fields like `status: "done"` happen to
-  // match, but `iteration` (added in Plan B for cycle support) wouldn't
-  // be normalized and AgentDetailView's per-iter filter would silently
-  // drop messages.
-  if (Array.isArray(snapshot.conversation)) {
+  // 2. Conversation store: populated by per-iter sidecar fetches or live
+  // WS events, NOT by the snapshot (ADR D5, post-P4 — snapshot is a
+  // manifest). The legacy `snapshot.conversation` field is still tolerated
+  // for v1 runs (read-only compat), but we don't rely on it for hydration.
+  if (Array.isArray(snapshot.conversation) && snapshot.conversation.length > 0) {
+    // Legacy v1 snapshot still carries conversation — hydrate from it as
+    // a fallback. v2 snapshots (post-P4) skip this branch entirely.
     const total = typeof snapshot.conversation_total === "number"
       ? snapshot.conversation_total
       : snapshot.conversation.length;
@@ -411,7 +407,8 @@ export function hydrateFromSnapshot(snapshot: RunSnapshot): void {
     });
   }
 
-  // 4. Todo store: replace per-node todo states.
+  // 4. Todo store: per-node todo states live in sidecars post-P4 (O1).
+  // Legacy v1 snapshots still carry todo_states — read for compat.
   if (snapshot.todo_states && typeof snapshot.todo_states === "object") {
     scoped.todo.setState({ todos: snapshot.todo_states as never });
   }

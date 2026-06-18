@@ -53,7 +53,7 @@ def test_routers_directory_exists():
     ("agents.py", 250),
     ("tools.py", 150),
     ("workflows.py", 400),
-    ("runs.py", 600),  # biggest domain
+    ("runs.py", 850),  # biggest domain — bumped post-P5 (D6 deprecation headers + tool_call projection)
     ("benchmarks.py", 500),
 ])
 def test_router_file_under_limit(router_file, max_lines):

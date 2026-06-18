@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agent-harness.local/schemas/iter_index.v2.schema.json",
+  "title": "Iter Index v2",
+  "description": "Per-run iter metadata index. ADR D1: this file is the single source of truth for iter lists per node. Shape: {node_id: [iter_entry, ...]}.",
+  "type": "object",
+  "additionalProperties": {"$ref": "#/$defs/iter_list"},
+  "$defs": {
+    "iter_list": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/iter_entry"}
+    },
+    "iter_entry": {
+      "type": "object",
+      "required": ["iter", "status", "summary"],
+      "additionalProperties": false,
+      "properties": {
+        "iter": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": ["streaming", "completed", "failed", "interrupted"]
+        },
+        "duration_ms": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "summary": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": ["number", "string", "null"]
+        },
+        "ended_at": {
+          "type": ["number", "string", "null"]
+        },
+        "events_seq_range": {
+          "type": "array",
+          "items": {"type": "integer"},
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    }
+  }
+}
