@@ -122,4 +122,60 @@ describe("groupOutlineByNode", () => {
     expect(groups[0].iterCount).toBe(1);
     expect(groups[2].iterCount).toBe(1);
   });
+
+  // ── DAG-pinned ordering (loop-proof) ─────────────────────────────────────
+
+  it("pins group order to dagNodeOrder regardless of firstTs-derived `order`", () => {
+    // firstTs would put judger before scout, but DAG declares scout → judger.
+    const scout = makeItem({ nodeId: "scout", iteration: 1, order: 1 });
+    const judger = makeItem({ nodeId: "judger", iteration: 1, order: 0 });
+    const groups = groupOutlineByNode([scout, judger], ["scout", "judger"]);
+    expect(groups.map((g) => g.nodeId)).toEqual(["scout", "judger"]);
+  });
+
+  it("DAG order survives LOOP: second iter doesn't reshuffle groups", () => {
+    // Without DAG pinning: iter=2 of `selector` has order=5 (its firstTs),
+    // which would sort after `trainer` (order=3) and break the original
+    // scout→selector→trainer→judger ordering. DAG pinning must hold.
+    const items = [
+      makeItem({ nodeId: "scout", iteration: 1, order: 0 }),
+      makeItem({ nodeId: "selector", iteration: 1, order: 1 }),
+      makeItem({ nodeId: "selector", iteration: 2, order: 5 }),
+      makeItem({ nodeId: "trainer", iteration: 1, order: 3 }),
+      makeItem({ nodeId: "judger", iteration: 1, order: 4 }),
+    ];
+    const groups = groupOutlineByNode(items, ["scout", "selector", "trainer", "judger"]);
+    expect(groups.map((g) => g.nodeId)).toEqual(["scout", "selector", "trainer", "judger"]);
+    // Multi-iter folding still works under DAG pinning.
+    expect(groups[1].iterCount).toBe(2);
+    expect(groups[1].latestIteration).toBe(2);
+  });
+
+  it("DAG-omitted nodes fall through to first-appearance order, after declared nodes", () => {
+    // Defensive: engine guarantees outline items come from DAG nodes, but a
+    // stale group (e.g. workflow restarted mid-stream) shouldn't crash. Such
+    // groups sort after declared ones, ordered among themselves by `order`.
+    const declared = makeItem({ nodeId: "scout", iteration: 1, order: 10 });
+    const orphan1 = makeItem({ nodeId: "ghost_a", iteration: 1, order: 0 });
+    const orphan2 = makeItem({ nodeId: "ghost_b", iteration: 1, order: 1 });
+    const groups = groupOutlineByNode([declared, orphan1, orphan2], ["scout"]);
+    expect(groups.map((g) => g.nodeId)).toEqual(["scout", "ghost_a", "ghost_b"]);
+  });
+
+  it("empty dagNodeOrder falls back to first-appearance (legacy / pre-started)", () => {
+    const a = makeItem({ nodeId: "a", iteration: 1, order: 1 });
+    const b = makeItem({ nodeId: "b", iteration: 1, order: 0 });
+    expect(groupOutlineByNode([a, b], []).map((g) => g.nodeId)).toEqual(["b", "a"]);
+    expect(groupOutlineByNode([a, b], null).map((g) => g.nodeId)).toEqual(["b", "a"]);
+    expect(groupOutlineByNode([a, b], undefined).map((g) => g.nodeId)).toEqual(["b", "a"]);
+  });
+
+  it("DAG pinning does not mutate `order` field (other consumers may read it)", () => {
+    const scout = makeItem({ nodeId: "scout", iteration: 1, order: 7 });
+    const judger = makeItem({ nodeId: "judger", iteration: 1, order: 0 });
+    const groups = groupOutlineByNode([scout, judger], ["scout", "judger"]);
+    expect(groups[0].nodeId).toBe("scout");
+    expect(groups[0].order).toBe(7); // preserved, not rewritten
+    expect(groups[1].order).toBe(0);
+  });
 });

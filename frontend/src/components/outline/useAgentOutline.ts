@@ -51,6 +51,7 @@ export function useAgentOutline(): OutlineGroup[] {
   const outlineStoreApi = useScopedStore("outline");
 
   const nodes = useStore(workflowStoreApi!, (s) => s.nodes);
+  const dag = useStore(workflowStoreApi!, (s) => s.dag);
   const todos = useStore(todoStoreApi!, (s) => s.todos);
   const sidecarItems = useStore(outlineStoreApi!, (s) => s.items);
 
@@ -59,6 +60,9 @@ export function useAgentOutline(): OutlineGroup[] {
     // `sidecarItems === null` means "no sidecar"; an empty array would be a
     // valid sidecar with zero items (e.g. a workflow that hasn't started).
     const items = sidecarItems !== null ? sidecarItems : deriveOutlineItems(nodes, messages, todos);
-    return groupOutlineByNode(items);
-  }, [sidecarItems, nodes, messages, todos]);
+    // Pass `dag.nodes` so groups are pinned to DAG declaration order — stable
+    // across LOOP cycles and replay, overriding any firstTs-derived `order`
+    // baked into the sidecar. Live + replay share this final sort.
+    return groupOutlineByNode(items, dag?.nodes);
+  }, [sidecarItems, nodes, dag, messages, todos]);
 }

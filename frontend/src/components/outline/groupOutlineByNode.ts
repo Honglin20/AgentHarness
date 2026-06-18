@@ -12,18 +12,26 @@
  *   - Grouping is O(N) memoized — N is bounded by agents × iters (200×4 = 800
  *     at the extreme), well under a millisecond.
  *
- * Semantics:
- *   - Input order doesn't matter; output is sorted by first-appearance (min
- *     `order` across the group's iters), so the sidebar still mirrors the
- *     DAG declaration / first-message timeline.
- *   - `iters` within a group are sorted ascending by `iteration`.
+ * Sort semantics:
+ *   - When `dagNodeOrder` is provided (non-empty), groups are sorted by their
+ *     index in `dagNodeOrder`. This pins the sidebar to the workflow's
+ *     declared DAG topology so LOOP cycles and second-iter `firstTs` shifts
+ *     no longer reshuffle the list. This is the live-mode and replay-mode
+ *     default — `dag.nodes` is static once `workflow.started` fires.
+ *   - When `dagNodeOrder` is null/empty (legacy run / pre-workflow.started),
+ *     groups fall back to first-appearance order (min `order` across the
+ *     group's iters), mirroring the timeline of first messages.
+ *   - `iters` within a group are always sorted ascending by `iteration`.
  *   - `latest` is the highest-iteration item; its status / activity / badges
  *     drive the sidebar row.
  *   - `name` comes from the latest iter so renames mid-run surface.
  */
 import type { OutlineItem, OutlineGroup } from "./types";
 
-export function groupOutlineByNode(items: OutlineItem[]): OutlineGroup[] {
+export function groupOutlineByNode(
+  items: OutlineItem[],
+  dagNodeOrder?: string[] | null,
+): OutlineGroup[] {
   if (items.length === 0) return [];
 
   // Group by nodeId, preserving first-appearance order via Map insertion semantics.
@@ -59,7 +67,26 @@ export function groupOutlineByNode(items: OutlineItem[]): OutlineGroup[] {
     });
   }
 
-  // Sort groups by min order so first-appearance position is preserved.
-  result.sort((a, b) => a.order - b.order);
+  if (dagNodeOrder && dagNodeOrder.length > 0) {
+    // Stable DAG topology — pins each agent to its declaration position so
+    // LOOP / iter-driven `firstTs` shifts cannot reshuffle the sidebar.
+    const pos = new Map<string, number>();
+    dagNodeOrder.forEach((id, idx) => pos.set(id, idx));
+    result.sort((a, b) => {
+      const ai = pos.get(a.nodeId);
+      const bi = pos.get(b.nodeId);
+      // Nodes outside the DAG (defensive — current engine guarantees all
+      // outline items come from DAG nodes, but stale state or future dynamic
+      // spawns shouldn't crash): fall through to first-appearance order so
+      // they cluster deterministically after declared nodes.
+      if (ai !== undefined && bi !== undefined) return ai - bi;
+      if (ai !== undefined) return -1;
+      if (bi !== undefined) return 1;
+      return a.order - b.order;
+    });
+  } else {
+    // Legacy / pre-workflow.started: no DAG yet, mirror first-appearance.
+    result.sort((a, b) => a.order - b.order);
+  }
   return result;
 }
