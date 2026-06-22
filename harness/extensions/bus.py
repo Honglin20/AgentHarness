@@ -83,6 +83,18 @@ CRITICAL_EVENT_TYPES: frozenset[str] = frozenset({
     "chat.question",
     "chat.answer",
     "chat.timeout",
+    # Task lifecycle (launch_task + wait_for_tasks). The downstream agent is
+    # BLOCKED inside wait_for_tasks until these fire — losing one means the
+    # DAG is stuck forever. Note: task.heartbeat is intentionally NOT here;
+    # it's normal priority because missing one doesn't affect correctness
+    # (the next heartbeat covers it), and critical priority would let a
+    # runaway training session grow the critical buffer unboundedly.
+    "task.submitted",
+    "task.running",
+    "task.completed",
+    "task.failed",
+    "task.timeout",
+    "task.cancelled",
     # ── Note on demoted types (2026-06-16 long-run replay refactor) ────
     # The following used to be critical but were demoted to normal because
     # they are reconstructable from snapshot (snapshots/latest.json) or

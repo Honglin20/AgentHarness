@@ -360,6 +360,59 @@ reviewer_agent 在单次执行中使用 `sub_agent` 工具委托子 Agent 修复
 
 > 完整示例: [examples/06_sub_agent_loop.py](examples/06_sub_agent_loop.py)
 
+### 长耗时任务（launch + wait）
+
+Agent 启动一个后台长耗时任务（DL 训练、大型评测、大数据下载），等任务结束后基于其输出进行下一步。`launch_task` + `wait_for_tasks` 是**配套工具**——前者立即返回 `task_id`，后者阻塞直到任务进入终态。
+
+```
+train_and_eval ── launch_task(...) → task_id
+                ── wait_for_tasks([task_id]) → summary
+                ── read_text_file(metrics.json)
+```
+
+```python
+wf = Workflow("long_task_demo", agents=[
+    Agent("train_and_eval", after=[], tools=[
+        "launch_task", "wait_for_tasks", "list_tasks", "cancel_task",
+        "bash", "read_text_file",
+    ]),
+])
+```
+
+**为什么不能用 `bash(run_in_background=True)`**：bash 后台任务启动后 DAG 立即推进到下一节点，没有等待机制。`launch_task` + `wait_for_tasks` 补上了这个 gap。
+
+**核心契约：默认不主动杀进程**
+
+DL 训练时长不可预测，硬编码 timeout 会把跑到 95% 的训练杀掉。两个工具的 `timeout_ms` **默认都是 0**：
+
+| 参数 | 作用对象 | 默认 | 何时设非 0 |
+|---|---|---|---|
+| `launch_task.timeout_ms` | 任务进程（到点 kill） | 0 = 永不杀 | 用户明确要安全网（夜间批处理/共享资源/防死循环） |
+| `wait_for_tasks.timeout_ms` | Agent 工具调用（到点返回） | 0 = 无限等 | Agent 有 fallback 策略（超时换配置重试） |
+
+**训练脚本契约**：为了在 UI 上看到实时进度，训练脚本应该周期写 `--progress_file` 指定的 JSON，结束时写 `metrics.json` 到 `--out_dir`：
+
+```python
+# launch_task 调用示例
+launch_task(
+    command="python train.py --steps 200 --out_dir _out --progress_file _out/progress.json",
+    description="Train mnist mlp 200 steps",
+    expected_duration_s=600,                  # UI 心跳 ETA 提示
+    progress_file="_out/progress.json",       # 周期写入 {step, loss, epoch, ...}
+)
+```
+
+`wait_for_tasks` 轮询时每 30s 发 `task.heartbeat` 事件（normal 优先级），payload 含 `elapsed_sec` / `expected_remaining_sec` / `progress` / `output_tail`。任务终态时发 `task.completed/failed/timeout/cancelled`（critical 优先级——丢事件会让 DAG 永久卡死）。
+
+**能力边界**：
+
+- ✅ 分钟级到数小时（前提：harness ui 或 CLI 进程不退出）
+- ⚠️ 数小时训练会触发 LLM prompt cache miss（5min TTL），下一轮调用约 10× 成本——成本问题，非功能问题
+- ❌ 跨 session 恢复（CLI 重启后任务状态丢失）→ Phase 2
+- ❌ 远端训练（SSH/cloud backend）→ Phase 2
+
+> 完整 demo: [workflows/long_task_demo/](workflows/long_task_demo/) — 含 mock 训练脚本，~30s 端到端跑通，无需 GPU
+
 ### 人机协作
 
 Agent 在执行过程中通过 `ask_user` 工具向用户提问，等待回答后继续。
@@ -398,14 +451,14 @@ Agent("analyst", after=[], tools=[])               # 不使用任何工具
 | Tier | 加载行为 | 当前工具 |
 |---|---|---|
 | **FORCED** | 始终注入；写白名单也会强制加上，只有 `exclude=[...]` 才能去掉 | `todo` |
-| **DEFAULT** | `tools=None`（默认）时自动加载；写白名单时被替换 | `bash` `grep` `glob` `sub_agent` `ask_user` + filesystem MCP ×10 |
+| **DEFAULT** | `tools=None`（默认）时自动加载；写白名单时被替换 | `bash` `grep` `glob` `sub_agent` `ask_user` `launch_task` `wait_for_tasks` `list_tasks` `cancel_task` + filesystem MCP ×10 |
 | **EXPLICIT** | 不会自动加载；agent 必须显式列入 `tools=[...]` | `render_chart` + codegraph MCP ×10 |
 
 **典型场景**：
 
 | 写法 | 加载的工具集 |
 |---|---|
-| `tools` 缺省 | FORCED + DEFAULT（共 15 个） |
+| `tools` 缺省 | FORCED + DEFAULT（共 19 个） |
 | `tools=["bash"]` | `bash` + `todo`（FORCED 强制注入） |
 | `tools=["bash"], exclude=["todo"]` | 只有 `bash`（强制层也能 exclude） |
 | `tools=["codegraph_search"]` | `codegraph_search` + `todo`（显式列 + 强制注入） |
@@ -426,6 +479,10 @@ Agent("analyst", after=[], tools=[])               # 不使用任何工具
 | `glob` | DEFAULT | 基于 ripgrep 的文件模式匹配，按修改时间排序 |
 | `sub_agent` | DEFAULT | 委托子 Agent 执行任务（最大深度 1） |
 | `ask_user` | DEFAULT | 向用户提问（单选/多选/自由输入），等待回答（需要 UI） |
+| `launch_task` | DEFAULT | 启动长耗时后台任务（训练/评测/大下载），立即返回 task_id，默认 `timeout_ms=0` 永不杀进程 |
+| `wait_for_tasks` | DEFAULT | 阻塞等待 `launch_task` 返回的 task_id 进入终态；每 30s 发 `task.heartbeat`（含 progress / output_tail） |
+| `list_tasks` | DEFAULT | 列出本 workflow 已注册的任务及其状态（debug 用） |
+| `cancel_task` | DEFAULT | 取消运行中的任务（MVP 为 workflow 级取消） |
 | `render_chart` | EXPLICIT | 渲染图表到前端（13 种图表类型），Agent 可直接调用，无需 bash |
 
 ### MCP 工具
@@ -1216,7 +1273,9 @@ WebSocket 连接时自动从 Header 解析用户 ID，实现事件级隔离。
 │                                             │
 │  harness/api.py      Agent, Workflow, Result│
 │  harness/engine/     LangGraph + Pydantic AI│
-│  harness/tools/      bash, sub_agent, chart │
+│  harness/tools/      bash, sub_agent, chart,│
+│                      launch_task,           │
+│                      wait_for_tasks         │
 │  harness/extensions/ EvalJudge, Plugins...  │
 │  server/             REST + WebSocket       │
 │                                             │
@@ -1250,7 +1309,7 @@ WebSocket 连接时自动从 Header 解析用户 ID，实现事件级隔离。
 │   │   ├── benchmarks/     内置 benchmark（smoke-test）
 │   │   └── frontend/       预构建前端
 │   ├── engine/             LangGraph 状态图 + Pydantic AI 执行
-│   ├── tools/              bash, sub_agent, ask_user, mcp_bridge, chart
+│   ├── tools/              bash, sub_agent, ask_user, mcp_bridge, chart, launch_task, wait_for_tasks
 │   ├── compiler/           DAG 构建, Markdown 解析, Agent 查找
 │   └── extensions/         扩展系统（Hook / Middleware / GraphMutator）
 │       ├── eval/           EvalJudge: 自动评审 + 评分 + 重试
@@ -1328,9 +1387,11 @@ harness list --scope project            # 只列出项目级资源
 |------|--------|------|
 | **Skill** | P1 | 可复用 Agent 行为包（SKILL.md + 脚本），跨 workflow 组合复用 |
 | **TodoWrite** | P2 | Agent 任务清单，防止多步任务遗漏，上下文压缩后状态不丢失 |
-| **Monitor** | P2 | 后台进程逐行流式回调（tail -f / watch 场景） |
 | **WebFetch** | P3 | URL 抓取 → Markdown，Agent 需要查文档/API 时使用 |
 | **WebSearch** | P3 | 网页搜索，需要搜索 API key |
+
+**已实现（从路线图移除）**：
+- **长耗时任务监控**：原 Monitor（tail -f / watch 场景）的需求已被 `launch_task` + `wait_for_tasks` 的心跳机制覆盖——`wait_for_tasks` 每 30s 发 `task.heartbeat` 事件，payload 含 `output_tail`（stdout/stderr 最后 500 字符）+ `progress`（训练脚本周期写的 JSON）。纯逐行流式回调（不依赖周期采样）作为后续 P3 任务，仅在心跳粒度不足时再加。
 
 **不在规划中**：LSP（codegraph 已覆盖调用图场景）、CronCreate/ScheduleWakeup（会话级调度，不适用单次执行）、EnterPlanMode/Worktree（人机交互模式）
 

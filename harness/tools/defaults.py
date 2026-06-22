@@ -5,10 +5,16 @@ from pathlib import Path
 
 from harness.tools.bash import BashToolFactory
 from harness.tools.grep_glob import GrepToolFactory, GlobToolFactory
+from harness.tools.launch_task import LaunchTaskToolFactory
 from harness.tools.mcp_bridge import McpBridge, McpServerConfig
 from harness.tools.registry import ToolRegistry, ToolTier
 from harness.tools.sub_agent import SubAgentToolFactory
 from harness.tools.chart import render_chart, RenderChartToolFactory
+from harness.tools.task_wait import (
+    CancelTaskToolFactory,
+    ListTasksToolFactory,
+    WaitForTasksToolFactory,
+)
 
 
 def _find_filesystem_server(
@@ -86,6 +92,24 @@ def default_tool_registry(event_bus=None) -> ToolRegistry:
     registry.register("bash", BashToolFactory(), source="built-in", tier=ToolTier.DEFAULT)
     registry.register("grep", GrepToolFactory(), source="built-in", tier=ToolTier.DEFAULT)
     registry.register("glob", GlobToolFactory(), source="built-in", tier=ToolTier.DEFAULT)
+    # launch_task + wait_for_tasks: pair for long-running jobs (training, eval).
+    # wait_for_tasks is the missing primitive that lets an agent block until a
+    # background task completes. list_tasks/cancel_task are supporting affordances.
+    registry.register(
+        "launch_task", LaunchTaskToolFactory(), source="built-in", tier=ToolTier.DEFAULT
+    )
+    registry.register(
+        "wait_for_tasks",
+        WaitForTasksToolFactory(),
+        source="built-in",
+        tier=ToolTier.DEFAULT,
+    )
+    registry.register(
+        "list_tasks", ListTasksToolFactory(), source="built-in", tier=ToolTier.DEFAULT
+    )
+    registry.register(
+        "cancel_task", CancelTaskToolFactory(), source="built-in", tier=ToolTier.DEFAULT
+    )
     if event_bus:
         from harness.tools.ask_user import AskUserToolFactory
         registry.register(

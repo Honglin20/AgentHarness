@@ -1,0 +1,37 @@
+{
+  "name": "long_task_demo",
+  "description": "Demo: launch a long-running training task, wait for completion, measure latency. Illustrates the launch_task + wait_for_tasks contract.",
+  "max_iterations": 1,
+  "agents": [
+    {
+      "name": "train_and_eval",
+      "after": [],
+      "tools": [
+        "launch_task",
+        "wait_for_tasks",
+        "list_tasks",
+        "cancel_task",
+        "bash",
+        "read_text_file",
+        "write_file"
+      ],
+      "model": null,
+      "retries": 2,
+      "result_type_name": "TrainAndEvalResult",
+      "result_type_schema": {
+        "title": "TrainAndEvalResult",
+        "description": "train_and_eval agent output. Launches training, waits, measures latency.",
+        "type": "object",
+        "properties": {
+          "task_id": {"title": "Task ID", "type": "string"},
+          "exit_code": {"title": "Exit Code", "type": "integer"},
+          "final_loss": {"title": "Final Loss", "type": "number"},
+          "final_acc": {"title": "Final Accuracy", "type": "number"},
+          "latency_ms": {"title": "Latency Ms", "type": "number"},
+          "summary": {"title": "Summary", "type": "string"}
+        },
+        "required": ["task_id", "exit_code", "summary"]
+      }
+    }
+  ]
+}

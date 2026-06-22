@@ -26,6 +26,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from pydantic_ai import RunContext, Tool as PydanticAITool
 
@@ -244,13 +245,16 @@ def _assemble_full_text(
 
 def _drain_pipes_and_wait(
     proc: subprocess.Popen,
-    timeout_s: float,
+    timeout_s: float | None,
     workflow_id: str,
     node_id: str,
     agent_name: str,
     emit: bool,
 ) -> tuple[str, str, bool]:
     """Start reader threads, wait (with timeout), return (stdout, stderr, timed_out).
+
+    timeout_s=None means wait indefinitely (launch_task with timeout_ms=0 —
+    the default for DL training where duration is unpredictable).
 
     Note on ordering: stdout and stderr are drained by separate reader threads and
     concatenated as "stdout block, then stderr block". This loses the original
@@ -366,6 +370,7 @@ def spawn_background(
     node_id: str = "",
     agent_name: str = "",
     description: str = "",
+    on_complete: Callable[[str, int, bool, "str | None"], None] | None = None,
 ) -> str:
     """Spawn command in background. Returns a task_id-acknowledging string immediately.
 
@@ -375,6 +380,15 @@ def spawn_background(
     On monitor failure, the task is still cleaned up (popped from _bg_tasks) and the
     event is emitted with exit_code=-1 and monitor_error=True so the frontend can
     distinguish "real success" from "monitor crashed".
+
+    Args:
+        timeout_ms: Max wall-clock for the task. **0 = never timeout** (used by
+            launch_task for DL training where duration is unpredictable). Bash tool
+            always passes a positive value (capped at MAX_TIMEOUT_MS).
+        on_complete: Optional callback invoked by the monitor thread right before
+            the task is popped from _bg_tasks. Signature:
+            ``(task_id, exit_code, timed_out, monitor_error)``. Used by launch_task
+            to update TaskRegistry so wait_for_tasks can observe completion.
     """
     proc = _spawn_subprocess(command, workdir)
 
@@ -396,13 +410,16 @@ def spawn_background(
     with _bg_tasks_lock:
         _bg_tasks[task_id] = task
 
+    # timeout_ms=0 → no wait timeout (launch_task default for unpredictable training)
+    wait_timeout_s: float | None = timeout_ms / 1000 if timeout_ms > 0 else None
+
     def _bg_monitor() -> None:
         monitor_error: str | None = None
         stdout = stderr = ""
         timed_out = False
         try:
             stdout, stderr, timed_out = _drain_pipes_and_wait(
-                proc, timeout_ms / 1000, workflow_id, node_id, agent_name, emit=True,
+                proc, wait_timeout_s, workflow_id, node_id, agent_name, emit=True,
             )
         except Exception as exc:
             monitor_error = repr(exc)
@@ -439,6 +456,16 @@ def spawn_background(
             "timed_out": timed_out,
             "monitor_error": monitor_error,
         })
+
+        # Notify launch_task's TaskRegistry before cleanup. Exceptions in the
+        # callback must not break the rest of the cleanup path.
+        if on_complete is not None:
+            try:
+                on_complete(task_id, exit_code, timed_out, monitor_error)
+            except Exception:
+                logger.exception(
+                    "on_complete callback failed for task %s", task_id
+                )
 
         # Cleanup: completed tasks are no longer actionable. cancel_process only needs
         # to find running tasks; leaving finished ones here would leak memory in

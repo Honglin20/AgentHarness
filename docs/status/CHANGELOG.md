@@ -9,6 +9,9 @@
 
 ## 2026-06
 
+- **2026-06-22** — **Workflow Agent 长耗时后台任务支持（launch_task + wait_for_tasks）**：补齐 harness 缺失的关键原语——agent 启动 DL 训练（数分钟到数小时）后能阻塞等待完成再读 metrics。新增 4 个 DEFAULT tier 工具：`launch_task`（薄包装 `spawn_background` + 注册到 `TaskRegistry`）、`wait_for_tasks`（async 轮询 + 30s 心跳）、`list_tasks` / `cancel_task`。**核心契约：两个 `timeout_ms` 默认都是 0**——`launch_task.timeout_ms=0` 永不杀进程（训练时长不可预测），`wait_for_tasks.timeout_ms=0` 无限等；`>0` 仅作为 opt-in 安全网。bash.py 加 `on_complete` 回调让 `TaskRegistry` 跟踪终态；6 个 `task.*` 事件加入 `CRITICAL_EVENT_TYPES`（`task.heartbeat` 故意保持 normal——心跳丢失不影响正确性，critical 会让 runaway training 无限增长 buffer）。验证：LLM API 不会因 tool 执行几小时超时（tool 执行在客户端、两次 HTTP 请求之间，`httpx.Timeout(600)` 只约束单次 HTTP round-trip；`llm_executor.py:228-242` 主循环无 wall-clock timeout）。MVP 能力边界：✅ 分钟级到数小时（进程不退出前提下），❌ 跨 session 恢复 / SSH backend → Phase 2。新增 `workflows/long_task_demo/`（含 mock 训练脚本，~30s 跑通，无 GPU 依赖）+ 17 个 E2E 测试。README 同步更新 5 处。
+  → [完整 release note](../releases/2026-06-22-long-running-task-support.md) | [Plan](../plans/workflow-agent-markdown-harness-workflow-eventual-llama.md)
+
 - **2026-06-21** — **Token 计数显示修复（Q1）**：用户反映 BudgetBar 显示几百 K 误以为上下文炸了。诊断：单位正确（pydantic-ai Usage，token 不是字符），bug 在前端展示——Cost bar 把累计消耗当上下文窗口，且 cache 命中数无可视化。修复：BudgetBar 的 Cost/Window bar 都加 `(cache Xk)` 提示 + 中文 hover tooltip 澄清「累计消耗 vs 最近一次窗口」语义；跟踪 worst-window 节点的 `lastCacheHit`。未改 `HARNESS_REQUEST_LIMIT` 默认（配置选择非 bug）。272 frontend + 10 token_aggregator 测试全过，build clean。
   → [完整 release note](../releases/2026-06-21-token-counting-display-fix.md)
 
