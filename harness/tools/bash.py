@@ -69,6 +69,22 @@ class BackgroundTask:
     exit_code: int | None = None
 
 
+@dataclass
+class BackgroundSpawnResult:
+    """Structured spawn_background return.
+
+    Replaces the old "parse task_id from a human-readable string" contract —
+    launch_task now consumes ``.task_id`` / ``.output_path`` directly. The
+    bash tool still surfaces ``.message`` to the LLM (same string format as
+    before), preserving backwards compatibility for ad-hoc bash usage.
+    """
+
+    task_id: str
+    output_path: str
+    message: str
+    pid: int | None = None  # None if spawn failed before Popen returned
+
+
 def cancel_process(workflow_id: str) -> None:
     """Kill the running bash processes for a workflow (foreground + background)."""
     with _running_procs_lock:
@@ -371,8 +387,8 @@ def spawn_background(
     agent_name: str = "",
     description: str = "",
     on_complete: Callable[[str, int, bool, "str | None"], None] | None = None,
-) -> str:
-    """Spawn command in background. Returns a task_id-acknowledging string immediately.
+) -> BackgroundSpawnResult:
+    """Spawn command in background. Returns a structured result immediately.
 
     The command runs detached; when it completes (or times out) a bash.background_completed
     event fires with the result metadata. The full output is written to .bash_outputs/.
@@ -442,6 +458,19 @@ def spawn_background(
         task.completed_at = time.time()
         task.exit_code = exit_code
 
+        # Notify launch_task's TaskRegistry BEFORE the bash.background_completed emit.
+        # Rationale: if the emit path raised (or any code below), the TaskRegistry
+        # would be stuck in "running" and wait_for_tasks would poll forever.
+        # Updating the registry first guarantees wait_for_tasks can always observe
+        # completion regardless of downstream failures. See H4 in code review.
+        if on_complete is not None:
+            try:
+                on_complete(task_id, exit_code, timed_out, monitor_error)
+            except Exception:
+                logger.exception(
+                    "on_complete callback failed for task %s", task_id
+                )
+
         _emit_event(workflow_id, "bash.background_completed", {
             "task_id": task_id,
             "command": command,
@@ -457,16 +486,6 @@ def spawn_background(
             "monitor_error": monitor_error,
         })
 
-        # Notify launch_task's TaskRegistry before cleanup. Exceptions in the
-        # callback must not break the rest of the cleanup path.
-        if on_complete is not None:
-            try:
-                on_complete(task_id, exit_code, timed_out, monitor_error)
-            except Exception:
-                logger.exception(
-                    "on_complete callback failed for task %s", task_id
-                )
-
         # Cleanup: completed tasks are no longer actionable. cancel_process only needs
         # to find running tasks; leaving finished ones here would leak memory in
         # long-running servers.
@@ -475,13 +494,19 @@ def spawn_background(
 
     threading.Thread(target=_bg_monitor, daemon=True).start()
 
-    return (
+    message = (
         f"[background task started]\n"
         f"task_id: {task_id}\n"
         f"command: {command}\n"
         f"\nOutput will be saved to: {output_path}\n"
         f"A bash.background_completed event will fire when it finishes (or times out). "
         f"To check on it later, read_text_file('{output_path}')."
+    )
+    return BackgroundSpawnResult(
+        task_id=task_id,
+        output_path=str(output_path),
+        message=message,
+        pid=proc.pid,
     )
 
 
@@ -550,7 +575,7 @@ class BashToolFactory(ToolFactory):
                         timeout_ms=effective_timeout,
                         workflow_id=wid, node_id=node_id, agent_name=agent_name,
                         description=description,
-                    )
+                    ).message
                 return run_foreground(
                     command, workdir,
                     timeout_ms=effective_timeout,

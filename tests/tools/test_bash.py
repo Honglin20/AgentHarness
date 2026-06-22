@@ -194,8 +194,12 @@ class TestRunInBackground:
         elapsed = time.monotonic() - start
         # Should return within 1 second (sleep 2 hasn't finished)
         assert elapsed < 1.0
-        assert "[background task started]" in result
-        assert "task_id: bg_" in result
+        # spawn_background returns BackgroundSpawnResult; .message is the LLM-facing ack
+        assert "[background task started]" in result.message
+        assert "task_id: bg_" in result.message
+        # Structured fields are first-class (no string parsing needed)
+        assert result.task_id.startswith("bg_")
+        assert result.output_path  # non-empty
 
     def test_background_registers_task(self, tmp_path):
         # Capture emitted events via a fake bus. patcher must outlive the
@@ -217,9 +221,7 @@ class TestRunInBackground:
                 agent_name="a",
                 description="test background echo",
             )
-            # Extract task_id from result string
-            task_id_line = [line for line in result.split("\n") if line.startswith("task_id:")][0]
-            task_id = task_id_line.split(":", 1)[1].strip()
+            task_id = result.task_id  # structured field — no string parsing
 
             # Right after spawn: task is registered
             with _bg_tasks_lock:

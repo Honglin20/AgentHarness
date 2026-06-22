@@ -20,34 +20,17 @@ import time
 
 from pydantic_ai import RunContext, Tool as PydanticAITool
 
-from harness.tools.bash import spawn_background
+from harness.tools.bash import BackgroundSpawnResult, spawn_background
 from harness.tools.deps import AgentDeps
 from harness.tools.registry import ToolFactory
 from harness.tools.task_registry import (
+    TERMINAL_STATUSES,
     TaskRecord,
     emit_task_event,
     get_task_registry,
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _parse_task_id(spawn_result: str) -> str | None:
-    """Extract task_id from spawn_background's return string."""
-    for line in spawn_result.split("\n"):
-        line = line.strip()
-        if line.startswith("task_id:"):
-            return line.split(":", 1)[1].strip()
-    return None
-
-
-def _parse_output_path(spawn_result: str) -> str:
-    """Extract output_path from spawn_background's return string."""
-    for line in spawn_result.split("\n"):
-        line = line.strip()
-        if line.startswith("Output will be saved to:"):
-            return line.split(":", 1)[1].strip()
-    return ""
 
 
 class LaunchTaskToolFactory(ToolFactory):
@@ -113,6 +96,14 @@ class LaunchTaskToolFactory(ToolFactory):
                 timed_out: bool,
                 monitor_error: "str | None",
             ) -> None:
+                # Race guard: if cancel_task already finalized this task (status=cancelled),
+                # don't overwrite with completed/failed. Without this check, cancelling a
+                # running task could see its status flipped back to "failed" when the
+                # monitor observes process death. See TestCancelRaceWithOnComplete.
+                existing = registry.get(task_id)
+                if existing is not None and existing.status in TERMINAL_STATUSES:
+                    return
+
                 now = time.time()
                 if monitor_error is not None:
                     status = "failed"
@@ -150,34 +141,17 @@ class LaunchTaskToolFactory(ToolFactory):
                 on_complete=_on_complete,
             )
 
-            task_id = _parse_task_id(spawn_result)
-            if task_id is None:
-                return (
-                    "Error: failed to parse task_id from spawn_background output:\n"
-                    f"{spawn_result}"
-                )
+            # spawn_background returns a structured result now (no string parsing).
+            # task_id and output_path are first-class fields — see H3 fix.
+            task_id = spawn_result.task_id
+            output_path = spawn_result.output_path
 
-            output_path = _parse_output_path(spawn_result)
-
-            registry.register(
-                TaskRecord(
-                    task_id=task_id,
-                    workflow_id=wid,
-                    node_id=node_id,
-                    agent_name=agent_name,
-                    command=command,
-                    description=description,
-                    output_path=output_path,
-                    pid=None,  # not exposed by spawn_background
-                    started_at=started_at,
-                    status="running",
-                    timeout_ms=timeout_ms,
-                    backend="local",
-                    expected_duration_s=expected_duration_s,
-                    progress_file=progress_file,
-                )
-            )
-
+            # Emit task.submitted BEFORE registry.register (M2 fix). If the
+            # monitor thread fires task.completed in the microsecond window
+            # between spawn_background return and registry.register, emitting
+            # submitted first preserves event ordering (submitted → completed).
+            # If we registered first then emitted, a fast task could produce
+            # completed → submitted, which confuses bus replay / UI timeline.
             emit_task_event(wid, "task.submitted", {
                 "task_id": task_id,
                 "workflow_id": wid,
@@ -189,6 +163,25 @@ class LaunchTaskToolFactory(ToolFactory):
                 "expected_duration_s": expected_duration_s,
                 "progress_file": progress_file,
             })
+
+            registry.register(
+                TaskRecord(
+                    task_id=task_id,
+                    workflow_id=wid,
+                    node_id=node_id,
+                    agent_name=agent_name,
+                    command=command,
+                    description=description,
+                    output_path=output_path,
+                    pid=spawn_result.pid,
+                    started_at=started_at,
+                    status="running",
+                    timeout_ms=timeout_ms,
+                    backend="local",
+                    expected_duration_s=expected_duration_s,
+                    progress_file=progress_file,
+                )
+            )
 
             return (
                 f"task_id: {task_id}\n"

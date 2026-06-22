@@ -10,6 +10,14 @@ when the bash monitor observes completion.
 
 Threading: TaskRegistry methods are thread-safe — the bash monitor writes
 from a daemon thread, the agent reads from the asyncio loop.
+
+**Scope limitation (MVP):** this registry is **in-process only**. It does
+not survive CLI exit / server restart, and is not shared across Python
+processes. Cross-session recovery (persistent registry backed by
+``runs/{run_id}/tasks/{task_id}.json``) and multi-process runners (engine
++ agent executor in separate processes) are Phase 2 work — the migration
+path is: make this registry read-through to a JSON sidecar, with the
+in-memory dict acting as a write-through cache.
 """
 from __future__ import annotations
 
@@ -22,6 +30,10 @@ from pathlib import Path
 from typing import Literal
 
 logger = logging.getLogger(__name__)
+
+# Output preview sizes — named constants so callers don't reach past the API.
+OUTPUT_TAIL_CHARS = 500          # task.heartbeat output_tail size
+COMMAND_PREVIEW_CHARS = 60       # list_tasks command preview
 
 TaskStatus = Literal[
     "submitted", "running", "completed", "failed", "timeout", "cancelled"
@@ -172,22 +184,55 @@ def emit_task_event(workflow_id: str, event_type: str, payload: dict) -> None:
 
 
 def read_progress(progress_file: str | None) -> dict | None:
-    """Read a training script's progress JSON. Returns None on any error."""
+    """Read a training script's progress JSON. Returns None on any error.
+
+    Training scripts typically rewrite this file atomically each step. On a
+    slow disk or race with the writer, we may catch a partially-written file
+    — log at debug level so it's diagnosable without spamming.
+    """
     if not progress_file:
         return None
     try:
         return json.loads(Path(progress_file).read_text())
+    except FileNotFoundError:
+        return None  # expected early in training before first progress write
+    except (json.JSONDecodeError, OSError) as e:
+        logger.debug(
+            "read_progress failed for %s: %s", progress_file, e, exc_info=True
+        )
+        return None
     except Exception:
+        logger.debug(
+            "read_progress unexpected failure for %s", progress_file, exc_info=True
+        )
         return None
 
 
-def read_output_tail(output_path: str, max_chars: int = 500) -> str:
-    """Read the tail of a task's stdout/stderr log."""
+def read_output_tail(output_path: str, max_chars: int = OUTPUT_TAIL_CHARS) -> str:
+    """Read the tail of a task's stdout/stderr log.
+
+    Uses seek-from-end to avoid loading multi-hundred-MB training logs into
+    memory on every heartbeat. utf-8 worst case is 4 bytes/char, so we seek
+    back `max_chars * 4` bytes (plus 1 byte slack for partial multi-byte
+    sequence at the boundary) and decode with errors='replace'.
+    """
     try:
         p = Path(output_path)
         if not p.exists():
             return ""
-        content = p.read_text(encoding="utf-8", errors="replace")
-        return content[-max_chars:] if len(content) > max_chars else content
+        with p.open("rb") as f:
+            f.seek(0, 2)  # end
+            size = f.tell()
+            # Seek back enough bytes to cover max_chars in worst-case utf-8.
+            # +8 byte slack handles partial multi-byte sequences at the boundary.
+            read_size = min(size, max_chars * 4 + 8)
+            f.seek(size - read_size)
+            raw = f.read()
+        text = raw.decode("utf-8", errors="replace")
+        # If we seeked into the middle of the file, drop the partial first line
+        # (it's likely truncated). Only do this when we actually seeked back.
+        if size > read_size and "\n" in text:
+            text = text.split("\n", 1)[1] if "\n" in text else text
+        return text[-max_chars:] if len(text) > max_chars else text
     except Exception:
         return ""

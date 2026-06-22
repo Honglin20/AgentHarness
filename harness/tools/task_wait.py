@@ -20,6 +20,7 @@ from harness.tools.bash import cancel_process
 from harness.tools.deps import AgentDeps
 from harness.tools.registry import ToolFactory
 from harness.tools.task_registry import (
+    COMMAND_PREVIEW_CHARS,
     TERMINAL_STATUSES,
     emit_task_event,
     get_task_registry,
@@ -109,21 +110,30 @@ async def _wait_for_tasks_impl(
 ) -> str:
     """Block until all known task_ids reach terminal state, or client timeout.
 
-    Unknown task_ids are reported in the summary but don't block.
+    Unknown task_ids at entry are reported in the summary but don't block.
+    Re-checked each poll iteration: if a task that was unknown at entry gets
+    registered later (e.g. concurrent launch_task in a sub_agent fan-out), it
+    is promoted to known and waited on. This prevents the race where a
+    parallel launcher registers the task after wait_for_tasks was called.
     """
     registry = get_task_registry(workflow_id)
+
+    # Initial partition — but we re-check inside the loop because the registry
+    # can gain entries from concurrent launch_task calls.
     known = [tid for tid in task_ids if registry.get(tid) is not None]
     unknown = [tid for tid in task_ids if registry.get(tid) is None]
 
+    if not known and not unknown:
+        return "[no tasks to wait for]"
+
     if not known:
-        return (
-            f"[no known tasks to wait for]\n"
-            f"unknown task_ids: {unknown}\n"
-            f"\nCheck task_ids returned by launch_task, or call list_tasks()."
-        )
+        # All unknown at entry — still enter the loop briefly, in case a
+        # concurrent launch_task registers one. Short grace period (1 poll
+        # interval) before giving up.
+        pass
 
     # If everything is already terminal, return immediately.
-    if all(registry.get(tid).status in TERMINAL_STATUSES for tid in known):
+    if known and all(registry.get(tid).status in TERMINAL_STATUSES for tid in known):
         return _format_summary(
             known, workflow_id,
             elapsed=0.0, client_timeout=False, unknown=unknown,
@@ -132,16 +142,37 @@ async def _wait_for_tasks_impl(
     deadline = (time.monotonic() + timeout_ms / 1000) if timeout_ms > 0 else None
     last_heartbeat = 0.0
     start = time.monotonic()
+    # Give "all unknown at entry" a short grace period for concurrent registration.
+    unknown_grace_deadline = time.monotonic() + poll_interval_ms / 1000.0
 
     while True:
-        tasks = [registry.get(tid) for tid in known]
-        statuses = [t.status if t else "unknown" for t in tasks]
-        if all(s in TERMINAL_STATUSES for s in statuses):
-            return _format_summary(
-                known, workflow_id,
-                elapsed=time.monotonic() - start,
-                client_timeout=False, unknown=unknown,
-            )
+        # Re-partition: tasks that were unknown may have been registered by a
+        # concurrent launch_task (H1 fix — fan-out race).
+        still_unknown: list[str] = []
+        for tid in unknown:
+            if registry.get(tid) is not None:
+                known.append(tid)
+            else:
+                still_unknown.append(tid)
+        unknown = still_unknown
+
+        if not known:
+            # Nothing to wait on. Exit after the grace period to avoid busy-loop.
+            if time.monotonic() > unknown_grace_deadline:
+                return (
+                    f"[no known tasks to wait for]\n"
+                    f"unknown task_ids: {unknown}\n"
+                    f"\nCheck task_ids returned by launch_task, or call list_tasks()."
+                )
+        else:
+            tasks = [registry.get(tid) for tid in known]
+            statuses = [t.status if t else "unknown" for t in tasks]
+            if all(s in TERMINAL_STATUSES for s in statuses):
+                return _format_summary(
+                    known, workflow_id,
+                    elapsed=time.monotonic() - start,
+                    client_timeout=False, unknown=unknown,
+                )
 
         now = time.monotonic()
         if deadline is not None and now > deadline:
@@ -152,7 +183,7 @@ async def _wait_for_tasks_impl(
             )
 
         # Heartbeat every HEARTBEAT_INTERVAL_S while still waiting
-        if now - last_heartbeat > HEARTBEAT_INTERVAL_S:
+        if known and now - last_heartbeat > HEARTBEAT_INTERVAL_S:
             _emit_heartbeat(known, workflow_id)
             last_heartbeat = now
 
@@ -192,8 +223,8 @@ class WaitForTasksToolFactory(ToolFactory):
                     If expired, returns with client_timeout=true in the summary;
                     tasks keep running in the background.
                 poll_interval_ms: Polling interval (default 2s). Lower = faster
-                    detection but more CPU. Auto-raised to 10s by launch_task when
-                    expected_duration_s > 300.
+                    detection but more CPU. For multi-hour tasks, consider raising
+                    to 10s+ to reduce wakeups.
 
             Returns:
                 Structured summary:
@@ -246,7 +277,10 @@ class ListTasksToolFactory(ToolFactory):
             lines = []
             for t in tasks:
                 exit_str = str(t.exit_code) if t.exit_code is not None else "n/a"
-                cmd_preview = t.command[:60] + ("..." if len(t.command) > 60 else "")
+                cmd_preview = (
+                    t.command[:COMMAND_PREVIEW_CHARS]
+                    + ("..." if len(t.command) > COMMAND_PREVIEW_CHARS else "")
+                )
                 lines.append(
                     f"task_id={t.task_id}  status={t.status}  exit={exit_str}  "
                     f"cmd={cmd_preview}"
@@ -266,9 +300,11 @@ class CancelTaskToolFactory(ToolFactory):
 
     name = "cancel_task"
     description = (
-        "Cancel a running task by task_id. Kills the underlying process and emits "
-        "task.cancelled event. Note: in MVP this cancels ALL tasks for the current "
-        "workflow (uses the existing workflow-wide cancel_process)."
+        "Cancel ALL running tasks for this workflow (MVP behavior — single-task "
+        "cancel is Phase 2). Useful for aborting a failed experiment batch. "
+        "Kills the underlying processes, marks the specified task_id as cancelled, "
+        "and emits task.cancelled event. WARNING: any sibling tasks launched by "
+        "parallel sub_agents will also be killed."
     )
 
     def create(self) -> PydanticAITool:
