@@ -7,6 +7,12 @@ import tsconfigPaths from "vite-tsconfig-paths";
 // environment=happy-dom so @testing-library/react's renderHook can mount
 // React components in tests. Pure-TS unit tests (deriveOutlineItems,
 // outlineStore) also run cleanly under happy-dom.
+//
+// Limitation: vitest 4's oxc parser inherits tsconfig's `jsx:"preserve"`
+// (set for Next.js SWC). This blocks component-level render tests on .tsx
+// files containing JSX — vite's import-analysis can't parse raw JSX.
+// Workaround is to extract pure logic from components and test that, OR
+// configure oxc jsx override (TODO: revisit when vitest oxc API stabilizes).
 export default defineConfig({
   plugins: [tsconfigPaths()],
   test: {

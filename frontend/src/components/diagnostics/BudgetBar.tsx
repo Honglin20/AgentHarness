@@ -30,18 +30,20 @@ function barColor(pct: number): string {
   return "bg-muted-foreground/40";
 }
 
-function ProgressBar({ label, current, max, fmt }: {
+function ProgressBar({ label, current, max, fmt, hint, title }: {
   label: string;
   current: number;
   max: number;
   fmt: (n: number) => string;
+  hint?: string;
+  title?: string;
 }) {
   const rawPct = (current / max) * 100;
   const pct = Math.min(rawPct, 100);
   const over = current > max;
 
   return (
-    <div className="flex items-center gap-1.5 text-[10px] leading-none">
+    <div className="flex items-center gap-1.5 text-[10px] leading-none" title={title}>
       <span className="w-10 shrink-0 truncate text-muted-foreground">{label}</span>
       <div className="h-1.5 flex-1 rounded-full bg-muted overflow-hidden">
         <div
@@ -51,6 +53,7 @@ function ProgressBar({ label, current, max, fmt }: {
       </div>
       <span className={`shrink-0 tabular-nums ${over ? "text-red-500 font-medium" : "text-muted-foreground"}`}>
         {fmt(current)}/{fmt(max)}
+        {hint && <span className="text-muted-foreground/60 ml-1">{hint}</span>}
       </span>
     </div>
   );
@@ -66,6 +69,7 @@ function BudgetBarInner({ envelope, nodes }: BudgetBarProps) {
 
   // Accumulate metrics from all nodes
   let totalTokens = 0;          // cumulative cost (input + output summed across nodes)
+  let totalCacheHit = 0;        // cumulative cache hits — shows how much of totalTokens was free
   let totalSteps = 0;
   let totalDuration = 0;
   let totalRequests = 0;
@@ -74,6 +78,11 @@ function BudgetBarInner({ envelope, nodes }: BudgetBarProps) {
   // "Max" not "sum" because each agent has its own message_history; the
   // workflow's context pressure is the worst agent, not the total.
   let maxWindowTokens = 0;
+  // Cache-hit portion of the worst-window node. Tracking alongside
+  // maxWindowTokens (rather than just any node) keeps the cache hint visually
+  // consistent with the bar — user sees "Window 50k/200k (cache 40k)" and
+  // immediately understands only 10k was fresh.
+  let maxWindowCacheHit = 0;
   // Whether ANY node has reported stage-2 last_* fields. Old runs / pre-stage-2
   // replayed events lack last_*; falling back to cumulative for them would
   // show a misleading 125% red bar (cumulative can be > modelContextLimit).
@@ -90,6 +99,9 @@ function BudgetBarInner({ envelope, nodes }: BudgetBarProps) {
     nodeCount += 1;
     if (node.tokenUsage) {
       totalTokens += node.tokenUsage.input + node.tokenUsage.output;
+      if (node.tokenUsage.cacheHit) {
+        totalCacheHit += node.tokenUsage.cacheHit;
+      }
       // Window = most recent single-shot request. Only count when the node
       // has real last_* (stage-2 backend). Without this guard, cumulative
       // usage on old runs would render against modelContextLimit and look
@@ -100,7 +112,13 @@ function BudgetBarInner({ envelope, nodes }: BudgetBarProps) {
       ) {
         anyNodeHasLastUsage = true;
         const window = node.tokenUsage.lastInput + node.tokenUsage.lastOutput;
-        if (window > maxWindowTokens) maxWindowTokens = window;
+        // Tie-break: when windows are equal, prefer the one with cache info
+        // so the hint stays visible. Strictly greater would silently drop
+        // cache data when two nodes have identical window sizes.
+        if (window > maxWindowTokens || (window === maxWindowTokens && maxWindowCacheHit === 0)) {
+          maxWindowTokens = window;
+          maxWindowCacheHit = node.tokenUsage.lastCacheHit ?? 0;
+        }
       }
     }
     if (node.toolCallCount) {
@@ -139,7 +157,14 @@ function BudgetBarInner({ envelope, nodes }: BudgetBarProps) {
         />
       )}
       {hasMaxTokens && (
-        <ProgressBar label="Cost" current={totalTokens} max={envelope.max_tokens!} fmt={fmtNum} />
+        <ProgressBar
+          label="Cost"
+          current={totalTokens}
+          max={envelope.max_tokens!}
+          fmt={fmtNum}
+          hint={totalCacheHit > 0 ? `(cache ${fmtNum(totalCacheHit)})` : undefined}
+          title="累计消耗 — 所有 LLM 调用 input+output 之和（非当前上下文窗口）"
+        />
       )}
       {showWindowBar && (
         <ProgressBar
@@ -147,6 +172,8 @@ function BudgetBarInner({ envelope, nodes }: BudgetBarProps) {
           current={maxWindowTokens}
           max={modelContextLimit}
           fmt={fmtNum}
+          hint={maxWindowCacheHit > 0 ? `(cache ${fmtNum(maxWindowCacheHit)})` : undefined}
+          title="最近一次单次请求的 input+output（model 实际看到的窗口）。cache 部分是已命中、未计费的"
         />
       )}
       {hasMaxSteps && (
