@@ -1,52 +1,59 @@
-"""TASK 2 acceptance test: feedback.py reproduces the legacy inline wording.
+"""feedback.py golden-string tests.
 
-Pure-move verification. Each function in harness/prompts/feedback.py must
-return byte-identical text to the inline string it replaced in step_gate /
-llm_executor / todo_reminder. The "legacy" strings below are copied from the
-pre-refactor source (captured at TASK 2 start) — they ARE the contract.
+Originally (TASK 2 of the refactor) these asserted byte-identical reproduction
+of the legacy inline wording — a pure-move contract. TASK 3 of the refinement
+plan UNIFIED the language to English, deliberately changing the wording. The
+golden strings below are the CURRENT English contract; they are frozen going
+forward until another deliberate language/wording change.
 
 If a function's output drifts from its golden string, the move was not pure.
 """
 from __future__ import annotations
 
 import json
+import re
 
 from harness.prompts import feedback
 
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+
 
 # --- step_gate.py gate-1 ---
-def test_todo_not_created_msg_matches_legacy():
-    legacy = (
-        "你必须先调用 TodoTool 工具 op='create' 规划步骤，"
-        "列出所有打算完成的任务（即使是单步任务），然后才能开始执行。\n"
-        "示例：TodoTool(op='create', items=[TodoItem(content='...', activeForm='...')])"
+def test_todo_not_created_msg_is_english_and_enforces():
+    golden = (
+        "You MUST first call TodoTool(op='create', ...) to plan your steps, "
+        "listing every task you intend to complete (even for single-step tasks), "
+        "before you can start executing.\n"
+        "Example: TodoTool(op='create', items=[TodoItem(content='...', activeForm='...')])"
     )
-    assert feedback.todo_not_created_msg() == legacy
+    assert feedback.todo_not_created_msg() == golden
+    assert "MUST" in feedback.todo_not_created_msg()  # enforcement strength preserved
+    assert not _CJK_RE.search(feedback.todo_not_created_msg())
 
 
 # --- step_gate.py gate-2 ---
-def test_todo_not_terminal_msg_matches_legacy():
-    # Reproduce step_gate's descriptor formatting + join, then the legacy body.
+def test_todo_not_terminal_msg_is_english():
     descriptors = ["'read auth.py'(status=pending)", "'write tests'(status=in_progress)"]
-    legacy_names = ", ".join(descriptors)
-    legacy = (
-        f"以下步骤还未显式收尾: {legacy_names}。\n"
-        f"请调用以下之一收尾：\n"
+    names = ", ".join(descriptors)
+    golden = (
+        f"The following steps are not yet closed out: {names}.\n"
+        f"Close them with one of:\n"
         f"  - TodoTool(op='complete_remaining', status='completed'|'skipped', reason='...') "
-        f"批量收尾（用于目标已提前达成的场景），或\n"
-        f"  - TodoTool(op='update', task_id='...', status='completed'|'skipped') 单步收尾\n"
-        f"注意：不允许遗留 pending/in_progress 状态的步骤。"
+        f"to bulk-finish (use when the goal was already achieved early), or\n"
+        f"  - TodoTool(op='update', task_id='...', status='completed'|'skipped') to close one step.\n"
+        f"Leaving steps in pending/in_progress state is not allowed."
     )
-    assert feedback.todo_not_terminal_msg(descriptors) == legacy
+    assert feedback.todo_not_terminal_msg(descriptors) == golden
+    assert not _CJK_RE.search(feedback.todo_not_terminal_msg(descriptors))
 
 
 def test_todo_not_terminal_msg_empty_list():
-    # Edge: no descriptors → ", ".join([]) == "" → message still well-formed.
     out = feedback.todo_not_terminal_msg([])
-    assert "以下步骤还未显式收尾: 。" in out
+    assert "The following steps are not yet closed out: ." in out
+    assert not _CJK_RE.search(out)
 
 
-# --- llm_executor.py schema-retry ---
+# --- llm_executor.py schema-retry (was already English; unchanged) ---
 def test_schema_retry_msg_matches_legacy():
     tool_name = "final_result"
     schema_json = json.dumps(
@@ -64,41 +71,61 @@ def test_schema_retry_msg_matches_legacy():
     assert feedback.schema_retry_msg(tool_name, schema_json) == legacy
 
 
-# --- todo_reminder.py create nudge ---
-def test_reminder_create_msg_matches_legacy():
-    legacy = (
+# --- todo nudges (now English) ---
+def test_reminder_create_msg_is_english():
+    out = feedback.reminder_create_msg()
+    golden = (
         "<system-reminder>"
-        "你还没有创建任务步骤。**必须调用 TodoTool 工具** "
-        "(op='create', items=[{content, activeForm}, ...])，"
-        "**禁止用 bash/Write/echo 写 todo*.json 或 todo_plan*.json 来替代** —— "
-        "TodoTool 是工具调用，不是文件写入。\n"
-        "schema 提醒：activeForm 是现在进行时描述（如 'Analyzing project structure'），"
-        "**不是** status 字段；status 由框架自动管理。"
+        "You have not created any task steps yet. **You MUST call the TodoTool** "
+        "(op='create', items=[{content, activeForm}, ...]). "
+        "**Do NOT use bash/Write/echo to write todo*.json or todo_plan*.json as a substitute** — "
+        "TodoTool is a tool call, not a file write.\n"
+        "Schema note: activeForm is the present-continuous description (e.g. 'Analyzing project structure'); "
+        "it is **not** the status field — status is managed by the framework automatically."
         "</system-reminder>"
     )
-    assert feedback.reminder_create_msg() == legacy
+    assert out == golden
+    assert "MUST" in out
+    assert not _CJK_RE.search(out)
 
 
-# --- todo_reminder.py update-active nudge ---
-def test_reminder_update_active_msg_matches_legacy():
+def test_reminder_update_active_msg_is_english():
     content = "Analyzing project structure"
     task_id = "t_2"
-    legacy = (
+    out = feedback.reminder_update_active_msg(content, task_id)
+    golden = (
         f"<system-reminder>"
-        f"你有一段时间没更新 task 状态了。当前 in_progress: 「{content}」。"
-        f"如果这个 stage 已完成，调用 TodoTool(op='update', task_id='{task_id}', status='completed')；"
-        f"如果还在做，可以忽略此提醒，不需要中途更新 detail。"
+        f"You have not updated task status in a while. Currently in_progress: '{content}'. "
+        f"If this stage is done, call TodoTool(op='update', task_id='{task_id}', status='completed'); "
+        f"if still working, you may ignore this nudge — no need to update detail mid-step."
         f"</system-reminder>"
     )
-    assert feedback.reminder_update_active_msg(content, task_id) == legacy
+    assert out == golden
+    assert not _CJK_RE.search(out)
 
 
-# --- todo_reminder.py update-idle nudge ---
-def test_reminder_update_idle_msg_matches_legacy():
-    legacy = (
+def test_reminder_update_idle_msg_is_english():
+    out = feedback.reminder_update_idle_msg()
+    golden = (
         "<system-reminder>"
-        "你有一段时间没更新 task 状态了。如果当前 stage 已完成，"
-        "调用 TodoTool(op='update', ..., status='completed')；如果还在做，可以忽略此提醒。"
+        "You have not updated task status in a while. If the current stage is done, "
+        "call TodoTool(op='update', ..., status='completed'); if still working, you may ignore this nudge."
         "</system-reminder>"
     )
-    assert feedback.reminder_update_idle_msg() == legacy
+    assert out == golden
+    assert not _CJK_RE.search(out)
+
+
+# --- TASK 3 contract: ALL feedback is English-only ---
+def test_all_feedback_functions_are_cjk_free():
+    """TASK 3 acceptance: no feedback function returns CJK characters."""
+    samples = {
+        "todo_not_created_msg": feedback.todo_not_created_msg(),
+        "todo_not_terminal_msg": feedback.todo_not_terminal_msg(["'x'(status=pending)"]),
+        "schema_retry_msg": feedback.schema_retry_msg("final_result", "{}"),
+        "reminder_create_msg": feedback.reminder_create_msg(),
+        "reminder_update_active_msg": feedback.reminder_update_active_msg("c", "t1"),
+        "reminder_update_idle_msg": feedback.reminder_update_idle_msg(),
+    }
+    offenders = [name for name, s in samples.items() if _CJK_RE.search(s)]
+    assert not offenders, f"feedback still contains CJK: {offenders}"

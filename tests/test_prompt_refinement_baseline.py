@@ -170,22 +170,20 @@ def test_task2_baseline_failure_block_returns_empty_with_real_deps():
 # TASK 3 baseline — feedback.py is currently zh/en mixed
 # ---------------------------------------------------------------------------
 
-def test_task3_baseline_feedback_has_cjk_today():
-    """step_gate-style feedback messages are currently Chinese.
+def test_task3_feedback_is_now_english_only():
+    """TASK 3 acceptance: feedback messages that were Chinese are now English.
 
-    This is the documented zh/en mix. TASK 3 must make this assertion FAIL
-    (all feedback becomes English). Recorded here so the language contract is
-    explicit: today CJK is present, post-TASK-3 it is not.
+    Pre-refinement the step_gate / reminder messages were Chinese while
+    schema_retry was English (a zh/en mix). TASK 3 unified everything to
+    English. These were the offenders; they must now be CJK-free.
     """
     cjk_funcs = {
         "todo_not_created_msg": feedback.todo_not_created_msg(),
         "reminder_create_msg": feedback.reminder_create_msg(),
         "reminder_update_idle_msg": feedback.reminder_update_idle_msg(),
     }
-    present = {name for name, s in cjk_funcs.items() if _has_cjk(s)}
-    assert present, (
-        "no CJK in feedback — TASK 3 may be done. Expected Chinese today."
-    )
+    offenders = [name for name, s in cjk_funcs.items() if _has_cjk(s)]
+    assert not offenders, f"feedback still contains CJK: {offenders}"
 
 
 def test_task3_baseline_schema_retry_is_already_english():
