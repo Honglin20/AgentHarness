@@ -99,26 +99,39 @@ def test_task1_baseline_records_current_tool_descriptions():
         assert d, f"{name} has an empty description — TASK 1 must not regress this"
 
 
-def test_task1_baseline_sub_agent_is_the_weakest():
-    """sub_agent lacks decision language today (the real weakness).
+def test_task1_sub_agent_has_decision_guidance():
+    """TASK 1 acceptance: sub_agent now carries delegation DECISION guidance.
 
-    It already mentions parallel/worktree (mechanics), but has NO guidance on
-    WHEN to delegate vs do-it-yourself — the key decision info CC's Task tool
-    provides. 'delegate' (the decision verb) is absent. This is the PRE-
-    refinement state; TASK 1 must make this assertion FAIL.
+    Pre-refinement it only described mechanics (launch/parallel/worktree) with
+    no WHEN-to-delegate advice. TASK 1 adds the decision layer (delegate vs
+    do-it-yourself) that CC's Task tool provides.
     """
     descs = _tool_descriptions()
     sa = descs["sub_agent"].lower()
-    # Mechanics already present (confirms we read the real description).
+    # Mechanics retained.
     assert "parallel" in sa and "worktree" in sa
-    # Decision language ABSENT — the actual gap TASK 1 closes.
-    assert "delegate" not in sa, (
-        "sub_agent already has delegate guidance — TASK 1 may be done"
+    # Decision language NOW present (TASK 1 closed the gap).
+    assert "delegate" in sa, "sub_agent must advise when to delegate"
+    assert "when to delegate" in sa, (
+        "sub_agent needs a structured WHEN-TO-DELEGATE section"
     )
-    # No structured decision section (CC tools have WHEN TO USE headers).
-    assert "when to use" not in sa and "when to delegate" not in sa, (
-        "sub_agent already has a decision section — TASK 1 may be done"
-    )
+
+
+@pytest.mark.parametrize("name", list(_tool_descriptions().keys()))
+def test_task1_all_descriptions_under_2kb_and_english(name):
+    """TASK 1 acceptance: every tool description < 2KB and English-only."""
+    descs = _tool_descriptions()
+    d = descs[name]
+    assert len(d) < 2000, f"{name} description {len(d)} chars exceeds 2KB budget"
+    assert not _has_cjk(d), f"{name} description contains CJK — must be English"
+
+
+def test_task1_grep_has_output_mode_and_regex_guidance():
+    """TASK 1 acceptance: grep now guides output_mode choice + regex escaping."""
+    descs = _tool_descriptions()
+    g = descs["grep"].lower()
+    assert "output mode" in g, "grep must explain output_mode choices"
+    assert "escape" in g, "grep must warn about regex metacharacter escaping"
 
 
 # ---------------------------------------------------------------------------

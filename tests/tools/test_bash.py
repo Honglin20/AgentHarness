@@ -39,7 +39,10 @@ class TestBashToolFactory:
 
     def test_description_keywords(self):
         factory = BashToolFactory()
-        for keyword in ("bash", "command", "shell"):
+        # Core identity + decision guidance must be present. "shell" was dropped
+        # when the description moved to decision-language (WHEN TO USE...); we
+        # assert the decision info that replaced it instead.
+        for keyword in ("bash", "command", "dedicated", "timeout"):
             assert keyword in factory.description.lower()
 
     def test_create_returns_tool(self):
