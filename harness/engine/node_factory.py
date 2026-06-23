@@ -13,7 +13,6 @@ Exports:
 """
 from __future__ import annotations
 
-import json as _json
 import logging
 import time
 from typing import TYPE_CHECKING
@@ -22,7 +21,8 @@ from pydantic import BaseModel
 
 from harness.constants import STATE_ERRORS, STATE_INPUTS, STATE_METADATA, STATE_OUTPUTS
 from harness.cost import calculate_cost
-from harness.engine.schema_utils import ReviewDecision, strip_schema
+from harness.engine.schema_utils import ReviewDecision
+from harness.prompts.assembler import assemble_static_prompt
 from harness.engine.llm_executor import LLMExecutor
 from harness.engine.llm_retry import execute_with_retry
 from harness.engine.node_phases import (
@@ -121,43 +121,17 @@ def make_node_func(
     upstream_names = dep_map[agent_def.name] or []
     _judge_targets = judge_targets or {}
 
-    # Build augmented system prompt with output format schema.
-    #
-    # pydantic-ai 1.x wraps ``result_type`` (a BaseModel) into an implicit
-    # ``final_result`` function-call tool whose JSON-schema is the model's
-    # ``model_json_schema()``. The model is EXPECTED to emit a tool call to
-    # ``final_result`` with arguments matching the schema — NOT to emit JSON
-    # as plain text. If the model emits text instead, pydantic-ai fails the
-    # output, retries with a ``RetryPromptPart`` saying "Invalid JSON:
-    # expected value at line 1 column 1", and gives the model another chance
-    # to switch to the tool-call path. (Verified against pydantic-ai 1.98:
-    # successful runs in fb24e1f8 contain 3 ``final_result`` tool calls with
-    # args whose keys exactly match the schema.)
-    #
-    # The reminder below explicitly tells the model which path to take. The
-    # prior wording ("respond with JSON matching this schema") was ambiguous
-    # — it implied text output and pushed models that had drifted into a
-    # markdown-summary mode further down the wrong path (see 2026-06-17
-    # adapter_generator incident). The new wording:
-    #   1. Names the tool (``final_result``) so the model knows which entry
-    #      in its tool list to invoke.
-    #   2. Shows the schema the tool expects.
-    #   3. Tells the model that on retry (after a "Invalid JSON" reminder)
-    #      it should switch from text output to a ``final_result`` call.
+    # Build the static system prompt via the central assembler. The output-
+    # format schema section is appended only when result_type is set; see
+    # harness/prompts/assembler.py for the layered design and the rationale
+    # for the ``final_result`` tool-call wording (pydantic-ai 1.x behavior +
+    # 2026-06-17 adapter_generator incident). The schema-derivation fallback
+    # (lenient: log + use the bare agent body) is preserved here so a broken
+    # result_type never crashes node construction.
     augmented_prompt = parsed.prompt
     if result_type is not None:
         try:
-            schema = strip_schema(result_type.model_json_schema())
-            augmented_prompt += (
-                "\n\n## Output Format\n"
-                "Use tools freely. Before each tool call, briefly state what you intend to do and why.\n\n"
-                "When the work is complete, **call the `final_result` tool** with arguments matching this schema:\n"
-                + _json.dumps(schema, indent=2, ensure_ascii=False)
-                + "\n\nDo NOT emit the JSON as plain text — the framework only accepts a `final_result` "
-                  "tool call. If you previously emitted text or markdown and received an "
-                  "\"Invalid JSON\" reminder, switch immediately to calling the `final_result` tool "
-                  "with the fields shown above."
-            )
+            augmented_prompt = assemble_static_prompt(parsed.prompt, result_type)
         except Exception:
             logger.warning(
                 "Failed to inject result_type schema into prompt for %s",
