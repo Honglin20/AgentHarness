@@ -7,6 +7,7 @@ If the agent never calls the todo tool, the CREATE reminder still fires.
 
 from __future__ import annotations
 
+from harness.prompts import feedback
 from harness.tools.deps import AgentDeps
 from harness.tools.todo import get_todo_state
 
@@ -45,16 +46,7 @@ class TodoReminderTracker:
         if state is None or not state.has_plan:
             if self._non_todo_calls >= self.CREATE_THRESHOLD:
                 self._non_todo_calls = 0
-                return (
-                    "<system-reminder>"
-                    "你还没有创建任务步骤。**必须调用 TodoTool 工具** "
-                    "(op='create', items=[{content, activeForm}, ...])，"
-                    "**禁止用 bash/Write/echo 写 todo*.json 或 todo_plan*.json 来替代** —— "
-                    "TodoTool 是工具调用，不是文件写入。\n"
-                    "schema 提醒：activeForm 是现在进行时描述（如 'Analyzing project structure'），"
-                    "**不是** status 字段；status 由框架自动管理。"
-                    "</system-reminder>"
-                )
+                return feedback.reminder_create_msg()
             return None
 
         # --- Plan exists but agent hasn't updated progress ---
@@ -64,18 +56,9 @@ class TodoReminderTracker:
                 (step for step in state.steps if step.status == "in_progress"), None
             )
             if active:
-                return (
-                    f"<system-reminder>"
-                    f"你有一段时间没更新 task 状态了。当前 in_progress: 「{active.content}」。"
-                    f"如果这个 stage 已完成，调用 TodoTool(op='update', task_id='{active.task_id}', status='completed')；"
-                    f"如果还在做，可以忽略此提醒，不需要中途更新 detail。"
-                    f"</system-reminder>"
+                return feedback.reminder_update_active_msg(
+                    active.content, active.task_id
                 )
-            return (
-                "<system-reminder>"
-                "你有一段时间没更新 task 状态了。如果当前 stage 已完成，"
-                "调用 TodoTool(op='update', ..., status='completed')；如果还在做，可以忽略此提醒。"
-                "</system-reminder>"
-            )
+            return feedback.reminder_update_idle_msg()
 
         return None

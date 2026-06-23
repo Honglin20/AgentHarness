@@ -145,19 +145,15 @@ class LLMExecutor:
         import json as _json
         try:
             from harness.engine.schema_utils import strip_schema
+            from harness.prompts import feedback
             schema_obj = getattr(self._agent, "_output_schema", None)
             toolset = getattr(self._agent, "_output_toolset", None)
             if toolset is None or not getattr(toolset, "_tool_defs", None):
                 return None
             td = toolset._tool_defs[0]
             schema = strip_schema(td.parameters_json_schema)
-            return (
-                "## Output rejected — please retry correctly\n"
-                "Your previous response did not match the required output schema. "
-                f"You MUST call the `{td.name}` tool with arguments matching this JSON schema:\n\n"
-                + _json.dumps(schema, indent=2, ensure_ascii=False)
-                + "\n\nDo NOT emit the schema as plain text or markdown. Switch to a "
-                f"`{td.name}` tool call now and fill every required field with concrete values."
+            return feedback.schema_retry_msg(
+                td.name, _json.dumps(schema, indent=2, ensure_ascii=False)
             )
         except Exception:
             logger.debug(
