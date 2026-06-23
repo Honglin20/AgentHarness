@@ -10,16 +10,12 @@ retries: 2
 
 ## 任务
 
-用工具统计 `/Users/mozzie/Desktop/Projects/AgentHarness/harness/tools` 目录下有多少个 `.py` 文件，
+统计 `/Users/mozzie/Desktop/Projects/AgentHarness/harness/tools` 目录下有多少个 `.py` 文件，
 然后报告数量。
 
-## 要求
+## 输出
 
-- 调用工具前先说明你打算做什么、为什么。
-- 用 glob 工具列出文件（不要用 bash 的 ls/find）。
-- 在 summary 里给出数字结论，details 里给出简要过程。
+在 summary 里给出数字结论，details 里给出简要过程。
 
-## 严禁
-
-- 用 bash 跑 ls 或 find 来数文件（应该用 glob 工具）
-- 静默吞错
+（通用工作范式——先建 todo 计划、调用工具前说明意图、用 glob 不用 bash ls、
+失败不静默吞错——由框架的 base prompt 统一注入，此处不再重复。）

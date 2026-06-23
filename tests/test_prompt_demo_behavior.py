@@ -107,10 +107,21 @@ def test_prompt_demo_runs_and_uses_glob():
         print(f"\n[behavior] regenerated {fixture}")
     elif fixture.exists():
         prior = json.loads(fixture.read_text(encoding="utf-8"))
-        # Structural invariant: system_prompt must be byte-identical pre/post
-        # the TASK 1-2 refactor (those are pure refactors).
-        assert captured.get("system_prompt") == prior.get("system_prompt"), (
-            "system_prompt drifted from baseline — TASK 1-2 must be byte-identical."
+        # After TASK 3 (base layer injection) the system_prompt is EXPECTED to
+        # differ from the pre-base baseline by a base prefix. The invariant we
+        # keep checking: the OUTPUT-FORMAT section (schema tail) must still be
+        # byte-identical — TASK 1-2's contract is on the tail, not the whole
+        # prompt once base is layered on.
+        cur_tail = captured.get("system_prompt", "")
+        prior_tail = prior.get("system_prompt", "")
+        # Extract from "## Output Format" onward in both — the schema section
+        # must not drift across any TASK.
+        def _schema_section(s: str) -> str:
+            idx = s.find("## Output Format")
+            return s[idx:] if idx >= 0 else s
+        assert _schema_section(cur_tail) == _schema_section(prior_tail), (
+            "Output-Format schema section drifted — this must stay byte-identical "
+            "across all TASKs (only the base prefix may change)."
         )
 
     # Behavioral contract: agent used glob (the demo's whole point).

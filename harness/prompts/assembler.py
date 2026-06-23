@@ -20,11 +20,39 @@ fixtures — that is the regression detector.
 from __future__ import annotations
 
 import json
+from functools import lru_cache
+from pathlib import Path
 from typing import Type
 
 from pydantic import BaseModel
 
 from harness.engine.schema_utils import strip_schema
+
+# ---------------------------------------------------------------------------
+# Base-layer content (cross-agent working norms).
+#
+# Loaded once from harness/prompts/base.md and cached (module-level, since
+# the file ships with the package and never changes within a process). A
+# process-level cache is correct here: base.md is framework-shipped, not
+# user-editable at runtime. The lru_cache wraps a function so tests can
+# clear it if they swap the file.
+# ---------------------------------------------------------------------------
+
+_BASE_MD_PATH = Path(__file__).resolve().parent / "base.md"
+
+
+@lru_cache(maxsize=1)
+def _load_base_layer() -> str:
+    """Read and cache the base working-norms prompt.
+
+    Returns the file content with surrounding whitespace stripped. If the
+    file is somehow missing, returns "" so assembly degrades gracefully to
+    the legacy (base-less) behavior rather than crashing every agent.
+    """
+    try:
+        return _BASE_MD_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 # ---------------------------------------------------------------------------
 # Output-format section.
@@ -64,6 +92,11 @@ def assemble_static_prompt(
 ) -> str:
     """Assemble the static system prompt for one agent.
 
+    Layer order (first = seen first by the model):
+      [base]    base working norms (harness/prompts/base.md)
+      [agent]   ``agent_md_body`` verbatim (domain logic)
+      [output]  ``## Output Format`` + schema (only when result_type set)
+
     Parameters
     ----------
     agent_md_body
@@ -77,20 +110,24 @@ def assemble_static_prompt(
     Returns
     -------
     str
-        The full static system prompt. Byte-identical to the legacy
-        ``node_factory`` ``augmented_prompt`` for the same inputs (proven by
-        tests/test_prompt_baseline.py).
+        The full static system prompt.
 
     Notes
     -----
-    - base-layer injection (TASK 3) will prepend a base.md segment here.
-      The function signature is designed to stay stable: base content will
-      be resolved internally (cached file read), not added as a parameter.
-    - result_type schema derivation failures are NOT caught here — the
-      legacy code caught them at the call site (node_factory). Callers that
-      need the lenient fallback should wrap this call.
+    - The base layer is cached at module load (base.md ships with the
+      framework and is immutable within a process).
+    - result_type schema derivation failures are NOT caught here — callers
+      needing the lenient fallback should wrap this call.
+    - An empty ``agent_md_body`` still gets the base prefix; an empty
+      ``result_type``-free agent with empty body yields just the base layer.
     """
-    prompt = agent_md_body
+    parts: list[str] = []
+    base = _load_base_layer()
+    if base:
+        parts.append(base)
+    if agent_md_body:
+        parts.append(agent_md_body)
+    prompt = "\n\n".join(parts)
     if result_type is not None:
         prompt += _output_format_section(result_type)
     return prompt
