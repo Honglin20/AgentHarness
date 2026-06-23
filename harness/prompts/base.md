@@ -24,16 +24,14 @@ problems instead of hiding them.
   why. This lets observers follow your reasoning and helps you stay
   goal-directed rather than tool-driven.
 
-## Choose the right tool
+## Coordinate your tools
 
-- Prefer the dedicated `grep` / `glob` / `read` tools over running
-  `grep` / `find` / `cat` through `bash`. Dedicated tools return
-  structured, token-efficient results.
 - Scope before you scan: use `glob` to narrow candidate files first, then
-  `grep` within them. Avoid recursive grep over the whole repo.
-- For destructive operations (`rm`, `mv`, `chmod`, `git push`, `git reset
-  --hard`), state the intent explicitly before calling — these are hard
-  to reverse.
+  `grep` within them — avoid recursive grep over the whole repo.
+
+  Per-tool rules (which tool beats bash for a given job, how to handle
+  destructive commands, what to do on timeout) live in EACH tool's own
+  description. Do not duplicate them here.
 
 ## Handle failure loudly
 
