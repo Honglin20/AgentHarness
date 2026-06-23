@@ -468,11 +468,22 @@ class BashToolFactory(ToolFactory):
     name = "bash"
     description = (
         "Execute a bash command and return its output. "
-        "Use for running shell commands, scripts, and system operations. "
         "Commands execute in the agent's working directory.\n\n"
-        "Output handling: if output exceeds 30,000 chars, the full output is "
-        "saved to .bash_outputs/{ts}_{hash}.log and only a ~2KB preview is "
-        "returned inline. Use read_text_file to read the full output on demand."
+        "WHEN TO USE A DEDICATED TOOL INSTEAD: prefer the dedicated "
+        "Read/Grep/Glob tools over bash cat/find/grep/ls — they return "
+        "structured, token-efficient results and integrate with the "
+        "framework's truncation. Use bash only when no dedicated tool fits "
+        "(running scripts, piped commands, git, build steps).\n\n"
+        "DESTRUCTIVE COMMANDS (rm, mv, chmod, git push, git reset --hard, "
+        "drop): state your intent in the description field before calling — "
+        "these are hard to reverse.\n\n"
+        "OUTPUT HANDLING: output over 30,000 chars is saved to "
+        ".bash_outputs/{ts}_{hash}.log with a ~2KB inline preview; use "
+        "read_text_file to page through the full output rather than "
+        "re-running with head/tail.\n\n"
+        "ON TIMEOUT: do not blindly retry the identical command. Split it "
+        "into smaller steps, narrow the input, or raise the timeout — then "
+        "say which you chose."
     )
 
     def __init__(self, timeout_ms: int = DEFAULT_TIMEOUT_MS):

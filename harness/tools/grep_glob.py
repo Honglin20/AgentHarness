@@ -49,10 +49,16 @@ class GrepToolFactory(ToolFactory):
 
     name = "grep"
     description = (
-        "A powerful search tool built on ripgrep. "
-        "Searches file contents for regex patterns. Supports file type filtering, "
-        "context lines, case-insensitive mode, and multiple output formats. "
-        "Use this tool instead of bash grep for structured, token-efficient results."
+        "Search file CONTENTS for regex patterns, built on ripgrep. "
+        "Supports file-type filtering, context lines, case-insensitive mode, "
+        "and multiple output formats. Prefer this over bash grep.\n\n"
+        "WHEN TO USE: searching inside files for a pattern. Use Glob first "
+        "when you only need to find file PATHS by name — Glob is cheaper and "
+        "scoped. Combine them: Glob to narrow candidate files, then Grep "
+        "within those files.\n\n"
+        "ON NO MATCHES: the pattern or scope is likely too narrow or "
+        "misspelled. Broaden the glob, relax the regex, or check the path — "
+        "do not assume the target is absent."
     )
 
     def create(self) -> PydanticAITool:
@@ -171,10 +177,15 @@ class GlobToolFactory(ToolFactory):
 
     name = "glob"
     description = (
-        "Fast file pattern matching tool. "
-        "Supports glob patterns like '**/*.js' or 'src/**/*.ts'. "
-        "Returns matching file paths sorted by modification time. "
-        "Use this tool instead of bash find/ls for structured, token-efficient results."
+        "Fast file-PATH matching by glob pattern (e.g. '**/*.py', "
+        "'src/**/*.ts'). Returns matching paths sorted by modification time. "
+        "Prefer this over bash find/ls.\n\n"
+        "WHEN TO USE: locating files by name/extension. Run Glob BEFORE Grep "
+        "to scope candidate files cheaply, then Grep within them — this avoids "
+        "recursively scanning an entire repo.\n\n"
+        "ON NO MATCHES: the pattern is likely too narrow. Try a broader glob "
+        "( '**' instead of '*'), drop an extension constraint, or check the "
+        "base path."
     )
 
     def create(self) -> PydanticAITool:
