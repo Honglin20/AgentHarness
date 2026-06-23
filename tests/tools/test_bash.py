@@ -85,6 +85,62 @@ class TestBashToolFactory:
         assert "timed out" in result
         assert "1000ms" in result
 
+    def test_timeout_records_last_tool_failure(self):
+        """TASK 2: a timeout writes a structured failure to deps (side-channel).
+
+        The returned string is unchanged (model still sees the timed-out
+        output); deps.last_tool_failure carries the structured failure +
+        actionable hint for runtime_status to surface next turn.
+        """
+        factory = BashToolFactory(timeout_ms=1000)
+        tool = factory.create()
+        bash_fn = tool.function
+        ctx = _make_ctx()
+        result = bash_fn(ctx, command="sleep 10", description="sleep ten seconds")
+        # Return value unchanged.
+        assert "timed out" in result
+        # Side-channel failure recorded.
+        f = ctx.deps.last_tool_failure
+        assert f is not None
+        assert f["tool"] == "bash"
+        assert "timed out" in f["error"]
+        assert f["hint"]  # actionable guidance present
+
+    def test_nonzero_exit_with_stderr_records_failure(self):
+        """TASK 2: non-zero exit + visible stderr records a failure."""
+        factory = BashToolFactory()
+        tool = factory.create()
+        bash_fn = tool.function
+        ctx = _make_ctx()
+        result = bash_fn(ctx, command="ls /nonexistent_dir_xyz", description="ls missing dir")
+        assert "[exit code:" in result and "[stderr]" in result
+        f = ctx.deps.last_tool_failure
+        assert f is not None and f["tool"] == "bash" and "exit code" in f["error"]
+
+    def test_success_does_not_record_failure(self):
+        """TASK 2: a clean exit (code 0) must NOT set last_tool_failure."""
+        factory = BashToolFactory()
+        tool = factory.create()
+        bash_fn = tool.function
+        ctx = _make_ctx()
+        bash_fn(ctx, command="echo ok", description="echo ok")
+        assert ctx.deps.last_tool_failure is None
+
+    def test_nonzero_exit_without_stderr_does_not_record_failure(self):
+        """TASK 2: non-zero exit with NO stderr is not actionable → not recorded.
+
+        Many tools exit non-zero on benign conditions (grep no-match). Without
+        stderr the failure gives the model nothing to act on, so we stay quiet.
+        """
+        factory = BashToolFactory()
+        tool = factory.create()
+        bash_fn = tool.function
+        ctx = _make_ctx()
+        # `true` exits 0; use a command that exits 1 with empty stderr.
+        result = bash_fn(ctx, command="exit 1", description="exit 1 no stderr")
+        assert "[exit code: 1]" in result
+        assert ctx.deps.last_tool_failure is None
+
     def test_default_timeout(self):
         assert DEFAULT_TIMEOUT_MS == 120_000
         factory = BashToolFactory()

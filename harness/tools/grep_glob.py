@@ -157,7 +157,18 @@ class GrepToolFactory(ToolFactory):
             if r.returncode == 1:
                 return "No matches found"
             if r.returncode >= 2:
-                return f"Error: {r.stderr.strip()}" if r.stderr else f"Error: rg exited with code {r.returncode}"
+                err = r.stderr.strip() if r.stderr else f"rg exited with code {r.returncode}"
+                # Record a structured failure (true rg error, NOT a no-match)
+                # so runtime_status can surface it. No-match (exit 1) above is
+                # a normal result, not recorded. Side-channel only: the
+                # returned string is unchanged.
+                if isinstance(ctx.deps, AgentDeps):
+                    ctx.deps.last_tool_failure = {
+                        "tool": "grep",
+                        "error": err[:200],
+                        "hint": "check the regex syntax — escape literal brackets, parens, or dots if searching for them verbatim",
+                    }
+                return f"Error: {err}"
 
             output = r.stdout
             if not output:

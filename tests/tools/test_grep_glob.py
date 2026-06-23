@@ -96,6 +96,34 @@ class TestGrep:
         result = _run_tool(registry, "grep", pattern="def hello", path=str(sample_project), output_mode="content", context=1)
         assert "print" in result
 
+    def test_grep_no_match_does_not_record_failure(self, sample_project):
+        """TASK 2: no-match (rg exit 1) is a normal result, NOT a failure."""
+        from pydantic_ai import RunContext
+        from harness.tools.deps import AgentDeps
+        deps = AgentDeps(workdir=str(sample_project))
+        ctx = RunContext(deps=deps, model=None, usage=None, prompt=None)
+        fn = GrepToolFactory().create().function
+        result = fn(ctx, pattern="zzzznonexistent", path=str(sample_project))
+        assert "No matches" in result
+        assert deps.last_tool_failure is None  # no-match is not an error
+
+    def test_grep_regex_error_records_failure(self, sample_project):
+        """TASK 2: a true rg error (exit >= 2, e.g. malformed regex) records a failure."""
+        from pydantic_ai import RunContext
+        from harness.tools.deps import AgentDeps
+        deps = AgentDeps(workdir=str(sample_project))
+        ctx = RunContext(deps=deps, model=None, usage=None, prompt=None)
+        fn = GrepToolFactory().create().function
+        # An unclosed bracket is a regex parse error → rg exits 2.
+        result = fn(ctx, pattern="def [hello", path=str(sample_project))
+        assert result.startswith("Error")
+        f = deps.last_tool_failure
+        assert f is not None
+        assert f["tool"] == "grep"
+        assert f["hint"]  # actionable guidance (escape metacharacters)
+        # The returned string is unchanged (side-channel only).
+        assert "Error" in result
+
 
 # ── glob ─────────────────────────────────────────────────────────
 

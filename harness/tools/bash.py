@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import subprocess
 import threading
 import time
@@ -171,6 +172,55 @@ def _build_truncated_result(full_text: str, output_path: Path) -> str:
         f"[use read_text_file to read on demand — e.g. read_text_file('{output_path}') "
         f"or use grep to find specific content]"
     )
+
+
+# ---------------------------------------------------------------------------
+# Failure detection (TASK 2 of the refinement plan).
+#
+# run_foreground encodes failure as MARKERS in the returned string (see
+# _assemble_full_text): "[command timed out ...]" / "[exit code: N]". The tool
+# closure parses those markers to record a structured last_tool_failure on
+# deps, which runtime_status then surfaces to the next model request.
+#
+# Design: this is a PURE function over the result string — no deps, no I/O —
+# so it is trivially testable. The side effect (writing to deps) lives in the
+# closure, keeping detection and mutation separate (SRP).
+# ---------------------------------------------------------------------------
+
+_TIMEOUT_RE = re.compile(r"\[command timed out(?: after (\d+)ms)?\]")
+_EXITCODE_RE = re.compile(r"\[exit code: (-?\d+)\]")
+
+
+def _detect_failure(result: str) -> dict | None:
+    """Parse a bash result string for a failure marker.
+
+    Returns a failure dict {tool, error, hint} when the result encodes a
+    timeout or non-zero exit, else None. Non-zero exit is only reported when
+    stderr text is visible in the result (the marker alone, without stderr,
+    gives the model nothing actionable — many tools exit non-zero on benign
+    conditions like grep finding no match).
+
+    Pure: depends only on its input string.
+    """
+    m_timeout = _TIMEOUT_RE.search(result)
+    if m_timeout:
+        ms = m_timeout.group(1)
+        return {
+            "tool": "bash",
+            "error": f"command timed out after {ms}ms" if ms else "command timed out",
+            "hint": "split the command into smaller steps, narrow the input, or raise the timeout",
+        }
+    m_code = _EXITCODE_RE.search(result)
+    if m_code:
+        code = m_code.group(1)
+        # Only surface when there is stderr the model can act on.
+        if "[stderr]" in result:
+            return {
+                "tool": "bash",
+                "error": f"exit code {code}",
+                "hint": "check the command and its arguments against the stderr above",
+            }
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -538,11 +588,21 @@ class BashToolFactory(ToolFactory):
                         workflow_id=wid, node_id=node_id, agent_name=agent_name,
                         description=description,
                     )
-                return run_foreground(
+                result = run_foreground(
                     command, workdir,
                     timeout_ms=effective_timeout,
                     workflow_id=wid, node_id=node_id, agent_name=agent_name,
                 )
+                # Record a structured failure (if any) so runtime_status can
+                # surface it to the next model request. Side-channel only: the
+                # returned string is unchanged (the model still sees the full
+                # output + markers). Background completions are surfaced via
+                # the bash.background_completed event, not this path.
+                if isinstance(ctx.deps, AgentDeps):
+                    failure = _detect_failure(result)
+                    if failure is not None:
+                        ctx.deps.last_tool_failure = failure
+                return result
             except Exception as e:
                 logger.exception("bash tool failed")
                 return f"Error: {e}"

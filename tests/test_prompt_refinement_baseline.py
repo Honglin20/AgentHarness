@@ -138,21 +138,42 @@ def test_task1_grep_has_output_mode_and_regex_guidance():
 # TASK 2 baseline — last_tool_failure is never written (the bug)
 # ---------------------------------------------------------------------------
 
-def test_task2_baseline_no_tool_writes_last_tool_failure():
-    """No built-in tool touches deps.last_tool_failure today.
+def test_task2_tools_now_write_last_tool_failure():
+    """TASK 2 acceptance: bash + grep error paths now write last_tool_failure.
 
-    grep the tool source for the attribute. This is the documented half-finished
-    state from the refactor release note. TASK 2 must make this assertion FAIL
-    (bash/grep error paths start writing it).
+    Pre-refinement no tool touched the field (the documented half-finished
+    state). TASK 2 wires the write-end. Proven by source + behavior below.
     """
     import harness.tools.bash as bash_mod
     import harness.tools.grep_glob as grep_mod
 
-    for mod_name, mod in (("bash", bash_mod), ("grep_glob", grep_mod)):
-        src = Path(mod.__file__).read_text(encoding="utf-8")
-        assert "last_tool_failure" not in src, (
-            f"{mod_name} already writes last_tool_failure — TASK 2 may be done"
-        )
+    bash_src = Path(bash_mod.__file__).read_text(encoding="utf-8")
+    grep_src = Path(grep_mod.__file__).read_text(encoding="utf-8")
+    assert "last_tool_failure" in bash_src, "bash must write last_tool_failure"
+    assert "last_tool_failure" in grep_src, "grep must write last_tool_failure"
+
+
+def test_task2_detect_failure_pure_function():
+    """TASK 2 acceptance: _detect_failure parses bash result markers correctly."""
+    from harness.tools.bash import _detect_failure
+
+    # Timeout marker → failure with hint.
+    f = _detect_failure("some output\n[command timed out after 5000ms]")
+    assert f is not None and f["tool"] == "bash" and "timed out" in f["error"]
+    assert f["hint"]
+
+    # Non-zero exit WITH stderr → failure.
+    f = _detect_failure("out\n[stderr]\ncommand not found\n[exit code: 127]")
+    assert f is not None and "127" in f["error"]
+
+    # Non-zero exit WITHOUT stderr → no failure (nothing actionable).
+    assert _detect_failure("out\n[exit code: 1]") is None
+
+    # Success → no failure.
+    assert _detect_failure("all good\n[exit code: 0]") is None
+
+    # Plain output → no failure.
+    assert _detect_failure("hello world") is None
 
 
 def test_task2_baseline_failure_block_returns_empty_with_real_deps():
