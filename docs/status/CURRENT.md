@@ -1,15 +1,25 @@
 # Current Task
 
-**当前任务**: PROMPT 体系重构与扩展 — 方案已定，待用户确认后执行 TASK 1-6
+**当前任务**: PROMPT 体系重构与扩展 — **已完成** (TASK 1-6 全部交付)
 
 - 总纲报告: [`docs/plans/2026-06-23-harness-vs-claudecode-gap-audit.md`](../plans/2026-06-23-harness-vs-claudecode-gap-audit.md)
-- **执行方案**: [`docs/plans/2026-06-23-prompt-system-refactor-plan.md`](../plans/2026-06-23-prompt-system-refactor-plan.md)
-- 讨论顺序: A. PROMPT（方案已定）→ B. HOOK → C. MIDDLEWARE
-- **PROMPT 方案要点**:
-  - 先重构（TASK 1-2：抽 assembler + 统一 feedback，纯行为不变）再扩展（TASK 3-6）
-  - 集中: `harness/prompts/`（base.md / runtime.py / feedback.py / assembler.py）
-  - 分散: agent.md（不动）、工具描述（留各 tools/*.py）
-  - 动态态势层用 pydantic-ai `@system_prompt(dynamic=True)` 取代 ReminderTracker
+- 执行方案: [`docs/plans/2026-06-23-prompt-system-refactor-plan.md`](../plans/2026-06-23-prompt-system-refactor-plan.md)
+- **交付状态**: 6 commits (Phase 0 baseline + TASK 1-6), 160 测试全绿, 行为基线通过
+- 讨论顺序: A. PROMPT（✅ 完成）→ B. HOOK（待开始）→ C. MIDDLEWARE（待开始）
+
+## PROMPT 重构成果（2026-06-23）
+
+**新增 `harness/prompts/`**: assembler.py (静态拼装) + base.md (工作范式) +
+runtime.py (动态态势) + feedback.py (反馈文案) + README.md (判定规则)。
+
+**关键改进**:
+- system prompt 从「静态字符串」→ 「base + agent + schema + 每轮动态态势」
+- TodoReminderTracker（计数器累积）→ pydantic-ai dynamic_ref（每轮原地替换）
+- 散落 3 处的反馈文案 → feedback.py 单一来源
+- bash/grep/glob 描述嵌入工具选择规则（agent.md 不再重复强调）
+- 验证：从 agent.md 删规则后行为不退化（仍用 glob + 答对）
+
+详见 release note [`docs/releases/2026-06-23-prompt-system-refactor.md`](../releases/2026-06-23-prompt-system-refactor.md)。
 
 ## 上一任务: Token 计数显示修复（Q1）(2026-06-21)
 
