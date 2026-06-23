@@ -276,17 +276,55 @@ async def test_task5_runtime_surfaces_iteration_on_retry():
 # TASK 6 baseline — no reminders pipeline yet
 # ---------------------------------------------------------------------------
 
-def test_task6_baseline_deps_has_no_reminders_field():
-    """AgentDeps has no pending_reminders field today.
-
-    TASK 6 adds it. Pydantic model_config has extra='allow', so we check the
-    declared fields, not attribute access (extra='allow' would let us SET
-    anything). This asserts the field is NOT declared.
-    """
+def test_task6_deps_now_has_reminders_field():
+    """TASK 6 acceptance: AgentDeps declares pending_reminders (runtime-only)."""
     declared = set(AgentDeps.model_fields)
-    assert "pending_reminders" not in declared, (
-        "AgentDeps already declares pending_reminders — TASK 6 may be done"
+    assert "pending_reminders" in declared, (
+        "AgentDeps must declare pending_reminders for the reminders pipeline"
     )
+
+
+def test_task6_reminders_field_excluded_from_serialization():
+    """TASK 6 acceptance: pending_reminders is runtime-only (never serialized)."""
+    deps = AgentDeps(agent_name="a", workflow_id="w", node_id="a")
+    deps.pending_reminders = ["test reminder"]
+    dumped = deps.model_dump()
+    assert "pending_reminders" not in dumped, (
+        "pending_reminders must be excluded from serialization (runtime-only)"
+    )
+
+
+def test_task6_reminders_block_flushes_and_caps():
+    """TASK 6 acceptance: _reminders_block flushes the queue + caps at 5."""
+    from harness.prompts.runtime import _reminders_block, _REMINDER_CAP
+
+    # Empty queue → no block.
+    deps = AgentDeps(agent_name="a", workflow_id="w", node_id="a")
+    assert _reminders_block(deps) == ""
+
+    # Append 3 → surfaced, then cleared (flush).
+    deps.pending_reminders = ["r1", "r2", "r3"]
+    out = _reminders_block(deps)
+    assert "r1" in out and "r2" in out and "r3" in out
+    assert "Reminders:" in out
+    assert deps.pending_reminders == []  # flushed
+
+    # Over-cap → capped, dropped count noted, queue still fully cleared.
+    deps.pending_reminders = [f"r{i}" for i in range(_REMINDER_CAP + 4)]
+    out = _reminders_block(deps)
+    assert f"+4 more reminder(s) dropped" in out
+    assert deps.pending_reminders == []  # all cleared even those dropped
+
+
+@pytest.mark.asyncio
+async def test_task6_runtime_status_aggregates_reminders():
+    """TASK 6 acceptance: runtime_status surfaces the reminders block."""
+    deps = AgentDeps(agent_name="a", workflow_id="w", node_id="a")
+    deps.pending_reminders = ["File auth.py changed since you last read it."]
+    out = await runtime_status(_make_ctx(deps))
+    assert "Reminders:" in out
+    assert "auth.py changed" in out
+    assert deps.pending_reminders == []  # flushed after surfacing
 
 
 # ---------------------------------------------------------------------------

@@ -42,3 +42,11 @@ class AgentDeps(BaseModel):
     # runtime_status after it surfaces the failure, so a stale error does not
     # haunt every subsequent request. Runtime-only — never serialized.
     last_tool_failure: dict[str, Any] | None = Field(default=None, exclude=True)
+    # Generic one-shot reminder queue (TASK 6 of the refinement plan). Any
+    # module that observes a transient condition worth surfacing (file changed
+    # since last read, duplicate tool call, ...) appends a short string here;
+    # runtime_status flushes the queue each turn into a <runtime-status>
+    # Reminders block, then clears it. Unlike last_tool_failure (structured:
+    # tool/error/hint), this is free-text and open-ended — the OCP channel for
+    # ad-hoc reminders that don't warrant their own field. Runtime-only.
+    pending_reminders: list[str] = Field(default_factory=list, exclude=True)

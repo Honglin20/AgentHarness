@@ -6,19 +6,27 @@ in place (the produced SystemPromptPart carries a ``dynamic_ref`` so it is
 REPLACED rather than appended — unlike the old TodoReminderTracker which
 accumulated one reminder per turn).
 
-Two pieces of runtime context are surfaced:
+Four pieces of runtime context are surfaced:
 
   - todo progress: whether a plan exists, how many steps are done, what is
     in_progress. This replaces TodoReminderTracker's counter-based nudges
     with continuous, accurate status.
+  - node iteration: when a node re-enters (loop/retry, iteration > 1), nudge
+    the model to vary its approach rather than repeat an identical attempt.
   - last tool failure: if a tool recorded a failure (via
     ``ctx.deps.last_tool_failure``) since the last request, surface it so the
     model can adapt (split a timed-out command, change a grep pattern, …).
     Cleared after surfacing so stale errors do not persist.
+  - generic reminders: any module may append to ``deps.pending_reminders``
+    to surface a transient condition (file changed since last read, duplicate
+    tool call, ...). Flushed each turn into a Reminders block, then cleared.
+    This is the OCP channel for ad-hoc reminders that don't warrant their own
+    structured field (mirrors Claude Code's <system-reminder> semantics).
 
 The function is PURE w.r.t. deps state: it reads and returns a string; it
-only mutates ``last_tool_failure`` to clear a surfaced error (documented
-side effect — without it the same failure would recur every turn).
+only mutates the one-shot queues (``last_tool_failure`` and
+``pending_reminders``) to clear surfaced entries (documented side effect —
+without it the same item would recur every turn).
 """
 from __future__ import annotations
 
@@ -113,6 +121,39 @@ def _iteration_block(deps: AgentDeps) -> str:
     )
 
 
+# Cap on how many reminders a single turn surfaces. Prevents a runaway
+# producer from flooding the system prompt. Extras are dropped (the queue is
+# still cleared) — surfacing the first N is enough to flag the situation.
+_REMINDER_CAP = 5
+
+
+def _reminders_block(deps: AgentDeps) -> str:
+    """Render the generic one-shot reminder queue, flushing it after surfacing.
+
+    Any module may append short strings to ``deps.pending_reminders`` when it
+    observes a transient condition worth surfacing (file changed since last
+    read, duplicate tool call, ...). This block flushes the queue into a
+    <runtime-status> Reminders section each turn, then CLEARS it — reminders
+    are one-shot (surfaced once, not re-surfaced every turn). This mirrors
+    Claude Code's <system-reminder> semantics.
+
+    The clear is the documented side effect: without it, a stale reminder
+    would recur every turn. Capped at _REMINDER_CAP entries per turn.
+    """
+    reminders = deps.pending_reminders
+    if not reminders:
+        return ""
+    shown = reminders[:_REMINDER_CAP]
+    dropped = len(reminders) - len(shown)
+    deps.pending_reminders = []  # flush: one-shot, then clear
+    lines = ["<runtime-status>", "Reminders:"]
+    lines.extend(f"- {r}" for r in shown)
+    if dropped > 0:
+        lines.append(f"- (+{dropped} more reminder(s) dropped this turn)")
+    lines.append("</runtime-status>")
+    return "\n".join(lines)
+
+
 async def runtime_status(ctx: RunContext[AgentDeps]) -> str:
     """Dynamic system-prompt function: todo progress + recent tool failure.
 
@@ -132,6 +173,7 @@ async def runtime_status(ctx: RunContext[AgentDeps]) -> str:
             _todo_status_block(get_todo_state(deps)),
             _iteration_block(deps),
             _failure_block(deps),
+            _reminders_block(deps),
         )
         if b
     ]

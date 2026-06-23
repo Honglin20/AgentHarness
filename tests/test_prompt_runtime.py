@@ -19,7 +19,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from harness.prompts.runtime import runtime_status, _todo_status_block, _failure_block, _iteration_block
+from harness.prompts.runtime import (
+    runtime_status,
+    _todo_status_block,
+    _failure_block,
+    _iteration_block,
+    _reminders_block,
+    _REMINDER_CAP,
+)
 from harness.tools.deps import AgentDeps
 from harness.tools.todo import TodoState, StepEntry, ensure_todo_state
 
@@ -153,6 +160,35 @@ def test_iteration_block_advises_varying_approach():
     deps = AgentDeps(agent_name="a", workflow_id="w", node_id="a", iteration=2)
     out = _iteration_block(deps).lower()
     assert "vary" in out or "repeat" in out
+
+
+# --- Property 5: generic reminders pipeline (TASK 6) ---
+
+def test_reminders_block_empty_when_queue_empty():
+    """No queued reminders → no block (quiet when nothing to say)."""
+    deps = AgentDeps(agent_name="a", workflow_id="w", node_id="a")
+    assert _reminders_block(deps) == ""
+
+
+def test_reminders_block_surfaces_then_flushes():
+    """Queued reminders are surfaced once, then the queue is cleared (one-shot)."""
+    deps = AgentDeps(agent_name="a", workflow_id="w", node_id="a")
+    deps.pending_reminders = ["alpha", "beta"]
+    out = _reminders_block(deps)
+    assert "alpha" in out and "beta" in out
+    assert deps.pending_reminders == []  # flushed
+    # Second call → nothing (queue already cleared).
+    assert _reminders_block(deps) == ""
+
+
+def test_reminders_block_caps_at_five():
+    """More than _REMINDER_CAP reminders → show first N + a dropped-count note."""
+    deps = AgentDeps(agent_name="a", workflow_id="w", node_id="a")
+    deps.pending_reminders = [f"r{i}" for i in range(_REMINDER_CAP + 2)]
+    out = _reminders_block(deps)
+    assert f"+2 more reminder(s) dropped" in out
+    # The queue is fully cleared regardless of the cap (dropped ones too).
+    assert deps.pending_reminders == []
 
 
 @pytest.mark.asyncio
