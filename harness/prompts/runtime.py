@@ -91,6 +91,28 @@ def _failure_block(deps: AgentDeps) -> str:
     return "\n".join(parts)
 
 
+def _iteration_block(deps: AgentDeps) -> str:
+    """Render the node-iteration portion of the runtime status.
+
+    ``deps.iteration`` is the node-level invocation counter (1-indexed, bumped
+    each time this node re-runs via a conditional-edge loop or retry). Stays
+    quiet on the first invocation (iteration <= 1) so single-shot agents get
+    no noise; surfaces from the second onward so the model can tell it is
+    re-entering and should converge rather than repeat an identical attempt.
+
+    Pure read of deps.iteration — no mutation, no other state.
+    """
+    it = getattr(deps, "iteration", 1) or 1
+    if it <= 1:
+        return ""
+    return (
+        "<runtime-status>\n"
+        f"Iteration: {it} of this node — if a prior attempt did not succeed, "
+        f"vary your approach rather than repeating it verbatim.\n"
+        "</runtime-status>"
+    )
+
+
 async def runtime_status(ctx: RunContext[AgentDeps]) -> str:
     """Dynamic system-prompt function: todo progress + recent tool failure.
 
@@ -108,6 +130,7 @@ async def runtime_status(ctx: RunContext[AgentDeps]) -> str:
     blocks = [
         b for b in (
             _todo_status_block(get_todo_state(deps)),
+            _iteration_block(deps),
             _failure_block(deps),
         )
         if b

@@ -223,18 +223,32 @@ def test_task4_base_md_no_longer_duplicates_tool_rules():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_task5_baseline_no_iteration_block():
-    """runtime_status ignores deps.iteration today (no iteration surfacing).
+async def test_task5_runtime_surfaces_iteration_on_retry():
+    """TASK 5 acceptance: runtime_status surfaces node iteration on re-entry.
 
-    Post-TASK-5, the same deps with iteration=3 must surface an iteration
-    block. Today it does not. This baseline proves the field is read nowhere.
+    Pre-refinement runtime_status ignored deps.iteration entirely. TASK 5 adds
+    an _iteration_block: quiet on the first invocation, surfaces from the
+    second so the model knows it is re-entering and should vary its approach.
     """
-    deps = AgentDeps(agent_name="a", workflow_id="w", node_id="a", iteration=5)
-    # No todo plan + no failure → currently returns the "no plan yet" block only.
-    out = await runtime_status(_make_ctx(deps))
-    assert "iteration" not in out.lower(), (
-        "runtime_status already surfaces iteration — TASK 5 may be done"
+    from harness.tools.todo import ensure_todo_state
+
+    # iteration=1 → no iteration block (single-shot agents get no noise).
+    deps_first = AgentDeps(agent_name="a", workflow_id="w", node_id="a", iteration=1)
+    state1 = ensure_todo_state(deps_first)
+    state1.has_plan = True
+    state1.steps.append(  # a terminal plan so the todo block is quiet too
+        __import__("harness.tools.todo", fromlist=["StepEntry"]).StepEntry(
+            task_id="t1", content="done", activeForm="doing", status="completed",
+        )
     )
+    out_first = await runtime_status(_make_ctx(deps_first))
+    assert "iteration" not in out_first.lower(), "first invocation must be quiet"
+
+    # iteration=3 → iteration block present.
+    deps_retry = AgentDeps(agent_name="a", workflow_id="w", node_id="a", iteration=3)
+    out_retry = await runtime_status(_make_ctx(deps_retry))
+    assert "iteration" in out_retry.lower()
+    assert "3" in out_retry
 
 
 # ---------------------------------------------------------------------------

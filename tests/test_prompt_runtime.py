@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from harness.prompts.runtime import runtime_status, _todo_status_block, _failure_block
+from harness.prompts.runtime import runtime_status, _todo_status_block, _failure_block, _iteration_block
 from harness.tools.deps import AgentDeps
 from harness.tools.todo import TodoState, StepEntry, ensure_todo_state
 
@@ -124,6 +124,35 @@ def test_failure_block_surfaces_then_clears():
 def test_failure_block_empty_when_none():
     deps = AgentDeps(agent_name="a", workflow_id="w", node_id="a")
     assert _failure_block(deps) == ""
+
+
+# --- Property 4: node iteration surfacing (TASK 5) ---
+
+def test_iteration_block_quiet_on_first_invocation():
+    """iteration <= 1 → no block (single-shot agents get no noise)."""
+    deps = AgentDeps(agent_name="a", workflow_id="w", node_id="a", iteration=1)
+    assert _iteration_block(deps) == ""
+
+
+def test_iteration_block_quiet_on_default():
+    """Default iteration (1) → no block."""
+    deps = AgentDeps(agent_name="a", workflow_id="w", node_id="a")
+    assert _iteration_block(deps) == ""
+
+
+def test_iteration_block_surfaces_on_retry():
+    """iteration > 1 → block present, naming the iteration number."""
+    deps = AgentDeps(agent_name="a", workflow_id="w", node_id="a", iteration=3)
+    out = _iteration_block(deps)
+    assert "iteration" in out.lower()
+    assert "3" in out
+
+
+def test_iteration_block_advises_varying_approach():
+    """The iteration block should nudge the model to change approach, not repeat."""
+    deps = AgentDeps(agent_name="a", workflow_id="w", node_id="a", iteration=2)
+    out = _iteration_block(deps).lower()
+    assert "vary" in out or "repeat" in out
 
 
 @pytest.mark.asyncio
