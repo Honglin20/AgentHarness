@@ -16,6 +16,7 @@ from harness.tools.registry import ToolRegistry
 
 
 from harness.paths import get_shared_scripts_dir
+from harness.prompts.runtime import runtime_status
 
 _SHARED_SCRIPTS_DIR = get_shared_scripts_dir()
 
@@ -77,6 +78,15 @@ class MicroAgentFactory:
         @agent.output_validator
         async def _step_gate(ctx, data):
             return await step_gate_validator(ctx, data)
+
+        # Register the dynamic runtime-status system prompt (TASK 4). pydantic-ai
+        # calls runtime_status BEFORE EVERY model request and REPLACES the prior
+        # turn's status in place (dynamic_ref) rather than appending — so the
+        # model always sees current todo progress + any recent tool failure,
+        # without the accumulating-reminder problem of the old
+        # TodoReminderTracker. Reads ctx.deps (AgentDeps), which tools mutate
+        # to surface failures. See harness/prompts/runtime.py.
+        agent.system_prompt(dynamic=True)(runtime_status)
 
         return agent
 
