@@ -155,7 +155,7 @@ class TestEmitToolOutputMeasured:
 class TestZeroBehaviorChange:
     """The measurement emit must not alter the tool result that reaches the model."""
 
-    def test_wrap_fn_returns_truncated_result_unchanged(self):
+    async def test_wrap_fn_returns_truncated_result_unchanged(self):
         """_wrap_fn output is byte-identical with/without measurement, because
         emit_tool_output_measured is a fire-and-forget side channel."""
         from harness.tools.bash import BashToolFactory
@@ -175,7 +175,7 @@ class TestZeroBehaviorChange:
 
         # The result the model sees is whatever bash returns; measurement must
         # not transform it. We assert the result still contains the echo output.
-        result = bash_fn(ctx, command="echo measurement-test", description="t")
+        result = await bash_fn(ctx, command="echo measurement-test", description="t")
         assert "measurement-test" in result
 
 
@@ -185,7 +185,7 @@ class TestZeroBehaviorChange:
 class TestMeasurementThroughWrapFn:
     """A tool call inside a truncation_context emits exactly one measured event."""
 
-    def test_bash_call_emits_measured_event(self):
+    async def test_bash_call_emits_measured_event(self):
         from harness.tools.bash import BashToolFactory
 
         bus = _fake_bus()
@@ -204,7 +204,7 @@ class TestMeasurementThroughWrapFn:
         ctx.deps.__class__ = type("D", (), {})
 
         with truncation_context(bus, "w", "n", "a"):
-            bash_fn(ctx, command="echo hi", description="t")
+            await bash_fn(ctx, command="echo hi", description="t")
 
         measured = [
             c for c in bus.emit.call_args_list

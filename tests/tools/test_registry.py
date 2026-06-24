@@ -192,7 +192,7 @@ def test_expand_globs_dedup_preserves_order():
 
 # ── Stage 3: _wrap_fn truncation integration ───────────────────────────
 
-def test_wrap_fn_truncates_long_result():
+async def test_wrap_fn_truncates_long_result():
     """_wrap_fn wraps the tool function so long returns get truncated
     per the _truncate per-tool limits. The wrapped fn is what PydanticAI
     actually calls, so this guards against accidentally bypassing it."""
@@ -210,19 +210,14 @@ def test_wrap_fn_truncates_long_result():
 
     factory = LongFactory()
     tool = factory.create()
-    # Call the wrapped function directly with a mock ctx
-    result = tool.function(RunContext(...)) if False else None
-    # PydanticAI Tool.function signature includes ctx — invoke with a stub
-    import asyncio
-    result = asyncio.get_event_loop().run_until_complete(
-        _invoke_tool(tool)
-    ) if asyncio.iscoroutinefunction(tool.function) else tool.function(None)
+    # Tool wrapper fns are now always async (Pre/PostToolUse dispatch).
+    result = await tool.function(None)
     assert isinstance(result, str)
     assert len(result.encode("utf-8")) <= _DEFAULT_LIMIT
     assert "[... truncated" in result
 
 
-def test_wrap_fn_short_result_passes_through():
+async def test_wrap_fn_short_result_passes_through():
     """Short returns are unchanged — wrap_fn is not a no-op but truncation is."""
     class ShortFactory(ToolFactory):
         name = "short_tool"
@@ -235,17 +230,11 @@ def test_wrap_fn_short_result_passes_through():
             return PydanticAITool(wrapped, name=self.name, takes_ctx=True)
 
     tool = ShortFactory().create()
-    result = tool.function(None)
+    result = await tool.function(None)
     assert result == "ok"
 
 
-async def _invoke_tool(tool):
-    """Helper for the async-wrapped case (the registry wraps all tools
-    regardless of original sync/async nature)."""
-    return await tool.function(None)
-
-
-def test_wrap_fn_emits_truncated_event_when_context_set():
+async def test_wrap_fn_emits_truncated_event_when_context_set():
     """When truncation_context is active, _wrap_fn emits
     agent.tool_output_truncated via the context's bus."""
     from harness.tools._truncate import _DEFAULT_LIMIT, truncation_context
@@ -269,7 +258,7 @@ def test_wrap_fn_emits_truncated_event_when_context_set():
     tool = BigFactory().create()
     bus = _Bus()
     with truncation_context(bus, "wf-1", "node-1", "agent-1"):
-        tool.function(None)
+        await tool.function(None)
 
     truncated_events = [e for t, e in events if t == "agent.tool_output_truncated"]
     assert len(truncated_events) == 1
