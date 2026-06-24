@@ -26,10 +26,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from harness.registry import configure_registry, get_registry
 from harness.extensions.hooks.token_stats import TokenStatsHook
+from harness.extensions.middleware.output_compactor import OutputCompactor
 from harness.workflow import Workflow
 
 
-async def main(out_path: str | None) -> int:
+async def main(out_path: str | None, compact: bool) -> int:
     configure_registry()  # discover workflows/ + harness/builtin/workflows/
     registry = get_registry()
     wf_meta = registry.resolve_workflow("token_audit")
@@ -37,8 +38,13 @@ async def main(out_path: str | None) -> int:
     workflow = Workflow.load(str(wf_meta.resource_dir))
     hook = TokenStatsHook(verbose=True)
     workflow.use(hook)
+    if compact:
+        # PostToolUse compaction: reclaim tokens from large tool outputs.
+        compactor = OutputCompactor(threshold_tokens=500, workdir=".")
+        workflow.use(compactor)
 
-    print(f"\n▶ Running token_audit workflow…\n")
+    label = "WITH OutputCompactor" if compact else "baseline (no compaction)"
+    print(f"\n▶ Running token_audit workflow ({label})…\n")
     result = await workflow.arun({})
     status = getattr(result, "status", "?")
     print(f"\n▶ status={status}")
@@ -73,5 +79,7 @@ async def main(out_path: str | None) -> int:
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=None, help="write JSON report to this path")
+    ap.add_argument("--compact", action="store_true",
+                    help="register OutputCompactor (PostToolUse) to reclaim tokens")
     args = ap.parse_args()
-    sys.exit(asyncio.run(main(args.out)))
+    sys.exit(asyncio.run(main(args.out, args.compact)))
