@@ -168,12 +168,13 @@ def _parse_api_md(path: Path, tutorials_dir: Path) -> dict:
     }
 
 
-def parse_tutorials(tutorials_dir: Path | None = None) -> list[dict]:
-    """Scan tutorials/ and return list of domain dicts."""
-    if tutorials_dir is None:
-        from harness.paths import get_tutorials_dir
-        tutorials_dir = get_tutorials_dir()
+def _scan_single_dir(tutorials_dir: Path) -> list[dict]:
+    """Scan a single tutorials directory and return list of domain dicts.
 
+    ``tutorials_dir`` is used both as the scan root and as the base for
+    API file relative paths (see ``_parse_api_md``), so it must be the
+    directory actually being scanned — not a merged/parent root.
+    """
     if not tutorials_dir.is_dir():
         return []
 
@@ -209,6 +210,39 @@ def parse_tutorials(tutorials_dir: Path | None = None) -> list[dict]:
             "apis": apis,
             "workflows": meta.pop("workflows", []),
         })
+
+    return domains
+
+
+def parse_tutorials(tutorials_dir: Path | None = None) -> list[dict]:
+    """Scan tutorials and return a list of domain dicts.
+
+    Two-layer merge (mirrors ``harness.registry``: project overrides
+    builtin, keyed by domain ``id``):
+
+      1. Builtin — ``harness/builtin/tutorials`` (shipped with the pip
+         package; always present after install).
+      2. Project — ``<project_root>/tutorials`` (developer-authored; a
+         same-named domain here wholly replaces the builtin one).
+
+    An explicit ``tutorials_dir`` short-circuits the merge and scans only
+    that single directory (kept for backward compatibility and tests).
+
+    Returns domains sorted by the ``order`` frontmatter field (default 99),
+    with a reverse ``referenced_by`` map attached to each API entry.
+    """
+    # Explicit single-dir mode — backward-compatible escape hatch.
+    if tutorials_dir is not None:
+        domains = _scan_single_dir(tutorials_dir)
+    else:
+        from harness.paths import get_builtin_tutorials_dir, get_tutorials_dir
+        # Builtin first, then project overrides by id.
+        merged: dict[str, dict] = {}
+        for d in _scan_single_dir(get_builtin_tutorials_dir()):
+            merged[d["id"]] = d
+        for d in _scan_single_dir(get_tutorials_dir()):
+            merged[d["id"]] = d
+        domains = list(merged.values())
 
     # Build reverse mapping: api_id → [{tutorial_id, section_index, section_title}]
     for domain in domains:

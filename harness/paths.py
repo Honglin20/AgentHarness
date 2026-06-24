@@ -17,6 +17,7 @@ __all__ = [
     "get_project_root",
     "get_workflows_dir",
     "get_tutorials_dir",
+    "get_builtin_tutorials_dir",
     "get_benchmarks_dir",
     "get_runs_dir",
     "get_shared_agents_dir",
@@ -65,7 +66,34 @@ def get_workflows_dir() -> Path:
 
 
 def get_tutorials_dir() -> Path:
-    return get_project_root() / "tutorials"
+    """Project-level tutorials dir — the *project* layer of the merge.
+
+    Prefers CWD so developer-authored domains stay in the user's project
+    directory, exactly like ``get_runs_dir`` does for run data. This
+    matters under pip install: ``get_project_root()`` falls back to the
+    package parent (site-packages), so rooting the project layer there
+    would never pick up a user's ``<project>/tutorials``. A same-named
+    domain here overrides the builtin one (see ``get_builtin_tutorials_dir``).
+
+    Priority:
+      1. HARNESS_TUTORIALS_DIR env var  (explicit override)
+      2. CWD/tutorials                  (user's current working directory)
+    """
+    env_dir = os.environ.get("HARNESS_TUTORIALS_DIR", "").strip()
+    if env_dir:
+        return Path(env_dir).resolve()
+    return Path.cwd().resolve() / "tutorials"
+
+
+def get_builtin_tutorials_dir() -> Path:
+    """Builtin tutorials shipped with the package (harness/builtin/tutorials).
+
+    Package-relative (``_PACKAGE_DIR / "builtin" / "tutorials"``) so it
+    resolves correctly under both editable installs (repo root) and pip
+    installs (site-packages). Same ``Path(__file__).parent`` idiom as
+    ``ResourceRegistry.builtin_dir`` in ``harness/registry.py``.
+    """
+    return _PACKAGE_DIR / "builtin" / "tutorials"
 
 
 def get_benchmarks_dir() -> Path:
