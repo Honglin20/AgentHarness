@@ -1,0 +1,34 @@
+{
+  "total_tokens": 1955,
+  "total_calls": 16,
+  "tools": {
+    "bash": {
+      "calls": 2,
+      "total_tokens": 1177,
+      "total_bytes": 3666,
+      "max_tokens": 777,
+      "mean_tokens": 588.5
+    },
+    "TodoTool": {
+      "calls": 9,
+      "total_tokens": 343,
+      "total_bytes": 1155,
+      "max_tokens": 116,
+      "mean_tokens": 38.1
+    },
+    "grep": {
+      "calls": 2,
+      "total_tokens": 342,
+      "total_bytes": 1400,
+      "max_tokens": 194,
+      "mean_tokens": 171.0
+    },
+    "glob": {
+      "calls": 3,
+      "total_tokens": 93,
+      "total_bytes": 404,
+      "max_tokens": 43,
+      "mean_tokens": 31.0
+    }
+  }
+}
