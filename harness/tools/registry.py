@@ -62,6 +62,7 @@ class ToolFactory(ABC):
         long tool returns don't inflate message_history forever. Dedup is
         opt-in via the dedup guard config. Preserves sync/async nature.
         """
+        from harness.tools._measure import emit_tool_output_measured
         from harness.tools._truncate import (
             _resolve_limit,
             emit_tool_output_truncated,
@@ -88,6 +89,9 @@ class ToolFactory(ABC):
                         if isinstance(truncated, str) else 0,
                         limit_bytes=_resolve_limit(tool_name),
                     )
+                # Measurement: emit original vs final size (bytes + tokens) for
+                # every call. Best-effort, no-op without a truncation_context.
+                emit_tool_output_measured(tool_name, result, truncated)
                 return truncated
             return _async_wrapped
         else:
@@ -107,6 +111,7 @@ class ToolFactory(ABC):
                         if isinstance(truncated, str) else 0,
                         limit_bytes=_resolve_limit(tool_name),
                     )
+                emit_tool_output_measured(tool_name, result, truncated)
                 return truncated
             return _sync_wrapped
 
