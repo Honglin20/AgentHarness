@@ -93,6 +93,9 @@ export const AgentToolCallPayloadSchema = z.object({
   tool_name: toolName,
   agent_name: agentName.optional(),
   tool_args: z.record(z.string(), z.unknown()).optional(),
+  // Required: parallel same-name tool calls (e.g. multiple TodoTool updates
+  // in one model turn) can only be disambiguated by tool_call_id.
+  tool_call_id: z.string().min(1),
 }).passthrough();
 
 export const AgentToolResultPayloadSchema = z.object({
@@ -100,6 +103,7 @@ export const AgentToolResultPayloadSchema = z.object({
   tool_name: toolName,
   result: z.unknown().optional(),
   agent_name: agentName.optional(),
+  tool_call_id: z.string().min(1),
 }).passthrough();
 
 export const AgentToolOutputDeltaPayloadSchema = z.object({

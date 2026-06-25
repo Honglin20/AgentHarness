@@ -458,6 +458,10 @@ def _iter_sidecar_to_messages(sidecar: dict, node_id: str, iter_num: int) -> lis
                 # to avoid double-encoding.
                 "toolResult": tool_result,
                 "toolStatus": "done",
+                # tool_call_id propagates pydantic-ai's ToolCallPart.tool_call_id
+                # so the frontend can match tool_result → tool_call for parallel
+                # same-name calls. Empty string for legacy sidecars (pre-fix).
+                "toolCallId": tc.get("tool_call_id") or "",
                 "timestamp": tc.get("ts") or tc.get("seq") or 0,
                 "iteration": iter_num,
             })

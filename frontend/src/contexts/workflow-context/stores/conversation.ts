@@ -169,7 +169,7 @@ export function createConversationStore(
       });
     },
 
-    addToolCall: (nodeId, agentName, toolName, toolArgs) => {
+    addToolCall: (nodeId, agentName, toolName, toolArgs, toolCallId) => {
       flushTextBuf();
       set((state) => {
         // Finalize any streaming agent message for this node
@@ -198,6 +198,7 @@ export function createConversationStore(
               content: "",
               toolName,
               toolArgs,
+              toolCallId,
               toolStatus: "running",
               timestamp: Date.now(),
               stepId: state.currentStepIdByNode[nodeId],
@@ -208,13 +209,12 @@ export function createConversationStore(
       });
     },
 
-    addToolResult: (nodeId, toolName, result) =>
+    addToolResult: (toolCallId, result) =>
       set((state) => {
         const idx = state.messages.findLastIndex(
           (m) =>
-            m.nodeId === nodeId &&
             m.type === "tool_call" &&
-            m.toolName === toolName &&
+            m.toolCallId === toolCallId &&
             m.toolResult === undefined
         );
         if (idx === -1) return state;
@@ -226,13 +226,12 @@ export function createConversationStore(
         return { messages };
       }),
 
-    appendToolOutput: (nodeId, toolName, line, stream) =>
+    appendToolOutput: (toolCallId, line, stream) =>
       set((state) => {
         const idx = state.messages.findLastIndex(
           (m) =>
-            m.nodeId === nodeId &&
             m.type === "tool_call" &&
-            m.toolName === toolName &&
+            m.toolCallId === toolCallId &&
             m.toolResult === undefined
         );
         if (idx === -1) return state;

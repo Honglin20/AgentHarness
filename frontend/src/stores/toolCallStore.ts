@@ -6,6 +6,14 @@ export interface ToolCallRecord {
   agentName: string;
   toolName: string;
   args: Record<string, unknown>;
+  /**
+   * Pydantic-ai ToolCallPart.tool_call_id. Present on records created from
+   * real WS tool_call events (the backend always emits it post-fix).
+   * Undefined on legacy/historical records. Used by agent.tool_result
+   * handler to find the originating record — falling back to name+undefined
+   * would re-introduce the parallel-same-name cross-wiring bug.
+   */
+  toolCallId?: string;
   result?: string;
   timestamp: number;
 }
@@ -17,7 +25,7 @@ export interface ToolCallState {
   order: string[];
 
   // Actions
-  addToolCall: (id: string, nodeId: string, agentName: string, toolName: string, args: Record<string, unknown>) => void;
+  addToolCall: (id: string, nodeId: string, agentName: string, toolName: string, args: Record<string, unknown>, toolCallId: string) => void;
   addToolResult: (id: string, result: string) => void;
   reset: () => void;
 }
@@ -35,7 +43,7 @@ export function nextToolCallId(): string {
 export const useToolCallStore = create<ToolCallState>()((set) => ({
   ...initialState,
 
-  addToolCall: (id, nodeId, agentName, toolName, args) =>
+  addToolCall: (id, nodeId, agentName, toolName, args, toolCallId) =>
     set((state) => {
       const record: ToolCallRecord = {
         id,
@@ -43,6 +51,7 @@ export const useToolCallStore = create<ToolCallState>()((set) => ({
         agentName,
         toolName,
         args,
+        toolCallId,
         timestamp: Date.now(),
       };
       const exists = id in state.records;

@@ -588,37 +588,57 @@ class LLMExecutor:
         if not isinstance(raw_args, dict):
             raw_args = {}
 
+        tool_call_id = getattr(part, "tool_call_id", None)
         entry = {
             "tool_name": part.tool_name,
             "tool_args": raw_args,
+            "tool_call_id": tool_call_id,
         }
         self.tool_calls.append(entry)
         if not self._bus:
             return
-        safe_emit(self._bus, "agent.tool_call", {
+        payload_call: dict[str, Any] = {
             "workflow_id": self._wid,
             "node_id": self._node_id,
             "agent_name": self._agent_name,
             "tool_name": part.tool_name,
             "tool_args": raw_args,
-        })
+        }
+        if tool_call_id:
+            payload_call["tool_call_id"] = tool_call_id
+        safe_emit(self._bus, "agent.tool_call", payload_call)
 
     def _emit_tool_result(self, part) -> None:
         result_str = str(part.content) if hasattr(part, "content") else ""
-        # Attach result to the last unmatched tool_call entry
-        for tc in reversed(self.tool_calls):
-            if tc["tool_name"] == part.tool_name and "tool_result" not in tc:
-                tc["tool_result"] = result_str
-                break
+        tool_call_id = getattr(part, "tool_call_id", None)
+        # Match strictly by tool_call_id so parallel same-name calls do not have
+        # their results crossed. If the ID is absent or no entry matches, log
+        # and drop rather than land the result on the wrong call.
+        matched = False
+        if tool_call_id:
+            for tc in reversed(self.tool_calls):
+                if tc.get("tool_call_id") == tool_call_id and "tool_result" not in tc:
+                    tc["tool_result"] = result_str
+                    matched = True
+                    break
+        if not matched:
+            logger.warning(
+                "llm_executor: tool_result for tool_call_id=%s tool_name=%s had no "
+                "matching tool_call (wf=%s node=%s) — dropped",
+                tool_call_id, part.tool_name, self._wid, self._node_id,
+            )
         if not self._bus:
             return
-        safe_emit(self._bus, "agent.tool_result", {
+        payload_result: dict[str, Any] = {
             "workflow_id": self._wid,
             "node_id": self._node_id,
             "agent_name": self._agent_name,
             "tool_name": part.tool_name,
             "result": result_str,
-        })
+        }
+        if tool_call_id:
+            payload_result["tool_call_id"] = tool_call_id
+        safe_emit(self._bus, "agent.tool_result", payload_result)
 
     # ------------------------------------------------------------------
     # Extension hook helpers
@@ -634,12 +654,23 @@ class LLMExecutor:
         if self._ext_ctx is None or self._bus is None:
             return
         if hasattr(self._bus, "run_hooks"):
-            # Reuse the normalized args stored by _emit_tool_call
-            last_tc = next(
-                (tc for tc in reversed(self.tool_calls)
-                 if tc["tool_name"] == part.tool_name),
-                None,
-            )
+            # Reuse the normalized args stored by _emit_tool_call. Match by
+            # tool_call_id so the hook sees the correct args when multiple
+            # same-name calls are in flight; fall back to tool_name only if
+            # the part lacks an ID (legacy pydantic-ai or synthetic events).
+            tool_call_id = getattr(part, "tool_call_id", None)
+            if tool_call_id:
+                last_tc = next(
+                    (tc for tc in reversed(self.tool_calls)
+                     if tc.get("tool_call_id") == tool_call_id),
+                    None,
+                )
+            else:
+                last_tc = next(
+                    (tc for tc in reversed(self.tool_calls)
+                     if tc["tool_name"] == part.tool_name),
+                    None,
+                )
             tctx = ToolCtx(
                 node=self._ext_ctx,
                 tool_name=part.tool_name,

@@ -42,12 +42,13 @@ export const agentHandlers: [string, EventHandler][] = [
     (stores, event, ctx) => {
       const p = payload<AgentToolCallPayload>(event);
       const id = ctx.counter.next();
+      const toolCallId = p.tool_call_id;
       stores.toolCall
         .getState()
-        .addToolCall(id, p.node_id, p.agent_name, p.tool_name, p.tool_args || {});
+        .addToolCall(id, p.node_id, p.agent_name, p.tool_name, p.tool_args || {}, toolCallId);
       stores.conversation
         .getState()
-        .addToolCall(p.node_id, p.agent_name, p.tool_name, p.tool_args || {});
+        .addToolCall(p.node_id, p.agent_name, p.tool_name, p.tool_args || {}, toolCallId);
     },
   ],
 
@@ -55,32 +56,50 @@ export const agentHandlers: [string, EventHandler][] = [
     "agent.tool_result",
     (stores, event, _ctx) => {
       const p = payload<AgentToolResultPayload>(event);
+      const toolCallId = p.tool_call_id;
+      // toolCall store: translate tool_call_id → record.id (the client-side
+      // tc-N key). Conversation store matches by toolCallId directly.
       const store = stores.toolCall.getState();
       const match = store.order
         .map((oid) => store.records[oid])
-        .reverse()
-        .find(
-          (r) =>
-            r.nodeId === p.node_id &&
-            r.toolName === p.tool_name &&
-            r.result === undefined
-        );
+        .find((r) => r.toolCallId === toolCallId && r.result === undefined);
       if (match) {
         stores.toolCall.getState().addToolResult(match.id, String(p.result ?? ""));
       }
       stores.conversation
         .getState()
-        .addToolResult(p.node_id, p.tool_name, String(p.result ?? ""));
+        .addToolResult(toolCallId, String(p.result ?? ""));
     },
   ],
 
   [
     "agent.tool_output_delta",
     (stores, event, _ctx) => {
+      // NOTE: tool_output_delta does not yet carry tool_call_id (see G.3 in
+      // the fix plan). Matching falls back to the last running call of the
+      // same (nodeId, toolName) — fine for sequential bash, can cross-wire
+      // for parallel same-name bash streaming (rare; tracked as follow-up).
       const p = payload<AgentToolOutputDeltaPayload>(event);
-      stores.conversation
-        .getState()
-        .appendToolOutput(p.node_id, p.tool_name, p.line, p.stream);
+      // Find the last running tool_call on this node with the same name and
+      // route the streaming line to it. Future: extend WS payload + schema
+      // to carry tool_call_id here too.
+      const convState = stores.conversation.getState();
+      const messages = convState.messages;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i];
+        if (
+          m.type === "tool_call" &&
+          m.nodeId === p.node_id &&
+          m.toolName === p.tool_name &&
+          m.toolResult === undefined &&
+          m.toolCallId
+        ) {
+          convState.appendToolOutput(m.toolCallId, p.line, p.stream);
+          return;
+        }
+      }
+      // No matching running call — drop the line (better than landing on a
+      // completed/unrelated message).
     },
   ],
 
@@ -94,9 +113,22 @@ export const agentHandlers: [string, EventHandler][] = [
       const p = payload<AgentToolOutputTruncatedPayload>(event);
       const note = `⚠️ ${p.tool_name} output truncated: ${p.total_chars.toLocaleString()} chars ` +
         `(> ${p.max_chars.toLocaleString()} max) — full output saved to ${p.output_path}`;
-      stores.conversation
-        .getState()
-        .appendToolOutput(p.node_id, p.tool_name, note, "stdout");
+      // Same fallback strategy as tool_output_delta above.
+      const convState = stores.conversation.getState();
+      const messages = convState.messages;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i];
+        if (
+          m.type === "tool_call" &&
+          m.nodeId === p.node_id &&
+          m.toolName === p.tool_name &&
+          m.toolResult === undefined &&
+          m.toolCallId
+        ) {
+          convState.appendToolOutput(m.toolCallId, note, "stdout");
+          return;
+        }
+      }
     },
   ],
 

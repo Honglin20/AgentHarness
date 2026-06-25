@@ -48,7 +48,7 @@ describe("createConversationStore — iteration stamping", () => {
   it("addToolCall stamps iteration from currentIterationByNode", () => {
     const store = createConversationStore("wf-1");
     store.getState().setCurrentIteration("coder", 3);
-    store.getState().addToolCall("coder", "coder", "bash", { cmd: "ls" });
+    store.getState().addToolCall("coder", "coder", "bash", { cmd: "ls" }, "call_test_1");
     const msg = store.getState().messages.at(-1)!;
     expect(msg.iteration).toBe(3);
   });

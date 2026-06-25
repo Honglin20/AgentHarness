@@ -160,6 +160,8 @@ export interface AgentToolCallPayload {
   agent_name: string;
   tool_name: string;
   tool_args: Record<string, unknown>;
+  /** Pydantic-ai ToolCallPart.tool_call_id. Required for matching result events. */
+  tool_call_id: string;
 }
 
 export interface AgentToolResultPayload {
@@ -167,6 +169,8 @@ export interface AgentToolResultPayload {
   agent_name: string;
   tool_name: string;
   result: unknown;
+  /** Echoes the originating tool_call's ID. Required. */
+  tool_call_id: string;
 }
 
 export interface AgentToolOutputDeltaPayload {

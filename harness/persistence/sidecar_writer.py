@@ -162,26 +162,35 @@ class InflightSidecarWriter:
         self.dirty = True
         self._flush(force=True)
 
-    def on_tool_result(self, tool_name: str, result: Any, seq: int) -> None:
-        """Attach result to the most recent matching tool_call without one.
+    def on_tool_result(
+        self,
+        tool_name: str,
+        result: Any,
+        seq: int,
+        tool_call_id: str | None = None,
+    ) -> None:
+        """Attach result to the matching tool_call entry.
 
-        Tool results arrive as separate events from the call. We pair them
-        by walking the tool_calls list backwards for the first entry with
-        the same tool_name that hasn't yet received a result. If no match
-        (e.g. out-of-order or unknown tool), we log and skip — better than
-        crashing the streaming pipeline.
+        Tool results arrive as separate events from the call. Pair strictly
+        by ``tool_call_id`` so parallel same-name calls do not have their
+        results crossed (pydantic-ai yields all function_tool_call events
+        upfront, then results one at a time — name-based reverse matching
+        lands the first result on the last pending call of the same name).
+        If the ID is absent or no entry matches, log and skip.
         """
         matched = False
-        for tc in reversed(self.tool_calls):
-            if tc.get("tool_name") == tool_name and "tool_result" not in tc:
-                tc["tool_result"] = result
-                matched = True
-                break
+        if tool_call_id:
+            for tc in reversed(self.tool_calls):
+                if tc.get("tool_call_id") == tool_call_id and "tool_result" not in tc:
+                    tc["tool_result"] = result
+                    matched = True
+                    break
         if not matched:
             logger.warning(
-                "sidecar_writer: tool_result for %s had no matching tool_call "
-                "(run=%s node=%s iter=%d seq=%d) — dropped",
-                tool_name, self.run_id, self.node_id, self.iter_num, seq,
+                "sidecar_writer: tool_result for tool_call_id=%s tool_name=%s had "
+                "no matching tool_call (run=%s node=%s iter=%d seq=%d) — dropped",
+                tool_call_id, tool_name,
+                self.run_id, self.node_id, self.iter_num, seq,
             )
         self.last_seq = max(self.last_seq, seq)
         self.dirty = True
@@ -409,6 +418,7 @@ class InflightWriterRegistry:
                     {
                         "tool_name": payload.get("tool_name"),
                         "tool_args": payload.get("tool_args") or payload.get("args"),
+                        "tool_call_id": payload.get("tool_call_id"),
                     },
                     seq,
                 )
@@ -419,6 +429,7 @@ class InflightWriterRegistry:
                     payload.get("tool_name") or "",
                     payload.get("tool_result") or payload.get("result"),
                     seq,
+                    tool_call_id=payload.get("tool_call_id"),
                 )
         # else: unknown event type — ignore (forward-compat)
 
