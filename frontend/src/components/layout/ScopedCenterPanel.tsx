@@ -24,7 +24,7 @@ import { useViewStore, getActiveWorkflowName, isReplayView } from "@/stores/view
 import { useBatchStore } from "@/stores/batchStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useAppViewStore } from "@/stores/appView";
-import { useWorkflowHydration } from "@/contexts/workflow-context";
+import { useWorkflowHydration, useScopedWorkflowStore } from "@/contexts/workflow-context";
 import { activateRun } from "@/lib/activateRun";
 import { ScopedConversationTab } from "@/components/conversation/ScopedConversationTab";
 import { OutlineMode } from "@/components/outline/OutlineMode";
@@ -143,18 +143,20 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
   }, [selectedTemplate]);
 
   // Phase F.2: 切换成功后刷新 selectedTemplate（让 badge 立即更新）
+  // 关键：用 scoped store 的 setSelectedTemplate 写新对象引用，触发重渲染
+  // （直接 mutate 旧 selectedTemplate 不会让 zustand 感知变化）
+  const setSelectedTemplate = useScopedWorkflowStore((s) => s.setSelectedTemplate);
   const refreshSelectedTemplate = useCallback(async (agentName: string, next: "pydantic-ai" | "claude-code") => {
-    // 本地立即更新 selectedTemplate，避免等 refetch
     if (!selectedTemplate) return;
     const wf = selectedTemplate as any;
-    if (wf.agents) {
-      wf.agents = wf.agents.map((a: any) =>
-        a.name === agentName
-          ? (next === "pydantic-ai" ? { ...a, executor: undefined } : { ...a, executor: next })
-          : a,
-      );
-    }
-  }, [selectedTemplate]);
+    if (!wf.agents) return;
+    const newAgents = wf.agents.map((a: any) =>
+      a.name === agentName
+        ? (next === "pydantic-ai" ? { ...a, executor: undefined } : { ...a, executor: next })
+        : a,
+    );
+    setSelectedTemplate({ ...wf, agents: newAgents });
+  }, [selectedTemplate, setSelectedTemplate]);
 
   const { sendAnswer, sendStopAndRegenerate, sendGuidance, sendFollowup } = useWSMethods();
 
