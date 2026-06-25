@@ -268,3 +268,78 @@ class TestSyntheticProjectDomain:
         # Verifies the candidate source is the (isolated) registry, not a
         # hardcoded path: "orphan-wf" is the only tmp workflow.
         assert [w["name"] for w in domains[-1]["workflows"]] == ["orphan-wf"]
+
+    def test_authored_domain_with_synthetic_id_wins(self, monkeypatch, tmp_path):
+        """If a user authors a domain whose id collides with the synthetic
+        "project" id, the authored one wins and NO duplicate is emitted."""
+        workflows_dir = tmp_path / "workflows"
+        _write_workflow(workflows_dir, "orphan-wf", "orphan")
+
+        project_tutorials = tmp_path / "tutorials"
+        # User-authored domain literally named "project".
+        _write_index(project_tutorials / "project", "My Custom Project", order=1)
+        monkeypatch.setattr("harness.paths.get_tutorials_dir", lambda: project_tutorials)
+        monkeypatch.setattr(
+            "harness.paths.get_builtin_tutorials_dir", lambda: tmp_path / "nope"
+        )
+
+        domains = parse_tutorials()
+        project_domains = [d for d in domains if d["id"] == "project"]
+        # Exactly one — the authored one, not the synthetic one.
+        assert len(project_domains) == 1
+        assert project_domains[0]["title"] == "My Custom Project"
+        # Authored "project" domain declared no workflows, so the orphan is
+        # NOT claimed by it and would normally aggregate — but since the
+        # synthetic builder is skipped on id collision, it stays out.
+        assert project_domains[0]["workflows"] == []
+
+    def test_malformed_workflow_json_still_aggregates(self, monkeypatch, tmp_path):
+        """A malformed workflow.json falls back to the dir name in the
+        registry and still aggregates into the project domain."""
+        workflows_dir = tmp_path / "workflows"
+        # Valid workflow.
+        _write_workflow(workflows_dir, "good-wf", "ok")
+        # Malformed JSON — registry falls back to dir name, no description.
+        bad_dir = workflows_dir / "bad-wf"
+        bad_dir.mkdir(parents=True)
+        (bad_dir / "workflow.json").write_text("{ not valid json", encoding="utf-8")
+
+        project_tutorials = tmp_path / "tutorials"
+        _index_with_workflows(project_tutorials / "nas", "NAS", [], order=1)
+        monkeypatch.setattr("harness.paths.get_tutorials_dir", lambda: project_tutorials)
+        monkeypatch.setattr(
+            "harness.paths.get_builtin_tutorials_dir", lambda: tmp_path / "nope"
+        )
+
+        domains = {d["id"]: d for d in parse_tutorials()}
+        assert "project" in domains
+        names = sorted(w["name"] for w in domains["project"]["workflows"])
+        assert names == ["bad-wf", "good-wf"]
+
+    def test_workflow_path_style_reference_is_claimed(self, monkeypatch, tmp_path):
+        """A tutorial ``workflow:`` value like "domain/name" is recognised
+        by its trailing segment and counts as claimed."""
+        workflows_dir = tmp_path / "workflows"
+        _write_workflow(workflows_dir, "deep-wf", "via path ref")
+        _write_workflow(workflows_dir, "orphan-wf", "orphan")
+
+        project_tutorials = tmp_path / "tutorials"
+        domain_dir = project_tutorials / "nas"
+        domain_dir.mkdir(parents=True)
+        (domain_dir / "_index.md").write_text(
+            "---\norder: 1\ncolor: blue\nicon: Layers\n---\n\n# NAS\n\nbody.\n",
+            encoding="utf-8",
+        )
+        # Path-style reference — only the trailing segment is the workflow name.
+        (domain_dir / "01_intro.md").write_text(
+            "---\nworkflow: nas/deep-wf\n---\n\n# Intro\n\nbody.\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("harness.paths.get_tutorials_dir", lambda: project_tutorials)
+        monkeypatch.setattr(
+            "harness.paths.get_builtin_tutorials_dir", lambda: tmp_path / "nope"
+        )
+
+        domains = {d["id"]: d for d in parse_tutorials()}
+        assert "project" in domains
+        assert [w["name"] for w in domains["project"]["workflows"]] == ["orphan-wf"]

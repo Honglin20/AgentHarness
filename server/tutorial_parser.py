@@ -10,8 +10,12 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import frontmatter
+
+if TYPE_CHECKING:
+    from harness.registry import ResourceMeta
 
 
 _SECTION_RE = re.compile(r"^##\s+(.+?)(?:\s+@(\w+))?\s*$")
@@ -320,7 +324,9 @@ def _collect_claimed_workflows(domains: list[dict]) -> set[str]:
     return claimed
 
 
-def _build_project_domain(candidates, claimed: set[str]) -> dict | None:
+def _build_project_domain(
+    candidates: "list[ResourceMeta]", claimed: set[str]
+) -> dict | None:
     """Aggregate unclaimed project-layer workflows into a synthetic domain.
 
     ``candidates`` comes from ``registry.list_workflows(scope="project")``
@@ -349,14 +355,22 @@ _SYNTHETIC_BUILDERS = [_build_project_domain]
 
 
 def _append_synthetic_domains(domains: list[dict]) -> None:
-    """Append synthetic domains in place (merged mode only)."""
+    """Append synthetic domains in place (merged mode only).
+
+    An authored domain (from ``_index.md``) always wins over a synthetic
+    one with the same id: if a builder produces an id already present,
+    the synthetic domain is dropped. This keeps user-authored content
+    authoritative and avoids duplicate ids that would break the
+    frontend's ``find(d => d.id === ...)`` lookups.
+    """
     from harness.registry import get_registry
 
+    existing_ids = {d["id"] for d in domains}
     claimed = _collect_claimed_workflows(domains)
     project_candidates = get_registry().list_workflows(scope="project")
     for builder in _SYNTHETIC_BUILDERS:
         synth = builder(project_candidates, claimed)
-        if synth:
+        if synth and synth["id"] not in existing_ids:
             domains.append(synth)
 
 
