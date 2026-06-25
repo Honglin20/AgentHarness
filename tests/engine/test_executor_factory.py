@@ -114,26 +114,37 @@ class TestMakeExecutorProtocolConformance:
         assert hasattr(ex, "tool_calls")
         assert ex.tool_calls == []  # 初始化为空 list
 
-    def test_claude_code_executor_run_is_fail_loud(self):
-        """Phase A 占位：调 run() 必须明确 NotImplementedError，不能悄悄 fallback。
+    def test_claude_code_executor_run_is_implemented(self, monkeypatch):
+        """Phase C: run() 已有真实实现（不再是 Phase A 占位）。
 
-        Note: 不能用 ``asyncio.run()`` —— 它会关闭并清除当前线程的 event loop,
-        污染后续测试的 ``asyncio.get_event_loop()`` 调用（见
-        test_macro_graph.py::test_stop_regen_signal_ttl_expiry）。
-        用 ``asyncio.new_event_loop()`` 显式管理，跑完只 close 不污染 thread state。
+        用 mock subprocess 验证 run() 能正常调用并通过翻译链路。
+        真实 claude e2e 在 test_claude_code_executor_e2e.py（@pytest.mark.slow）。
         """
         import asyncio
-        a = Agent("c", executor="claude-code")
-        ex = make_executor(
-            agent_def=a,
-            pydantic_agent=None,
-            deps=None,
-            agent_name="c",
+        import json
+        from harness.engine._claude_subprocess import ClaudeRunResult
+
+        async def fake_run_claude(cfg, on_line=None, *, timeout=None):
+            # 一条 result 事件让 run() 能正常完成
+            if on_line is not None:
+                await on_line(json.dumps({
+                    "type": "result", "is_error": False,
+                    "duration_ms": 1, "result": "ok",
+                    "usage": {"input_tokens": 10, "output_tokens": 5},
+                }))
+            return ClaudeRunResult(exit_code=0, stderr="", timed_out=False)
+
+        monkeypatch.setattr(
+            "harness.engine.claude_code_executor.run_claude", fake_run_claude
         )
+
+        a = Agent("c", executor="claude-code")
+        ex = make_executor(agent_def=a, pydantic_agent=None, deps=None, agent_name="c")
+        # new_event_loop + close，不动 thread state（避免污染 get_event_loop）
         loop = asyncio.new_event_loop()
         try:
-            with pytest.raises(NotImplementedError, match=r"Phase C"):
-                loop.run_until_complete(ex.run("hello"))
+            result = loop.run_until_complete(ex.run("hello"))
+            assert result.agent_run.result.output == "ok"
         finally:
             loop.close()
 
