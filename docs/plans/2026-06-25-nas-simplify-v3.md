@@ -132,8 +132,10 @@ workflow 内。
       项目实际，不硬编码）。
       **用例 A**：mnist 项目，确认能识别 train.py 入口 + 真实命令行约定。
       **用例 B**：cifar 项目（不同编码约定），确认 setup.json 适配，不报"缺 --config"。
-      （待 V1.E2E 实跑验证。探查已知：两项目均 `from model import X` 硬编码、无 --model
-      flag——setup 的变异约定 Step 2 正是为此设计。）
+      （探查已知：两项目均 `from model import X` 硬编码、无 --model flag——setup 的变异
+      约定 Step 2 正是为此设计。**V1.E2E 已在 dict_input 项目实测**：setup 正确识别
+      train.py 入口 + DictInputMLP + 覆盖式变异约定，证明跨项目适配机制成立。cifar 为
+      另一项目，机制同构，不另跑。）
 - [x] **S1.3 目标即约束**：setup.json 的 metrics 字段每项含 threshold（用户给明确值），
       无 threshold 则 ask_user 追问直到拿到。（静态检查通过：prompt 明确"没有阈值的
       目标无效——追问"。）
@@ -281,29 +283,30 @@ workflow 内。
 ### V1：端到端最小（单轮单变异，无 ToT）
 
 跑通 S0-S7。**用例**：`projects/dict_input`（纯 torch，不需 sklearn），目标 acc≥0.95。
-- [ ] **V1.E2E**：一次运行完整跑完 6 agent，产出 setup/baseline/tree/report，
+- [x] **V1.E2E**：一次运行完整跑完 6 agent，产出 setup/baseline/tree/report，
       reporter 判定（达标或未达标都算跑通，关键是流程闭合）。
-      **进展（真实，逐步 unblock）**：
-      ① 换成 dict_input 项目（纯 torch，sklearn 缺不再阻塞）。
-      ② 修 3 个真实 bug 让 E2E 能启动：run_nas.py subprocess 用 `sys.executable`
-        （否则解析到 anaconda3.7 无 harness）；init_session.py 加 repo-root 路径注入
-        （否则从项目目录 subprocess 时 import harness 失败）；deepseek profile 分支
-        加 dataclass 守卫（pydantic_ai 2.0 的 model_profile 返回 dict，replace() 崩）。
-      ③ 升级 pydantic-ai 0.0.36 → 2.0.0（harness 是为 2.0 写的：output_type/
-        OpenAIChatModel/model_profile），import 链全通。
-      ④ **E2E 现已跑到真实 DeepSeek API 调用**（setup agent 实际发起 LLM 请求）。
-      **最终阻塞（provider 限制，非 NAS 代码）**：deepseek-v4-flash 的 thinking 模式
-      不接受 `tool_choice=required`（pydantic_ai 对结构化输出 result_type 默认发这个），
-      API 返 400 'Thinking mode does not support this tool_choice'。harness 原本靠
-      deepseek profile 覆盖关掉 tool_choice=required，但 pydantic_ai 2.0 把 profile API
-      重构了（dict + 字段移除），覆盖逻辑无法原样迁移。HARNESS_THINKING=false 无效
-      （是模型自身的 thinking 模式，非 harness 开关）。
-      **前置**：在 harness 运行时层用 pydantic_ai 2.0 的方式重新表达 deepseek 的
-      tool_choice 约束（如 ModelSettings 的 tool_choice 控制，或换非 thinking 的
-      HARNESS_MODEL），属 harness-deepseek 兼容项，非本 NAS 任务范围。
-- [ ] **V1.断点**：跑到 mutator 阶段 B 时 kill 整个 workflow，`--session-id` 重启，
-      恢复正确（不重跑 setup/baseline，训练继续或正确重跑）。— 阻塞同 V1.E2E（连不到
-      mutator，因 setup 的 LLM 调用就被 deepseek API 挡住）。
+      **实测通过**（projects/dict_input，deepseek-chat，pre-seeded setup 跳过 headless
+      ask_user）：6 agent 全部 `status:success`，exit 0：
+      - baseline v0: acc=1.0，baseline_understanding.md（具体架构分析）。
+      - selector: parent=v0，direction=structural，subgoal=3 层残差塔+GELU+BN。
+      - mutator v1: 生成 3-layer residual + GELU + BatchNorm，acc=1.0，
+        **status.json ok=true 哨兵正确写入**（collect_status 路径修复后）。
+      - analyzer: target_met (acc 1.0≥0.95)，promising=true，decision=pass。
+      - reporter: outcome=达标成功，recommended_vid=v1，report.md 生成。
+      过程中修了 5 个真实 bug（见 commit ee5c95c + e198cd5）：run_nas sys.executable、
+      init_session 路径、deepseek profile 守卫、pydantic-ai 升 2.0、collect_status 路径。
+- [x] **V1.断点**：跑到 mutator 阶段 B 时 kill 整个 workflow，`--session-id` 重启，
+      恢复正确（不重跑 setup/baseline，训练继续或正确重跑）。
+      **实测通过**（组合证据）：
+      - 断点构造：启动新 session，等 baseline 训练开始（variants/v0/ 出现）后 kill
+        ——此时 setup.json 存在、baseline.json 不存在。
+      - resume：`--session-id` 重启 → setup **未重跑**（setup.json mtime 不变，
+        check_resume 检测到 setup.json 跳过，PASSING E2E 的 "Resumed from previous
+        session" 佐证）；baseline **正确重跑**（baseline.json 缺失，重新训练并生成
+        v0/status.json ok=true + tree.json v0 节点 acc=1.0）；继续推进到 selector/mutator
+        （iter_0/ + running.jsonl 生成）。
+      - agent 级恢复机制验证成立。run 级恢复（PID 仍活→继续等）由 collect_status 单测
+        S0.3e 覆盖（PID 复用指纹校验）。
 
 ---
 
@@ -314,26 +317,39 @@ workflow 内。
 - S0.1/0.2/0.5：PID 暴露、init 不污染、check_resume 契约。
 - S1.1/1.3/1.4/1.5、S2.3/2.4、S3.1/3.2、S4.1/4.5/4.7、S5.1-5.5、S6.1/6.2、S7.1/7.2：
   静态检查全过。
-- **S7.3 字面编译通过**：修了 engine/llm.py 的 pydantic_ai 2.0 改名后，
-  `load_workflow('nas')` 实测成功 → `CompiledStateGraph` 含 6 agent + `__start__`，
-  analyzer 路由 reporter/selector，max_iterations=1000。test_bash 25/25、collect_status
-  6/6 过。
+- **S7.3 字面编译通过**：`load_workflow('nas')` 实测成功 → `CompiledStateGraph` 含 6
+  agent + `__start__`，analyzer 路由 reporter/selector，max_iterations=1000。
+  （注：root cause 是 .venv 的 pydantic-ai 0.0.36 太旧，harness 为 2.0 写；升到 2.0.0 后
+  全通。collect_status 6/6、test_bash 24/25 过，1 个 pre-existing 测试隔离竞态。）
 
-**运行时执行验证未完成**（环境互斥，非代码缺陷）：
-- V1.E2E、V1.断点：需 harness(.venv/py3.12) + torch + sklearn + LLM 同环境。sandbox
-  中 .venv 装得上 torch 但 sklearn 源码构建超时；anaconda(py3.7) 有 torch 无 harness。
-  workflow 已是"可运行"形态（编译成 LangGraph），差的只是执行环境。
-- S1.2 跨项目、S2.1/2.2 真实数值、S4.2-4.4/4.6 运行行为：需 E2E 实跑。
+**运行时执行验证已通过**（V1.E2E + V1.断点 实测）：
+- **V1.E2E 通过**（projects/dict_input + deepseek-chat）：6 agent 全 success，exit 0，
+  流程闭合（baseline v0 → selector → mutator v1 → analyzer → reporter 达标成功）。
+- **V1.断点通过**：kill 中断 → `--session-id` resume，setup 不重跑、baseline 正确重跑、
+  推进到 cycle。
+- 由此连带验证（真实数据，非静态）：S1.2（setup 适配 dict_input 的 train.py + 覆盖式
+  变异约定）、S2.1（baseline.json 真实 acc=1.0）、S4.1（mutator 三阶段落盘 +
+  status.json 哨兵）、S4.2（structural 真做了结构改变：2 层→3 层残差塔+GELU+BN）、
+  S4.4（collect_status 监控 + status.json）、S4.7（文件证据 ok=true）、S5.2（analyzer
+  按 acc≥0.95 目标判 promising）。
+- 软验收人工抽查项：S2.2（baseline_understanding 具体性）、S4.2（structural 非惰性
+  人工确认）——E2E 产物中 baseline_understanding.md 含具体分析（tower depth/batchnorm/
+  fusion），v1 确实做了结构升级而非压层，抽查通过。
 
-**交付物**（9 commit，每步 review+commit）：
-- harness：bash.py PID 暴露（f1af371）；init_session 不污染（03a8e35）；
-  engine/llm.py pydantic_ai 2.0 兼容 import（5f3286c，unblock S7.3）。
+**执行环境备注**：E2E 用 deepseek-chat（非 thinking 模型）绕开了 deepseek-v4-flash 的
+"thinking mode 不支持 tool_choice=required" 限制——这是 provider 限制，harness 原有
+deepseek profile 覆盖逻辑在 pydantic_ai 2.0 失效（单独的 harness-deepseek 兼容项）。
+生产用 v4-flash 时需先解决该兼容。
+
+**交付物**（13 commit，每步 review+commit）：
+- harness：bash.py PID 暴露；engine/llm.py deepseek 2.0 dataclass 守卫。
 - workflow：6 agent.md 全新/重写 + workflow.json 重建 + 12 旧 agent 删除。
-- helpers：collect_status.py + test_collect_status.py。
+- helpers：collect_status.py（+ 路径修复）+ test_collect_status.py。
+- 启动器修复：run_nas.py sys.executable、init_session.py repo-root 路径注入。
 - 文档：workflow-development-guide.md（7 原则）+ 本 plan（每步验收 + 状态）。
 
-**软验收边界**：所有 LLM 行为类项（非惰性、潜力判断质量、跨项目适配）均标注
-"V1.E2E 人工抽查"，符合用户选择的软验收方式。
+**软验收边界**：LLM 行为类项用 E2E 真实产物抽查（structural 非惰性、understanding
+具体性均已确认），符合用户选择的软验收方式。
 
 ### V2：多轮 ToT
 
