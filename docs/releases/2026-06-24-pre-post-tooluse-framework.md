@@ -73,12 +73,29 @@ pydantic-ai tool dispatch → ToolFactory._wrap_fn (统一 chokepoint)
 
 ## 5. 测试覆盖
 - `tests/tools/test_measure.py` — 17（测量基础设施）
-- `tests/extensions/test_tool_hooks.py` — 12（hook 调度）
+- `tests/extensions/test_tool_hooks.py` — 20（hook 调度 + Fix A 参数改写 A1-A4 + Fix B 结果透传 B1-B4）
 - `tests/extensions/test_token_stats_hook.py` — 8（审计 hook）
 - `tests/extensions/test_output_compactor.py` — 10（清洗中间件）
+- `tests/extensions/test_compactor_audit_integration.py` — 4（Fix D 联调回归，纯逻辑无 LLM）
 - 工具测试同步转 async（pydantic-ai 始终 await tool fn）
 
 ## 6. 后续（不在本次范围）
-- **PreToolUse 业务规则**：危险命令拦截（rm -rf / git push）、重复调用提醒——框架能力已就绪（TASK 1），只差写 middleware
+- **PreToolUse 业务规则**：危险命令拦截（rm -rf / git push）、重复调用提醒、参数改写（如 sandbox 路径重定向）——框架能力已就绪（TASK 1 + Fix A 已接通参数改写 return-path），只差写 middleware
 - **子 agent 摘要式清洗**：`OutputCompactor.summarize` 已留扩展点，可换 LLM 摘要策略
 - **AutoCompact 接入**（middleware C 段，用户明确排除本次）
+
+---
+
+## 7. 代码评审修正（2026-06-25）
+
+初版交付后做了一轮代码评审，发现并修复了文档与实现之间的 5 处偏差（commit `f234c69`–`0a1241f`）：
+
+| Fix | 问题 | 修正 |
+|---|---|---|
+| **A** | PreToolUse "改参数 (rewrite tool_args)" 被宣传但未实现——`dispatch_before_tool` 丢弃了 middleware 改写后的 ctx，工具以原始 args 执行 | 补齐 return-path：返回 `(reject, effective_args)`，`_wrap_fn` 用返回的 args 执行。新增 A1-A4 验收测试 |
+| **B** | `dispatch_after_tool` 用 `len(outcome)==2` 形状检查解包 `(ctx, output)` 信封，读起来像在防误判（实际契约无歧义） | 改为按位置解包 + 注释明确契约；新增 B1-B4 固化"任意类型结果（含 tuple/list）原样透传"不变量 |
+| **C** | `run_hooks` 白名单含 `on_pre_tool`/`on_post_tool`，但 `BaseHook` 未定义、无调用方（死代码，误导后续开发） | 从白名单删除；`run_hooks` Literal 现与 `BaseHook` 方法完全对齐（6==6） |
+| **D** | §3 的 −29.5% 对比来自一次性 LLM run 的 fixture，无法防回归 | 新增纯逻辑联调测试（D1-D4），用 stub tool 驱动 `_wrap_fn`，确定性验证 compactor↔hook 协作 |
+| **E** | `OutputCompactor._infer_workdir` 恒返回 None（未接线的占位方法） | 删除；workdir 现为构造函数单一来源，docstring 明确 None 语义 |
+
+**修正后测试基线**：157 passed（原 47 + 新增 12 个 A/B/D 测试 + 现有扩展/工具测试），无回归。
