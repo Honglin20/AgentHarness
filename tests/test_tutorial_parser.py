@@ -6,15 +6,34 @@ Covers:
   - project layer adds new domains alongside builtin ones
   - graceful empty when neither layer exists
   - explicit tutorials_dir arg short-circuits the merge
+  - synthetic "project" domain aggregates unclaimed local workflows
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
 from harness.paths import get_builtin_tutorials_dir
+from harness.registry import configure_registry
 from server.tutorial_parser import parse_tutorials
+
+
+@pytest.fixture(autouse=True)
+def _isolate_resources(tmp_path):
+    """Isolate the global ResourceRegistry so each test sees only the
+    workflows/tutorials it created under tmp_path — never the real
+    AgentHarness repo contents.
+
+    Without this, the synthetic-domain aggregation would scan the actual
+    repo ``workflows/`` (via the process-level registry singleton) and
+    leak real workflows into every test, breaking the "neither layer →
+    empty" assertion and making results order-dependent.
+    """
+    configure_registry(tmp_path)
+    yield
+    configure_registry(None)
 
 
 # ── builtin shipped ────────────────────────────────────────────────
@@ -104,3 +123,148 @@ class TestEdgeCases:
 
         domains = {d["id"]: d for d in parse_tutorials(only)}
         assert domains["lonely"]["title"] == "Lonely"
+
+
+# ── synthetic "project" domain ──────────────────────────────────────
+
+
+def _write_workflow(workflows_dir: Path, name: str, description: str = "") -> None:
+    """Write a minimal workflows/<name>/workflow.json into tmp_path.
+
+    The synthetic-domain logic reads candidates via the registry, which
+    keys off the ``name`` field (falling back to the dir name) and the
+    ``description`` field of each workflow.json.
+    """
+    wf_dir = workflows_dir / name
+    wf_dir.mkdir(parents=True, exist_ok=True)
+    (wf_dir / "workflow.json").write_text(
+        json.dumps({"name": name, "description": description, "agents": []}),
+        encoding="utf-8",
+    )
+
+
+def _index_with_workflows(domain_dir: Path, h1_title: str, wf_names: list[str], order: int = 1) -> None:
+    """Write an _index.md whose frontmatter declares the given workflows."""
+    domain_dir.mkdir(parents=True, exist_ok=True)
+    wf_yaml = "\n".join(f"  - name: {n}\n    description: d" for n in wf_names)
+    (domain_dir / "_index.md").write_text(
+        f"---\norder: {order}\ncolor: blue\nicon: Layers\nworkflows:\n{wf_yaml}\n---\n\n# {h1_title}\n\nbody.\n",
+        encoding="utf-8",
+    )
+
+
+class TestSyntheticProjectDomain:
+    """The synthetic "project" domain aggregates unclaimed local workflows."""
+
+    def test_unclaimed_workflow_appears_in_project_domain(self, monkeypatch, tmp_path):
+        """A workflow under workflows/ that no domain claims surfaces in a
+        synthetic "project" domain; a claimed one does not."""
+        workflows_dir = tmp_path / "workflows"
+        _write_workflow(workflows_dir, "claimed-wf", "claimed")
+        _write_workflow(workflows_dir, "orphan-wf", "orphan")
+
+        # Domain that claims "claimed-wf" via _index.md workflows: field.
+        project_tutorials = tmp_path / "tutorials"
+        _index_with_workflows(project_tutorials / "nas", "NAS", ["claimed-wf"], order=1)
+        monkeypatch.setattr("harness.paths.get_tutorials_dir", lambda: project_tutorials)
+        monkeypatch.setattr(
+            "harness.paths.get_builtin_tutorials_dir", lambda: tmp_path / "nope"
+        )
+
+        domains = {d["id"]: d for d in parse_tutorials()}
+        assert "project" in domains
+        proj = domains["project"]
+        assert proj["title"] == "Project Workflows"
+        assert proj["status"] == "active"
+        assert proj["tutorials"] == []
+        assert proj["apis"] == []
+        assert proj["color"] == "amber"
+        assert [w["name"] for w in proj["workflows"]] == ["orphan-wf"]
+
+    def test_workflow_referenced_only_by_tutorial_is_claimed(self, monkeypatch, tmp_path):
+        """A workflow referenced only in a tutorial's ``workflow:`` field
+        is also considered claimed and excluded from the project domain."""
+        workflows_dir = tmp_path / "workflows"
+        _write_workflow(workflows_dir, "try-it-wf", "via try it")
+        _write_workflow(workflows_dir, "orphan-wf", "orphan")
+
+        project_tutorials = tmp_path / "tutorials"
+        domain_dir = project_tutorials / "nas"
+        domain_dir.mkdir(parents=True, exist_ok=True)
+        (domain_dir / "_index.md").write_text(
+            "---\norder: 1\ncolor: blue\nicon: Layers\n---\n\n# NAS\n\nbody.\n",
+            encoding="utf-8",
+        )
+        # Tutorial frontmatter referencing the workflow (Try-it).
+        (domain_dir / "01_intro.md").write_text(
+            "---\nworkflow: try-it-wf\n---\n\n# Intro\n\nbody.\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("harness.paths.get_tutorials_dir", lambda: project_tutorials)
+        monkeypatch.setattr(
+            "harness.paths.get_builtin_tutorials_dir", lambda: tmp_path / "nope"
+        )
+
+        domains = {d["id"]: d for d in parse_tutorials()}
+        assert "project" in domains
+        assert [w["name"] for w in domains["project"]["workflows"]] == ["orphan-wf"]
+
+    def test_all_workflows_claimed_no_synthetic_domain(self, monkeypatch, tmp_path):
+        """When every workflow is claimed, no "project" domain is emitted."""
+        workflows_dir = tmp_path / "workflows"
+        _write_workflow(workflows_dir, "only-wf", "claimed")
+
+        project_tutorials = tmp_path / "tutorials"
+        _index_with_workflows(project_tutorials / "nas", "NAS", ["only-wf"], order=1)
+        monkeypatch.setattr("harness.paths.get_tutorials_dir", lambda: project_tutorials)
+        monkeypatch.setattr(
+            "harness.paths.get_builtin_tutorials_dir", lambda: tmp_path / "nope"
+        )
+
+        domains = {d["id"] for d in parse_tutorials()}
+        assert "project" not in domains
+
+    def test_empty_workflows_dir_no_synthetic_domain(self, monkeypatch, tmp_path):
+        """No workflows on disk → no project domain (no empty card)."""
+        project_tutorials = tmp_path / "tutorials"
+        _index_with_workflows(project_tutorials / "nas", "NAS", [], order=1)
+        monkeypatch.setattr("harness.paths.get_tutorials_dir", lambda: project_tutorials)
+        monkeypatch.setattr(
+            "harness.paths.get_builtin_tutorials_dir", lambda: tmp_path / "nope"
+        )
+
+        domains = {d["id"] for d in parse_tutorials()}
+        assert "project" not in domains
+
+    def test_explicit_dir_mode_skips_synthetic(self, monkeypatch, tmp_path):
+        """Explicit tutorials_dir mode never emits a synthetic domain."""
+        # Put an orphan workflow where the registry can find it.
+        _write_workflow(tmp_path / "workflows", "orphan-wf", "orphan")
+        only = tmp_path / "only"
+        _write_index(only / "lonely", "Lonely", order=1)
+
+        domains = {d["id"] for d in parse_tutorials(only)}
+        assert "project" not in domains
+        assert "lonely" in domains
+
+    def test_project_domain_sorts_last(self, monkeypatch, tmp_path):
+        """The synthetic project domain (order 99) sorts after all authored
+        domains, and the registry candidate source is the tmp workflows dir
+        (no hardcoded path)."""
+        workflows_dir = tmp_path / "workflows"
+        _write_workflow(workflows_dir, "orphan-wf", "orphan")
+
+        project_tutorials = tmp_path / "tutorials"
+        _index_with_workflows(project_tutorials / "aaa", "AAA", ["x"], order=1)
+        monkeypatch.setattr("harness.paths.get_tutorials_dir", lambda: project_tutorials)
+        monkeypatch.setattr(
+            "harness.paths.get_builtin_tutorials_dir", lambda: tmp_path / "nope"
+        )
+
+        domains = parse_tutorials()
+        ids = [d["id"] for d in domains]
+        assert ids[-1] == "project"
+        assert domains[-1]["order"] == 99
+        # Verifies the candidate source is the (isolated) registry, not a
+        # hardcoded path: "orphan-wf" is the only tmp workflow.
+        assert [w["name"] for w in domains[-1]["workflows"]] == ["orphan-wf"]

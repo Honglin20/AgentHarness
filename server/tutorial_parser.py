@@ -34,12 +34,12 @@ def _parse_index(index_path: Path) -> dict:
         if title and stripped and not stripped.startswith("#"):
             description = stripped
             break
-    workflows_raw = fm.metadata.get("workflows", [])
-    workflows = [
-        {"name": w["name"], "description": w.get("description", "")}
-        for w in workflows_raw
-        if isinstance(w, dict) and w.get("name")
-    ]
+        workflows_raw = fm.metadata.get("workflows", []) or []
+        workflows = [
+            {"name": w["name"], "description": w.get("description", "")}
+            for w in workflows_raw
+            if isinstance(w, dict) and w.get("name")
+        ]
     return {
         "title": title or fm.metadata.get("title", index_path.parent.name),
         "description": description,
@@ -260,10 +260,104 @@ def parse_tutorials(tutorials_dir: Path | None = None) -> list[dict]:
         for api in domain["apis"]:
             api["referenced_by"] = reverse.get(api["id"], [])
 
+    # Synthetic domains — only in merged mode (explicit-dir mode has no
+    # workflows context). Appended after the referenced_by loop so synthetic
+    # domains (which carry empty tutorials/apis) are never touched by it.
+    if tutorials_dir is None:
+        _append_synthetic_domains(domains)
+
     # Sort by order field (default 99 for missing)
     domains.sort(key=lambda d: d.get("order", 99))
 
     return domains
+
+
+# ── synthetic domains ───────────────────────────────────────────────
+#
+# Synthetic domains are auto-generated from project resources rather than
+# authored in ``_index.md``. The canonical example is the ``project``
+# domain, which aggregates every workflow under ``workflows/`` that no
+# authored domain has claimed — so a workflow dropped into the workflows
+# folder shows up in the Portal without a manual ``_index.md`` entry.
+#
+# Extension point: add a builder to ``_SYNTHETIC_BUILDERS`` and
+# ``parse_tutorials`` picks it up unchanged (open/closed). Each builder
+# shares the signature ``(candidates, claimed) -> dict | None`` and may
+# return ``None`` (e.g. nothing to aggregate) to emit no domain.
+
+# Metadata for the synthetic project domain. ``order: 99`` is the
+# missing-frontmatter default, so it always sorts last behind authored
+# domains (which currently use 1-5).
+_PROJECT_DOMAIN_META = {
+    "id": "project",
+    "title": "Project Workflows",
+    "description": "本地 workflows/ 下未被任何领域认领的工作流。",
+    "color": "amber",
+    "icon": "Layers",
+    "status": "active",
+    "order": 99,
+}
+
+
+def _collect_claimed_workflows(domains: list[dict]) -> set[str]:
+    """Workflow names already claimed by authored domains.
+
+    A workflow is "claimed" when it appears in either:
+      - a domain ``_index.md`` ``workflows:`` declaration, or
+      - a tutorial frontmatter ``workflow:`` field (the Try-it reference).
+    Claimed workflows never enter the synthetic project domain. The
+    ``rsplit`` tolerates ``"domain/name"`` path-style references.
+    """
+    claimed: set[str] = set()
+    for d in domains:
+        for w in d.get("workflows", []) or []:
+            if w.get("name"):
+                claimed.add(w["name"])
+        for t in d.get("tutorials", []) or []:
+            wf = t.get("workflow")
+            if wf:
+                claimed.add(wf.rsplit("/", 1)[-1])
+    return claimed
+
+
+def _build_project_domain(candidates, claimed: set[str]) -> dict | None:
+    """Aggregate unclaimed project-layer workflows into a synthetic domain.
+
+    ``candidates`` comes from ``registry.list_workflows(scope="project")``
+    — the workflows dir rooted at the project (CWD), shared with
+    ``/api/workflows/definitions`` so the two never drift apart. Returns
+    ``None`` when nothing is unclaimed, so no empty domain card renders.
+    """
+    workflows = [
+        {"name": m.name, "description": m.description}
+        for m in candidates
+        if m.name not in claimed
+    ]
+    if not workflows:
+        return None
+    return {
+        **_PROJECT_DOMAIN_META,
+        "tutorials": [],
+        "apis": [],
+        "workflows": workflows,
+    }
+
+
+# Builder list — the open/closed extension point. New synthetic domains
+# append a builder here; parse_tutorials stays untouched.
+_SYNTHETIC_BUILDERS = [_build_project_domain]
+
+
+def _append_synthetic_domains(domains: list[dict]) -> None:
+    """Append synthetic domains in place (merged mode only)."""
+    from harness.registry import get_registry
+
+    claimed = _collect_claimed_workflows(domains)
+    project_candidates = get_registry().list_workflows(scope="project")
+    for builder in _SYNTHETIC_BUILDERS:
+        synth = builder(project_candidates, claimed)
+        if synth:
+            domains.append(synth)
 
 
 if __name__ == "__main__":
