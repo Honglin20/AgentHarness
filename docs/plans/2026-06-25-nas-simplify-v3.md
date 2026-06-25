@@ -194,23 +194,29 @@ workflow 内。
 "训练是否正常/有无异常"的判断由 mutator（LLM）读 progress.jsonl 做。采集可测，判断灵活。
 
 **验收标准**：
-- [ ] **S4.1 三阶段落盘**：每个阶段有可识别产物（A:model.py+changes.md，B:C-RUN 追加+
-      collect 启动，C:status.json 读取记录）。阶段间可断点续。
+- [x] **S4.1 三阶段落盘**：每个阶段有可识别产物（A:model.py+changes.md，B:C-RUN 追加+
+      collect 启动，C:status.json 读取记录）。阶段间可断点续。（静态检查通过：三阶段
+      均有产物 + check_resume 断点。运行验证待 V1.E2E。）
 - [ ] **S4.2 方向非惰性**：structural 产物做根本结构改变（如替换 attention 机制），
       非压层删组件。**用例**：diff parent model vs variant model，确认有结构组件替换/
-      新增，非纯层数/宽度数值变化。
+      新增，非纯层数/宽度数值变化。（静态检查通过：prompt 明确根本结构改变 + 禁惰性。
+      **软验收**：V1.E2E 人工抽查 ≥1 轮 structural diff。）
 - [ ] **S4.3 时延有改善**：business/structural 方向变体的 latency_ms < parent latency_ms
-      （不必达标，但须改善）。
+      （不必达标，但须改善）。（静态检查通过：prompt 明确 latency<parent。运行验证待 V1.E2E。）
 - [ ] **S4.4 监控摘取生效**：progress.jsonl 有 ≥2 条采集记录，含 tail 最新 loss/step。
-- [ ] **S4.5 上下文不丢**：mutator 单 agent 内完成生成→运行→收集，中途不交接给别的
-      agent（grep workflow.json 确认 mutator 后继是 analyzer，无中间 runner）。
+      （静态检查通过：collect_status + progress.jsonl + tail 机制齐全。运行验证待 V1.E2E。）
+- [x] **S4.5 上下文不丢**：mutator 单 agent 内完成生成→运行→收集，中途不交接给别的
+      agent（grep workflow.json 确认 mutator 后继是 analyzer，无中间 runner）。（静态
+      检查通过：prompt 明确"交接给独立 runner"为严禁项。S7 组装时确认 workflow.json 路由。）
 - [ ] **S4.6 断点（阶段级）**：
       - 阶段 A 完成后崩 → 重启跳过 A（model.py 存在），从 B 开始。
       - 阶段 B 训练在跑时崩 → 重启读 C-RUN，PID 仍活→继续等（S0.5 指纹校验）；
         PID 死且无 status→重跑 B。
-      **用例**：构造每个阶段的崩溃点，验证恢复路径。
-- [ ] **S4.7 假成功拦截**：训练 exit0 但无 metrics → collect_status 写 status.ok=false
-      （依赖 S0.3c/d）；mutator 不当作成功。
+      **用例**：构造每个阶段的崩溃点，验证恢复路径。（静态检查通过：每阶段有断点 Step。
+      运行验证待 V1.断点 实跑。）
+- [x] **S4.7 假成功拦截**：训练 exit0 但无 metrics → collect_status 写 status.ok=false
+      （依赖 S0.3c/d）；mutator 不当作成功。（静态检查通过：prompt 明确 ok=false 如实
+      处理 + analyzer 文件证据复核；S0.3c/d 单测已验证 collect_status 行为。）
 
 ---
 
