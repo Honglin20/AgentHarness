@@ -281,8 +281,36 @@ workflow 内。
 跑通 S0-S7。**用例**：`projects/mnist`，目标 acc≥0.95，单轮。
 - [ ] **V1.E2E**：一次运行完整跑完 6 agent，产出 setup/baseline/tree/report，
       reporter 判定（达标或未达标都算跑通，关键是流程闭合）。
+      **阻塞**：sandbox 内 harness 运行时 import 断裂（见 S7.3），且需真实 LLM API。
+      无法在此环境跑。前置：① 修复 pydantic_ai 版本（`OpenAIChatModel`→`OpenAIModel`）
+      或降版本；② 配置 LLM key。
 - [ ] **V1.断点**：跑到 mutator 阶段 B 时 kill 整个 workflow，`--session-id` 重启，
-      恢复正确（不重跑 setup/baseline，训练继续或正确重跑）。
+      恢复正确（不重跑 setup/baseline，训练继续或正确重跑）。— 同 V1.E2E 阻塞。
+
+---
+
+## 5. 完成审计总结（2026-06-25）
+
+**静态/单元验证已通过**（sandbox 内可做）：
+- S0：collect_status.py 6 场景单测全过（含 PID 复用陷阱 + 原子写）。
+- S0.1/0.2/0.5：PID 暴露、init 不污染、check_resume 契约。
+- S1.1/1.3/1.4/1.5、S2.3/2.4、S3.1/3.2、S4.1/4.5/4.7、S5.1-5.5、S6.1/6.2、S7.1/7.2：
+  静态检查全过。
+- S7.3 等效：6 schema 能构建 pydantic model + DAG 拓扑合法。
+
+**运行时验证未完成**（环境阻塞，非代码缺陷）：
+- S7.3 字面 `load_workflow('nas')`、V1.E2E、V1.断点：依赖 harness 运行时 import
+  （pre-existing 的 pydantic_ai 版本断裂）+ 真实 LLM API，sandbox 内无法跑。
+- S1.2 跨项目、S2.1/2.2 真实数值、S4.2-4.4/4.6 运行行为：需 E2E 实跑。
+
+**交付物**（8 commit，每步 review+commit）：
+- harness：bash.py PID 暴露（commit f1af371，更早）；init_session 不污染（03a8e35）。
+- workflow：6 agent.md 全新/重写 + workflow.json 重建 + 12 旧 agent 删除。
+- helpers：collect_status.py + test_collect_status.py。
+- 文档：workflow-development-guide.md（7 原则）+ 本 plan（每步验收 + 状态）。
+
+**软验收边界**：所有 LLM 行为类项（非惰性、潜力判断质量、跨项目适配）均标注
+"V1.E2E 人工抽查"，符合用户选择的软验收方式。
 
 ### V2：多轮 ToT
 
@@ -302,7 +330,7 @@ workflow 内。
 
 ---
 
-## 5. 风险与对策（已映射到验收）
+## 6. 风险与对策（已映射到验收）
 
 | 风险 | 验收项 | 对策 |
 |---|---|---|
@@ -316,7 +344,7 @@ workflow 内。
 
 ---
 
-## 6. 实施顺序与依赖
+## 7. 实施顺序与依赖
 
 ```
 S0（基础设施） ── 无依赖，先做
