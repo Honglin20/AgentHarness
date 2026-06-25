@@ -11,17 +11,26 @@
 接口与 LLMExecutor 完全平行（实现 BaseExecutor 协议），node_factory 不需要
 知道是 pydantic-ai 还是 claude-code。
 
-Phase D 起会通过 mcp_config_path 接入 harness MCP server（ask_user 等桥接工具）。
+Phase D 集成 harness MCP server（ping / ask_user / TodoTool / render_chart 桥接）：
+  - run() 之前 _setup_mcp 启动 McpProxyServer + 写临时 mcp-config JSON
+  - claude 通过 mcp-config 连 harness MCP server 子进程
+  - tools/call 经 IPC 转发到主进程 handler
+  - run() 之后 _teardown_mcp 清理 socket + 文件
+
 Phase E 起会通过 session_id + --resume 支持 schema retry。
 
-设计参考: docs/plans/2026-06-25-claude-code-executor/detailed-design.md §6
+设计参考: docs/plans/2026-06-25-claude-code-executor/detailed-design.md §6 §7
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import sys
+import tempfile
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 
 from harness.engine.llm_executor import AgentRunResult, BaseExecutor
@@ -124,6 +133,7 @@ class ClaudeCodeExecutor:
         cli_path: str = "claude",
         timeout_s: float | None = None,
         mcp_config_path: Any | None = None,
+        enable_mcp: bool = True,
     ):
         self.agent_def = agent_def
         self._deps = deps
@@ -138,7 +148,15 @@ class ClaudeCodeExecutor:
         self._request_limit = request_limit
         self._cli_path = cli_path
         self._timeout_s = timeout_s
+        # 显式传入的 mcp_config_path（一般用于测试 / 自定义 MCP）；
+        # 为 None 且 enable_mcp=True 时 _setup_mcp 会自动生成。
         self._mcp_config_path = mcp_config_path
+        self._enable_mcp = enable_mcp
+
+        # Per-run MCP state（_setup_mcp 创建，_teardown_mcp 清理）
+        self._proxy: Any | None = None  # McpProxyServer，避免顶层循环 import
+        self._mcp_config_file: Path | None = None
+        self._mcp_serve_task: asyncio.Task | None = None
 
         # Per-run state（每次 run() 重置）
         self.tool_calls: list[dict[str, Any]] = []
@@ -165,33 +183,44 @@ class ClaudeCodeExecutor:
         self._reset_run_state()
         t0 = time.time()
 
-        cfg = self._build_spawn_config(context)
-        ctx = self._build_translate_ctx()
+        # Phase D: 按需启动 harness MCP server，写 mcp-config，让 claude 能调
+        # 前端联动工具（ask_user 等）。enable_mcp=False 跳过（CI 单测常用）。
+        mcp_config_path = self._mcp_config_path
+        if mcp_config_path is None and self._enable_mcp:
+            mcp_config_path = await self._setup_mcp()
 
-        # 把 stdout 每行喂翻译器，再 emit
-        async def on_line(line: str) -> None:
-            await self._handle_stdout_line(line, ctx)
+        try:
+            cfg = self._build_spawn_config(context, mcp_config_path)
+            ctx = self._build_translate_ctx()
 
-        # check_interrupt 钩子：让 WS 中断能取消 claude 子进程
-        # 当前实现：spawn 期间不主动 check（pydantic-ai 路径在 iter 中 check）；
-        # Phase G 加精细 cancel 支持
+            # 把 stdout 每行喂翻译器，再 emit
+            async def on_line(line: str) -> None:
+                await self._handle_stdout_line(line, ctx)
 
-        claude_result = await run_claude(cfg, on_line=on_line, timeout=self._timeout_s)
-        elapsed_ms = int((time.time() - t0) * 1000)
+            # check_interrupt 钩子：让 WS 中断能取消 claude 子进程
+            # 当前实现：spawn 期间不主动 check（pydantic-ai 路径在 iter 中 check）；
+            # Phase G 加精细 cancel 支持
 
-        if claude_result.exit_code != 0:
-            raise RuntimeError(
-                f"claude subprocess exited code={claude_result.exit_code} "
-                f"(timed_out={claude_result.timed_out}); stderr tail: "
-                f"{claude_result.stderr[-500:]!r}"
-            )
+            claude_result = await run_claude(cfg, on_line=on_line, timeout=self._timeout_s)
+            elapsed_ms = int((time.time() - t0) * 1000)
 
-        # result_text 为空说明 claude 没产出 result 事件（异常情况）
-        if self._final_result_text is None:
-            raise RuntimeError(
-                f"claude exited 0 but emitted no result event; "
-                f"stderr tail: {claude_result.stderr[-500:]!r}"
-            )
+            if claude_result.exit_code != 0:
+                raise RuntimeError(
+                    f"claude subprocess exited code={claude_result.exit_code} "
+                    f"(timed_out={claude_result.timed_out}); stderr tail: "
+                    f"{claude_result.stderr[-500:]!r}"
+                )
+
+            # result_text 为空说明 claude 没产出 result 事件（异常情况）
+            if self._final_result_text is None:
+                raise RuntimeError(
+                    f"claude exited 0 but emitted no result event; "
+                    f"stderr tail: {claude_result.stderr[-500:]!r}"
+                )
+        finally:
+            # cleanup MCP（即使是失败路径也要清理 socket + 文件）
+            if self._enable_mcp and self._mcp_config_path is None:
+                await self._teardown_mcp()
 
         # 构造 AgentRunResult（agent_run duck-type 让 node_factory 能正常消费）
         usage = _ClaudeUsage(
@@ -241,20 +270,114 @@ class ClaudeCodeExecutor:
         self._final_result_text = None
         self._last_ttft_ms = None
 
-    def _build_spawn_config(self, context: str) -> ClaudeSpawnConfig:
-        """从 agent_def + context 构造 spawn 配置。"""
+    def _build_spawn_config(
+        self, context: str, mcp_config_path: Any | None = None
+    ) -> ClaudeSpawnConfig:
+        """从 agent_def + context 构造 spawn 配置。
+
+        mcp_config_path 显式传入时优先；None 时 fallback 到 self._mcp_config_path
+        （用于测试 / 自定义场景，run() 主流程会通过 _setup_mcp 生成并显式传入）。
+        """
         # system prompt: agent MD 内容（deps 应提供）
         system_prompt = self._resolve_system_prompt()
 
         allowed_tools = self._resolve_allowed_tools()
 
+        # 显式 > self._mcp_config_path（兼容旧测试 + 自定义注入）
+        effective_mcp = mcp_config_path if mcp_config_path is not None else self._mcp_config_path
+
         return ClaudeSpawnConfig(
             prompt=context,
-            mcp_config_path=self._mcp_config_path,
+            mcp_config_path=effective_mcp,
             allowed_tools=allowed_tools,
             append_system_prompt=system_prompt,
             cli_path=self._cli_path,
         )
+
+    # ------------------------------------------------------------------
+    # MCP setup / teardown (Phase D)
+    # ------------------------------------------------------------------
+
+    async def _setup_mcp(self) -> Path:
+        """启动 McpProxyServer + 写 mcp-config JSON 文件，返回 path。
+
+        claude 通过 ``--mcp-config <path>`` 连接，文件指向 harness.mcp.server
+        子进程，env 含 socket path 让子进程找到主进程。
+        """
+        # 局部 import 避免顶层依赖循环（harness.mcp.proxy import ask_user 间接拉工具链）
+        from harness.mcp.proxy import (
+            HandlerCtx,
+            McpProxyServer,
+            register_default_handlers,
+        )
+        from harness.mcp.server import SOCKET_PATH_ENV
+
+        # 注册内置 handler（idempotent：register_handler 同名覆盖）
+        register_default_handlers()
+
+        # 启动 proxy
+        proxy_ctx = HandlerCtx(
+            workflow_id=self._wid,
+            node_id=self._node_id,
+            agent_name=self._agent_name,
+            event_bus=self._bus,
+        )
+        self._proxy = McpProxyServer(ctx=proxy_ctx)
+        socket_path = await self._proxy.start()
+        self._mcp_serve_task = asyncio.create_task(self._proxy.serve_until_stopped())
+
+        # 写 mcp-config JSON（claude --mcp-config <path>）
+        cfg = {
+            "mcpServers": {
+                "harness": {
+                    "command": sys.executable,
+                    "args": ["-m", "harness.mcp.server"],
+                    "env": {SOCKET_PATH_ENV: socket_path},
+                }
+            }
+        }
+        # 临时文件，关闭后保留（claude 子进程读）；run() 结束时 _teardown_mcp 删
+        f = tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".json",
+            prefix="harness-mcp-config-",
+            delete=False,
+            dir=tempfile.gettempdir(),
+        )
+        json.dump(cfg, f, indent=2)
+        f.close()
+        self._mcp_config_file = Path(f.name)
+        logger.info(
+            "ClaudeCodeExecutor MCP setup: socket=%s config=%s",
+            socket_path, self._mcp_config_file,
+        )
+        return self._mcp_config_file
+
+    async def _teardown_mcp(self) -> None:
+        """清理：cancel serve task + stop proxy + 删 mcp-config 文件。"""
+        if self._mcp_serve_task is not None:
+            self._mcp_serve_task.cancel()
+            try:
+                await asyncio.gather(self._mcp_serve_task, return_exceptions=True)
+            except Exception:
+                pass
+            self._mcp_serve_task = None
+
+        if self._proxy is not None:
+            try:
+                await self._proxy.stop()
+            except Exception:
+                logger.exception("MCP proxy stop failed")
+            self._proxy = None
+
+        if self._mcp_config_file is not None:
+            try:
+                self._mcp_config_file.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                logger.warning("failed to remove mcp config %s", self._mcp_config_file)
+            self._mcp_config_file = None
 
     def _resolve_system_prompt(self) -> str | None:
         """从 agent_def / deps 提取 agent MD 内容作为 system prompt。"""
