@@ -135,6 +135,21 @@ class RetryAction:
     max_attempts: int = 1
 
 
+@dataclass
+class SubstituteAction:
+    """Tell the engine: replace this tool's result with ``result``.
+
+    Used by Middleware.after_tool (PostToolUse) to rewrite a tool's output
+    before it reaches message_history — e.g. compacting a large bash dump
+    to a summary + file pointer. Returning it is the EXPLICIT signal that
+    the result was transformed, so "who changed what" stays auditable
+    (unlike silently returning a different value). The original tool output
+    is discarded; if it must be recoverable, the middleware is responsible
+    for spilling it to disk and embedding the path in ``result``.
+    """
+    result: str
+
+
 # ============================================================
 # Extension contracts — all default to no-op so subclasses override
 # only what they need.
@@ -181,7 +196,16 @@ class BaseMiddleware:
         return output
 
     async def before_tool(self, ctx: ToolCtx) -> ToolCtx | RejectAction:
+        """PreToolUse: run before the tool executes. May rewrite ctx.tool_args
+        or return RejectAction to block the call (the model sees ``reason``)."""
         return ctx
+
+    async def after_tool(self, ctx: ToolCtx, result: Any) -> Any | SubstituteAction | RejectAction:
+        """PostToolUse: run after the tool returns, before the result reaches
+        message_history. Return SubstituteAction(result=...) to replace the
+        output (compact/summarize), or RejectAction to flag it as an error.
+        Returning ``result`` unchanged is the no-op default."""
+        return result
 
 
 class BaseGraphMutator:

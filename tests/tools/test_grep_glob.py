@@ -30,8 +30,12 @@ def registry(sample_project):
     return reg
 
 
-def _run_tool(registry, tool_name, **kwargs):
-    """Resolve tool and call it with a minimal fake context."""
+async def _run_tool(registry, tool_name, **kwargs):
+    """Resolve tool and call it with a minimal fake context.
+
+    Tool wrapper fns are now async (Pre/PostToolUse dispatch is async), so
+    callers must await. pydantic-ai itself always awaits tool fns.
+    """
     from pydantic_ai import RunContext
     from harness.tools.deps import AgentDeps
 
@@ -44,7 +48,7 @@ def _run_tool(registry, tool_name, **kwargs):
     factory = registry._factories[tool_name]
     pydantic_tool = factory.create()
     fn = pydantic_tool.function
-    return fn(ctx, **kwargs)
+    return await fn(ctx, **kwargs)
 
 
 # ── _find_rg ─────────────────────────────────────────────────────
@@ -60,62 +64,90 @@ def test_find_rg():
 
 
 class TestGrep:
-    def test_grep_finds_pattern(self, registry, sample_project):
-        result = _run_tool(registry, "grep", pattern="def hello", path=str(sample_project))
+    async def test_grep_finds_pattern(self, registry, sample_project):
+        result = await _run_tool(registry, "grep", pattern="def hello", path=str(sample_project))
         assert "main.py" in result
 
-    def test_grep_content_mode(self, registry, sample_project):
-        result = _run_tool(registry, "grep", pattern="def", path=str(sample_project), output_mode="content")
+    async def test_grep_content_mode(self, registry, sample_project):
+        result = await _run_tool(registry, "grep", pattern="def", path=str(sample_project), output_mode="content")
         assert "def hello" in result
         assert "def world" in result
 
-    def test_grep_count_mode(self, registry, sample_project):
-        result = _run_tool(registry, "grep", pattern="def", path=str(sample_project), output_mode="count")
+    async def test_grep_count_mode(self, registry, sample_project):
+        result = await _run_tool(registry, "grep", pattern="def", path=str(sample_project), output_mode="count")
         assert "main.py" in result
 
-    def test_grep_type_filter(self, registry, sample_project):
-        result = _run_tool(registry, "grep", pattern="Hello", path=str(sample_project), type="md")
+    async def test_grep_type_filter(self, registry, sample_project):
+        result = await _run_tool(registry, "grep", pattern="Hello", path=str(sample_project), type="md")
         assert "README.md" in result
         assert "main.py" not in result
 
-    def test_grep_case_insensitive(self, registry, sample_project):
-        result_ci = _run_tool(registry, "grep", pattern="HELLO", path=str(sample_project), case_insensitive=True)
-        result_cs = _run_tool(registry, "grep", pattern="HELLO", path=str(sample_project))
+    async def test_grep_case_insensitive(self, registry, sample_project):
+        result_ci = await _run_tool(registry, "grep", pattern="HELLO", path=str(sample_project), case_insensitive=True)
+        result_cs = await _run_tool(registry, "grep", pattern="HELLO", path=str(sample_project))
         assert "hello" in result_ci.lower()
         assert "No matches" in result_cs
 
-    def test_grep_glob_filter(self, registry, sample_project):
-        result = _run_tool(registry, "grep", pattern="def", path=str(sample_project), glob="*.py")
+    async def test_grep_glob_filter(self, registry, sample_project):
+        result = await _run_tool(registry, "grep", pattern="def", path=str(sample_project), glob="*.py")
         assert "README.md" not in result
 
-    def test_grep_no_matches(self, registry, sample_project):
-        result = _run_tool(registry, "grep", pattern="zzzznonexistent", path=str(sample_project))
+    async def test_grep_no_matches(self, registry, sample_project):
+        result = await _run_tool(registry, "grep", pattern="zzzznonexistent", path=str(sample_project))
         assert "No matches" in result
 
-    def test_grep_context_lines(self, registry, sample_project):
-        result = _run_tool(registry, "grep", pattern="def hello", path=str(sample_project), output_mode="content", context=1)
+    async def test_grep_context_lines(self, registry, sample_project):
+        result = await _run_tool(registry, "grep", pattern="def hello", path=str(sample_project), output_mode="content", context=1)
         assert "print" in result
+
+    async def test_grep_no_match_does_not_record_failure(self, sample_project):
+        """TASK 2: no-match (rg exit 1) is a normal result, NOT a failure."""
+        from pydantic_ai import RunContext
+        from harness.tools.deps import AgentDeps
+        deps = AgentDeps(workdir=str(sample_project))
+        ctx = RunContext(deps=deps, model=None, usage=None, prompt=None)
+        fn = GrepToolFactory().create().function
+        result = await fn(ctx, pattern="zzzznonexistent", path=str(sample_project))
+        assert "No matches" in result
+        assert deps.last_tool_failure is None  # no-match is not an error
+
+    async def test_grep_regex_error_records_failure(self, sample_project):
+        """TASK 2: a true rg error (exit >= 2, e.g. malformed regex) records a failure."""
+        from pydantic_ai import RunContext
+        from harness.tools.deps import AgentDeps
+        deps = AgentDeps(workdir=str(sample_project))
+        ctx = RunContext(deps=deps, model=None, usage=None, prompt=None)
+        fn = GrepToolFactory().create().function
+        # An unclosed bracket is a regex parse error → rg exits 2.
+        result = await fn(ctx, pattern="def [hello", path=str(sample_project))
+        assert result.startswith("Error")
+        f = deps.last_tool_failure
+        assert f is not None
+        assert f["tool"] == "grep"
+        assert f["hint"]  # actionable guidance (escape metacharacters)
+        # The returned string is unchanged (side-channel only).
+        assert "Error" in result
 
 
 # ── glob ─────────────────────────────────────────────────────────
 
 
 class TestGlob:
-    def test_glob_python_files(self, registry, sample_project):
-        result = _run_tool(registry, "glob", pattern="*.py", path=str(sample_project))
+    async def test_glob_python_files(self, registry, sample_project):
+        result = await _run_tool(registry, "glob", pattern="*.py", path=str(sample_project))
         assert "main.py" in result
         assert "utils.py" in result
 
-    def test_glob_recursive(self, registry, sample_project):
-        result = _run_tool(registry, "glob", pattern="**/*.py", path=str(sample_project))
+    async def test_glob_recursive(self, registry, sample_project):
+        result = await _run_tool(registry, "glob", pattern="**/*.py", path=str(sample_project))
         assert "app.py" in result
         assert "main.py" in result
 
-    def test_glob_no_matches(self, registry, sample_project):
-        result = _run_tool(registry, "glob", pattern="*.java", path=str(sample_project))
+    async def test_glob_no_matches(self, registry, sample_project):
+        result = await _run_tool(registry, "glob", pattern="*.java", path=str(sample_project))
         assert "No files" in result
 
-    def test_glob_md_files(self, registry, sample_project):
-        result = _run_tool(registry, "glob", pattern="*.md", path=str(sample_project))
+    async def test_glob_md_files(self, registry, sample_project):
+        result = await _run_tool(registry, "glob", pattern="*.md", path=str(sample_project))
         assert "README.md" in result
         assert ".py" not in result

@@ -1,0 +1,6 @@
+torch>=2.0.0
+transformers>=4.30.0
+datasets>=2.10.0
+# Real ASI dependencies (install on cloud GPU only — requires triton):
+# flash-linear-attention>=0.2.2
+# Optional: fla needs triton>=2.0 (CUDA only)

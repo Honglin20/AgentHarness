@@ -32,6 +32,7 @@ from harness.extensions.base import (
     NodeCtx,
     RejectAction,
     RetryAction,
+    SubstituteAction,
     ToolCtx,
     WorkflowCtx,
 )
@@ -425,13 +426,15 @@ class Bus:
     # ----- Middleware chain (sequential, can short-circuit) -----
     async def run_middleware_chain(
         self,
-        phase: Literal["before_node", "after_node", "before_tool"],
+        phase: Literal["before_node", "after_node", "before_tool", "after_tool"],
         ctx_or_pair: Any,
     ) -> Any:
         """Run all middleware for `phase` in priority order.
 
         - before_node / before_tool: pass `ctx`; receive new ctx or RejectAction
-        - after_node:                pass `(ctx, output)`; receive output or RetryAction
+        - after_node / after_tool:   pass `(ctx, output)`; receive output or
+                                     RetryAction (after_node) / SubstituteAction
+                                     or RejectAction (after_tool)
 
         Returns the (possibly mutated) value, or the control action.
         Any middleware exception is logged and that middleware is skipped —
@@ -450,10 +453,10 @@ class Bus:
             if fn is None:
                 continue
             try:
-                if phase == "after_node":
+                if phase in ("after_node", "after_tool"):
                     ctx, output = current
                     result = await fn(ctx, output)
-                    if isinstance(result, RetryAction):
+                    if isinstance(result, (RetryAction, SubstituteAction, RejectAction)):
                         return result
                     current = (ctx, result)
                 else:

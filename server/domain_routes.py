@@ -93,9 +93,14 @@ async def get_api_doc(domain_id: str, api_name: str, request: Request) -> dict:
         raise HTTPException(status_code=404, detail="API doc not found")
 
     # Read the API markdown file
-    from harness.paths import get_tutorials_dir
-    api_path = get_tutorials_dir() / domain_id / "api" / f"{api_name}.md"
-    if not api_path.exists():
+    # Project layer takes precedence over builtin (mirrors parse_tutorials merge).
+    from harness.paths import get_builtin_tutorials_dir, get_tutorials_dir
+    candidates = [
+        get_tutorials_dir() / domain_id / "api" / f"{api_name}.md",
+        get_builtin_tutorials_dir() / domain_id / "api" / f"{api_name}.md",
+    ]
+    api_path = next((p for p in candidates if p.exists()), None)
+    if api_path is None:
         raise HTTPException(status_code=404, detail="API file not found")
 
     markdown_content = api_path.read_text(encoding="utf-8")

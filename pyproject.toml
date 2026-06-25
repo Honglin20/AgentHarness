@@ -12,6 +12,10 @@ dependencies = [
     # than a misleading `[console]` extra. The historical extra is removed; the
     # `console` extra never actually worked without it on a fresh install.
     "rich>=13.0",
+    # Exact tokenizer for tool-output token measurement (Pre/PostToolUse
+    # audits, OutputCompactor thresholds). Falls back to a heuristic if the
+    # import fails, so it is a soft dependency at runtime.
+    "tiktoken>=0.7",
 ]
 
 [project.optional-dependencies]

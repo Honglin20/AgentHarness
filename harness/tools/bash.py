@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import subprocess
 import threading
 import time
@@ -171,6 +172,55 @@ def _build_truncated_result(full_text: str, output_path: Path) -> str:
         f"[use read_text_file to read on demand — e.g. read_text_file('{output_path}') "
         f"or use grep to find specific content]"
     )
+
+
+# ---------------------------------------------------------------------------
+# Failure detection (TASK 2 of the refinement plan).
+#
+# run_foreground encodes failure as MARKERS in the returned string (see
+# _assemble_full_text): "[command timed out ...]" / "[exit code: N]". The tool
+# closure parses those markers to record a structured last_tool_failure on
+# deps, which runtime_status then surfaces to the next model request.
+#
+# Design: this is a PURE function over the result string — no deps, no I/O —
+# so it is trivially testable. The side effect (writing to deps) lives in the
+# closure, keeping detection and mutation separate (SRP).
+# ---------------------------------------------------------------------------
+
+_TIMEOUT_RE = re.compile(r"\[command timed out(?: after (\d+)ms)?\]")
+_EXITCODE_RE = re.compile(r"\[exit code: (-?\d+)\]")
+
+
+def _detect_failure(result: str) -> dict | None:
+    """Parse a bash result string for a failure marker.
+
+    Returns a failure dict {tool, error, hint} when the result encodes a
+    timeout or non-zero exit, else None. Non-zero exit is only reported when
+    stderr text is visible in the result (the marker alone, without stderr,
+    gives the model nothing actionable — many tools exit non-zero on benign
+    conditions like grep finding no match).
+
+    Pure: depends only on its input string.
+    """
+    m_timeout = _TIMEOUT_RE.search(result)
+    if m_timeout:
+        ms = m_timeout.group(1)
+        return {
+            "tool": "bash",
+            "error": f"command timed out after {ms}ms" if ms else "command timed out",
+            "hint": "split the command into smaller steps, narrow the input, or raise the timeout",
+        }
+    m_code = _EXITCODE_RE.search(result)
+    if m_code:
+        code = m_code.group(1)
+        # Only surface when there is stderr the model can act on.
+        if "[stderr]" in result:
+            return {
+                "tool": "bash",
+                "error": f"exit code {code}",
+                "hint": "check the command and its arguments against the stderr above",
+            }
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -451,10 +501,12 @@ def spawn_background(
     return (
         f"[background task started]\n"
         f"task_id: {task_id}\n"
+        f"pid: {proc.pid}\n"
         f"command: {command}\n"
         f"\nOutput will be saved to: {output_path}\n"
         f"A bash.background_completed event will fire when it finishes (or times out). "
-        f"To check on it later, read_text_file('{output_path}')."
+        f"To check on it later, read_text_file('{output_path}'). "
+        f"To stop it: kill {proc.pid}"
     )
 
 
@@ -468,11 +520,25 @@ class BashToolFactory(ToolFactory):
     name = "bash"
     description = (
         "Execute a bash command and return its output. "
-        "Use for running shell commands, scripts, and system operations. "
         "Commands execute in the agent's working directory.\n\n"
-        "Output handling: if output exceeds 30,000 chars, the full output is "
-        "saved to .bash_outputs/{ts}_{hash}.log and only a ~2KB preview is "
-        "returned inline. Use read_text_file to read the full output on demand."
+        "WHEN TO USE A DEDICATED TOOL INSTEAD: prefer the dedicated "
+        "Read/Grep/Glob tools over bash cat/find/grep/ls — they return "
+        "structured, token-efficient results and integrate with the "
+        "framework's truncation. Decision: reading a file -> Read; searching "
+        "contents -> Grep; finding paths by name -> Glob. Use bash only when "
+        "no dedicated tool fits (running scripts, piped commands, git, build "
+        "steps, system introspection).\n\n"
+        "DESTRUCTIVE COMMANDS (rm, mv, chmod, git push, git reset --hard, "
+        "drop): state your intent in the description field before calling — "
+        "these are hard to reverse.\n\n"
+        "OUTPUT HANDLING: output over 30,000 chars is saved to "
+        ".bash_outputs/{ts}_{hash}.log with a ~2KB inline preview. The path "
+        "is in the result — page through the full output with read_text_file "
+        "(offset/limit) rather than re-running the command through head/tail, "
+        "which wastes a full execution.\n\n"
+        "ON TIMEOUT: do not blindly retry the identical command. Split it "
+        "into smaller steps, narrow the input, or raise the timeout — then "
+        "say which you chose."
     )
 
     def __init__(self, timeout_ms: int = DEFAULT_TIMEOUT_MS):
@@ -524,13 +590,35 @@ class BashToolFactory(ToolFactory):
                         workflow_id=wid, node_id=node_id, agent_name=agent_name,
                         description=description,
                     )
-                return run_foreground(
+                result = run_foreground(
                     command, workdir,
                     timeout_ms=effective_timeout,
                     workflow_id=wid, node_id=node_id, agent_name=agent_name,
                 )
+                # Record a structured failure (if any) so runtime_status can
+                # surface it to the next model request. Side-channel only: the
+                # returned string is unchanged (the model still sees the full
+                # output + markers). Background completions are surfaced via
+                # the bash.background_completed event, not this path.
+                if isinstance(ctx.deps, AgentDeps):
+                    failure = _detect_failure(result)
+                    if failure is not None:
+                        ctx.deps.last_tool_failure = failure
+                return result
             except Exception as e:
                 logger.exception("bash tool failed")
+                # Record the Python-level failure too so runtime_status can
+                # surface it next turn — otherwise the model only sees the
+                # "Error: {e}" string and the dynamic status layer stays mute
+                # (the marker-based path above only covers timeout/non-zero-exit,
+                # not exceptions thrown before the subprocess ran, e.g. a bad
+                # workdir or a missing binary). Same {tool,error,hint} shape.
+                if isinstance(ctx.deps, AgentDeps):
+                    ctx.deps.last_tool_failure = {
+                        "tool": "bash",
+                        "error": str(e)[:200],
+                        "hint": "the command could not be run — check spelling, paths, and that the binary exists",
+                    }
                 return f"Error: {e}"
 
         return PydanticAITool(self._wrap_fn(bash, self.name), takes_ctx=True)

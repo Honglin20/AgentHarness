@@ -8,12 +8,14 @@ import pytest
 
 from harness.paths import (
     get_benchmarks_dir,
+    get_builtin_tutorials_dir,
     get_checkpoint_db_path,
     get_env_file,
     get_project_root,
     get_runs_dir,
     get_shared_agents_dir,
     get_shared_scripts_dir,
+    get_tutorials_dir,
     get_workflows_dir,
 )
 
@@ -175,3 +177,47 @@ class TestDerivedPathsAgainstRealRoot:
     def test_harness_dir_at_root(self):
         """Sanity: the real root contains harness/."""
         assert (get_project_root() / "harness").is_dir()
+
+
+# ── tutorials two-layer resolution ─────────────────────────────────
+
+
+class TestTutorialsDirs:
+    """Builtin + project tutorials layers resolve independently.
+
+    The project layer is CWD-rooted (like get_runs_dir) so that a pip
+    install run from a user's project picks up their <project>/tutorials
+    even though get_project_root() falls back to the package parent.
+    """
+
+    def test_builtin_dir_is_inside_package(self):
+        """Builtin tutorials ship with the package, under harness/builtin."""
+        b = get_builtin_tutorials_dir()
+        assert b.name == "tutorials"
+        # harness/builtin/tutorials → its great-grandparent is the harness pkg.
+        assert b.parent.parent.name == "harness"
+
+    def test_builtin_dir_exists_with_known_domains(self):
+        """Regression: the move from repo-root tutorials/ actually happened."""
+        b = get_builtin_tutorials_dir()
+        assert (b / "nas" / "_index.md").exists()
+        assert (b / "quantization" / "_index.md").exists()
+
+    def test_project_dir_uses_cwd_not_project_root(self, monkeypatch, tmp_path):
+        """CWD drives the project layer (not get_project_root), mirroring runs.
+
+        Regression for the pip-install bug: when CWD lacks workflows/ and
+        harness/, get_project_root() falls back to the package parent — so
+        rooting the project layer there would never see a user's tutorials.
+        """
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("HARNESS_TUTORIALS_DIR", raising=False)
+        # Force project_root somewhere unrelated to prove CWD wins.
+        monkeypatch.setenv("HARNESS_PROJECT_ROOT", str(tmp_path / "elsewhere"))
+        assert get_tutorials_dir() == tmp_path.resolve() / "tutorials"
+
+    def test_project_dir_env_override(self, monkeypatch, tmp_path):
+        custom = tmp_path / "custom_tutorials"
+        custom.mkdir()
+        monkeypatch.setenv("HARNESS_TUTORIALS_DIR", str(custom))
+        assert get_tutorials_dir() == custom.resolve()

@@ -1,4 +1,4 @@
-"""NAS workflow registration.
+"""NAS workflow registration (simplified 2026-06-18).
 
 Source of truth for the NAS workflow. Run this script to (re)generate
 ``workflows/nas/workflow.json`` with embedded Pydantic schemas.
@@ -7,19 +7,21 @@ Usage:
     python devkit/nas/register.py            # regenerate workflow.json
     python devkit/nas/register.py --check    # print registered agents, don't save
 
-Design:
-  - 15 top-level agents (5 setup + scout collector + selector + 6 cycle + reporter).
-  - Setup phase is a static DAG (no sub_agent nesting):
-        project_analyzer
-          ├── adapter_generator ──→ baseline_runner ──┬── tier_planner
-          │                                            └── metrics_identifier
-          └── domain_analyzer
-        scout (collector) after all 5 setup nodes
-  - Tools explicitly listed PER AGENT. adapter_generator keeps ask_user
-    for setup-phase fallback (smoke failure / dummy_inputs confirmation).
-    scout collector and all cycle agents exclude ask_user (deterministic or fail loud).
-  - TodoTool is FORCED by the framework, always injected regardless of tools list.
-  - render_chart is EXPLICIT-tier, listed only for analyzer/reporter.
+Design (simplified):
+  14 agents total:
+    SETUP (7): project_analyzer / adapter_generator / business_analyzer /
+               smoke_runner / metric_align / setup_align / baseline_runner
+    CYCLE  (6): tier_planner / tier_baseline_runner(条件) / selector /
+               optimizer_hyperparam / optimizer_structural / optimizer_business / collector
+    FINAL  (1): reporter
+
+  Routing convention (复用现有 on_pass/on_fail,零框架改动):
+    - tier_planner: on_pass=selector(stay) / on_fail=tier_baseline_runner(upgrade)
+    - collector:    on_pass=reporter(stop) / on_fail=tier_planner(continue)
+
+  Tools policy: 所有 agent 加 read/write/edit (用户要求"工具不要限制太死").
+  adapter_generator/metric_align/setup_align/baseline_runner 带 ask_user (SETUP 交互).
+  Cycle agents 不带 ask_user (deterministic + collector 决策).
 """
 from __future__ import annotations
 
@@ -34,39 +36,49 @@ from harness.extensions.bus import Bus
 
 from schemas import (
     ProjectAnalysis,
-    AdapterGenResult, DomainAnalysisResult, BaselineRunResult,
-    TierPlanResult, MetricsIdentifyResult,
-    ScoutResult, SelectorResult, PlannerResult, TrainerResult,
-    JudgerResult, AnalyzerResult, ValidatorResult, RefinerResult, ReporterResult,
+    AdapterGenResult,
+    BusinessContextResult,
+    SmokeRunResult,
+    MetricAlignResult,
+    SetupAlignResult,
+    FullBaselineResult,
+    TierDecisionResult,
+    TierBaselineResult,
+    SelectorResult,
+    OptimizerResult,
+    CollectorResult,
+    ReporterResult,
 )
 
 
-# Tools — explicitly listed per agent role.
-# Cycle agents exclude ask_user (deterministic or fail loud).
-# adapter_generator keeps ask_user for smoke-failure / dummy_inputs fallback.
-NAS_TOOLS = ["bash", "grep", "glob", "sub_agent"]
-NAS_TOOLS_WITH_CHART = NAS_TOOLS + ["render_chart"]
-NAS_TOOLS_WITH_ASK = NAS_TOOLS + ["ask_user"]
+# Tools — bash covers read (cat) / write (heredoc) / edit (sed) so agents
+# aren't locked down (user requirement). read_text_file added for agents
+# that read user code (cleaner than bash cat for big files).
+# Cycle agents exclude ask_user (deterministic or collector decision).
+# SETUP agents with ask_user: adapter_generator (fallback), metric_align,
+# setup_align, baseline_runner (post-report).
+BASE_TOOLS = ["bash", "grep", "glob", "read_text_file", "sub_agent"]
+BASE_TOOLS_WITH_ASK = BASE_TOOLS + ["ask_user"]
 PROJECT_ANALYZER_TOOLS = ["bash", "grep", "glob", "read_text_file"]
+BUSINESS_ANALYZER_TOOLS = ["bash", "grep", "glob", "read_text_file"]
 
 # Repo layout: devkit/nas/register.py → workflows/nas/
 WORKFLOW_DIR = Path(__file__).resolve().parent.parent.parent / "workflows" / "nas"
 
 
 def build_workflow() -> Workflow:
-    """Construct the NAS workflow with 15 agents + Pydantic result_types.
-
-    Setup phase is a static DAG (no sub_agent nesting inside scout):
-      project_analyzer → {adapter_generator, domain_analyzer} parallel
-      adapter_generator → baseline_runner → {tier_planner, metrics_identifier} parallel
-      scout collects all 5 setup outputs into ScoutResult path summary.
-    """
+    """Construct the simplified NAS workflow with 14 agents."""
     wf = Workflow(
         name="nas",
         event_bus=Bus(),
-        request_limit=200,  # was 500 (scout-nested sub_agent era). Setup is now 5 flat nodes × ~5 calls; cycle unchanged.
+        # Agent-driven + target-driven: max_iterations is just a safety net.
+        # Collector decides stop based on target_met or tier_maxed+plateau.
+        # 100 iters × 4 nodes/iter = 400 node calls upper bound — enough
+        # for any realistic NAS without being so high it enables runaway.
+        request_limit=500,
+        max_iterations=100,
         agents=[
-            # ── Setup (one-shot, flat DAG) ────────────────────────────────
+            # ── SETUP (one-shot, flat DAG) ────────────────────────────────
             Agent(
                 name="project_analyzer",
                 after=[],
@@ -78,139 +90,130 @@ def build_workflow() -> Workflow:
             Agent(
                 name="adapter_generator",
                 after=["project_analyzer"],
-                tools=NAS_TOOLS_WITH_ASK,  # smoke failure / dummy_inputs fallback
+                tools=BASE_TOOLS_WITH_ASK,  # smoke failure / dummy_inputs fallback
                 model=None,
                 retries=2,
                 result_type=AdapterGenResult,
             ),
             Agent(
-                name="domain_analyzer",
-                after=["project_analyzer"],  # parallel with adapter_generator; does NOT need baseline
-                tools=NAS_TOOLS,
+                name="business_analyzer",
+                after=["project_analyzer"],  # parallel with adapter_generator
+                tools=BUSINESS_ANALYZER_TOOLS,
                 model=None,
                 retries=2,
-                result_type=DomainAnalysisResult,
+                result_type=BusinessContextResult,
+            ),
+            Agent(
+                name="smoke_runner",
+                after=["adapter_generator"],  # needs adapter smoke pass
+                tools=BASE_TOOLS,
+                model=None,
+                retries=2,
+                result_type=SmokeRunResult,
+            ),
+            Agent(
+                name="metric_align",
+                after=["smoke_runner", "business_analyzer"],  # needs smoke log + domain context
+                tools=BASE_TOOLS_WITH_ASK,  # ask_user to confirm metric + direction
+                model=None,
+                retries=2,
+                result_type=MetricAlignResult,
+            ),
+            Agent(
+                name="setup_align",
+                after=["metric_align"],  # needs metric_contract
+                tools=BASE_TOOLS_WITH_ASK,  # ask_user to confirm target/budget/latency
+                model=None,
+                retries=2,
+                result_type=SetupAlignResult,
             ),
             Agent(
                 name="baseline_runner",
-                after=["adapter_generator"],  # needs adapter smoke pass
-                tools=NAS_TOOLS,
+                after=["setup_align"],  # needs setup_contract (full epochs target)
+                tools=BASE_TOOLS_WITH_ASK,  # ask_user post-report
                 model=None,
                 retries=2,
-                result_type=BaselineRunResult,
-            ),
-            Agent(
-                name="tier_planner",
-                after=["baseline_runner"],  # needs baseline duration
-                tools=NAS_TOOLS,
-                model=None,
-                retries=2,
-                result_type=TierPlanResult,
-            ),
-            Agent(
-                name="metrics_identifier",
-                after=["baseline_runner"],  # needs baseline metrics; parallel with tier_planner
-                tools=NAS_TOOLS,
-                model=None,
-                retries=2,
-                result_type=MetricsIdentifyResult,
-            ),
-            Agent(
-                name="scout",
-                after=[
-                    "adapter_generator",
-                    "domain_analyzer",
-                    "baseline_runner",
-                    "tier_planner",
-                    "metrics_identifier",
-                ],
-                tools=NAS_TOOLS,  # collector — no ask_user (cycle non-interactive principle)
-                model=None,
-                retries=2,
-                result_type=ScoutResult,
+                result_type=FullBaselineResult,
             ),
 
-            # ── Cycle (selector → planner → trainer → judger → analyzer → validator) ──
+            # ── CYCLE (tier_planner → ... → collector, conditional tier_baseline) ──
+            Agent(
+                name="tier_planner",
+                after=["baseline_runner"],  # first iter entry; subsequent iters via collector.on_fail
+                tools=BASE_TOOLS,
+                model=None,
+                retries=2,
+                on_pass="selector",                    # stay on current tier
+                on_fail="tier_baseline_runner",        # upgrade tier
+                result_type=TierDecisionResult,
+            ),
+            Agent(
+                name="tier_baseline_runner",
+                after=None,  # only reachable via tier_planner.on_fail
+                tools=BASE_TOOLS,
+                model=None,
+                retries=2,
+                on_pass="selector",  # after running tier baseline, go to selector
+                result_type=TierBaselineResult,
+            ),
             Agent(
                 name="selector",
-                after=["scout"],
-                tools=NAS_TOOLS,
+                after=["tier_planner"],  # also reachable via tier_baseline_runner.on_pass
+                tools=BASE_TOOLS,
                 model=None,
                 retries=2,
                 result_type=SelectorResult,
             ),
             Agent(
-                name="planner",
+                name="optimizer_hyperparam",
                 after=["selector"],
-                tools=NAS_TOOLS,
+                tools=BASE_TOOLS,
                 model=None,
                 retries=2,
-                result_type=PlannerResult,
+                result_type=OptimizerResult,
             ),
             Agent(
-                name="trainer",
-                after=["planner"],
-                tools=NAS_TOOLS,
+                name="optimizer_structural",
+                after=["selector"],  # parallel with optimizer_hyperparam
+                tools=BASE_TOOLS,
                 model=None,
                 retries=2,
-                result_type=TrainerResult,
+                result_type=OptimizerResult,
             ),
             Agent(
-                name="judger",
-                after=["trainer"],
-                tools=NAS_TOOLS,
+                name="optimizer_business",
+                after=["selector"],  # parallel with other optimizers
+                tools=BASE_TOOLS,
                 model=None,
                 retries=2,
-                result_type=JudgerResult,
+                result_type=OptimizerResult,
             ),
             Agent(
-                name="analyzer",
-                after=["judger"],
-                tools=NAS_TOOLS_WITH_CHART,
+                name="collector",
+                after=[
+                    "optimizer_hyperparam",
+                    "optimizer_structural",
+                    "optimizer_business",
+                ],
+                tools=BASE_TOOLS,
                 model=None,
                 retries=2,
-                result_type=AnalyzerResult,
-            ),
-            Agent(
-                name="validator",
-                after=["analyzer"],
-                tools=NAS_TOOLS,
-                model=None,
-                retries=2,
-                on_pass="refiner",
-                on_fail="selector",
-                result_type=ValidatorResult,
+                on_pass="reporter",       # stop (target met or exhausted)
+                on_fail="tier_planner",   # continue next iter
+                result_type=CollectorResult,
             ),
 
-            # ── Finalization (refiner → reporter) ───────────────────────
-            Agent(
-                name="refiner",
-                after=None,  # only reachable via validator.on_pass
-                tools=NAS_TOOLS,
-                model=None,
-                retries=2,
-                on_pass="reporter",
-                on_fail="selector",
-                result_type=RefinerResult,
-            ),
+            # ── FINAL ───────────────────────────────────────────────────
             Agent(
                 name="reporter",
-                after=["refiner"],
-                tools=NAS_TOOLS_WITH_CHART,
+                after=None,  # only reachable via collector.on_pass
+                tools=BASE_TOOLS + ["render_chart"],
                 model=None,
                 retries=2,
                 result_type=ReporterResult,
             ),
         ],
         workflow_dir=WORKFLOW_DIR,
-        # Cycle cap: 8 rounds of selector↔validator gives the search enough
-        # room to converge or abandon. Higher values do NOT improve outcomes —
-        # they just burn tokens when the model can't fix what validator flags.
-        # Was 1_000_000 (typo-era); the 2026-06-17 cycle-loop incident was
-        # caused by an upstream-failed adapter_generator triggering
-        # validator→selector→skip→validator→... forever because routing
-        # couldn't escape. Both bugs (this cap + routing) are now fixed.
-        max_iterations=8,
     )
     return wf
 
@@ -224,22 +227,24 @@ def main():
         print(f"  workflow_dir: {WORKFLOW_DIR}")
         print(f"  max_iterations: {wf.max_iterations}")
         print()
-        print(f"{'Agent':<12} {'after':<25} {'tools':<45} {'result_type'}")
-        print("-" * 110)
+        print(f"{'Agent':<25} {'after':<30} {'on_pass/on_fail':<35} {'result_type'}")
+        print("-" * 130)
         for a in wf.agents:
             after_str = str(a.after) if a.after is not None else "None"
-            tools_str = ",".join(a.tools or [])
-            rt_str = a.result_type.__name__ if a.result_type else "(default AgentResult)"
-            print(f"{a.name:<12} {after_str:<25} {tools_str:<45} {rt_str}")
+            routing = ""
+            if a.on_pass or a.on_fail:
+                routing = f"pass={a.on_pass} / fail={a.on_fail}"
+            rt_str = a.result_type.__name__ if a.result_type else "(default)"
+            print(f"{a.name:<25} {after_str:<30} {routing:<35} {rt_str}")
         return
 
     saved = wf.save()
     print(f"✓ Registered NAS workflow → {saved}")
     print()
-    print("Agents + result_types:")
+    print(f"Agents ({len(wf.agents)}):")
     for a in wf.agents:
         rt_str = a.result_type.__name__ if a.result_type else "(default)"
-        print(f"  {a.name:<12} {rt_str}")
+        print(f"  {a.name:<25} {rt_str}")
     print()
     print("Run via:")
     print(f"  python workflows/nas/run_nas.py --working-dir <project> --inputs '<json>'")

@@ -17,6 +17,91 @@ Placeholder functions (adapter_generator fills, keep signatures stable):
     _eval_impl(model, checkpoint) -> dict         [EVAL_WRAPPER]
 
 Re-generate by re-running scout's adapter_generator sub_agent.
+
+## Backend hook (cloud training)
+
+`_train_impl` may delegate execution to `helpers/train_backend.py` so the same
+adapter runs either locally or on a remote GPU box (AutoDL etc.). Selection:
+
+    os.environ.get("TRAIN_BACKEND", "local")  →  "local" | "ssh"
+
+For SSH backend, ensure ~/.nas/cloud.yaml has `ssh:` section or env vars
+SSH_HOST / SSH_PORT / SSH_USER / SSH_PASSWORD are set. Adapters that want cloud
+support should construct the train command and call:
+
+    from train_backend import get_backend
+    result = get_backend().run(
+        train_cmd=["python", "train.py", "--steps", str(epochs)],
+        worktree=Path(__file__).parent,
+        env={"CUDA_VISIBLE_DEVICES": "0"},
+        timeout=1800,
+        log_path=Path(output or "train.log"),
+        metrics_path=Path(output or "metrics.json"),
+    )
+    return {"ok": result.ok, "metrics": ..., "checkpoint": str(...)}
+
+Workflow core (run_strategy.py, agents/*) is unaware of this — only adapter
+knows. Switching a project between local and cloud = single env var flip.
+
+## Train budget hook (普适，所有 domain 适用)
+
+LLM optimizer agents tend to **hardcode** training step/epoch counts in their
+bash scripts (e.g. `--steps 200`), ignoring project-level config. This causes:
+
+- CPU validation runs that should take 5 min end up taking hours
+- Smoke tests can't be缩短
+- Cloud cost失控
+
+Solution: every adapter should respect the **NAS_TRAIN_BUDGET** family of env
+vars, which LLM agents cannot bypass because adapter overrides CLI args:
+
+    NAS_TRAIN_BUDGET_STEPS=20     # LM-style training (overrides --steps / --max_steps)
+    NAS_TRAIN_BUDGET_EPOCHS=2     # Vision-style training (overrides --epochs)
+    NAS_TRAIN_BUDGET_SECONDS=300  # Time-based cutoff (optional; train.py must support)
+
+Priority (adapter should apply first that matches):
+    1. Explicit `epochs` arg from NAS caller (top-level intent)
+    2. NAS_TRAIN_BUDGET_STEPS / EPOCHS env (project-level override)
+    3. project's train.py default
+
+Example adapter _train_impl logic:
+    steps = epochs or os.environ.get("NAS_TRAIN_BUDGET_STEPS") or "default"
+    train_cmd = ["python", "train.py", "--steps", str(steps), ...]
+    # train.py itself should also clamp: if --steps > NAS_TRAIN_BUDGET_STEPS,
+    # silently override (defensive; LLM agents can still bypass via subprocess
+    # but project train.py is the last line of defense)
+
+This is **project-agnostic** — same env var works for any domain (LM uses
+STEPS, vision uses EPOCHS, RL uses STEPS too). Documented in
+`workflows/nas/helpers/cloud_setup.md` so users know to set it for validation.
+
+## Train dispatch hook (普适，单点入口 — 必须用！)
+
+**关键**：adapter 的 `_train_impl` 必须调用 `helpers/dispatch_train.py` 的
+`dispatch_train(...)`，**不能直接 subprocess.run**。
+
+原因：adapter_generator (LLM) 每次 setup 都重写 `_nas_adapter.py`。如果靠
+adapter 自觉读 `TRAIN_BACKEND` env，LLM 会跳过这个 hook 直接写 subprocess.run，
+导致云端 backend 永远跑不通。
+
+`dispatch_train` 是 backend 抽象的**唯一入口**，所有 domain 的 adapter 都用它：
+
+    from dispatch_train import dispatch_train, make_env
+
+    result = dispatch_train(
+        train_cmd=["python", "train.py", "--steps", str(steps), "--out_dir", out_dir, ...],
+        work_dir=Path(__file__).resolve().parent,
+        log_path=Path("train.log"),
+        metrics_path=Path("metrics.json"),
+        env=make_env(CUDA_VISIBLE_DEVICES="0"),
+    )
+    if not result.ok:
+        return {"ok": False, "error": result.error, ...}
+    # Parse metrics from result.metrics_path (already downloaded if SSH backend)
+
+This is **the only correct way** for adapters to invoke training. The LLM-generated
+adapter body MUST follow this pattern — the template below includes the canonical
+example.
 """
 from __future__ import annotations
 
@@ -75,21 +160,65 @@ def _construct_model(**overrides) -> nn.Module:
 def _train_impl(model: nn.Module, epochs: int | None, output: Path | None) -> dict:
     """TRAIN_WRAPPER placeholder.
 
-    Implementation guidance:
-    - Call user train function: `from <train_module> import <train_func>`
-    - If epochs is not None: pass to user (via flag / arg / config patching)
-    - If epochs is None: run user's default epochs (do NOT pass --epochs)
-    - If output is not None: write checkpoint to output path; if user hardcodes
-      path, report actual path in result["checkpoint"]
-    - Capture metrics + loss_curve from: function return value (preferred),
-      stdout regex, OR metrics file written by user script
-    - Return: {"metrics": {...}, "loss_curve": [...], "checkpoint": "<actual or None>"}
+    **MANDATORY**: use `dispatch_train` from helpers — do NOT call subprocess.run
+    directly. Reason: adapter_generator regenerates this file each session; only
+    `dispatch_train` correctly honors TRAIN_BACKEND env (local vs ssh/cloud).
+    Bypassing it = silently breaks cloud training.
 
-    epochs_control_mechanism (from project_analysis) decides how to pass epochs:
-    - cli_flag: subprocess + --epochs flag
+    Canonical implementation pattern (adapter_generator fills project specifics):
+
+    ```python
+    import os, json, time
+    from pathlib import Path
+    # Add helpers to sys.path so dispatch_train is importable
+    _HELPERS = Path(__file__).resolve().parents[2] / "workflows" / "nas" / "helpers"
+    if str(_HELPERS) not in sys.path:
+        sys.path.insert(0, str(_HELPERS))
+    from dispatch_train import dispatch_train, make_env
+
+    def _train_impl(model, epochs, output):
+        out_dir = Path(output).parent if output and Path(output).suffix else Path(output) if output else Path("runs") / f"train_{int(time.time())}"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        log_path = out_dir / "train.log"
+        metrics_path = out_dir / "metrics.json"
+
+        # Step count priority (普适): epochs arg > NAS_TRAIN_BUDGET_STEPS env > project default
+        steps = epochs or int(os.environ.get("NAS_TRAIN_BUDGET_STEPS", "0")) or <project_default>
+
+        train_cmd = [
+            "python", "<train_script>",
+            "<steps_or_epochs_flag>", str(steps),
+            "--out_dir", str(out_dir),
+            # ... project-specific args
+        ]
+
+        result = dispatch_train(
+            train_cmd=train_cmd,
+            work_dir=Path(__file__).resolve().parent,
+            log_path=log_path,
+            metrics_path=metrics_path,
+            env=make_env(CUDA_VISIBLE_DEVICES=os.environ.get("CUDA_VISIBLE_DEVICES", "0")),
+        )
+        if not result.ok:
+            return {"ok": False, "error": result.error, "checkpoint": None,
+                    "metrics": {}, "loss_curve": [], "duration_sec": result.duration_sec}
+
+        # Parse metrics from downloaded files (local OR ssh both write to out_dir)
+        metrics = json.loads(metrics_path.read_text()) if metrics_path.exists() else {}
+        loss_curve_path = out_dir / "loss_curve.json"
+        loss_curve = json.loads(loss_curve_path.read_text()) if loss_curve_path.exists() else []
+        ckpt = str(out_dir / "ckpt.pt") if (out_dir / "ckpt.pt").exists() else None
+        return {"ok": True, "checkpoint": ckpt, "metrics": metrics,
+                "loss_curve": loss_curve, "duration_sec": result.duration_sec,
+                "backend": result.backend}
+    ```
+
+    epochs_control_mechanism (from project_analysis) decides flag name:
+    - cli_flag + LM domain: use --steps (LM uses step counts, not epochs)
+    - cli_flag + vision domain: use --epochs
     - function_arg: call function with epochs kwarg
-    - config_file: patch config file temporarily, restore after
-    - hardcoded: ignore epochs param, run user default
+    - config_file: patch config file temporarily
+    - hardcoded: ignore epochs param
     """
     raise NotImplementedError("TRAIN_WRAPPER placeholder not filled by adapter_generator")
 

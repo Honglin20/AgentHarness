@@ -64,9 +64,9 @@ def default_tool_registry(event_bus=None) -> ToolRegistry:
     registry = ToolRegistry()
 
     # ── Tier 1: FORCED ────────────────────────────────────────────────
-    # TodoTool is mandatory because the reminder tracker (todo_reminder.py)
-    # emits <system-reminder> injections that assume the tool is available,
-    # and the tool description itself mandates "create before work".
+    # TodoTool is mandatory because the dynamic runtime_status system prompt
+    # (harness/prompts/runtime.py) reads todo state to surface progress every
+    # turn, and the step_gate output validator enforces "create before work".
     # Always register TodoTool (even without event_bus)
     from harness.tools.todo import TodoToolFactory
     registry.register(

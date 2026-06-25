@@ -1,0 +1,36 @@
+{
+  "steps": [
+    {
+      "name": "train",
+      "duration_sec": 12.298,
+      "epochs": 1,
+      "checkpoint": "/Users/mozzie/Desktop/Projects/AgentHarness/projects/cifar_cnn/checkpoints/nas_trained.pt"
+    },
+    {
+      "name": "evaluate",
+      "accuracy": 1.0,
+      "loss": 0.00285
+    },
+    {
+      "name": "export",
+      "onnx_path": "/Users/mozzie/Desktop/Projects/AgentHarness/projects/cifar_cnn/export/model.onnx",
+      "success": true
+    },
+    {
+      "name": "latency",
+      "n_warmup": 10,
+      "n_iters": 100,
+      "mean_ms": 0.1202,
+      "std_ms": 0.0192,
+      "p50_ms": 0.1137,
+      "p95_ms": 0.1746,
+      "p99_ms": 0.2037
+    }
+  ],
+  "model_config": {
+    "hidden_dim": 64,
+    "n_conv_blocks": 2,
+    "n_channels": 3,
+    "n_classes": 5
+  }
+}

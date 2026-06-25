@@ -201,12 +201,27 @@ workflows:
 ```
 
 **规则**：
-- 只有在 `_index.md` 的 `workflows` 中列出的工作流才会出现在 Portal 的 Workflows 页面
+- 只有在 `_index.md` 的 `workflows` 中列出的工作流才会出现在对应领域的 Workflows 页面
 - `name` 必须与 `workflows/` 目录下的工作流目录名一致
-- 没有被任何领域声明的工作流**不会显示在 Portal 页面**，但仍可通过 API 访问
 - 领域 Workflows 页面会同时显示当前领域的和其他领域的工作流
 
-### 5.3 当前显示的工作流
+### 5.3 自动聚合：`project` 合成领域
+
+没有被任何领域 `_index.md` 声明的工作流，会**自动聚合**到一个名为 `project` 的合成领域中出现在 Portal，无需手动声明。
+
+**「认领」判定**（满足任一即视为已被认领，不进 `project`）：
+- 出现在某领域 `_index.md` 的 `workflows:` 字段
+- 被某教程 frontmatter 的 `workflow:` 字段引用（Try it 按钮）
+
+**聚合范围**：仅当前项目 `workflows/` 根目录下的工作流（即 Registry 的 project 层）。内置工作流（`harness/builtin/workflows/`）、`_shared/`、`users/` 不参与聚合 —— 它们由各自的作用域机制管理。
+
+**特性**：
+- 无未认领工作流时，`project` 领域不会出现（不会渲染空卡片）
+- `project` 领域排在所有手动声明的领域之后（`order: 99`）
+- 添加/删除工作流后，调用 `POST /api/domains/refresh` 刷新缓存即可生效
+- `project` 领域是只读的自动聚合，没有教程和 API 文档
+
+### 5.4 当前显示的工作流
 
 | 领域 | 工作流 | 声明位置 |
 |------|--------|---------|
@@ -223,7 +238,12 @@ workflows:
 
 ## 6. 如何让工作流出现在 Portal 页面
 
-### 步骤
+有两种方式，按需选择：
+
+- **自动聚合（推荐，零配置）**：只要把 `workflows/<name>/workflow.json` 放到 `workflows/` 根目录，它就会自动出现在 Portal 的 `project` 合成领域（详见 §5.3），无需任何额外声明。
+- **手动声明（指定到具体领域）**：如果你希望工作流出现在某个已有领域（如「模型量化」「NAS」）下而非 `project`，在目标领域的 `_index.md` 中声明它。
+
+### 步骤（手动声明）
 
 1. **确保工作流存在**：`workflows/<name>/workflow.json` 文件已创建
 
@@ -246,10 +266,12 @@ curl -X POST http://localhost:8000/api/domains/refresh
 
 4. **验证**：进入 Portal → 点击领域的 "Workflows →" 链接，确认新工作流出现
 
+> 自动聚合的 `project` 领域同样受这个缓存控制：磁盘上增删工作流后需调用 `/api/domains/refresh` 才会更新。
+
 ### 注意事项
 
 - 一个工作流可以被多个领域声明（跨领域复用）
-- 如果工作流只用于 Try it（教学页），不需要在 `_index.md` 中声明。只需要在教程 MD 的 frontmatter 中设置 `workflow: name` 即可
+- 如果工作流只用于 Try it（教学页），不需要在 `_index.md` 中声明。只需要在教程 MD 的 frontmatter 中设置 `workflow: name` 即可（这种引用也算「认领」，工作流不会重复进 `project`）
 - 声明在 `_index.md` 中的工作流会同时出现在领域 Workflows 页面和 Try it 按钮中
 
 ---
@@ -382,7 +404,7 @@ for d in defs:
 
 ### 为什么 workflows/ 下有很多工作流但页面上只显示几个？
 
-Portal 的 Workflows 页面**不是自动展示所有工作流**。它只展示在对应领域 `tutorials/<domain>/_index.md` 的 `workflows` 字段中手动声明的工作流。要让工作流出现在页面上，需要在 `_index.md` 中添加声明。
+未被任何领域声明的工作流会自动聚合到 Portal 的 `project` 合成领域（详见 §5.3）。而各专属领域（模型量化、NAS 等）下只显示在该领域 `tutorials/<domain>/_index.md` 的 `workflows` 字段中手动声明的工作流。若希望某个工作流出现在某个具体领域而非 `project`，需要在对应 `_index.md` 中声明。
 
 ### 工作流可以被多个领域复用吗？
 

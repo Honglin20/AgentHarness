@@ -1,0 +1,32 @@
+{
+  "name": "prompt_demo",
+  "agents": [
+    {
+      "name": "counter",
+      "after": [],
+      "tools": ["bash", "glob"],
+      "model": null,
+      "retries": 2,
+      "result_type_name": "AgentResult",
+      "result_type_schema": {
+        "description": "Default result_type for agents that don't declare one.",
+        "properties": {
+          "summary": {
+            "description": "Your final conclusion or answer. Be concise and direct.",
+            "title": "Summary",
+            "type": "string"
+          },
+          "details": {
+            "anyOf": [{"type": "string"}, {"type": "null"}],
+            "default": null,
+            "description": "Your reasoning process, analysis steps, and key observations. Show your chain of thought here.",
+            "title": "Details"
+          }
+        },
+        "required": ["summary"],
+        "title": "AgentResult",
+        "type": "object"
+      }
+    }
+  ]
+}

@@ -49,10 +49,27 @@ class GrepToolFactory(ToolFactory):
 
     name = "grep"
     description = (
-        "A powerful search tool built on ripgrep. "
-        "Searches file contents for regex patterns. Supports file type filtering, "
-        "context lines, case-insensitive mode, and multiple output formats. "
-        "Use this tool instead of bash grep for structured, token-efficient results."
+        "Search file CONTENTS for regex patterns, built on ripgrep. "
+        "Supports file-type filtering, context lines, case-insensitive mode, "
+        "and multiple output formats. Prefer this over bash grep.\n\n"
+        "WHEN TO USE: searching inside files for a pattern. Use Glob first "
+        "when you only need to find file PATHS by name — Glob is cheaper and "
+        "scoped. Combine them: Glob to narrow candidate files, then Grep "
+        "within those files.\n\n"
+        "OUTPUT MODE — pick by what you need from the match:\n"
+        "- files_with_matches (default): just the file list — cheapest, use "
+        "when you only need to know WHICH files match.\n"
+        "- content: the matching lines (+line numbers) — use when you need "
+        "to see the actual matched text or surrounding context.\n"
+        "- count: match counts per file — use for 'how many occurrences'.\n"
+        "Add context/before_context/after_context with content mode to see "
+        "neighboring lines (e.g. a function signature around a call site).\n\n"
+        "REGEX NOTES: ripgrep is regex, not literal — escape literal braces "
+        "(\\[), parens (\\(), dots (\\.) and other metacharacters when "
+        "searching for them verbatim, or you'll match far more than intended.\n\n"
+        "ON NO MATCHES: the pattern or scope is likely too narrow or "
+        "misspelled. Broaden the glob, relax the regex, or check the path — "
+        "do not assume the target is absent."
     )
 
     def create(self) -> PydanticAITool:
@@ -140,7 +157,18 @@ class GrepToolFactory(ToolFactory):
             if r.returncode == 1:
                 return "No matches found"
             if r.returncode >= 2:
-                return f"Error: {r.stderr.strip()}" if r.stderr else f"Error: rg exited with code {r.returncode}"
+                err = r.stderr.strip() if r.stderr else f"rg exited with code {r.returncode}"
+                # Record a structured failure (true rg error, NOT a no-match)
+                # so runtime_status can surface it. No-match (exit 1) above is
+                # a normal result, not recorded. Side-channel only: the
+                # returned string is unchanged.
+                if isinstance(ctx.deps, AgentDeps):
+                    ctx.deps.last_tool_failure = {
+                        "tool": "grep",
+                        "error": err[:200],
+                        "hint": "check the regex syntax — escape literal brackets, parens, or dots if searching for them verbatim",
+                    }
+                return f"Error: {err}"
 
             output = r.stdout
             if not output:
@@ -171,10 +199,17 @@ class GlobToolFactory(ToolFactory):
 
     name = "glob"
     description = (
-        "Fast file pattern matching tool. "
-        "Supports glob patterns like '**/*.js' or 'src/**/*.ts'. "
-        "Returns matching file paths sorted by modification time. "
-        "Use this tool instead of bash find/ls for structured, token-efficient results."
+        "Fast file-PATH matching by glob pattern (e.g. '**/*.py', "
+        "'src/**/*.ts'). Returns matching paths sorted by modification time. "
+        "Prefer this over bash find/ls.\n\n"
+        "WHEN TO USE: locating files by NAME or extension. Glob finds PATHS, "
+        "Grep finds CONTENTS — use Glob to answer 'which files' and Grep to "
+        "answer 'which files contain X'. Run Glob BEFORE Grep to scope "
+        "candidate files cheaply, then Grep within them — this avoids "
+        "recursively scanning an entire repo.\n\n"
+        "ON NO MATCHES: the pattern is likely too narrow. Try a broader glob "
+        "( '**' instead of '*'), drop an extension constraint, or check the "
+        "base path."
     )
 
     def create(self) -> PydanticAITool:

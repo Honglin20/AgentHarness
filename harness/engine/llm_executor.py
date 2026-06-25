@@ -69,7 +69,6 @@ class LLMExecutor:
         ext_ctx: Any | None = None,
         check_interrupt: Callable[[str, str], dict[str, Any] | None] | None = None,
         cancel_fn: Callable[[str], None] | None = None,
-        reminder_tracker: Any | None = None,
         token_aggregator: TokenAggregator | None = None,
         request_limit: int | None = None,
     ):
@@ -82,7 +81,6 @@ class LLMExecutor:
         self._ext_ctx = ext_ctx
         self._check_interrupt = check_interrupt
         self._cancel_fn = cancel_fn
-        self._reminder_tracker = reminder_tracker
         self._token_aggregator = token_aggregator
         # Per-agent LLM request budget. None → resolve from HARNESS_REQUEST_LIMIT
         # env (default 200). Forwarded to agent.iter(usage_limits=...) — controls
@@ -145,19 +143,15 @@ class LLMExecutor:
         import json as _json
         try:
             from harness.engine.schema_utils import strip_schema
+            from harness.prompts import feedback
             schema_obj = getattr(self._agent, "_output_schema", None)
             toolset = getattr(self._agent, "_output_toolset", None)
             if toolset is None or not getattr(toolset, "_tool_defs", None):
                 return None
             td = toolset._tool_defs[0]
             schema = strip_schema(td.parameters_json_schema)
-            return (
-                "## Output rejected — please retry correctly\n"
-                "Your previous response did not match the required output schema. "
-                f"You MUST call the `{td.name}` tool with arguments matching this JSON schema:\n\n"
-                + _json.dumps(schema, indent=2, ensure_ascii=False)
-                + "\n\nDo NOT emit the schema as plain text or markdown. Switch to a "
-                f"`{td.name}` tool call now and fill every required field with concrete values."
+            return feedback.schema_retry_msg(
+                td.name, _json.dumps(schema, indent=2, ensure_ascii=False)
             )
         except Exception:
             logger.debug(
@@ -280,15 +274,11 @@ class LLMExecutor:
         self._baseline_cache_hit = getattr(ctx.state.usage, "cache_read_tokens", 0) or 0
 
         # Inject reminder as a system message into message_history before the
-        # model call.  This is read by pydantic-ai's _prepare_request() inside
-        # node.stream(ctx), so the LLM sees it — but we never mutate event
-        # objects from the tool-execution phase.
-        if self._reminder_tracker:
-            reminder = self._reminder_tracker.get_reminder()
-            if reminder:
-                ctx.state.message_history.append(
-                    ModelRequest(parts=[SystemPromptPart(content=reminder)])
-                )
+        # Reminder-tracker injection used to live here (TodoReminderTracker).
+        # Removed in TASK 4: the dynamic runtime_status system prompt
+        # (registered in micro_agent.create) now surfaces todo progress every
+        # turn via pydantic-ai's dynamic_ref mechanism — replacing the
+        # counter-based, accumulating reminder nudges.
 
         # Schema-retry reminder: when the previous request ended with a
         # RetryPromptPart (pydantic-ai's signal that the model's output
@@ -498,8 +488,6 @@ class LLMExecutor:
                     ek = getattr(event, "event_kind", "")
                     if ek == "function_tool_call":
                         self._emit_tool_call(event.part)
-                        if self._reminder_tracker:
-                            self._reminder_tracker.on_tool_call(event.part.tool_name)
                     elif ek == "function_tool_result":
                         self._emit_tool_result(event.part)
                         await self._fire_tool_call_hook(event.part)

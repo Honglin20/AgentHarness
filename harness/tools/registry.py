@@ -56,12 +56,33 @@ class ToolFactory(ABC):
     def create(self) -> PydanticAITool: ...
 
     def _wrap_fn(self, fn, tool_name: str):
-        """Wrap a tool function with dedup guard + result truncation.
+        """Wrap a tool function with the full tool lifecycle.
 
-        Truncation is unconditional (applies to every tool, every call) so
-        long tool returns don't inflate message_history forever. Dedup is
-        opt-in via the dedup guard config. Preserves sync/async nature.
+        Pipeline (every tool, every call):
+          0. dedup guard          — skip duplicate calls within the window
+          1. PreToolUse dispatch  — before_tool middleware (block / rewrite)
+          2. execute              — the raw tool fn
+          3. truncate             — bound message_history growth (existing)
+          4. PostToolUse dispatch — after_tool middleware (substitute / flag)
+          5. measure              — emit agent.tool_output_measured (TASK 0)
+
+        ONE async wrapper serves both sync and async tool fns: sync fns are
+        run via ``anyio.to_thread.run_sync`` so Pre/PostToolUse dispatch
+        (which is async) works uniformly. This matters because the heaviest
+        output producers (bash/grep/glob) are sync — they most need
+        PostToolUse compaction, so they must not be excluded from dispatch.
+
+        Robustness: dispatch is best-effort. ``_has_middleware()`` short-
+        circuits the entire dispatch when nothing is registered, and any
+        dispatch exception is caught in _hook_dispatch (never reaches the
+        tool call). With no middleware, behavior is byte-identical to the
+        pre-hook era (dedup + truncate only).
         """
+        from harness.tools._hook_dispatch import (
+            dispatch_after_tool,
+            dispatch_before_tool,
+        )
+        from harness.tools._measure import emit_tool_output_measured
         from harness.tools._truncate import (
             _resolve_limit,
             emit_tool_output_truncated,
@@ -70,44 +91,68 @@ class ToolFactory(ABC):
         from harness.tools.dedup_guard import get_dedup_guard
 
         guard = get_dedup_guard()
+        is_async = iscoroutinefunction(fn)
 
-        if iscoroutinefunction(fn):
+        async def _run_and_postprocess(args, kwargs):
+            """Execute the tool fn, then truncate + dispatch + measure.
+
+            Shared by the sync and async wrappers below so the post-processing
+            pipeline is defined exactly once.
+            """
+            # 1. PreToolUse — may block or rewrite args.
+            #    RejectAction → short-circuit; otherwise kwargs may have been
+            #    rewritten by middleware (e.g. sandboxed path) and we use the
+            #    returned dict for execution.
+            reject, kwargs = await dispatch_before_tool(tool_name, kwargs)
+            if reject is not None:
+                return f"[tool {tool_name} blocked by policy: {reject.reason}]"
+
+            # 2. Execute (sync fns offloaded to a thread).
+            if is_async:
+                result = await fn(*args, **kwargs)
+            else:
+                import anyio
+                result = await anyio.to_thread.run_sync(
+                    lambda: fn(*args, **kwargs),
+                )
+
+            # 3. Truncate (existing, unconditional).
+            truncated, was_cut, original_bytes = truncate_tool_result(
+                tool_name, result,
+            )
+            if was_cut:
+                emit_tool_output_truncated(
+                    tool_name=tool_name,
+                    original_bytes=original_bytes,
+                    truncated_bytes=len(truncated.encode("utf-8"))
+                    if isinstance(truncated, str) else 0,
+                    limit_bytes=_resolve_limit(tool_name),
+                )
+
+            # 4. PostToolUse — may substitute or flag. Falls back to the
+            #    truncated result on any error (best-effort).
+            truncated = await dispatch_after_tool(tool_name, kwargs, truncated)
+
+            # 5. Measure — emit original vs final size (bytes + tokens).
+            emit_tool_output_measured(tool_name, result, truncated)
+            return truncated
+
+        if is_async:
             @wraps(fn)
             async def _async_wrapped(*args, **kwargs):
                 if guard is not None and guard.check(tool_name, kwargs):
                     return f"[dedup: {tool_name} skipped — duplicate call]"
-                result = await fn(*args, **kwargs)
-                truncated, was_cut, original_bytes = truncate_tool_result(
-                    tool_name, result,
-                )
-                if was_cut:
-                    emit_tool_output_truncated(
-                        tool_name=tool_name,
-                        original_bytes=original_bytes,
-                        truncated_bytes=len(truncated.encode("utf-8"))
-                        if isinstance(truncated, str) else 0,
-                        limit_bytes=_resolve_limit(tool_name),
-                    )
-                return truncated
+                return await _run_and_postprocess(args, kwargs)
             return _async_wrapped
         else:
             @wraps(fn)
-            def _sync_wrapped(*args, **kwargs):
+            async def _sync_wrapped(*args, **kwargs):
+                # NOTE: now async so the lifecycle dispatch (async) can run.
+                # pydantic-ai accepts async tool fns; the raw sync fn is run
+                # inside via anyio.to_thread (see _run_and_postprocess).
                 if guard is not None and guard.check(tool_name, kwargs):
                     return f"[dedup: {tool_name} skipped — duplicate call]"
-                result = fn(*args, **kwargs)
-                truncated, was_cut, original_bytes = truncate_tool_result(
-                    tool_name, result,
-                )
-                if was_cut:
-                    emit_tool_output_truncated(
-                        tool_name=tool_name,
-                        original_bytes=original_bytes,
-                        truncated_bytes=len(truncated.encode("utf-8"))
-                        if isinstance(truncated, str) else 0,
-                        limit_bytes=_resolve_limit(tool_name),
-                    )
-                return truncated
+                return await _run_and_postprocess(args, kwargs)
             return _sync_wrapped
 
 

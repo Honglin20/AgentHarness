@@ -1,0 +1,12 @@
+{
+  "name": "token_audit",
+  "agents": [
+    {
+      "name": "auditor",
+      "after": [],
+      "tools": null,
+      "model": null,
+      "retries": 2
+    }
+  ]
+}

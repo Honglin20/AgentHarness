@@ -1,0 +1,38 @@
+[
+  {
+    "case": "free_text",
+    "result_type": "None",
+    "bytes": "131",
+    "sha256_first8": "dd8ea54e"
+  },
+  {
+    "case": "default_agent_result",
+    "result_type": "AgentResult",
+    "bytes": "911",
+    "sha256_first8": "f4475267"
+  },
+  {
+    "case": "custom_result_type",
+    "result_type": "_BaselineCustomResult",
+    "bytes": "1144",
+    "sha256_first8": "e8f501fc"
+  },
+  {
+    "case": "shadow_text",
+    "result_type": "AgentResult",
+    "bytes": "935",
+    "sha256_first8": "1cb434c2"
+  },
+  {
+    "case": "empty_body",
+    "result_type": "AgentResult",
+    "bytes": "844",
+    "sha256_first8": "aecf82be"
+  },
+  {
+    "case": "empty_body_no_result",
+    "result_type": "None",
+    "bytes": "0",
+    "sha256_first8": "e3b0c442"
+  }
+]

@@ -1,6 +1,25 @@
 # Current Task
 
-**当前任务**: (无活跃任务 — Q1 已完成，等用户决定 Q2/Q3)
+**当前任务**: PROMPT 体系重构与扩展 — **已完成** (TASK 1-6 全部交付)
+
+- 总纲报告: [`docs/plans/2026-06-23-harness-vs-claudecode-gap-audit.md`](../plans/2026-06-23-harness-vs-claudecode-gap-audit.md)
+- 执行方案: [`docs/plans/2026-06-23-prompt-system-refactor-plan.md`](../plans/2026-06-23-prompt-system-refactor-plan.md)
+- **交付状态**: 6 commits (Phase 0 baseline + TASK 1-6), 160 测试全绿, 行为基线通过
+- 讨论顺序: A. PROMPT（✅ 完成）→ B. HOOK（待开始）→ C. MIDDLEWARE（待开始）
+
+## PROMPT 重构成果（2026-06-23）
+
+**新增 `harness/prompts/`**: assembler.py (静态拼装) + base.md (工作范式) +
+runtime.py (动态态势) + feedback.py (反馈文案) + README.md (判定规则)。
+
+**关键改进**:
+- system prompt 从「静态字符串」→ 「base + agent + schema + 每轮动态态势」
+- TodoReminderTracker（计数器累积）→ pydantic-ai dynamic_ref（每轮原地替换）
+- 散落 3 处的反馈文案 → feedback.py 单一来源
+- bash/grep/glob 描述嵌入工具选择规则（agent.md 不再重复强调）
+- 验证：从 agent.md 删规则后行为不退化（仍用 glob + 答对）
+
+详见 release note [`docs/releases/2026-06-23-prompt-system-refactor.md`](../releases/2026-06-23-prompt-system-refactor.md)。
 
 ## 上一任务: Token 计数显示修复（Q1）(2026-06-21)
 
@@ -20,12 +39,12 @@
 ### Q2 — Claude Code prompt 补齐
 - 通用工作范式（工具选择 / 并行 / 验证 / surgical / fail loud / tone）在 80+ agent .md 中几乎为零
 - CLAUDE.md 的 12-Rule 没编译进 system_prompt
-- **未决**：直接补到现有 agent md（散点修改）？还是先做 Q3 base prompt 注入层再统一补？
+- **状态**: 已诊断 → 见审查报告 §2 缺口 B/C + §6 P0-3。是否启动待用户定。
 
 ### Q3 — Prompt 统一管理重构
 - 推荐方案 A：`harness/prompts/base.md` 前置注入
 - 工作量 ~4 天，风险低
-- **未决**：是否启动？是否先写 ADR？
+- **状态**: 已诊断 → 审查报告 §2 缺口 A（system prompt 静态化）+ §6 P0-2/P0-3 已给出改造方向。是否启动 + 是否写 ADR 待用户定。
 
 ### Q1 后续 follow-up（低优）
 - vitest 4 + oxc + tsconfig `jsx:"preserve"` 三方问题，component-level render test 暂不可行

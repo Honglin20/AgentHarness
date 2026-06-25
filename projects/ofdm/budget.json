@@ -1,0 +1,44 @@
+{
+  "tier_recommendation": {
+    "description": "Three-tier NAS plan for OFDMDetector. Epochs are controllable via CLI --epochs flag. The latency budget is extremely tight (0.05 ms target vs 0.0362 ms baseline = 0.0138 ms headroom). The search space should favor models near or below baseline size.",
+    "proposed_tiers": [
+      {
+        "tier": 1,
+        "label": "Screening",
+        "epochs": 1,
+        "description": "Fast screening tier — 1 epoch per candidate (~2.2s). Use for early population evaluation and pruning. Identifies architectures that fit within latency budget while showing initial learning signal.",
+        "candidate_ratio": null,
+        "max_candidates": null
+      },
+      {
+        "tier": 2,
+        "label": "Development",
+        "epochs": 5,
+        "description": "Intermediate tier — 5 epochs per candidate (~11s), matching baseline training duration. Used for medium-fidelity evaluation of promising architectures from Tier 1.",
+        "candidate_ratio": 0.3,
+        "max_candidates": 20
+      },
+      {
+        "tier": 3,
+        "label": "Refinement",
+        "epochs": 15,
+        "description": "Full refinement tier — 15 epochs per candidate (~33s). Extended training for top candidates to obtain best possible accuracy before final selection. Only the most promising few architectures should reach this tier.",
+        "candidate_ratio": 0.1,
+        "max_candidates": 5
+      }
+    ],
+    "max_tier": 3,
+    "reasoning": {
+      "epochs_controllable": true,
+      "latency_headroom_ms": 0.0138,
+      "baseline_latency_ms": 0.0362,
+      "target_latency_ms": 0.05,
+      "notes": "Since epochs are controllable via --epochs CLI flag, we propose 3 tiers with increasing epoch budgets. Tier 1 (1 epoch) for fast screening, Tier 2 (5 epochs) matching baseline, Tier 3 (15 epochs) for thorough final evaluation. The tight latency constraint (0.05 ms) means the NAS should favor compact architectures. The baseline model at 0.0362 ms has only 38% headroom — searching for architectures significantly larger than baseline will likely exceed the latency target."
+    }
+  },
+  "budget": {
+    "total_epoch_budget": 100,
+    "max_concurrent_trials": 4,
+    "early_stop_patience_tiers": [1, 2]
+  }
+}

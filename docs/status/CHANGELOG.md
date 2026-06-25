@@ -9,6 +9,9 @@
 
 ## 2026-06
 
+- **2026-06-23** — **PROMPT 体系重构与扩展（TASK 1-6）**：针对「LLM 用 HARNESS 感觉不智能」的反馈，重构 system prompt 链路。新增 `harness/prompts/`（assembler 静态拼装 + base.md 工作范式 + runtime.py 动态态势 + feedback.py 反馈文案统一）。关键改进：①system prompt 从静态字符串 → base+agent+schema+每轮动态态势；②TodoReminderTracker（计数器累积）→ pydantic-ai `@system_prompt(dynamic=True)`（每轮原地替换，回答用户「注入时机是每轮请求前」）；③散落 3 处反馈文案统一；④bash/grep/glob 描述嵌入工具选择规则。验证：删 agent.md 规则后行为不退化（仍用 glob + 答对），160 测试全绿。净减 223 行（删 reminder 系统）。
+  → [完整 release note](../releases/2026-06-23-prompt-system-refactor.md) | [Plan](../plans/2026-06-23-prompt-system-refactor-plan.md) | [Gap audit](../plans/2026-06-23-harness-vs-claudecode-gap-audit.md)
+
 - **2026-06-21** — **Token 计数显示修复（Q1）**：用户反映 BudgetBar 显示几百 K 误以为上下文炸了。诊断：单位正确（pydantic-ai Usage，token 不是字符），bug 在前端展示——Cost bar 把累计消耗当上下文窗口，且 cache 命中数无可视化。修复：BudgetBar 的 Cost/Window bar 都加 `(cache Xk)` 提示 + 中文 hover tooltip 澄清「累计消耗 vs 最近一次窗口」语义；跟踪 worst-window 节点的 `lastCacheHit`。未改 `HARNESS_REQUEST_LIMIT` 默认（配置选择非 bug）。272 frontend + 10 token_aggregator 测试全过，build clean。
   → [完整 release note](../releases/2026-06-21-token-counting-display-fix.md)
 
