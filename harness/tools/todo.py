@@ -176,17 +176,29 @@ class TodoToolFactory(ToolFactory):
                     bus.emit("todo.created", payload_created)
 
                 first = new_steps[0]
-                if len(new_steps) == 1:
-                    return f"Created 1 step. '{first.content}' is now active."
-                return f"Created {len(new_steps)} steps. Step 1 '{first.content}' is now active."
+                ids_summary = ", ".join(
+                    f"{s.task_id}='{s.content}'" for s in new_steps
+                )
+                return (
+                    f"Created {len(new_steps)} steps. IDs: {ids_summary}. "
+                    f"Active: {first.task_id}"
+                )
 
             # --- update ---
             if op == "update":
                 if not task_id:
-                    return "Error: task_id is required for op='update'."
+                    valid = ", ".join(s.task_id for s in state.steps) or "(none)"
+                    return (
+                        f"Error: task_id is required for op='update'. "
+                        f"Valid IDs: {valid} (use op='list' to see current state)."
+                    )
                 entry = next((s for s in state.steps if s.task_id == task_id), None)
                 if not entry:
-                    return f"Error: task_id '{task_id}' not found."
+                    valid = ", ".join(s.task_id for s in state.steps) or "(none)"
+                    return (
+                        f"Error: task_id '{task_id}' not found. "
+                        f"Valid IDs: {valid} (use op='list' to see current state)."
+                    )
 
                 auto_advance = None
                 next_pending: StepEntry | None = None
@@ -257,6 +269,7 @@ class TodoToolFactory(ToolFactory):
                     bus.emit("todo.bulk_completed", payload_bulk)
                 return (
                     f"Bulk-finished {len(affected)} step(s) as '{status}'. "
+                    f"Closed IDs: {', '.join(s.task_id for s in affected)}. "
                     f"All steps now terminal."
                 )
 
@@ -290,10 +303,14 @@ class TodoToolFactory(ToolFactory):
                         payload_replaced["workflow_id"] = workflow_id
                     bus.emit("todo.replaced", payload_replaced)
                 first = new_steps_replace[0]
+                ids_summary = ", ".join(
+                    f"{s.task_id}='{s.content}'" for s in new_steps_replace
+                )
                 return (
                     f"Replaced plan ({old_count} old step(s) discarded). "
                     f"Created {len(new_steps_replace)} new step(s). "
-                    f"'{first.content}' is now active."
+                    f"IDs: {ids_summary}. "
+                    f"Active: {first.task_id}"
                 )
 
             # --- list ---
@@ -311,7 +328,7 @@ class TodoToolFactory(ToolFactory):
                 for i, s in enumerate(state.steps, 1):
                     sym = symbols.get(s.status, "?")
                     label = s.activeForm if s.status == "in_progress" else s.content
-                    lines.append(f"[{i}/{total}] {sym} {label}")
+                    lines.append(f"[{i}/{total}] {s.task_id} {sym} {label}")
                 return "\n".join(lines)
 
             return f"Unknown op: {op}"
