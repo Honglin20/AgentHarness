@@ -253,11 +253,26 @@ def _load_run_entry(run_dir: Path) -> dict:
 
     running.jsonl lives in the SESSION dir (parent of variants/), one JSON
     object per line. We find the line whose vid matches the run_dir name.
+
+    run_dir is <session_dir>/variants/<vid>, so running.jsonl is two levels
+    up (run_dir.parent.parent). Search upward defensively in case run_dir is
+    ever placed elsewhere.
     """
     vid = run_dir.name
-    session_dir = run_dir.parent
-    running = session_dir / "running.jsonl"
-    if not running.exists():
+    # Search up to 3 ancestors for running.jsonl (handles variants/<vid>,
+    # <session>/<vid>, etc.) so the lookup doesn't silently return {} when
+    # the layout differs by one level.
+    candidate = run_dir.parent
+    running = None
+    for _ in range(3):
+        maybe = candidate / "running.jsonl"
+        if maybe.exists():
+            running = maybe
+            break
+        if candidate.parent == candidate:
+            break
+        candidate = candidate.parent
+    if running is None:
         return {}
     try:
         for line in running.read_text().splitlines():
