@@ -605,6 +605,18 @@ class BashToolFactory(ToolFactory):
                 return result
             except Exception as e:
                 logger.exception("bash tool failed")
+                # Record the Python-level failure too so runtime_status can
+                # surface it next turn — otherwise the model only sees the
+                # "Error: {e}" string and the dynamic status layer stays mute
+                # (the marker-based path above only covers timeout/non-zero-exit,
+                # not exceptions thrown before the subprocess ran, e.g. a bad
+                # workdir or a missing binary). Same {tool,error,hint} shape.
+                if isinstance(ctx.deps, AgentDeps):
+                    ctx.deps.last_tool_failure = {
+                        "tool": "bash",
+                        "error": str(e)[:200],
+                        "hint": "the command could not be run — check spelling, paths, and that the binary exists",
+                    }
                 return f"Error: {e}"
 
         return PydanticAITool(self._wrap_fn(bash, self.name), takes_ctx=True)
