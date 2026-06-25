@@ -1,0 +1,147 @@
+{
+  "domain": "nlp",
+  "version": "1.0",
+  "description": "NLP SOTA recipes for small-scale language modeling + classification. Symptom-driven retrieval: each recipe maps an observed problem (symptom) to a concrete technique + implementation guide. Used by business_analyzer + optimizer_business. Covers: causal LM / masked LM / sequence classification / token classification.",
+  "recipes": [
+    {
+      "id": "nlp-label-smoothing",
+      "symptom": "过拟合 / over-confidence / val ppl 卡住 / 训练 loss 远低于 val loss",
+      "technique": "Label smoothing 0.05-0.1 in cross-entropy",
+      "implementation_guide": "把 F.cross_entropy(logits, target) 换成 F.cross_entropy(logits, target, label_smoothing=0.1)。一行改动，几乎无副作用。对 LM head 大 vocab 特别有效。",
+      "applicable_task": "generation|classification",
+      "cost": "low",
+      "expected_lift": "+0.5-2% val ppl improvement on small data",
+      "tags": ["regularization", "loss", "small-data"]
+    },
+    {
+      "id": "nlp-weight-decay-increase",
+      "symptom": "过拟合 / 小数据泛化差 / 训练 loss 持续下降但 val 上升",
+      "technique": "Stronger weight decay 0.01 → 0.1",
+      "implementation_guide": "AdamW(weight_decay=0.1) 替代 0.01。配合 lr 适当降低 (3e-4 → 2e-4)。对小模型 + 小数据特别有效。",
+      "applicable_task": "generation|classification",
+      "cost": "low",
+      "expected_lift": "+0.3-1% val ppl / +0.5-1% acc",
+      "tags": ["regularization", "optimizer"]
+    },
+    {
+      "id": "nlp-gradient-accumulation",
+      "symptom": "梯度噪声大 / 小 batch loss 抖动 / 显存不够跑大 batch",
+      "technique": "Gradient accumulation steps=4-8 (simulate 4-8x batch)",
+      "implementation_guide": "loss = loss / accum_steps; 每 accum_steps 个 mini-batch 才 optimizer.step() + zero_grad()。等效 batch_size = batch * accum_steps。",
+      "applicable_task": "generation|classification",
+      "cost": "low",
+      "expected_lift": "+0.5-1.5% val ppl (more stable gradients)",
+      "tags": ["training-dynamics", "memory"]
+    },
+    {
+      "id": "nlp-warmup-longer",
+      "symptom": "早期训练 loss 爆炸 / lr 太高 / 不稳定",
+      "technique": "Longer linear warmup (20 → 50-100 steps for small LM)",
+      "implementation_guide": "在前 N 步线性增长 lr: lr = base_lr * step / warmup_steps。小模型小数据 warmup 通常 5-10% 总 steps。",
+      "applicable_task": "generation|classification",
+      "cost": "low",
+      "expected_lift": "more stable training; +0.3-0.5% final ppl",
+      "tags": ["lr-schedule", "stability"]
+    },
+    {
+      "id": "nlp-cosine-decay",
+      "symptom": "训练后期 loss 平台 / 学习率衰减过快或过慢",
+      "technique": "Cosine learning rate decay to 0.1 * base_lr (not 0)",
+      "implementation_guide": "warmup 后 lr = 0.5 * base_lr * (1 + cos(pi * progress))，progress = (step - warmup) / (total - warmup)。Min lr 设 0.1 * base_lr 防止尾部 stall。",
+      "applicable_task": "generation|classification",
+      "cost": "low",
+      "expected_lift": "+0.3-0.8% val ppl vs step decay",
+      "tags": ["lr-schedule"]
+    },
+    {
+      "id": "nlp-embedding-dropout",
+      "symptom": "embedding 过拟合 / 罕见词 over-confidence",
+      "technique": "Dropout 0.1-0.2 after token embedding layer",
+      "implementation_guide": "x = self.embed(input_ids); x = F.dropout(x, p=0.1, training=self.training)。注意 dropout 只在 train 模式生效。",
+      "applicable_task": "generation|classification",
+      "cost": "low",
+      "expected_lift": "+0.3-1% val ppl on small vocab (<100K)",
+      "tags": ["regularization", "embedding"]
+    },
+    {
+      "id": "nlp-residual-dropout",
+      "symptom": "深层网络退化 / 残差路径主导 / 过拟合",
+      "technique": "Dropout 0.1 on residual path before residual add",
+      "implementation_guide": "在每个 block 的 residual add 之前：out = self.drop(out); x = x + out。GPT-2 风格的 residual_dropout。",
+      "applicable_task": "generation|classification",
+      "cost": "low",
+      "expected_lift": "+0.2-0.5% val ppl",
+      "tags": ["regularization", "residual"]
+    },
+    {
+      "id": "nlp-rmsnorm",
+      "symptom": "训练不稳定 / 梯度爆炸或消失 / LayerNorm 太慢",
+      "technique": "RMSNorm 替代 LayerNorm",
+      "implementation_guide": "from torch.nn import LayerNorm → 自定义 RMSNorm(x / sqrt(mean(x^2) + eps) * gamma + beta)。LLaMA / GPT-NeoX 标准。更快 + 更稳。",
+      "applicable_task": "generation",
+      "cost": "medium",
+      "expected_lift": "+0.5-1% val ppl + 10-20% faster",
+      "tags": ["normalization", "stability"]
+    },
+    {
+      "id": "nlp-attention-scaling",
+      "symptom": "上下文窗口太小 / 长序列 OOM / 短训练但需要长依赖",
+      "technique": "增大 hidden_size / num_heads (width scaling)",
+      "implementation_guide": "config: hidden_size 256→384/512, num_heads 4→8 (保持 head_dim 64)。注意：参数量翻倍，需要更多 step 才能收敛。",
+      "applicable_task": "generation",
+      "cost": "high",
+      "expected_lift": "+1-3% val ppl IF training budget is sufficient (≥10x base steps)",
+      "tags": ["architecture", "capacity"]
+    },
+    {
+      "id": "nlp-depth-scaling",
+      "symptom": "模型容量不足 / 单层不能拟合数据",
+      "technique": "加 layer 数 (num_hidden_layers 4→6/8)",
+      "implementation_guide": "config: num_hidden_layers += 2。比 width scaling 收敛更快（参数量增加但每层独立训练）。",
+      "applicable_task": "generation",
+      "cost": "medium",
+      "expected_lift": "+0.5-1.5% val ppl",
+      "tags": ["architecture", "capacity"]
+    },
+    {
+      "id": "nlp-short-conv",
+      "symptom": "linear attention 早期 token 影响弱 / 缺少 inductive bias",
+      "technique": "Short convolution (kernel=3-4) before linear attention",
+      "implementation_guide": "在每层 attention 前 x = conv1d(x, kernel=3, groups=hidden_size)。Mamba / DeltaNet 标准做法，让模型学到 n-gram 局部模式。",
+      "applicable_task": "generation",
+      "cost": "low",
+      "expected_lift": "+0.5-1.5% val ppl",
+      "tags": ["architecture", "convolution"]
+    },
+    {
+      "id": "nlp-attn-mode-fused",
+      "symptom": "chunk attention 数值不稳 / 想要更精确",
+      "technique": "切换 attn_mode: chunk → fused_chunk",
+      "implementation_guide": "config.attn_mode = 'fused_chunk' (fla 库支持)。fuse 多个 op 减少 kernel launch overhead，数值更稳。",
+      "applicable_task": "generation",
+      "cost": "low",
+      "expected_lift": "+0.3-0.8% val ppl + 10-15% faster",
+      "tags": ["architecture", "attention", "fla"]
+    },
+    {
+      "id": "nlp-tokenizer-bpe-vs-char",
+      "symptom": "vocab 太大 embedding 参数占比高 / 训练慢",
+      "technique": "Character-level tokenizer (vocab ~128) instead of BPE (vocab 50K)",
+      "implementation_guide": "tokenizer = char-level; vocab_size = 128。Embedding 参数从 12.8M 降到 32K。适合极小数据 + 极小模型。",
+      "applicable_task": "generation",
+      "cost": "medium",
+      "expected_lift": "-50% params, +20% training speed, slight ppl increase",
+      "tags": ["tokenizer", "memory"]
+    },
+    {
+      "id": "nlp-weight-tying",
+      "symptom": "embedding + LM head 参数重复 / 浪费显存",
+      "technique": "Tie input embedding and output LM head weights",
+      "implementation_guide": "self.embed.weight = self.lm_head.weight。减一半 vocab-related 参数。GPT-2 / LLaMA 标准。",
+      "applicable_task": "generation",
+      "cost": "low",
+      "expected_lift": "-30% params, slight ppl improvement from regularization",
+      "tags": ["architecture", "memory"]
+    }
+  ]
+}
