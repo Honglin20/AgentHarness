@@ -1,0 +1,15 @@
+{
+  "metrics": {
+    "accuracy": 1.0,
+    "loss": 0.00285
+  },
+  "latency_ms": {
+    "mean": 0.1202,
+    "p50": 0.1137,
+    "p95": 0.1746,
+    "p99": 0.2037
+  },
+  "params": 301253,
+  "one_epoch_sec": 12.298,
+  "profile_path": "/Users/mozzie/Desktop/Projects/AgentHarness/projects/cifar_cnn/baseline_profile.json"
+}

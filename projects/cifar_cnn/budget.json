@@ -1,0 +1,44 @@
+{
+  "_meta": {
+    "generated_by": "tier_planner",
+    "description": "NAS tier budget allocation based on project analysis and baseline results",
+    "note": "Baseline latency (0.12ms) is well below target (0.5ms), so budget prioritizes accuracy/architecture exploration over latency reduction"
+  },
+  "tier_recommendation": {
+    "proposed_tiers": 3,
+    "max_tier": 3
+  },
+  "budget_allocation": [
+    {
+      "tier": 1,
+      "label": "Quick Screening",
+      "epochs": 1,
+      "estimated_sec_per_candidate": 12.3,
+      "rationale": "Ultra-fast sieve to eliminate obviously poor architectures. Even 1 epoch gives useful signal on this simple synthetic dataset (800 samples)."
+    },
+    {
+      "tier": 2,
+      "label": "Medium Evaluation",
+      "epochs": 3,
+      "estimated_sec_per_candidate": 36.9,
+      "rationale": "Moderate training for promising candidates. 3x baseline epoch gives better accuracy discrimination without excessive cost."
+    },
+    {
+      "tier": 3,
+      "label": "Full Training",
+      "epochs": 5,
+      "estimated_sec_per_candidate": 61.5,
+      "rationale": "Full training matching the project's default epoch count (5). Used for top candidates to get final reliable accuracy estimates."
+    }
+  ],
+  "context": {
+    "epochs_controllable": true,
+    "epochs_control_mechanism": "cli_flag",
+    "epochs_default": 5,
+    "one_epoch_sec": 12.3,
+    "baseline_accuracy": 1.0,
+    "baseline_latency_ms": 0.12,
+    "target_latency_ms": 0.5,
+    "latency_headroom_ms": 0.38
+  }
+}
