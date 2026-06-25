@@ -144,7 +144,10 @@ class TestMakeExecutorProtocolConformance:
         loop = asyncio.new_event_loop()
         try:
             result = loop.run_until_complete(ex.run("hello"))
-            assert result.agent_run.result.output == "ok"
+            # Phase E: 默认 result_type=AgentResult，text 包成 AgentResult(summary=...)
+            from harness.types import AgentResult
+            assert isinstance(result.agent_run.result.output, AgentResult)
+            assert result.agent_run.result.output.summary == "ok"
         finally:
             loop.close()
 

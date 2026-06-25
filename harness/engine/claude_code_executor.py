@@ -36,7 +36,9 @@ from typing import Any, Callable
 from harness.engine.llm_executor import AgentRunResult, BaseExecutor
 from harness.engine.token_aggregator import TokenAggregator
 from harness.engine._claude_subprocess import ClaudeRunResult, ClaudeSpawnConfig, run_claude
+from harness.engine._result_extractor import SchemaValidationError, extract_and_validate
 from harness.extensions.bus import safe_emit
+from harness.types import AgentResult
 from harness.translator import TranslateContext, TranslatedEvent, translate
 
 logger = logging.getLogger(__name__)
@@ -223,6 +225,9 @@ class ClaudeCodeExecutor:
                 await self._teardown_mcp()
 
         # 构造 AgentRunResult（agent_run duck-type 让 node_factory 能正常消费）
+        # Phase E: 提取 + schema 校验；失败抛 SchemaValidationError 让 execute_with_retry 接管
+        validated_output = self._extract_and_validate_result(self._final_result_text)
+
         usage = _ClaudeUsage(
             input_tokens=self._cumulative_input,
             output_tokens=self._cumulative_output,
@@ -231,7 +236,7 @@ class ClaudeCodeExecutor:
             tool_calls=len(self.tool_calls),
         )
         agent_run = _ClaudeAgentRun(
-            result=_ClaudeResult(output=self._final_result_text),
+            result=_ClaudeResult(output=validated_output),
             usage=usage,
         )
         return AgentRunResult(agent_run=agent_run, stop_regen=None, ttft_ms=self._last_ttft_ms)
@@ -408,6 +413,30 @@ class ClaudeCodeExecutor:
         # 内置工具名首字母大写形式：Bash/Read/Edit/Write/Grep/Glob）
         # Phase D 实现工具桥接后会加 mcp__* 前缀映射
         return list(tools)
+
+    def _extract_and_validate_result(self, text: str):
+        """Phase E: 从 claude result.text 提取 + schema 校验。
+
+        策略:
+          - result_type is None / AgentResult（默认）: 容忍纯文本，
+            包成 AgentResult(summary=text) 返回
+          - result_type 是自定义 BaseModel: 严格 JSON 提取 + pydantic 校验，
+            失败抛 SchemaValidationError
+
+        SchemaValidationError 由 execute_with_retry 接管重试（与 pydantic-ai 路径
+        的 ModelRetry 语义平行）。Phase E.2 会加 --resume + feedback 注入，
+        让重试带上 schema 错误信息回喂 claude。
+        """
+        if self.agent_def is None:
+            return text
+
+        result_type = getattr(self.agent_def, "result_type", None)
+        if result_type is None or result_type is AgentResult:
+            # 默认 result_type：把 text 作为 summary（pydantic-ai 路径也类似）
+            return AgentResult(summary=text)
+
+        # 自定义 result_type：严格 JSON 提取 + 校验
+        return extract_and_validate(text, result_type)
 
     def _build_translate_ctx(self) -> TranslateContext:
         return TranslateContext(
