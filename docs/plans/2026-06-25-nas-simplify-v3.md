@@ -255,11 +255,22 @@ workflow 内。
 ### 步骤 S7：workflow.json 组装 + 旧 agent 清理
 
 **验收标准**：
-- [ ] **S7.1 节点数**：workflow.json 恰好 6 个 agent（setup/baseline/selector/mutator/
+- [x] **S7.1 节点数 + DAG**：workflow.json 恰好 6 个 agent（setup/baseline/selector/mutator/
       analyzer/reporter），路由：setup→baseline→[selector→mutator→analyzer]→reporter，
-      analyzer 条件路由（pass→reporter / fail→selector）。
-- [ ] **S7.2 旧文件删除**：git status 显示 9 个旧 agent.md 删除，无残留。
+      analyzer 条件路由（pass→reporter / fail→selector）。（验证通过：拓扑排序无环、
+      所有 after/on_pass/on_fail 目标存在、单一入口 setup。max_iterations=1000。）
+- [x] **S7.2 旧文件删除**：删除 12 个旧 agent.md（adapter_generator/baseline_runner/
+      business_analyzer/metric_align/optimizer_{business,hyperparam,structural}/
+      project_analyzer/setup_align/smoke_runner/summarizer/tier2_runner），残留 0。
 - [ ] **S7.3 编译通过**：`load_workflow("nas")` 成功，无 schema 错误。
+      **环境阻塞**：当前 sandbox 的 harness 运行时 import 链断裂（pre-existing，
+      与本任务无关）——`harness/engine/llm.py:14` 用 `OpenAIChatModel`，但安装的
+      pydantic_ai 2.0 已改名 `OpenAIModel`，导致 `harness.core` → `sub_agent` →
+      `engine.llm` import 失败，`load_workflow()` 无法在沙箱内运行。
+      **已做的等效验证**：(a) 全部 6 个 result_type_schema 能构建为合法 pydantic
+      model（复现 safe_reconstruct_result_type 路径）；(b) DAG 拓扑合法（S7.1）。
+      **待办**：在依赖修复后的环境（pydantic_ai 版本对齐）跑 `load_workflow('nas')`
+      实测，归入 V1.E2E 前置。
 
 ---
 
