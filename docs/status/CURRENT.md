@@ -1,59 +1,41 @@
 # Current Task
 
-**当前任务**: PROMPT 体系重构与扩展 — **已完成** (TASK 1-6 全部交付)
+**当前任务**: Claude Code 作为 harness 可切换执行后端 — 设计 + 验证阶段（**未实现**）
 
-- 总纲报告: [`docs/plans/2026-06-23-harness-vs-claudecode-gap-audit.md`](../plans/2026-06-23-harness-vs-claudecode-gap-audit.md)
-- 执行方案: [`docs/plans/2026-06-23-prompt-system-refactor-plan.md`](../plans/2026-06-23-prompt-system-refactor-plan.md)
-- **交付状态**: 6 commits (Phase 0 baseline + TASK 1-6), 160 测试全绿, 行为基线通过
-- 讨论顺序: A. PROMPT（✅ 完成）→ B. HOOK（待开始）→ C. MIDDLEWARE（待开始）
+- 设计文档: [`docs/plans/2026-06-25-claude-code-executor-design.md`](../plans/2026-06-25-claude-code-executor-design.md)
+- 目标: agent 可声明 `executor: "claude-code"`，harness spawn `claude -p` 子进程执行 agent MD；前端零改动；ask_user 经 MCP 桥接
+- **状态**: 设计完成，验证点拆解完成（V1-V15），待用户批准后跑 Phase 1
 
-## PROMPT 重构成果（2026-06-23）
+## 关键决策（已确认）
 
-**新增 `harness/prompts/`**: assembler.py (静态拼装) + base.md (工作范式) +
-runtime.py (动态态势) + feedback.py (反馈文案) + README.md (判定规则)。
+- **方案 A**：节点级可插拔执行器（vs 抛弃 harness / vs claude 作为 pydantic-ai 工具）
+- **进程模型**：每节点子进程（vs 长 session / 阶段级）
+- **sub_agent**：用 Claude 原生 Task（不桥接）
+- **工具桥接**：仅增量——bash/Read/Grep/Glob/Edit/Write 用原生，ask_user/TodoTool/render_chart 走 MCP
+- **结果提取**：末消息 JSON + schema 校验 + `--resume` 重试
 
-**关键改进**:
-- system prompt 从「静态字符串」→ 「base + agent + schema + 每轮动态态势」
-- TodoReminderTracker（计数器累积）→ pydantic-ai dynamic_ref（每轮原地替换）
-- 散落 3 处的反馈文案 → feedback.py 单一来源
-- bash/grep/glob 描述嵌入工具选择规则（agent.md 不再重复强调）
-- 验证：从 agent.md 删规则后行为不退化（仍用 glob + 答对）
+## 死活命题
 
-详见 release note [`docs/releases/2026-06-23-prompt-system-refactor.md`](../releases/2026-06-23-prompt-system-refactor.md)。
+**V4**：claude -p 调 MCP 工具时是否能 block ≥30s 等响应（无内部 timeout）？
+- 通过 → 方案 A 可行
+- 失败 → 回退方案 C 或重新设计
 
-## 上一任务: Token 计数显示修复（Q1）(2026-06-21)
+## 待办（待用户批准才动）
 
-用户反映 BudgetBar 显示几百 K 误以为上下文炸了。诊断：单位正确（token），bug 在前端展示。
+1. 实现 Phase 1 验证脚本（`scripts/claude_exec_probe/`）：
+   - V1（基本 spawn）/ V3（MCP 连接）/ V4（block 验证）⭐；可加 V2/V5
+2. Phase 1 通过 → 展开 §3 详细设计（MCP server / 翻译器 / executor 字段 / 错误恢复）
+3. 详细设计通过 → writing-plans skill 出实施计划
 
-**修复**：
-- BudgetBar Cost/Window bar 都加 `(cache Xk)` 提示
-- 加中文 hover tooltip 澄清「累计消耗 vs 最近一次窗口」语义
-- 跟踪 worst-window 节点的 `lastCacheHit`
+## 上一任务: PROMPT 体系重构（已完成，2026-06-23）
 
-详见 [`docs/releases/2026-06-21-token-counting-display-fix.md`](../releases/2026-06-21-token-counting-display-fix.md)。
-
----
-
-## 待办（待用户确认才动）
-
-### Q2 — Claude Code prompt 补齐
-- 通用工作范式（工具选择 / 并行 / 验证 / surgical / fail loud / tone）在 80+ agent .md 中几乎为零
-- CLAUDE.md 的 12-Rule 没编译进 system_prompt
-- **状态**: 已诊断 → 见审查报告 §2 缺口 B/C + §6 P0-3。是否启动待用户定。
-
-### Q3 — Prompt 统一管理重构
-- 推荐方案 A：`harness/prompts/base.md` 前置注入
-- 工作量 ~4 天，风险低
-- **状态**: 已诊断 → 审查报告 §2 缺口 A（system prompt 静态化）+ §6 P0-2/P0-3 已给出改造方向。是否启动 + 是否写 ADR 待用户定。
-
-### Q1 后续 follow-up（低优）
-- vitest 4 + oxc + tsconfig `jsx:"preserve"` 三方问题，component-level render test 暂不可行
-- `HARNESS_REQUEST_LIMIT` 默认 200，NAS 多 iter 可能合理；用户可自行调整
-- 真正降单次 input 的工具结果截断（memory note F）和自动 compaction（G）未做
+6 commits 交付，160 测试全绿。详见 [`docs/releases/2026-06-23-prompt-system-refactor.md`](../releases/2026-06-23-prompt-system-refactor.md)。
+讨论顺序 A.PROMPT（✅）→ B.HOOK（暂停，转 claude-code 后端方案）→ C.MIDDLEWARE（同前）。
 
 ## 必读文件
 
-- `harness/engine/llm_executor.py:252-265, 413-454` — record_usage + stage-2 emit
-- `frontend/src/components/diagnostics/BudgetBar.tsx` — 双 bar + cache 提示（Q1 修复点）
-- `frontend/src/stores/workflowStore.ts:23-50` — tokenUsage 字段定义
-- `harness/engine/token_aggregator.py` — TokenAggregator（未改）
+- `docs/plans/2026-06-25-claude-code-executor-design.md` — 本次设计 + 验证计划全文
+- `docs/plans/2026-06-23-harness-vs-claudecode-gap-audit.md` — 之前的差距审查（背景）
+- `harness/tools/ask_user.py:154` — 现有 ask_user 实现（MCP handler 要复用其链路）
+- `frontend/src/types/events.ts` — stream-json 翻译的目标 event schema
+- `workflows/nas/workflow.json` — DAG 结构 + agent result_type_schema（per-agent executor 字段加在这里）
