@@ -280,20 +280,30 @@ workflow 内。
 
 ### V1：端到端最小（单轮单变异，无 ToT）
 
-跑通 S0-S7。**用例**：`projects/mnist`，目标 acc≥0.95，单轮。
+跑通 S0-S7。**用例**：`projects/dict_input`（纯 torch，不需 sklearn），目标 acc≥0.95。
 - [ ] **V1.E2E**：一次运行完整跑完 6 agent，产出 setup/baseline/tree/report，
       reporter 判定（达标或未达标都算跑通，关键是流程闭合）。
-      **进展（真实）**：S7.3 已修通——`load_workflow('nas')` 字面编译成功，输出
-      `CompiledStateGraph` 含 6 agent + `__start__`（节点函数已建、边已连、条件路由已配）。
-      即 workflow 已是"可运行"形态，差的是**执行**。
-      **执行阻塞（环境，非代码）**：sandbox 的 Python 环境互斥——harness 依赖在
-      `.venv`(py3.12)，但 mnist 训练要的 sklearn 在该环境装不上（scipy/sklearn 源码
-      构建超时）；torch 已装进 .venv（CPU 2.2.2），但 sklearn 缺。anaconda(py3.7) 有
-      torch 但无 harness/pydantic_ai2.0。LLM API key 已配（HARNESS_*）。
-      **前置**：在 sklearn 可装的环境（或换不需 sklearn 的测试项目）+ .venv 跑
-      `python workflows/nas/run_nas.py --working-dir projects/mnist --inputs '{...}'`。
+      **进展（真实，逐步 unblock）**：
+      ① 换成 dict_input 项目（纯 torch，sklearn 缺不再阻塞）。
+      ② 修 3 个真实 bug 让 E2E 能启动：run_nas.py subprocess 用 `sys.executable`
+        （否则解析到 anaconda3.7 无 harness）；init_session.py 加 repo-root 路径注入
+        （否则从项目目录 subprocess 时 import harness 失败）；deepseek profile 分支
+        加 dataclass 守卫（pydantic_ai 2.0 的 model_profile 返回 dict，replace() 崩）。
+      ③ 升级 pydantic-ai 0.0.36 → 2.0.0（harness 是为 2.0 写的：output_type/
+        OpenAIChatModel/model_profile），import 链全通。
+      ④ **E2E 现已跑到真实 DeepSeek API 调用**（setup agent 实际发起 LLM 请求）。
+      **最终阻塞（provider 限制，非 NAS 代码）**：deepseek-v4-flash 的 thinking 模式
+      不接受 `tool_choice=required`（pydantic_ai 对结构化输出 result_type 默认发这个），
+      API 返 400 'Thinking mode does not support this tool_choice'。harness 原本靠
+      deepseek profile 覆盖关掉 tool_choice=required，但 pydantic_ai 2.0 把 profile API
+      重构了（dict + 字段移除），覆盖逻辑无法原样迁移。HARNESS_THINKING=false 无效
+      （是模型自身的 thinking 模式，非 harness 开关）。
+      **前置**：在 harness 运行时层用 pydantic_ai 2.0 的方式重新表达 deepseek 的
+      tool_choice 约束（如 ModelSettings 的 tool_choice 控制，或换非 thinking 的
+      HARNESS_MODEL），属 harness-deepseek 兼容项，非本 NAS 任务范围。
 - [ ] **V1.断点**：跑到 mutator 阶段 B 时 kill 整个 workflow，`--session-id` 重启，
-      恢复正确（不重跑 setup/baseline，训练继续或正确重跑）。— 同 V1.E2E 执行阻塞。
+      恢复正确（不重跑 setup/baseline，训练继续或正确重跑）。— 阻塞同 V1.E2E（连不到
+      mutator，因 setup 的 LLM 调用就被 deepseek API 挡住）。
 
 ---
 
