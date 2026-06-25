@@ -56,9 +56,11 @@ class _RecordingBus(Bus):
 
 class TestFastPath:
     async def test_before_tool_noop_without_context(self):
-        """No truncation_context published → None immediately (direct tool tests)."""
-        # Outside any truncation_context.
-        assert await dispatch_before_tool("bash", {"command": "echo"}) is None
+        """No truncation_context published → (None, original args) immediately."""
+        args = {"command": "echo"}
+        reject, effective = await dispatch_before_tool("bash", args)
+        assert reject is None
+        assert effective == args  # passed through unchanged
 
     async def test_after_tool_returns_result_without_context(self):
         result = await dispatch_after_tool("bash", {"command": "echo"}, "original")
@@ -67,7 +69,9 @@ class TestFastPath:
     async def test_before_tool_noop_when_bus_has_no_middleware(self):
         bus = _RecordingBus()  # no middleware registered
         with truncation_context(bus, "w", "n", "a"):
-            assert await dispatch_before_tool("bash", {}) is None
+            reject, effective = await dispatch_before_tool("bash", {"x": 1})
+        assert reject is None
+        assert effective == {"x": 1}  # no middleware → args untouched
 
     async def test_after_tool_returns_result_when_no_middleware(self):
         bus = _RecordingBus()
@@ -146,6 +150,96 @@ class TestBeforeToolBlock:
         assert mw.blocked == []  # never triggered
 
 
+# ── Fix A: before_tool argument rewriting ─────────────────────────────
+
+
+def _args_echo_tool(tool_name: str = "echo_args"):
+    """A tool that returns its own kwargs as a string, so tests can assert
+    exactly which args reached the tool fn after PreToolUse dispatch."""
+    from harness.tools.registry import ToolFactory
+    from pydantic_ai import Tool as PydanticAITool
+
+    class _Factory(ToolFactory):
+        name = tool_name
+        description = "echoes args"
+        def create(self):
+            async def echo(ctx, **kw):
+                return f"args={kw}"
+            wrapped = self._wrap_fn(echo, tool_name)
+            return PydanticAITool(wrapped, name=self.name, takes_ctx=True)
+
+    return _Factory().create()
+
+
+class _RewriteMiddleware(BaseMiddleware):
+    """PreToolUse middleware that rewrites tool_args."""
+    name = "rewrite"
+
+    def __init__(self, mapping: dict[str, str]):
+        self.mapping = mapping
+
+    async def before_tool(self, ctx):
+        for k, v in self.mapping.items():
+            if k in ctx.tool_args:
+                ctx.tool_args[k] = v
+        return ctx
+
+
+class TestBeforeToolArgRewrite:
+    async def test_a1_rewritten_args_reach_the_tool(self):
+        """A1: middleware rewrites tool_args → tool executes with new args."""
+        mw = _RewriteMiddleware({"target": "REWRITTEN"})
+        bus = _RecordingBus()
+        bus.register(mw)
+        tool = _args_echo_tool()
+        with truncation_context(bus, "w", "n", "a"):
+            result = await tool.function(_ctx(), target="original", other=1)
+        assert "REWRITTEN" in result
+        assert "original" not in result  # old value not seen by the tool
+        # Untouched args survive.
+        assert "'other': 1" in result
+
+    async def test_a2_zero_default_args_unchanged_without_middleware(self):
+        """A2: no middleware → tool receives the exact args the caller passed."""
+        bus = _RecordingBus()  # no middleware
+        tool = _args_echo_tool()
+        with truncation_context(bus, "w", "n", "a"):
+            result = await tool.function(_ctx(), target="keep", n=42)
+        assert "keep" in result
+        assert "'n': 42" in result
+
+    async def test_a3_reject_takes_precedence_over_rewrite(self):
+        """A3: a middleware that rewrites AND blocks → tool does not run, the
+        block reason reaches the model (args rewrite is moot)."""
+        class _RewriteAndBlock(BaseMiddleware):
+            name = "rw-block"
+            async def before_tool(self, ctx):
+                ctx.tool_args["target"] = "REWRITTEN"
+                return RejectAction(reason="blocked after rewrite")
+        bus = _RecordingBus()
+        bus.register(_RewriteAndBlock())
+        tool = _args_echo_tool()
+        with truncation_context(bus, "w", "n", "a"):
+            result = await tool.function(_ctx(), target="original")
+        assert "blocked after rewrite" in result
+        assert "REWRITTEN" not in result  # tool never ran
+        assert "args=" not in result      # tool fn was never invoked
+
+    async def test_a4_rewrite_exception_falls_back_to_original_args(self):
+        """A4: a before_tool that raises → tool runs with the ORIGINAL args
+        (exception isolation does not corrupt the call)."""
+        class _BoomRewrite(BaseMiddleware):
+            name = "boom-rewrite"
+            async def before_tool(self, ctx):
+                raise RuntimeError("rewrite exploded")
+        bus = _RecordingBus()
+        bus.register(_BoomRewrite())
+        tool = _args_echo_tool()
+        with truncation_context(bus, "w", "n", "a"):
+            result = await tool.function(_ctx(), target="original")
+        assert "original" in result  # original args survived the broken mw
+
+
 # ── criterion 4: after_tool substitutes ────────────────────────────────
 
 
@@ -213,7 +307,8 @@ class TestExceptionIsolation:
         bus = _RecordingBus()
         bus.register(mw)
         with truncation_context(bus, "w", "n", "a"):
-            await dispatch_before_tool("bash", {})
+            reject, _args = await dispatch_before_tool("bash", {})
+        assert reject is None  # exception isolated → no block
         errors = [e for t, e in bus.emitted if t == "ext.error"]
         assert errors, "broken middleware must emit an ext.error event"
 

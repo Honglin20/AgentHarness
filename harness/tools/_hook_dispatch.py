@@ -13,12 +13,15 @@ the executor.
 
 Robustness contract (critical):
   - No bus / no ToolCtx / no middleware  → fast no-op, returns the original
-    (``None`` for before, the input ``result`` for after). Zero overhead.
+    (``(None, tool_args)`` for before, the input ``result`` for after).
+    Zero overhead.
   - Any middleware exception             → logged + that middleware skipped;
     the call proceeds with the original value. A broken extension can NEVER
     block or corrupt a tool call.
   - ``RejectAction`` from before_tool    → caller short-circuits (returns the
     block reason to the model instead of executing).
+  - ``ToolCtx`` from before_tool         → caller uses ``ctx.tool_args`` as the
+    tool's args (middleware may have rewritten them).
   - ``SubstituteAction`` from after_tool → caller swaps in ``.result``.
   - ``RejectAction`` from after_tool     → caller treats the result as an
     error string for the model.
@@ -97,26 +100,38 @@ def _has_middleware() -> bool:
 
 async def dispatch_before_tool(
     tool_name: str, tool_args: dict[str, Any],
-) -> RejectAction | None:
-    """PreToolUse dispatch. Returns RejectAction to block, else None (proceed).
+) -> tuple[RejectAction | None, dict[str, Any]]:
+    """PreToolUse dispatch. Returns ``(reject, effective_args)``.
 
-    Fast-path: no middleware → None immediately. All dispatch is wrapped so
-    an exception never propagates into the tool call.
+    - ``reject`` is non-None  → block the call; the model sees ``reason``.
+      ``effective_args`` is the ORIGINAL args (unused by the caller).
+    - ``reject`` is None      → proceed, using ``effective_args`` as the tool's
+      arguments. Middleware may have rewritten ``tool_args`` (e.g. redirecting
+      a path into a sandbox); the rewritten dict is what the tool receives. If
+      no middleware rewrote them, ``effective_args`` is the original dict.
+
+    Fast-path: no middleware → ``(None, tool_args)`` immediately. All dispatch
+    is wrapped so an exception never propagates into the tool call; on failure
+    the original args are returned unchanged.
     """
     if not _has_middleware():
-        return None
+        return None, tool_args
     bus = _bus()
     tctx = _build_tool_ctx(tool_name, tool_args)
     if tctx is None:
-        return None
+        return None, tool_args
     try:
         result = await bus.run_middleware_chain("before_tool", tctx)
         if isinstance(result, RejectAction):
-            return result
-        return None
+            return result, tool_args
+        # result is the ToolCtx threaded through the chain; middleware may have
+        # mutated tool_args on it. Use the (possibly rewritten) args.
+        if isinstance(result, ToolCtx):
+            return None, result.tool_args
+        return None, tool_args
     except Exception:
         logger.debug("before_tool dispatch failed", exc_info=True)
-        return None
+        return None, tool_args
 
 
 async def dispatch_after_tool(

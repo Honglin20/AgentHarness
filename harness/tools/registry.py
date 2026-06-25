@@ -99,8 +99,11 @@ class ToolFactory(ABC):
             Shared by the sync and async wrappers below so the post-processing
             pipeline is defined exactly once.
             """
-            # 1. PreToolUse — may block. RejectAction → short-circuit.
-            reject = await dispatch_before_tool(tool_name, kwargs)
+            # 1. PreToolUse — may block or rewrite args.
+            #    RejectAction → short-circuit; otherwise kwargs may have been
+            #    rewritten by middleware (e.g. sandboxed path) and we use the
+            #    returned dict for execution.
+            reject, kwargs = await dispatch_before_tool(tool_name, kwargs)
             if reject is not None:
                 return f"[tool {tool_name} blocked by policy: {reject.reason}]"
 
