@@ -32,6 +32,16 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+# When invoked as a subprocess from a project working_dir (run_nas.py does
+# `os.chdir(working_dir)` before calling init_session.py), the repo root is
+# NOT on sys.path, so `import harness.workflow` fails. Add the repo root
+# (this file lives at <repo>/workflows/nas/helpers/init_session.py, so the
+# repo root is 3 parents up) — same pattern as collect_status.py /
+# dispatch_train.py.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Initialize NAS session paths")

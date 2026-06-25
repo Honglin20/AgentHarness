@@ -11,13 +11,7 @@ from typing import Any
 
 import httpx
 from pydantic_ai import Agent as PydanticAgent
-# pydantic_ai renamed OpenAIChatModel → OpenAIModel in 2.0. Support both so the
-# module imports on either installed version (keeps load_workflow() working
-# without forcing a pin). The class is identical under both names.
-try:
-    from pydantic_ai.models.openai import OpenAIModel as OpenAIChatModel
-except ImportError:  # pragma: no cover - pydantic_ai < 2.0 still has the old name
-    from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.settings import ModelSettings
 
@@ -108,17 +102,31 @@ class LLMClient:
         self._provider = OpenAIProvider(**provider_kwargs)
 
         # DeepSeek V4 / reasoner don't support tool_choice=required.
-        # OpenAIProvider doesn't know this, so override the profile.
+        # In pydantic_ai 1.x, OpenAIProvider.model_profile returned a dataclass
+        # we could dataclasses.replace() to flip openai_supports_tool_choice_required.
+        # In 2.0 it returns a plain dict and the field was removed, so that
+        # override can no longer be expressed the same way. Try the 1.x path;
+        # if the profile shape doesn't match (2.0), skip the override — deepseek
+        # simply won't be forced into tool_choice=required, which is safe.
         model_kwargs: dict[str, Any] = {
             "model_name": self._model_name,
             "provider": self._provider,
         }
         if _is_deepseek(self._model_name, self._api_url):
-            base_profile = self._provider.model_profile(self._model_name)
-            if base_profile and getattr(base_profile, "openai_supports_tool_choice_required", True):
-                model_kwargs["profile"] = dataclasses.replace(
-                    base_profile, openai_supports_tool_choice_required=False
-                )
+            try:
+                base_profile = self._provider.model_profile(self._model_name)
+                if (
+                    base_profile
+                    and dataclasses.is_dataclass(base_profile)
+                    and getattr(base_profile, "openai_supports_tool_choice_required", True)
+                ):
+                    model_kwargs["profile"] = dataclasses.replace(
+                        base_profile, openai_supports_tool_choice_required=False
+                    )
+            except Exception:
+                import sys
+                print("[llm] deepseek profile override skipped (pydantic_ai API mismatch)",
+                      file=sys.stderr)
 
         self._model = OpenAIChatModel(**model_kwargs)
 
