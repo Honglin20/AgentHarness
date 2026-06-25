@@ -236,3 +236,55 @@ class TestCoverage:
         with truncation_context(bus, "w", "n", "a"):
             await tool.function(_ctx(), command="echo cov", description="t")
         assert "bash" in triggered
+
+
+# ── Fix B: after_tool result-value pass-through (no shape-based mis-unwrapping)
+
+
+class TestAfterToolResultPassThrough:
+    """A middleware may return ANY value as the new result. The dispatch must
+    unwrap the (ctx, output) envelope by position, never by shape, so a result
+    that happens to be a length-2 tuple/list is returned verbatim."""
+
+    async def test_b1_tuple_valued_result_returned_verbatim(self):
+        """B1: a result of ('a','b') must come back as ('a','b'), not 'b'."""
+        class _TupleResult(BaseMiddleware):
+            name = "tuple-result"
+            async def after_tool(self, ctx, result):
+                return ("a", "b")
+        bus = _RecordingBus()
+        bus.register(_TupleResult())
+        with truncation_context(bus, "w", "n", "a"):
+            out = await dispatch_after_tool("bash", {}, "orig")
+        assert out == ("a", "b")
+
+    async def test_b2_list_valued_result_returned_verbatim(self):
+        """B2: a result of [1,2] must come back as [1,2], not 2."""
+        class _ListResult(BaseMiddleware):
+            name = "list-result"
+            async def after_tool(self, ctx, result):
+                return [1, 2]
+        bus = _RecordingBus()
+        bus.register(_ListResult())
+        with truncation_context(bus, "w", "n", "a"):
+            out = await dispatch_after_tool("bash", {}, "orig")
+        assert out == [1, 2]
+
+    async def test_b3_substitute_carrying_tuple(self):
+        """B3: SubstituteAction(result=('x','y')) yields ('x','y')."""
+        class _SubTuple(BaseMiddleware):
+            name = "sub-tuple"
+            async def after_tool(self, ctx, result):
+                return SubstituteAction(result=("x", "y"))
+        bus = _RecordingBus()
+        bus.register(_SubTuple())
+        with truncation_context(bus, "w", "n", "a"):
+            out = await dispatch_after_tool("bash", {}, "orig")
+        assert out == ("x", "y")
+
+    async def test_b4_no_middleware_returns_original(self):
+        """B4: fast-path — no middleware → original result unchanged."""
+        bus = _RecordingBus()  # no middleware
+        with truncation_context(bus, "w", "n", "a"):
+            out = await dispatch_after_tool("bash", {}, ("untouched", "tuple"))
+        assert out == ("untouched", "tuple")

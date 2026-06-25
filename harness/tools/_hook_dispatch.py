@@ -143,9 +143,15 @@ async def dispatch_after_tool(
             return outcome.result
         if isinstance(outcome, RejectAction):
             return f"[tool {tool_name} result rejected by policy: {outcome.reason}]"
-        # outcome is the (ctx, result) tuple → unwrap the (possibly same) result.
-        if isinstance(outcome, tuple) and len(outcome) == 2:
-            return outcome[1]
+        # run_middleware_chain's after-tool contract: the chain ALWAYS threads a
+        # (ctx, output) tuple — each middleware's return value is wrapped as the
+        # new ``output``. So ``outcome`` is a 2-tuple whose [1] is the final
+        # output (the user's value verbatim, even if it is itself a tuple/list).
+        # Unwrapping by position (not by shape) avoids ever mistaking a
+        # tuple-valued tool result for the (ctx, output) envelope.
+        if isinstance(outcome, tuple):
+            _ctx, final = outcome
+            return final
         return result
     except Exception:
         logger.debug("after_tool dispatch failed", exc_info=True)
