@@ -40,7 +40,7 @@ def _ensure_project_memory(workflow_dir: Path, project_id: str) -> dict:
         print(f"[run_nas] initializing L1 project memory: {memory_dir}")
         import subprocess
         result = subprocess.run(
-            ["python", str(helpers_dir / "project_memory.py"), "init", "--project", project_id],
+            [sys.executable, str(helpers_dir / "project_memory.py"), "init", "--project", project_id],
             capture_output=True, text=True
         )
         if result.returncode != 0:
@@ -133,7 +133,7 @@ def main():
     # existing runs/<id>/ dir; agents' check_resume reads their own artifacts
     # from there (no pointer written into the user's working dir).
     helpers_dir = workflow_dir / "helpers"
-    init_cmd = ["python", str(helpers_dir / "init_session.py"), "--working-dir", cwd]
+    init_cmd = [sys.executable, str(helpers_dir / "init_session.py"), "--working-dir", cwd]
     if args.session_id:
         init_cmd += ["--session-id", args.session_id]
     init_result = subprocess.run(init_cmd, capture_output=True, text=True)
