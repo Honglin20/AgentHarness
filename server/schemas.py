@@ -15,6 +15,12 @@ class AgentDef(BaseModel):
     eval: bool = False
     result_type_name: str | None = None
     result_type_schema: dict[str, Any] | None = None
+    # Phase A-F: per-agent executor backend；缺省 = "pydantic-ai"。
+    # 前端 PATCH /workflows/definitions/{name}/agents/{agent} 写入 workflow.json，
+    # 前端启动 run 时把整份 agents 列表 POST 到 /api/workflows。如果本字段
+    # 不声明，pydantic 会静默丢弃，导致 executor=claude-code 的 agent 跑出来
+    # 还是 pydantic-ai（pydantic-ai 路径）。
+    executor: Literal["pydantic-ai", "claude-code"] = "pydantic-ai"
 
 
 class CreateWorkflowRequest(BaseModel):

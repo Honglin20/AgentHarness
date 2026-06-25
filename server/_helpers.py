@@ -280,7 +280,14 @@ async def _create_and_start_workflow(
             "on_pass": a.on_pass,
             "on_fail": a.on_fail,
             "eval": a.eval,
+            # Phase A-F: executor backend。POST body 是用户最新意图（前端
+            # PATCH 后立即跑），优先于 disk；非默认值才写，避免污染 base。
+            "executor": a.executor,
         })
+        # 默认 "pydantic-ai" 不写盘（与 Agent.to_dict 行为一致），保证 base
+        # 干净；Agent.from_dict 缺省时也会填默认值。
+        if base.get("executor") == "pydantic-ai":
+            base.pop("executor", None)
         if a.result_type_name:
             base["result_type_name"] = a.result_type_name
         if a.result_type_schema:
