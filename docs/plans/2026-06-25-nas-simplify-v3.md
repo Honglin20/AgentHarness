@@ -169,12 +169,14 @@ workflow 内。
 **V2 才做 ToT**（开发/探索/回溯/降温/去重）。V1 不实现这些，避免 YAGNI。
 
 **验收标准**：
-- [ ] **S3.1 V1 极简**：V1 selector 输出 = {parent_id, direction, subgoal}，无 ToT
-      字段。grep selector.md 确认无"降温/回溯"字样。
-- [ ] **S3.2 传递必要信息**：selection.json 含 parent 模型文件路径 + parent 指标 +
-      方向 + baseline_understanding 路径 + experience 路径 + subgoal。
+- [x] **S3.1 V1 极简**：V1 selector 输出 = {parent_id, direction, subgoal}，无 ToT
+      字段。grep selector.md 确认无"降温/回溯"字样。（静态检查通过：ToT 明确标为
+      V2 推迟，V1 策略为贪心选最好。）
+- [x] **S3.2 传递必要信息**：selection.json 含 parent 模型文件路径 + parent 指标 +
+      方向 + baseline_understanding 路径 + experience 路径 + subgoal。（静态检查通过：
+      selection.json schema 含 parent.model_file + info_paths + subgoal。）
       **用例**：mutator 拿到 selection.json 后，仅读这些文件即可开工，不需重新遍历
-      项目（实测：断点重启后 mutator 不读 projects/ 下的源码）。
+      项目（实测：断点重启后 mutator 不读 projects/ 下的源码）。— **待 V1.E2E + V1.断点 实跑验证**
 - [ ] **S3.3 轮转（V2 移到此处）**：连续 3 轮同方向 → 强制换。V1 不验收此项。
 
 ---
