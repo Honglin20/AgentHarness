@@ -501,10 +501,12 @@ def spawn_background(
     return (
         f"[background task started]\n"
         f"task_id: {task_id}\n"
+        f"pid: {proc.pid}\n"
         f"command: {command}\n"
         f"\nOutput will be saved to: {output_path}\n"
         f"A bash.background_completed event will fire when it finishes (or times out). "
-        f"To check on it later, read_text_file('{output_path}')."
+        f"To check on it later, read_text_file('{output_path}'). "
+        f"To stop it: kill {proc.pid}"
     )
 
 
