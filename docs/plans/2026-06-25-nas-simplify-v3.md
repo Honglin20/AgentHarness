@@ -125,17 +125,22 @@ workflow 内。
 **职责**：查阅项目，向用户确认必要元素（C-SETUP 全部字段）。不假设编码规范。
 
 **验收标准**：
-- [ ] **S1.1 必要元素完整**：setup.json 含 C-SETUP 所有 required 字段，非空非模板。
+- [x] **S1.1 必要元素完整**：setup.json 含 C-SETUP 所有 required 字段，非空非模板。
+      （静态检查通过：agents/setup.md 的 schema 示例含全部字段。）
 - [ ] **S1.2 跨项目可用（OCP 验证）**：同一个 setup agent.md，跑 `projects/mnist` 和
       `projects/cifar_cnn` 两个项目，都能产出合法 C-SETUP（入口/模型参数名/超参按各
       项目实际，不硬编码）。
-      **用例 A**：mnist 项目，确认能识别 train.py 入口 + --model 参数名。
+      **用例 A**：mnist 项目，确认能识别 train.py 入口 + 真实命令行约定。
       **用例 B**：cifar 项目（不同编码约定），确认 setup.json 适配，不报"缺 --config"。
-- [ ] **S1.3 目标即约束**：setup.json 的 metrics 字段每项含 threshold（用户给明确值），
-      无 threshold 则 ask_user 追问直到拿到。
-- [ ] **S1.4 方向外置**：setup.json 的 directions 字段非空（默认含 structural/
+      （待 V1.E2E 实跑验证。探查已知：两项目均 `from model import X` 硬编码、无 --model
+      flag——setup 的变异约定 Step 2 正是为此设计。）
+- [x] **S1.3 目标即约束**：setup.json 的 metrics 字段每项含 threshold（用户给明确值），
+      无 threshold 则 ask_user 追问直到拿到。（静态检查通过：prompt 明确"没有阈值的
+      目标无效——追问"。）
+- [x] **S1.4 方向外置**：setup.json 的 directions 字段非空（默认含 structural/
       business/hyperparam，但可被用户/项目改）。analyzer/selector 不在 prompt 枚举方向。
-- [ ] **S1.5 断点**：setup.json 已存在 → 跳过。
+      （静态检查通过：directions 写进 C-SETUP schema。）
+- [x] **S1.5 断点**：setup.json 已存在 → 跳过。（静态检查通过：含 check_resume Step 0。）
 
 ---
 
