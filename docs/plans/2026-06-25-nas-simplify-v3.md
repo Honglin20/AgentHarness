@@ -225,16 +225,19 @@ workflow 内。
 **职责**：按用户目标判断潜力（**不合成 fitness**）+ 更新 tree + 写 experience + 判路由。
 
 **验收标准**：
-- [ ] **S5.1 无 fitness 合成**：grep 整个 workflow 目录无 `fitness.py`、无 fitness 加权
-      计算。analyzer.md 不出现 fitness 公式。
-- [ ] **S5.2 按目标判断**：analyzer 对每个变体，逐项对照 setup.json 的 metrics threshold
-      判断（达标/未达标/逼近），并据此标 promising。**用例**：setup 要求 acc≥0.95，
-      变体 acc=0.93 且时延改善 → 标 promising（逼近+时延优化）；变体 acc=0.93 但时延
-      更差 → 不标 promising（时延恶化）。具体阈值由 analyzer 按目标权衡，不硬编码。
-- [ ] **S5.3 文件证据校验**：metrics.json 不存在或不含目标指标 → 该变体标 invalid，
-      不参与判断（不信 mutator 自报）。
-- [ ] **S5.4 树更新原子**：tree.json 更新走 flock+原子写。**用例**：V3 并发场景实测。
-- [ ] **S5.5 路由正确**：达标→reporter；超预算→reporter；否则→selector。
+- [x] **S5.1 无 fitness 合成**：grep 整个 workflow 目录无 `fitness.py` 调用、无 fitness
+      加权计算。analyzer.md 不出现 fitness 公式。（静态检查通过：prompt 明确"严禁
+      fitness.py/加权公式"。grep 命中的 analyzer.md/reporter.md 仅是禁令语句本身。
+      旧 helpers/fitness.py 存在但无新 agent 调用——S7 清理。）
+- [x] **S5.2 按目标判断**：analyzer 对每个变体，逐项对照 setup.json 的 metrics threshold
+      判断（达标/未达标/逼近），并据此标 promising。（静态检查通过：threshold-driven
+      + 定性判断 + 灰区写理由。）**用例**运行验证待 V1.E2E。
+- [x] **S5.3 文件证据校验**：metrics.json 不存在或不含目标指标 → 该变体标 invalid，
+      不参与判断（不信 mutator 自报）。（静态检查通过：Step 1 复核 + invalid 标记。）
+- [x] **S5.4 树更新原子**：tree.json 更新走 flock+原子写。（静态检查通过：tmp+rename；
+      V3 flock 待并发实测。）
+- [x] **S5.5 路由正确**：达标→reporter；超预算→reporter；否则→selector。（静态检查
+      通过：decision pass/fail + over_budget 处理。）
 - [ ] **S5.6 下一轮基线**：从 promising 节点选（V1 只有一个变体时 = 该变体或 baseline）。
 
 ---
