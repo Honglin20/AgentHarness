@@ -106,10 +106,10 @@ class OutputCompactor(BaseMiddleware):
     whitelist={"TodoTool", ...}, workdir="/repo")``. Register with
     ``workflow.use(OutputCompactor(...))``.
 
-    ``workdir``: where to spill full outputs. If None, compaction still
-    summarizes inline but cannot spill (model loses the full text — use a
-    real workdir in production). When None, the middleware reads
-    ``ctx.node.workflow`` for a workdir hint if available.
+    ``workdir``: where to spill full outputs. The single source — set via
+    the constructor. If None, compaction still summarizes inline but cannot
+    spill the full text (the model loses it — use a real workdir in
+    production).
 
     ``summarize``: callable (text) -> str. Default is head+tail; swap for an
     LLM-summarizing strategy without subclassing.
@@ -150,10 +150,10 @@ class OutputCompactor(BaseMiddleware):
         if toks < self.threshold_tokens:
             return result  # under budget — leave untouched
 
-        # Resolve workdir: explicit ctor arg, else try ctx, else None.
+        # workdir is the single source — set via the constructor. When None,
+        # compaction summarizes inline but cannot spill the full text (the
+        # model loses it). Production runs should pass a real workdir.
         workdir = self.workdir
-        if workdir is None:
-            workdir = self._infer_workdir(ctx)
 
         compacted = self.summarize(result)
         spill_path = _spill(workdir, ctx.tool_name, result)
@@ -172,11 +172,3 @@ class OutputCompactor(BaseMiddleware):
             spill_path=spill_path,
         ))
         return SubstituteAction(result=compacted)
-
-    @staticmethod
-    def _infer_workdir(ctx: ToolCtx) -> str | None:
-        """Best-effort workdir from the ctx chain. Returns None if unknown."""
-        # ToolCtx.node.workflow has no workdir field in the base contract, but
-        # the real NodeCtx in production may carry it via metadata/config.
-        # We don't fabricate one — None means inline-only compaction.
-        return None
