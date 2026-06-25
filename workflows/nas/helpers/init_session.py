@@ -66,9 +66,12 @@ def main() -> None:
     _init_if_absent(session_dir / "tier_state.json",
                     json.dumps({"current_tier": 0}, indent=2))
 
-    # Write pointer file in working_dir for cross-agent discovery
-    pointer_path = working_dir / ".nas_session_pointer"
-    pointer_data = {
+    # Session meta lives INSIDE the workflow session dir — never write into the
+    # user's working dir (keeps their project tree clean; resume discovers the
+    # session via --session-id instead of a pointer in their repo).
+    # See docs/guides/workflow-development-guide.md §10.
+    meta_path = session_dir / ".session_meta.json"
+    session_data = {
         "session_id": session_id,
         "session_dir": str(session_dir),
         "workflow_dir": str(workflow_dir),
@@ -76,10 +79,10 @@ def main() -> None:
         "working_dir": str(working_dir),
         "created_at": ts,
     }
-    _atomic_write(pointer_path, json.dumps(pointer_data, indent=2))
+    _atomic_write(meta_path, json.dumps(session_data, indent=2))
 
     # Output for scout to read
-    result = {**pointer_data, "pointer_path": str(pointer_path)}
+    result = {**session_data, "meta_path": str(meta_path)}
     print(json.dumps(result, indent=2))
 
 

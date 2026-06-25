@@ -128,8 +128,10 @@ def main():
     print(f"[run_nas] inputs: {json.dumps(inputs, indent=2)}")
 
     # === Ensure session is initialized before workflow starts ===
-    # This makes session_dir available to ALL agents via .nas_session_pointer,
-    # and lets resume work correctly (--session-id passed through to init_session.py).
+    # This makes session_dir available to ALL agents via env vars ($session_dir
+    # etc.) and the run_nas inputs. Resume uses --session-id to reuse the
+    # existing runs/<id>/ dir; agents' check_resume reads their own artifacts
+    # from there (no pointer written into the user's working dir).
     helpers_dir = workflow_dir / "helpers"
     init_cmd = ["python", str(helpers_dir / "init_session.py"), "--working-dir", cwd]
     if args.session_id:
