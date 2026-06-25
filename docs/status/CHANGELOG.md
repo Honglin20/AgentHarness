@@ -9,6 +9,12 @@
 
 ## 2026-06
 
+- **2026-06-25** — **simple-nas 多方向专属 mutator 改造（路径 C）**：simple-nas 从单 mutator 串行改为 4 方向专属 mutator 并行（structural/hyperparam/lr/compute）。DAG 静态含 4 mutator 节点，setup 阶段用户 multi_select 选方向，未选方向的 mutator 头部 guard 自跳过（返回 `skipped: true`），analyzer fan-in 后串行更新 tree。**harness 核心 0 改动**（用 LangGraph 原生 fan-out/fan-in，不动 routing.py）。Task 6 静态检查时发现 plan 外并发风险：4 mutator 并发读 tree.json 推 vid 会算出相同 vid 互相覆盖，修复为 vid=`<direction>_<iter>` 无 lock。Review 阶段修复 5 项问题（CRITICAL: direction_to_agent dead code；HIGH: mutator guard `<N>` 路径字面量；M1-M3: schema/风格/首轮 experience 处理）。验证：compile + LangGraph 拓扑（11 节点 15 边）通过；完整 e2e 待用户跑（需 API key + UI + MNIST 训练）。
+  → [完整 release note](../releases/2026-06-25-simple-nas-multi-mutator.md) | [Plan](../plans/2026-06-25-simple-nas-multi-mutator.md)
+
+- **2026-06-25** — **ask_user label-as-value 回归修复**：simple-nas 跑 MNIST 时 setup agent 反复问同一问题 3 次。根因不在内存里记录的"刷新再问/60s 超时"老缺陷，而是 `assemble_answer` 在 valid_values 集合查不到前端发回的 label 直接丢弃，返回空串，agent 以为没回答又调 ask_user。修复：加 label_to_value 反向映射，value 匹配失败时翻译 label→value；真无效值（既非 label 也非 value）继续丢弃保持原语义。影响所有用 ask_user 的 workflow。64 测试全绿。
+  → commit `9288dc6`
+
 - **2026-06-23** — **PROMPT 体系重构与扩展（TASK 1-6）**：针对「LLM 用 HARNESS 感觉不智能」的反馈，重构 system prompt 链路。新增 `harness/prompts/`（assembler 静态拼装 + base.md 工作范式 + runtime.py 动态态势 + feedback.py 反馈文案统一）。关键改进：①system prompt 从静态字符串 → base+agent+schema+每轮动态态势；②TodoReminderTracker（计数器累积）→ pydantic-ai `@system_prompt(dynamic=True)`（每轮原地替换，回答用户「注入时机是每轮请求前」）；③散落 3 处反馈文案统一；④bash/grep/glob 描述嵌入工具选择规则。验证：删 agent.md 规则后行为不退化（仍用 glob + 答对），160 测试全绿。净减 223 行（删 reminder 系统）。
   → [完整 release note](../releases/2026-06-23-prompt-system-refactor.md) | [Plan](../plans/2026-06-23-prompt-system-refactor-plan.md) | [Gap audit](../plans/2026-06-23-harness-vs-claudecode-gap-audit.md)
 
