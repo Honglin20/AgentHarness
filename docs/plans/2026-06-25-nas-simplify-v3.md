@@ -283,30 +283,41 @@ workflow 内。
 跑通 S0-S7。**用例**：`projects/mnist`，目标 acc≥0.95，单轮。
 - [ ] **V1.E2E**：一次运行完整跑完 6 agent，产出 setup/baseline/tree/report，
       reporter 判定（达标或未达标都算跑通，关键是流程闭合）。
-      **阻塞**：sandbox 内 harness 运行时 import 断裂（见 S7.3），且需真实 LLM API。
-      无法在此环境跑。前置：① 修复 pydantic_ai 版本（`OpenAIChatModel`→`OpenAIModel`）
-      或降版本；② 配置 LLM key。
+      **进展（真实）**：S7.3 已修通——`load_workflow('nas')` 字面编译成功，输出
+      `CompiledStateGraph` 含 6 agent + `__start__`（节点函数已建、边已连、条件路由已配）。
+      即 workflow 已是"可运行"形态，差的是**执行**。
+      **执行阻塞（环境，非代码）**：sandbox 的 Python 环境互斥——harness 依赖在
+      `.venv`(py3.12)，但 mnist 训练要的 sklearn 在该环境装不上（scipy/sklearn 源码
+      构建超时）；torch 已装进 .venv（CPU 2.2.2），但 sklearn 缺。anaconda(py3.7) 有
+      torch 但无 harness/pydantic_ai2.0。LLM API key 已配（HARNESS_*）。
+      **前置**：在 sklearn 可装的环境（或换不需 sklearn 的测试项目）+ .venv 跑
+      `python workflows/nas/run_nas.py --working-dir projects/mnist --inputs '{...}'`。
 - [ ] **V1.断点**：跑到 mutator 阶段 B 时 kill 整个 workflow，`--session-id` 重启，
-      恢复正确（不重跑 setup/baseline，训练继续或正确重跑）。— 同 V1.E2E 阻塞。
+      恢复正确（不重跑 setup/baseline，训练继续或正确重跑）。— 同 V1.E2E 执行阻塞。
 
 ---
 
 ## 5. 完成审计总结（2026-06-25）
 
-**静态/单元验证已通过**（sandbox 内可做）：
+**静态/单元/编译验证已通过**（sandbox 内实测）：
 - S0：collect_status.py 6 场景单测全过（含 PID 复用陷阱 + 原子写）。
 - S0.1/0.2/0.5：PID 暴露、init 不污染、check_resume 契约。
 - S1.1/1.3/1.4/1.5、S2.3/2.4、S3.1/3.2、S4.1/4.5/4.7、S5.1-5.5、S6.1/6.2、S7.1/7.2：
   静态检查全过。
-- S7.3 等效：6 schema 能构建 pydantic model + DAG 拓扑合法。
+- **S7.3 字面编译通过**：修了 engine/llm.py 的 pydantic_ai 2.0 改名后，
+  `load_workflow('nas')` 实测成功 → `CompiledStateGraph` 含 6 agent + `__start__`，
+  analyzer 路由 reporter/selector，max_iterations=1000。test_bash 25/25、collect_status
+  6/6 过。
 
-**运行时验证未完成**（环境阻塞，非代码缺陷）：
-- S7.3 字面 `load_workflow('nas')`、V1.E2E、V1.断点：依赖 harness 运行时 import
-  （pre-existing 的 pydantic_ai 版本断裂）+ 真实 LLM API，sandbox 内无法跑。
+**运行时执行验证未完成**（环境互斥，非代码缺陷）：
+- V1.E2E、V1.断点：需 harness(.venv/py3.12) + torch + sklearn + LLM 同环境。sandbox
+  中 .venv 装得上 torch 但 sklearn 源码构建超时；anaconda(py3.7) 有 torch 无 harness。
+  workflow 已是"可运行"形态（编译成 LangGraph），差的只是执行环境。
 - S1.2 跨项目、S2.1/2.2 真实数值、S4.2-4.4/4.6 运行行为：需 E2E 实跑。
 
-**交付物**（8 commit，每步 review+commit）：
-- harness：bash.py PID 暴露（commit f1af371，更早）；init_session 不污染（03a8e35）。
+**交付物**（9 commit，每步 review+commit）：
+- harness：bash.py PID 暴露（f1af371）；init_session 不污染（03a8e35）；
+  engine/llm.py pydantic_ai 2.0 兼容 import（5f3286c，unblock S7.3）。
 - workflow：6 agent.md 全新/重写 + workflow.json 重建 + 12 旧 agent 删除。
 - helpers：collect_status.py + test_collect_status.py。
 - 文档：workflow-development-guide.md（7 原则）+ 本 plan（每步验收 + 状态）。
