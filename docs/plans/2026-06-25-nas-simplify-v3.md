@@ -245,9 +245,10 @@ workflow 内。
 ### 步骤 S6：reporter agent
 
 **验收标准**：
-- [ ] **S6.1 报告完整**：report.md 含最优变体 vs baseline 的指标对比表 + 时延对比 +
-      变异路径（parent 链）+ 达标判定。
-- [ ] **S6.2 触发条件**：仅在 analyzer 路由 reporter 时跑（达标或超预算）。
+- [x] **S6.1 报告完整**：report.md 含最优变体 vs baseline 的指标对比表 + 时延对比 +
+      变异路径（parent 链）+ 达标判定。（静态检查通过：报告模板含四要素。运行验证待 V1.E2E。）
+- [x] **S6.2 触发条件**：仅在 analyzer 路由 reporter 时跑（达标或超预算）。（静态检查
+      通过：prompt 明确 pass-only。S7 组装时确认 workflow.json 路由。）
 
 ---
 
