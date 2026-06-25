@@ -11,7 +11,13 @@ from typing import Any
 
 import httpx
 from pydantic_ai import Agent as PydanticAgent
-from pydantic_ai.models.openai import OpenAIChatModel
+# pydantic_ai renamed OpenAIChatModel → OpenAIModel in 2.0. Support both so the
+# module imports on either installed version (keeps load_workflow() working
+# without forcing a pin). The class is identical under both names.
+try:
+    from pydantic_ai.models.openai import OpenAIModel as OpenAIChatModel
+except ImportError:  # pragma: no cover - pydantic_ai < 2.0 still has the old name
+    from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.settings import ModelSettings
 

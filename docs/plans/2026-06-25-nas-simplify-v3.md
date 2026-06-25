@@ -262,15 +262,17 @@ workflow 内。
 - [x] **S7.2 旧文件删除**：删除 12 个旧 agent.md（adapter_generator/baseline_runner/
       business_analyzer/metric_align/optimizer_{business,hyperparam,structural}/
       project_analyzer/setup_align/smoke_runner/summarizer/tier2_runner），残留 0。
-- [ ] **S7.3 编译通过**：`load_workflow("nas")` 成功，无 schema 错误。
-      **环境阻塞**：当前 sandbox 的 harness 运行时 import 链断裂（pre-existing，
-      与本任务无关）——`harness/engine/llm.py:14` 用 `OpenAIChatModel`，但安装的
-      pydantic_ai 2.0 已改名 `OpenAIModel`，导致 `harness.core` → `sub_agent` →
-      `engine.llm` import 失败，`load_workflow()` 无法在沙箱内运行。
-      **已做的等效验证**：(a) 全部 6 个 result_type_schema 能构建为合法 pydantic
-      model（复现 safe_reconstruct_result_type 路径）；(b) DAG 拓扑合法（S7.1）。
-      **待办**：在依赖修复后的环境（pydantic_ai 版本对齐）跑 `load_workflow('nas')`
-      实测，归入 V1.E2E 前置。
+- [x] **S7.3 编译通过**：`load_workflow("nas")` 成功，无 schema 错误。
+      **已修复 unblock**：`harness/engine/llm.py:14` 用的 `OpenAIChatModel` 在 pydantic_ai
+      2.0 改名 `OpenAIModel`，导致 harness.core → engine.llm import 断裂（8 个 test 模块
+      collection error + load_workflow 无法跑）。改为版本兼容 import：
+      `try: OpenAIModel as OpenAIChatModel except ImportError: OpenAIChatModel`。
+      **实测通过**：`load_workflow('nas')` 编译成功，输出 6 agents
+      `['setup','baseline','selector','mutator','analyzer','reporter']`，
+      analyzer 路由 reporter/selector，max_iterations=1000。
+      **遗留（不阻塞 S7.3）**：deepseek 分支的 `profile=` kwarg 在 2.0 也不被接受，
+      但仅在运行时 + deepseek 模型时触发（load_workflow 不实例化 LLMClient），属另一
+      pre-existing 2.0 迁移项，不属本任务。test_bash 25/25 过；collect_status 6/6 过。
 
 ---
 
