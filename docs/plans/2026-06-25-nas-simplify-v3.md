@@ -1,305 +1,305 @@
-# NAS Workflow 简化 v3 — 2026-06-25
+# NAS Workflow 简化 v3 — 2026-06-25 (reviewed)
 
-状态：设计已确认，待实施。
-关联：`docs/guides/workflow-development-guide.md`（设计哲学）、`docs/plans/2026-06-18-nas-workflow-simplify.md`（前次简化）。
-
----
-
-## 一、背景与目标
-
-当前 NAS workflow（cognition-arch 2026-06-19）15 个 agent，结构过重：3 个独立
-optimizer + tier2 两阶段 + 6 个 setup 子 agent。实测问题：
-
-1. 长任务无法可靠完成（靠 LLM 记得轮询，经常丢）。
-2. 优化塌缩成"只压层删组件"，不结合基线原理和业务背景做创新。
-3. 硬编码接口（强制 `--config`、fitness 加权），换个项目就跑不了。
-
-**本次目标**：简化到 6 个 agent，端到端打通；监控用 cron/后台轮询摘取训练输出；
-评判以用户目标为准（不硬编码 fitness）；产物进 workflow 目录，支持断点续传。
+状态：已按软件设计原则 review 重写。每一步含验收标准 + 用例。
+关联：`docs/guides/workflow-development-guide.md`（设计哲学）。
+前置阅读：本文件第七节"设计原则自审"记录了 review 发现的原则违反及修正。
 
 ---
 
-## 二、设计原则（已固化至 workflow-development-guide.md）
+## 0. Review 结论（变更摘要）
 
-1. **必要元素为导向，非硬编码**。不假设统一编码规范；让 agent 查阅项目、向用户确认
-   必要元素。
-2. **harness 只做通用原子能力**。本次 harness 唯一改动：后台任务 ack 暴露 PID（2 行）。
-   不造 `wait_for_tasks` / `list_background_tasks`。
-3. **上游 agent 把必要信息递给下游**，下游少读非必要文件。
-4. **长任务监控靠组合现有原语**：后台拉起 + agent 写的轮询脚本（定时摘取训练输出）
-  + PID 记录文件。
-5. **评判以用户目标为准，不硬编码 fitness**。
-6. **合并职责以保上下文**：变异 agent 自己拉起训练并监控，不设独立 runner。
-7. **产物进 workflow 目录**（`<workflow_dir>/runs/<session_id>/`），不污染用户 working dir。
+相比首版 plan 的主要修正：
 
----
-
-## 三、长任务监控机制（核心设计）
-
-### 目标行为
-
-agent 发起训练后，定时摘取训练脚本**被重定向后的输出**（`train.log`）的最新部分，
-判断训练是否正常运行；训练真正完成时拿到结果。
-
-### 落地机制（组合现有原语，不造专用工具）
-
-agent 自己写一个轮询脚本（针对当前任务裁剪，灵活），用后台循环/cron 定时跑：
-
-```
-# agent 发起训练时（mutator 内）：
-1. bash run_in_background=true "python train.py > variants/<vid>/train.log 2>&1 &"
-   → 拿到后台 task_id + PID（harness 改动后可见）
-2. 记录 {vid, pid, start, cmd} 到 running.md（单行 append，原子安全）
-3. 写 monitor_<vid>.sh（agent 现场裁剪，不硬编码）：
-     while PID 还活着 (kill -0 $PID) and 未超预算:
-         tail -n 50 variants/<vid>/train.log   # 摘取最新输出
-         判断是否正常（agent 在脚本里写判断逻辑，如含 loss 下降/OOM/error）
-         追加进展到 progress.md                  # 定期汇报
-         sleep <interval>
-     训练完成（metrics 文件出现）→ 写 status.json {ok, metrics_path, exit_code}
-     从 running.md 移除该 PID
-   bash run_in_background=true 启动这个 monitor 脚本
-4. agent 主体轮询：直到 status.json 出现（完成哨兵）或超预算
-```
-
-### 关键约定
-
-- **完成信号 = `status.json` 存在**（哨兵），不是进程退出。堵死"进程 exit 0 但没产出
-  metrics"的假成功。
-- **摘取判断在脚本里**：agent 现场写"什么算正常"（loss 下降、无 OOM、step 推进等），
-  不硬编码。不同项目、不同训练，判断逻辑不同。
-- **agent 不常驻**：轮询是后台脚本做的事，agent 主体只发起 + 最后收 status。避免
-  LLM 常驻烧 token。
-- **调度器不绑定**：用 `while ... sleep` 后台循环（macOS/Linux 通用），cron 作为可选。
-  不依赖系统 cron 守护进程（sandbox 下未必可靠）。
-- **断点续传（run 级）**：重启时读 `running.md`，PID 还活着 → 继续监控；已写
-  status.json → 直接收结果；都不在 → 视为未发起，重跑。
-
-### 为什么不造 wait_for_tasks / list_background_tasks
-
-- `wait_for_tasks`（阻塞等待）：定期摘取 + 汇报对用户更有价值，比静默阻塞强。
-- `list_background_tasks`：agent 把任务记进 `running.md`，读文件即列表。
-
-对照 Claude Code 的同类缺陷（issue #61568 后台任务无限运行无可见性、#7069 缺原生
-任务管理）——本方案用 `running.md` + `status.json` 哨兵 + PID 解决，不引入专用工具。
+1. **mutator 职责过重（违反 SRP）** → 保留单 agent，但在内部强制分阶段（生成→运行→
+   收集），每阶段产物落盘可断点。不全拆（拆了丢上下文），但内部分离关注点。
+2. **监控判断逻辑不可测（违反可测试性）** → 分离为两层：**数据采集**（确定性，
+   可单测）+ **判断**（LLM 读采集结果）。采集脚本薄、固定、可测；判断灵活在 agent。
+3. **PID 复用风险（断点续传正确性）** → 哨兵不只看 PID，加 start_time + cmdline
+   指纹校验，PID 复用指错进程时能识别。
+4. **status.json 半成品（失败原子性）** → 强制原子写（tmp + rename）。
+5. **断点逻辑 DRY** → 抽一个通用 check 脚本，各 agent 调用，不各自实现。
+6. **方向扩展性（OCP）** → 方向列表外置到 setup.json，selector/analyzer 不写死枚举。
+7. **V1 边界明确** → V1 严格单轮单变异，ToT 的降温/回溯/去重明确推迟到 V2，V1 不实
+   现也不验收。
 
 ---
 
-## 四、Agent 编排（6 个）
+## 1. 设计原则自审记录
 
-```
-setup → baseline → ┌─ selector → mutator → analyzer ─┐ → reporter
-                   └─────────────────────────────────┘
-```
-
-| Agent | 职责 | 读 | 写 |
-|---|---|---|---|
-| setup | 查阅项目，向用户确认必要元素 | 用户项目 | setup.json |
-| baseline | 跑原始训练；固化基线 + 生成架构理解 | 入口, setup.json | baseline.json, baseline_understanding.md |
-| selector | ToT 选基线 + 分配方向 | tree.json, experience.md | selection.json |
-| mutator | 生成变异 + 直接拉起训练 + 监控到完成 | selection, baseline_understanding, experience | variants/<vid>/ |
-| analyzer | 按用户目标判断潜力 + 更新树 + 提炼 insight + 判路由 | variants, tree, setup(目标) | tree.json, experience.md |
-| reporter | 达标/预算耗尽时汇总 | tree, baseline | report.md |
-
-### 删除（15 → 6）
-
-project_analyzer / adapter_generator / smoke_runner / metric_align / setup_align /
-business_analyzer / summarizer / tier2_runner / 3 个独立 optimizer。
-
-### 各 agent 要点
-
-**setup** — 必要元素（非统一接口）：训练入口文件 + 命令行约定（怎么传模型文件/参数）
-、基线模型文件、初始超参、每个指标的目标约束（指标名+方向+阈值）、时延目标 + dummy
-input、变异约定（新模型文件命名/位置/入口指向）。断点：setup.json 存在则跳过。
-
-**baseline** — 跑原始训练一次，固化三样：
-- baseline.json（基线各指标 + 时延，后续对比根）。
-- baseline_understanding.md（架构理解：容量瓶颈/计算热点/针对任务的 SOTA 机会）—
-  **治惰性变异的知识地基**，所有 mutator 永久引用。
-- 默认训练参数快照（参照基准）。
-baseline 是搜索树根节点 v0。
-
-**selector** — ToT 策略：
-- 开发：从 analyzer 标记"有潜力"的架构深挖。
-- 探索（ε 概率）：回溯到高 fitness 祖先，换方向分支。
-- 轮转：连续 3 轮同方向强制换。
-- 降温：某分支连续 N 次退步标 dead，回到最佳祖先。
-- 去重：变异指纹（改了什么）不重复分配。
-递给 mutator 的必要信息：parent 模型文件路径 + parent 指标 + 方向 +
-baseline_understanding 相关要点 + 该方向 experience + 本轮子目标。
-
-**mutator** — 方向是指导原则（非硬编码约束）：
-- **structural：根本结构改变**（如 MHA→线性 attention、替换为 SOTA 组件），非简单压
-  层调宽。
-- business：在**遵循原逻辑**上修改方法。
-- hyperparam：训练配方。
-行为约束（写在 prompt）：禁惰性压缩（减层/删组件），除非目标本身就是压缩；
-**时延不必一次达标，但每轮须有时延优化**。
-变异后**直接拉起训练 + 监控到完成**（不交接 runner，保上下文）。监控用第三节机制。
-
-**analyzer** — **不合成 fitness 公式**。按用户给的每个指标约束判断：
-- 哪些变体"有潜力"（指标改善/逼近目标/时延有优化）——analyzer 自行按目标权衡。
-- 更新 tree.json（标 promising/dead、fitness_delta_vs_parent、深度）。
-- 写 experience.md（什么有效/什么没用/下一步提示）。
-- 判路由：达标 → reporter；超预算 → reporter（优雅收尾）；否则 → selector。
-  下一轮基线从标记"有潜力"的架构中选（结合方向多样性 + 树深度）。
-- **不信自报**：用文件证据（metrics 文件存在 + 含目标指标）校验。
-
-**reporter** — 达标/预算耗尽，从 tree.json 选最优，对比基线出报告。
+| 原则 | 问题 | 修正（见对应步骤） |
+|---|---|---|
+| SRP | mutator 一身多职 | 步骤 S4：mutator 内部分阶段 + 阶段产物落盘 |
+| 可测试性 | 判断逻辑埋 shell | 步骤 S0：采集/判断分离；采集脚本可单测 |
+| 断点正确性 | PID 复用指错 | 步骤 S0：哨兵含 start_time+cmdline 指纹 |
+| 失败原子性 | status.json 半成品 | 步骤 S0：原子写约定 |
+| DRY | 断点逻辑各 agent 重写 | 步骤 S0：通用 check_resume 脚本 |
+| OCP | 方向写死 prompt | 步骤 S1：方向外置 setup.json |
+| YAGNI | V1 边界模糊 | 步骤 S5：V1 不含 ToT，明确推迟 |
 
 ---
 
-## 五、文件管理
+## 2. 文件契约（依赖倒置：agents 依赖契约，不依赖实现）
+
+所有 agent 通过本契约读写，不直接耦合存储细节。契约变更需 bump 版本。
 
 ```
 <workflow_dir>/runs/<session_id>/
-  setup.json                # 必要元素
-  baseline.json
+  setup.json              契约 C-SETUP
+  baseline.json           契约 C-BASELINE
   baseline_understanding.md
-  tree.json                 # 候选树（id/parent_id/direction/指标/潜力标记/深度/model_file）
-  experience.md             # 跨方向经验
-  running.md                # 运行中 PID 清单（mutator 写，可随时 kill）
-  progress.md               # 轮询脚本定期汇报（追加）
-  SUMMARY.md                # 所有实验汇总（每轮一行）
-  variants/
-    v1/
-      model.py              # 变异模型文件
-      train.log             # 训练输出（重定向落点）
-      status.json           # 完成哨兵 {ok, metrics_path, exit_code, wallclock}
-      metrics.json
-      monitor.sh            # 轮询脚本（agent 现场写）
-      ANALYSIS.md           # 该实验细粒度分析记录
+  tree.json               契约 C-TREE
+  experience.md           契约 C-EXP（自由格式 markdown）
+  running.jsonl           契约 C-RUN（每行一个运行记录，JSONL 便于原子 append）
+  progress.jsonl          契约 C-PROG（采集脚本 append，每行一次采集快照）
+  SUMMARY.md
+  variants/<vid>/
+    model.py
+    train.log
+    status.json           契约 C-STATUS（哨兵）
+    metrics.json
+    collect.sh            确定性采集脚本（步骤 S0 提供）
+    ANALYSIS.md
   report.md
 ```
 
-分层级：SUMMARY.md（纵览）+ 每个 variant 的 ANALYSIS.md（细粒度）。
+**契约定义：**
+
+- **C-STATUS（哨兵）**：`{vid, ok:bool, exit_code:int|null, metrics_path:str|null,
+  wallclock_sec:float, error:str, fingerprint:{pid,start_time,cmdline}}`。**原子写**
+  （tmp+rename）。存在 = 完成。ok=true 要求 metrics_path 存在且可解析，否则 ok=false。
+- **C-RUN**：JSONL，每行 `{vid, pid, start_time, cmdline, log_path, started_at}`。
+  追加写（单行原子）。
+- **C-PROG**：JSONL，每行 `{vid, ts, tail:str(最新N行), pid_alive:bool, metrics_seen:bool}`。
+- **C-TREE**：`{version, nodes:[{id, parent_id, direction, metrics:{}, 
+  promising:bool|null, dead:bool, depth, model_file, status, fingerprint}]}`。
+  **整文件原子写 + flock**（步骤 S5 V3.2）。
+- **C-SETUP**：`{entry, model_arg_name, baseline_model, init_hyperparams:{}, 
+  metrics:[{name,direction,threshold}], latency_target, dummy_input, 
+  variant_naming: {...}, directions:[...], wallclock_budget_sec}`。**directions 外置**
+  → OCP。
+- **C-BASELINE**：`{metrics:{}, latency_ms, hyperparams:{}, model_file}`。
 
 ---
 
-## 六、Harness 改动（极小）
+## 3. 实施步骤（每步含验收标准 + 用例）
 
-### 1. 后台任务 ack 暴露 PID
+### 步骤 S0：通用基础设施（harness + 采集/断点脚本）
 
-文件：`harness/tools/bash.py`，函数 `spawn_background`。
-返回串加一行 `pid: <proc.pid>`。
+**改动**：
+1. `harness/tools/bash.py` `spawn_background` 返回串加 `pid: <proc.pid>`（2 行）。
+2. `init_session.py` 删 working_dir pointer 写入，改 `runs/<id>/.session_meta.json`。
+3. workflow 内新增 `helpers/collect_status.py`：确定性采集脚本——输入 run 目录，
+   检查 PID 存活（+start_time+cmdline 指纹校验防 PID 复用）、tail 日志、检测 metrics
+   产出；训练结束原子写 status.json（tmp+rename）。
+4. workflow 内新增 `helpers/check_resume.py`（已存在，扩展支持新契约文件清单）。
 
-```python
-# 现在
-return (
-    f"[background task started]\n"
-    f"task_id: {task_id}\n"
-    ...
-)
-# 改为
-return (
-    f"[background task started]\n"
-    f"task_id: {task_id}\n"
-    f"pid: {proc.pid}\n"
-    ...
-)
-```
+**为什么 collect_status.py 放 workflow 不放 harness**：它假设了 NAS 的产物布局
+（status.json/metrics.json 哨兵契约），是 NAS 专用，违背"通用原语进 harness"。放
+workflow 内。
 
-2 行改动，完全通用。任何用 `run_in_background` 的 agent 都能 kill 进程。
-
-### 2. init_session.py 不污染 working dir
-
-文件：`workflows/nas/helpers/init_session.py`。
-删除写入 `<working_dir>/.nas_session_pointer`（第 69-79 行）。改为只在 workflow 内
-部 `runs/<id>/.session_meta.json` 存 pointer。session_id 仍可获取（已注入 inputs/env）。
-
-**无其他 harness 改动**。不造专用工具。
-
----
-
-## 七、实施顺序（增量打通）
-
-### 阶段 0：harness 改动（前置）
-- bash.py 暴露 PID。
-- init_session.py 去掉 working dir pointer。
-
-### 阶段 1：端到端最小打通（单轮单变异）
-- 6 个 agent.md 写 prompt。
-- workflow.json：6 节点 + 路由。
-- 删除 15 个旧 agent。
-- 跑通：setup → baseline → selector → mutator(1 变异) → analyzer → reporter。
-- **验收**：见第八节验收清单 V1。
-
-### 阶段 2：多轮 + ToT
-- selector/analyzer 实现 ToT（开发/探索/回溯/降温/去重）。
-- max_iterations 调到支持多轮（注意 LangGraph recursion_limit 语义，NAS 需要几千）。
-- **验收**：V2。
-
-### 阶段 3：3 方向并行 + 健壮性
-- 一轮内 3 方向（structural/business/hyperparam）并发变异。
-- tree.json 并发写加 flock。
-- 全局预算守卫（selector/analyzer 入口 check）。
-- **验收**：V3。
+**验收标准**：
+- [ ] **S0.1 PID 暴露**：单元测试——调 `spawn_background`，返回串含 `pid: <数字>`，
+      且该数字 = 实际 OS 进程 PID（`os.kill(pid,0)` 成功）。
+- [ ] **S0.2 init 不污染**：跑 init_session 后，`git -C <working_dir> status` 干净
+      （无 .nas_session_pointer）；`.session_meta.json` 在 runs/<id>/ 下。
+      **用例**：`init_session.py --working-dir projects/mnist` → 检查 projects/mnist
+      无新增文件，runs/<id>/.session_meta.json 存在。
+- [ ] **S0.3 采集脚本正确性（核心）**：collect_status.py 单元测试覆盖 5 场景：
+      - (a) 进程在跑 + 无 metrics → 不写 status.json，C-PROG 追加 pid_alive=true。
+      - (b) 进程在跑 + 有 metrics → 写 status.json ok=true。
+      - (c) 进程退出 exit 0 + 有 metrics → 写 status.json ok=true。
+      - (d) 进程退出 exit 非0 → 写 status.json ok=false error=非0。
+      - (e) **PID 复用陷阱**：原训练进程已死，该 PID 被 OS 复用给别的进程（不同 cmdline）
+        → 识别为"非本训练进程"，不误判存活，写 status.json ok=false。
+      **用例**：对每场景构造真实子进程 + 伪造 metrics 文件，断言 collect_status 输出。
+- [ ] **S0.4 原子写**：status.json 写入中途被杀（模拟：写 tmp 后、rename 前中断）
+      → 不产生半成品 status.json（只有 .tmp 或啥都没有）。**用例**：monkeypatch
+      collect_status 在 rename 前 raise，检查无 status.json，仅 status.json.tmp。
+- [ ] **S0.5 check_resume 契约**：给一组 expected 文件，部分存在部分缺失 → skip=false
+      且 reason 列出缺失项；全在且 json 有效 → skip=true。
 
 ---
 
-## 八、验收清单
+### 步骤 S1：setup agent
 
-### V1：端到端最小打通
+**职责**：查阅项目，向用户确认必要元素（C-SETUP 全部字段）。不假设编码规范。
 
-**功能验收**（每一项必须实测通过，非"应该行"）：
+**验收标准**：
+- [ ] **S1.1 必要元素完整**：setup.json 含 C-SETUP 所有 required 字段，非空非模板。
+- [ ] **S1.2 跨项目可用（OCP 验证）**：同一个 setup agent.md，跑 `projects/mnist` 和
+      `projects/cifar_cnn` 两个项目，都能产出合法 C-SETUP（入口/模型参数名/超参按各
+      项目实际，不硬编码）。
+      **用例 A**：mnist 项目，确认能识别 train.py 入口 + --model 参数名。
+      **用例 B**：cifar 项目（不同编码约定），确认 setup.json 适配，不报"缺 --config"。
+- [ ] **S1.3 目标即约束**：setup.json 的 metrics 字段每项含 threshold（用户给明确值），
+      无 threshold 则 ask_user 追问直到拿到。
+- [ ] **S1.4 方向外置**：setup.json 的 directions 字段非空（默认含 structural/
+      business/hyperparam，但可被用户/项目改）。analyzer/selector 不在 prompt 枚举方向。
+- [ ] **S1.5 断点**：setup.json 已存在 → 跳过。
 
-- [ ] **V1.1 setup**：对一个真实测试项目（如 `projects/mnist`），setup agent 能正
-      确识别入口文件、模型文件、初始超参，并向用户确认目标。产物 setup.json 内容
-      完整且非硬编码（即换 cifar 项目也能跑）。
-- [ ] **V1.2 baseline**：跑完原始训练，baseline.json 含基线指标 + 时延；
-      baseline_understanding.md 非空（含架构分析，不是模板套话）。
-- [ ] **V1.3 断点续传-产物级**：用 `--session-id` 重启，已完成的 agent（如 setup）
-      检测到产物存在则跳过，不重跑。
-- [ ] **V1.4 后台 PID 可见**：mutator 发起训练后，从 bash ack 能读到 `pid:`，且
-      `kill <pid>` 能实际停止训练（实测）。
-- [ ] **V1.5 完成哨兵生效**：训练正常完成 → status.json 生成且 ok=true；
-      训练崩溃（手动 kill 训练进程模拟）→ status.json 生成且 ok=false（或监控脚本
-      检测到 PID 消失并写失败状态），**不存在"进程死但无 status.json"的悬空状态**。
-- [ ] **V1.6 假成功被拦**：构造"训练 exit 0 但没写 metrics.json"的场景（改训练脚本
-      提前 return），analyzer 不标该变体为有潜力（用文件证据校验生效）。
-- [ ] **V1.7 mutator 监控摘取**：progress.md 有定时追加的训练进展摘录（含最新 loss/
-      step），证明轮询摘取机制工作。
-- [ ] **V1.8 analyzer 按目标判断**：用户给了明确指标约束时，analyzer 据此判断潜力，
-      不出现任何加权 fitness 计算（grep 确认无 fitness.py / 无 fitness 字段合成）。
-- [ ] **V1.9 reporter**：产 report.md，含最优变体对比基线的指标 + 时延。
-- [ ] **V1.10 产物不污染 working dir**：测试项目目录下不出现 .nas_session_pointer 或
-      其他 workflow 产物（git status 干净，除项目自身文件）。
+---
 
-**鲁棒性验收**：
+### 步骤 S2：baseline agent
 
-- [ ] **V1.11 运行级恢复**：mutator 监控中途整 workflow 崩溃，重启后读 running.md，
-      若训练 PID 仍在跑 → 继续等；已完成 → 直接收；status.json 缺失且 PID 不在 →
-      重跑该变异（不重跑已完成的 baseline）。
+**职责**：跑原始训练一次，固化基线 + 生成架构理解。
+
+**验收标准**：
+- [ ] **S2.1 基线固化**：baseline.json 含 metrics + latency_ms + hyperparams + model_file，
+      数值来自真实训练（非编造）。
+- [ ] **S2.2 架构理解非空话**：baseline_understanding.md 含具体分析（容量瓶颈点出具体
+      层、计算热点点出具体算子、SOTA 机会针对该任务）。验收：人工抽查 ≥3 条具体技术
+      陈述，无"可能/也许"模糊套话。
+- [ ] **S2.3 复用 S0 采集**：baseline 训练也走 collect_status 机制（不另写监控），
+      status.json 正常生成。
+- [ ] **S2.4 根节点写入树**：tree.json 含 v0（baseline）节点，作为所有变异的根。
+
+---
+
+### 步骤 S3：selector agent
+
+**职责**：V1 版——选 parent（默认 baseline 或上一轮最优）+ 分配一个方向。
+**V2 才做 ToT**（开发/探索/回溯/降温/去重）。V1 不实现这些，避免 YAGNI。
+
+**验收标准**：
+- [ ] **S3.1 V1 极简**：V1 selector 输出 = {parent_id, direction, subgoal}，无 ToT
+      字段。grep selector.md 确认无"降温/回溯"字样。
+- [ ] **S3.2 传递必要信息**：selection.json 含 parent 模型文件路径 + parent 指标 +
+      方向 + baseline_understanding 路径 + experience 路径 + subgoal。
+      **用例**：mutator 拿到 selection.json 后，仅读这些文件即可开工，不需重新遍历
+      项目（实测：断点重启后 mutator 不读 projects/ 下的源码）。
+- [ ] **S3.3 轮转（V2 移到此处）**：连续 3 轮同方向 → 强制换。V1 不验收此项。
+
+---
+
+### 步骤 S4：mutator agent（SRP：内部分阶段）
+
+**职责**：单 agent，但内部强制三阶段，每阶段产物落盘可断点：
+
+- **阶段 A 生成**：读 selection + baseline_understanding + experience，生成新 model.py。
+- **阶段 B 运行**：按 setup 的运行约定，`run_in_background=true` 拉起训练，记 C-RUN，
+  起 collect_status 后台采集。
+- **阶段 C 收集**：轮询 status.json 哨兵到完成/超预算，读 metrics，写 variant 产物。
+
+**判断逻辑分离**：collect_status 只做数据采集（PID/tail/metrics 检测，确定性）；
+"训练是否正常/有无异常"的判断由 mutator（LLM）读 progress.jsonl 做。采集可测，判断灵活。
+
+**验收标准**：
+- [ ] **S4.1 三阶段落盘**：每个阶段有可识别产物（A:model.py+changes.md，B:C-RUN 追加+
+      collect 启动，C:status.json 读取记录）。阶段间可断点续。
+- [ ] **S4.2 方向非惰性**：structural 产物做根本结构改变（如替换 attention 机制），
+      非压层删组件。**用例**：diff parent model vs variant model，确认有结构组件替换/
+      新增，非纯层数/宽度数值变化。
+- [ ] **S4.3 时延有改善**：business/structural 方向变体的 latency_ms < parent latency_ms
+      （不必达标，但须改善）。
+- [ ] **S4.4 监控摘取生效**：progress.jsonl 有 ≥2 条采集记录，含 tail 最新 loss/step。
+- [ ] **S4.5 上下文不丢**：mutator 单 agent 内完成生成→运行→收集，中途不交接给别的
+      agent（grep workflow.json 确认 mutator 后继是 analyzer，无中间 runner）。
+- [ ] **S4.6 断点（阶段级）**：
+      - 阶段 A 完成后崩 → 重启跳过 A（model.py 存在），从 B 开始。
+      - 阶段 B 训练在跑时崩 → 重启读 C-RUN，PID 仍活→继续等（S0.5 指纹校验）；
+        PID 死且无 status→重跑 B。
+      **用例**：构造每个阶段的崩溃点，验证恢复路径。
+- [ ] **S4.7 假成功拦截**：训练 exit0 但无 metrics → collect_status 写 status.ok=false
+      （依赖 S0.3c/d）；mutator 不当作成功。
+
+---
+
+### 步骤 S5：analyzer agent
+
+**职责**：按用户目标判断潜力（**不合成 fitness**）+ 更新 tree + 写 experience + 判路由。
+
+**验收标准**：
+- [ ] **S5.1 无 fitness 合成**：grep 整个 workflow 目录无 `fitness.py`、无 fitness 加权
+      计算。analyzer.md 不出现 fitness 公式。
+- [ ] **S5.2 按目标判断**：analyzer 对每个变体，逐项对照 setup.json 的 metrics threshold
+      判断（达标/未达标/逼近），并据此标 promising。**用例**：setup 要求 acc≥0.95，
+      变体 acc=0.93 且时延改善 → 标 promising（逼近+时延优化）；变体 acc=0.93 但时延
+      更差 → 不标 promising（时延恶化）。具体阈值由 analyzer 按目标权衡，不硬编码。
+- [ ] **S5.3 文件证据校验**：metrics.json 不存在或不含目标指标 → 该变体标 invalid，
+      不参与判断（不信 mutator 自报）。
+- [ ] **S5.4 树更新原子**：tree.json 更新走 flock+原子写。**用例**：V3 并发场景实测。
+- [ ] **S5.5 路由正确**：达标→reporter；超预算→reporter；否则→selector。
+- [ ] **S5.6 下一轮基线**：从 promising 节点选（V1 只有一个变体时 = 该变体或 baseline）。
+
+---
+
+### 步骤 S6：reporter agent
+
+**验收标准**：
+- [ ] **S6.1 报告完整**：report.md 含最优变体 vs baseline 的指标对比表 + 时延对比 +
+      变异路径（parent 链）+ 达标判定。
+- [ ] **S6.2 触发条件**：仅在 analyzer 路由 reporter 时跑（达标或超预算）。
+
+---
+
+### 步骤 S7：workflow.json 组装 + 旧 agent 清理
+
+**验收标准**：
+- [ ] **S7.1 节点数**：workflow.json 恰好 6 个 agent（setup/baseline/selector/mutator/
+      analyzer/reporter），路由：setup→baseline→[selector→mutator→analyzer]→reporter，
+      analyzer 条件路由（pass→reporter / fail→selector）。
+- [ ] **S7.2 旧文件删除**：git status 显示 9 个旧 agent.md 删除，无残留。
+- [ ] **S7.3 编译通过**：`load_workflow("nas")` 成功，无 schema 错误。
+
+---
+
+## 4. 阶段化验收（端到端）
+
+### V1：端到端最小（单轮单变异，无 ToT）
+
+跑通 S0-S7。**用例**：`projects/mnist`，目标 acc≥0.95，单轮。
+- [ ] **V1.E2E**：一次运行完整跑完 6 agent，产出 setup/baseline/tree/report，
+      reporter 判定（达标或未达标都算跑通，关键是流程闭合）。
+- [ ] **V1.断点**：跑到 mutator 阶段 B 时 kill 整个 workflow，`--session-id` 重启，
+      恢复正确（不重跑 setup/baseline，训练继续或正确重跑）。
 
 ### V2：多轮 ToT
 
-- [ ] **V2.1 多轮循环**：连续 ≥3 轮 cycle，tree.json 累积 ≥3 个变体，每轮 analyzer
-      正确更新树。
-- [ ] **V2.2 开发**：连续轮次沿有潜力方向深挖（parent 链连续）。
-- [ ] **V2.3 探索/回溯**：能观察到至少一次"换方向"或"回溯到祖先"。
-- [ ] **V2.4 降温**：构造连续退步场景，analyzer 标 dead，selector 不再选该分支。
-- [ ] **V2.5 去重**：变异指纹机制生效，同形状变异不重复分配。
-- [ ] **V2.6 预算守卫**：设短预算（如 5 分钟），超预算优雅路由 reporter，不无限跑。
+- [ ] **V2.1 循环**：≥3 轮，tree 累积 ≥3 变体。
+- [ ] **V2.2 开发**：连续轮沿有潜力方向深挖（parent 链连续）。
+- [ ] **V2.3 探索/回溯**：观察到 ≥1 次换方向或回溯。
+- [ ] **V2.4 降温**：连续退步 → 标 dead，不再选。
+- [ ] **V2.5 去重**：变异指纹生效，同形状不重复。
+- [ ] **V2.6 预算**：短预算超限优雅路由 reporter。
 
 ### V3：3 方向并行 + 健壮性
 
-- [ ] **V3.1 三方向并发**：一轮内 structural/business/hyperparam 三变体并发发起。
-- [ ] **V3.2 tree.json 并发安全**：3 变体并发写 tree.json，flock 生效，无数据丢失
-     （实测多次，无 JSON 损坏）。
-- [ ] **V3.3 structural 非惰性**：structural 方向产物确实做了根本结构改变（如替换
-      attention 机制），非简单压层。抽查 ≥1 轮。
-- [ ] **V3.4 时延优化**：每轮至少一个变体时延优于 parent（不必达标，但有改善）。
-- [ ] **V3.5 max_iterations 足够**：NAS 跑 ≥10 轮不撞 LangGraph recursion_limit
-      （需把 max_iterations 调到几千；实测一轮 = ~4 节点执行，10 轮 = 40，留足余量）。
+- [ ] **V3.1 并发**：一轮内 3 方向并发发起训练。
+- [ ] **V3.2 tree.json flock**：3 变体并发写，多次实测无损坏。
+- [ ] **V3.3 max_iterations 足够**：≥10 轮不撞 recursion_limit（一轮≈4 节点执行，
+      max_iterations 调到数千，run_nas.py 已有 override）。
 
 ---
 
-## 九、风险与对策
+## 5. 风险与对策（已映射到验收）
 
-| 风险 | 对策 |
-|---|---|
-| LLM 不写监控脚本 / 写错 | 验收 V1.5/V1.7 卡住；prompt 里给明确模板 + 例子 |
-| LLM 仍惰性压缩 | 验收 V3.3 抽查；baseline_understanding.md + prompt 禁令 |
-| cron/后台循环在 sandbox 不跑 | 机制不绑调度器，用 `while sleep` 循环（通用） |
-| tree.json 并发损坏 | V3.2 flock 验收 |
-| recursion_limit 撞顶 | V3.5 把 max_iterations 调够，run_nas.py 已有 override 入口 |
+| 风险 | 验收项 | 对策 |
+|---|---|---|
+| LLM 不写/写错采集脚本 | S0.3 | collect_status.py 是确定性脚本，非 LLM 现场写；LLM 只调用 |
+| LLM 仍惰性压缩 | S4.2 | baseline_understanding + prompt 禁令 + diff 抽查 |
+| PID 复用指错 | S0.3e | start_time+cmdline 指纹 |
+| status.json 半成品 | S0.4 | 原子写 |
+| tree.json 并发损坏 | S3.4/V3.2 | flock |
+| recursion_limit | V3.3 | max_iterations 调够 |
+| 方向写死难扩展 | S1.4 | directions 外置 setup.json |
+
+---
+
+## 6. 实施顺序与依赖
+
+```
+S0（基础设施） ── 无依赖，先做
+   │
+   ├─ S1（setup）       依赖 C-SETUP 契约
+   ├─ S2（baseline）    依赖 S0 采集 + C-BASELINE
+   │
+   └─ S3（selector）    依赖 C-TREE
+        └─ S4（mutator） 依赖 S0 采集 + S1+ 运行约定 + S3 传递
+             └─ S5（analyzer） 依赖 C-TREE + C-SETUP 目标
+                  └─ S6（reporter）
+
+S7（组装） 依赖 S1-S6 全部就绪
+```
+
+建议：S0 先独立做完跑通单测（S0.1-S0.5），再并行推 S1/S2，然后 S3→S4→S5→S6，
+最后 S7 组装跑 V1.E2E。

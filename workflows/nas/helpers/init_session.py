@@ -11,14 +11,17 @@
       "workflow_dir": "<abs path>",
       "helpers_dir": "<abs path>",
       "working_dir": "<abs path>",
-      "pointer_path": "<abs path to working_dir/.nas_session_pointer>",
+      "meta_path": "<abs path to runs/<id>/.session_meta.json>",
       "created_at": "20260613_103045"
     }
 
 副作用:
     - 创建 <workflow_dir>/runs/<session_id>/ 目录
     - 初始化空文件：candidates.json=[], signatures.idx, HISTORY.md, direction.md, tier_state.json
-    - 写 <working_dir>/.nas_session_pointer 让后续 agent 反向发现 session_dir
+    - 写 <workflow_dir>/runs/<session_id>/.session_meta.json（session 元信息，
+      供 agent 反向发现 session_dir）。**不写入用户的 working dir**——保持用户
+      项目目录干净；resume 通过 --session-id 复用已有目录。
+      见 docs/guides/workflow-development-guide.md §10。
 """
 from __future__ import annotations
 
