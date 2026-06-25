@@ -388,8 +388,6 @@ class Bus:
             "on_node_end",
             "on_llm_delta",
             "on_tool_call",
-            "on_pre_tool",
-            "on_post_tool",
         ],
         *args: Any,
     ) -> None:
