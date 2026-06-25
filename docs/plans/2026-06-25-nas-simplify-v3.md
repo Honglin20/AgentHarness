@@ -150,13 +150,16 @@ workflow 内。
 
 **验收标准**：
 - [ ] **S2.1 基线固化**：baseline.json 含 metrics + latency_ms + hyperparams + model_file，
-      数值来自真实训练（非编造）。
+      数值来自真实训练（非编造）。（静态检查通过：C-BASELINE 字段齐全。真实数值待
+      V1.E2E。）
 - [ ] **S2.2 架构理解非空话**：baseline_understanding.md 含具体分析（容量瓶颈点出具体
       层、计算热点点出具体算子、SOTA 机会针对该任务）。验收：人工抽查 ≥3 条具体技术
-      陈述，无"可能/也许"模糊套话。
-- [ ] **S2.3 复用 S0 采集**：baseline 训练也走 collect_status 机制（不另写监控），
-      status.json 正常生成。
-- [ ] **S2.4 根节点写入树**：tree.json 含 v0（baseline）节点，作为所有变异的根。
+      陈述，无"可能/也许"模糊套话。（静态检查通过：prompt 列了三个具体维度 + 禁套话。
+      生成质量待 V1.E2E 人工抽查。）
+- [x] **S2.3 复用 S0 采集**：baseline 训练也走 collect_status 机制（不另写监控），
+      status.json 正常生成。（静态检查通过：Step 2 明确走 collect_status + 禁止自写。）
+- [x] **S2.4 根节点写入树**：tree.json 含 v0（baseline）节点，作为所有变异的根。
+      （静态检查通过：Step 6 写 v0，parent_id=null，depth=0。）
 
 ---
 
