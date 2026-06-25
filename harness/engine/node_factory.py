@@ -24,6 +24,7 @@ from harness.cost import calculate_cost
 from harness.engine.schema_utils import ReviewDecision
 from harness.prompts.assembler import assemble_static_prompt
 from harness.engine.llm_executor import LLMExecutor
+from harness.engine.executor_factory import make_executor
 from harness.engine.llm_retry import execute_with_retry
 from harness.engine.node_phases import (
     build_extension_context,
@@ -302,9 +303,10 @@ def make_node_func(
                 except ImportError:
                     return None  # intentional silent fallback — bash tool is optional
 
-            executor = LLMExecutor(
-                pydantic_agent,
-                deps,
+            executor = make_executor(
+                agent_def=agent_def,
+                pydantic_agent=pydantic_agent,
+                deps=deps,
                 event_bus=bus,
                 workflow_id=wid,
                 node_id=agent_def.name,

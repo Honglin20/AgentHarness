@@ -11,7 +11,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Protocol, runtime_checkable
 
 from pydantic_graph import End
 from pydantic_ai.messages import ModelRequest, SystemPromptPart, RetryPromptPart
@@ -30,6 +30,47 @@ class AgentRunResult:
     agent_run: Any  # pydantic_ai AgentRun
     stop_regen: dict[str, Any] | None = None
     ttft_ms: int | None = None
+
+
+@runtime_checkable
+class BaseExecutor(Protocol):
+    """协议：DAG 节点执行器接口。
+
+    LLMExecutor (pydantic-ai 路径) 和 ClaudeCodeExecutor (claude-code 路径,
+    Phase C 实现) 都实现此协议。node_factory 通过 ``make_executor`` 工厂
+    按 ``agent_def.executor`` 字段分派到具体实现。
+
+    新增 backend = 实现此协议 + 在 ``make_executor`` 注册分支 +
+    在 ``harness.core.agent.VALID_EXECUTORS`` 加白名单。
+
+    添加新方法到本协议前，必须确认 LLMExecutor 与 ClaudeCodeExecutor
+    均能语义一致地实现，否则 DAG 引擎会出现 backend-coupled 行为。
+    """
+
+    #: 本节点执行过程中累计的工具调用记录；node_factory 用它生成 sidecar IO 快照
+    #: 和 step 计数。每个 entry 至少含 tool_name / tool_call_id / input / output。
+    tool_calls: list[dict[str, Any]]
+
+    async def run(self, context: str) -> AgentRunResult:
+        """执行一次 agent run。``context`` 是 build_node_prompt 拼出的 user message。
+
+        返回 AgentRunResult；失败由调用方（execute_with_retry）分类重试。
+        """
+        ...
+
+    def record_usage(self, usage_obj: Any) -> None:
+        """把一次 LLM 请求的 usage（input/output/cache tokens）记进聚合器。
+
+        node_factory 在 run 结束后调一次，用于 BudgetBar 和 sidecar 持久化。
+        """
+        ...
+
+    def get_last_request_usage(self) -> dict[str, int]:
+        """返回最近一次 LLM 请求的 usage delta（key: input/output/cache_read/cache_creation）。
+
+        用于单次请求的 token 报告；与 record_usage 的累计语义不同。
+        """
+        ...
 
 
 class LLMExecutor:

@@ -15,6 +15,14 @@ from pydantic import BaseModel
 from harness.compiler.md_parser import resolve_agent_md
 from harness.types import AgentResult
 
+# Whitelist of valid executor backends. ``pydantic-ai`` is the default and
+# historically the only option; ``claude-code`` spawns a ``claude -p``
+# subprocess to run the agent MD (Phase A introduces the field, Phase C
+# implements the executor). Adding a new backend = adding to this set +
+# providing an executor implementation in harness/engine/.
+VALID_EXECUTORS = frozenset({"pydantic-ai", "claude-code"})
+DEFAULT_EXECUTOR = "pydantic-ai"
+
 
 def _extract_description(agent_name: str, workflow_dir: Path) -> str:
     """Return the first non-heading, non-frontmatter, non-empty line of the agent MD.
@@ -62,6 +70,7 @@ class Agent:
         on_fail: str | None = None,
         eval: bool = False,
         eval_target: str | None = None,
+        executor: str = DEFAULT_EXECUTOR,
     ):
         self.name = name
         # None 表示仅通过条件边触发，不作为入口节点
@@ -78,6 +87,13 @@ class Agent:
         self.on_pass = on_pass
         self.on_fail = on_fail
         self.eval = eval
+        # executor 字段必须经白名单校验，fail-loud；任何新 backend 需先在
+        # VALID_EXECUTORS 注册（见模块顶部 docstring）。
+        if executor not in VALID_EXECUTORS:
+            raise ValueError(
+                f"executor must be one of {sorted(VALID_EXECUTORS)}, got {executor!r}"
+            )
+        self.executor = executor
         # eval_target: set on materialized judge agents; survives save/load so
         # the engine can route them through _make_judge_node_func after reload.
         # Stored as a public attr (also assigned to the legacy _eval_target
@@ -109,6 +125,10 @@ class Agent:
         if self.result_type is not None and self.result_type is not AgentResult:
             d["result_type_name"] = self.result_type.__name__
             d["result_type_schema"] = self.result_type.model_json_schema()
+        # executor 字段：仅在非默认值时写入 workflow.json，保证旧文件零变化。
+        # from_dict 缺省读 DEFAULT_EXECUTOR，所以旧 workflow.json 自动兼容。
+        if self.executor != DEFAULT_EXECUTOR:
+            d["executor"] = self.executor
         return d
 
     @classmethod
@@ -129,4 +149,5 @@ class Agent:
             on_fail=d.get("on_fail"),
             eval=bool(d.get("eval", False)),
             eval_target=d.get("eval_target"),
+            executor=d.get("executor", DEFAULT_EXECUTOR),
         )
