@@ -18,12 +18,13 @@ tools:
 
 ## Step 0: Guard —— 检查是否激活（关键，必须先做）
 
-读 `$session_dir/iter_<N>/selection.json` 的 `active_directions`：
+从 SelectorResult.iter_num（pydantic_ai 已注入 message_history）取 N，再读对应 selection.json：
 
 ```bash
+N=<把 SelectorResult.iter_num 的具体值代入>
 python -c "
 import json, sys
-sel = json.load(open('$session_dir/iter_<N>/selection.json'))
+sel = json.load(open('$session_dir/iter_${N}/selection.json'))
 ad = sel.get('active_directions', [])
 if 'lr' not in ad:
     print('SKIP: lr not in', ad)
@@ -31,6 +32,7 @@ if 'lr' not in ad:
 print('ACTIVE: lr in', ad)
 "
 ```
+（bash 会先替换 `$session_dir` 和 `${N}` 为实际路径，python 收到的是绝对路径字符串。）
 
 - 输出 `SKIP:` → **立即返回 skipped result**：
 
@@ -56,7 +58,7 @@ print('ACTIVE: lr in', ad)
 ## 输入（仅 ACTIVE 时）
 
 - `state.outputs.selector`（SelectorResult：iter_num / parent_id / active_directions / selection_path）。
-- `$session_dir/iter_<N>/selection.json`（必要信息：parent / info_paths / active_directions）。
+- `$session_dir/iter_<iter_num>/selection.json`（必要信息：parent / info_paths / active_directions；`<iter_num>` 来自 SelectorResult.iter_num）。
 - `$session_dir/setup.json`（含 init_hyperparams.lr 作为基线；entry_run_cmd_template / variant_naming / care_about_latency）。
 - `$session_dir/experience.md`（跨方向经验——**必读**，尤其之前哪些 lr 设置 diverge 过）。
 

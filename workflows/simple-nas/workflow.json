@@ -1,11 +1,5 @@
 {
   "name": "simple-nas",
-  "direction_to_agent": {
-    "structural": "mutator_structural",
-    "hyperparam": "mutator_hyperparam",
-    "lr": "mutator_lr",
-    "compute": "mutator_compute"
-  },
   "agents": [
     {
       "name": "setup",
@@ -109,8 +103,9 @@
           "iter_num": {"title": "Iter Num", "type": "integer"},
           "parent_id": {"title": "Parent Id", "type": "string"},
           "direction": {
-            "anyOf": [{"type": "string"}, {"type": "null"}],
-            "description": "Self direction = 'structural'; null only when skipped (still kept as 'structural' for traceability — set 'structural' even when skipped)"
+            "description": "Always 'structural' (set even when skipped — guards the audit trail)",
+            "title": "Direction",
+            "type": "string"
           },
           "model_file": {
             "anyOf": [{"type": "string"}, {"type": "null"}],
@@ -163,8 +158,9 @@
           "iter_num": {"title": "Iter Num", "type": "integer"},
           "parent_id": {"title": "Parent Id", "type": "string"},
           "direction": {
-            "anyOf": [{"type": "string"}, {"type": "null"}],
-            "description": "Self direction = 'hyperparam'"
+            "description": "Always 'hyperparam' (set even when skipped)",
+            "title": "Direction",
+            "type": "string"
           },
           "model_file": {
             "anyOf": [{"type": "string"}, {"type": "null"}],
@@ -217,8 +213,9 @@
           "iter_num": {"title": "Iter Num", "type": "integer"},
           "parent_id": {"title": "Parent Id", "type": "string"},
           "direction": {
-            "anyOf": [{"type": "string"}, {"type": "null"}],
-            "description": "Self direction = 'lr'"
+            "description": "Always 'lr' (set even when skipped)",
+            "title": "Direction",
+            "type": "string"
           },
           "model_file": {
             "anyOf": [{"type": "string"}, {"type": "null"}],
@@ -271,8 +268,9 @@
           "iter_num": {"title": "Iter Num", "type": "integer"},
           "parent_id": {"title": "Parent Id", "type": "string"},
           "direction": {
-            "anyOf": [{"type": "string"}, {"type": "null"}],
-            "description": "Self direction = 'compute'"
+            "description": "Always 'compute' (set even when skipped)",
+            "title": "Direction",
+            "type": "string"
           },
           "model_file": {
             "anyOf": [{"type": "string"}, {"type": "null"}],

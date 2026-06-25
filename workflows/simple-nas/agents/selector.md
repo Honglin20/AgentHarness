@@ -40,10 +40,17 @@ python $helpers_dir/check_resume.py --session-dir $session_dir/iter_$N --expecte
 ## Step 1: 算当前轮数 + 选 parent（V1 朴素策略）
 
 从 tree.json 选 parent：
-- **首轮（N=0）**：parent = v0（baseline）。
+- **首轮（N=0）**：parent = v0（baseline）。**首轮 experience.md 不存在**（analyzer 还没跑过）→
+  跳过读 experience.md，直接进 Step 2。
 - **后续轮**：parent = analyzer 上一轮标记 `promising=true` 的节点里**指标最好**的；
-  若没有 promising 节点，回落到 v0（baseline）。
+  若没有 promising 节点，回落到 v0（baseline）。experience.md 此时已存在 → 读它作为方向经验。
 - **不要**在 V1 实现：回溯祖先、降温、去重——那是 V2。V1 就是"贪心选最好"。
+
+**首轮检测**：
+```bash
+[ -f "$session_dir/experience.md" ] && echo "experience exists" || echo "FIRST_ITER"
+```
+`FIRST_ITER` → parent_id = "v0"，跳过 experience 引用。
 
 记录 parent 的：`id`、`model_file`、`metrics`、`latency_ms`、`direction`（parent 自己的方向，**非本轮分配**）。
 

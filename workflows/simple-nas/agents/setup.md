@@ -20,6 +20,13 @@ tools:
 2. 入口能接收/训练**不同的模型文件**（直接或经适配器）——这是变异的物理基础。
 3. 有 dummy input 可用作时延测量。
 
+**V1 固定 4 变异方向**：`structural` / `hyperparam` / `lr` / `compute`（详见 Step 3）。
+V1 不支持运行时增减方向 —— 加方向需要同时改 3 处：
+(1) `workflow.json` 加 `mutator_<direction>` 节点；
+(2) 本文件 Step 3 的 ask_user options 加新方向；
+(3) `analyzer.md` 的 fan-in 迭代列表加新方向名。
+**没有**运行时 `direction_to_agent` 映射表 —— 那会因 `Workflow.to_dict()` 不保留未知顶层字段而失效。
+
 ## Step 0: 断点续传
 
 ```bash
@@ -59,39 +66,42 @@ python $helpers_dir/check_resume.py --session-dir $session_dir --expected setup.
 每轮**全部激活方向并行跑**。用户必须在此**选定**本轮 workflow 跑哪些方向 ——
 **这不是 selector 决定的事**，selector 只透传，用户在 setup 选什么是不可改变的输入。
 
-用 `ask_user` 一次性问（multi_select）：
+调用 `ask_user` 工具，传入以下参数：
 
-```
-ask_user(
-    question="""
-## 选择本轮 NAS 要激活的变异方向
+- **header**: `"变异方向"`
+- **multi_select**: `true`（用户可勾选多个方向）
+- **allow_custom_input**: `false`（方向是固定 4 项枚举，不允许自定义文本）
+- **question**（Markdown，渲染给用户看）:
 
-本 workflow 有 4 个方向专属 mutator，每轮所有激活方向**并行跑**。
-**未选方向的 mutator 会自动跳过**（不消耗训练资源）。
+  ```markdown
+  ## 选择本轮 NAS 要激活的变异方向
 
-请选择你想要的方向（可多选）：
-- **结构变异 (structural)**：替换核心算子/block（attention 类型、归一化、激活、残差连接），**禁止惰性压缩**
-- **模型超参 (hyperparam)**：改 batch_size / optimizer 类型 / scheduler 类别 / epochs（不动 model.py）
-- **学习率 (lr)**：lr 数值 / lr_scheduler / warmup_steps / weight_decay
-- **计算逻辑 (compute)**：loss function / 数据增强（mixup 等）/ 正则化（dropout 等）
+  本 workflow 有 4 个方向专属 mutator，每轮所有激活方向**并行跑**。
+  **未选方向的 mutator 会自动跳过**（不消耗训练资源）。
 
-💡 推荐组合：structural + hyperparam（兼顾结构创新 + 训练优化）
-    """,
-    header="变异方向",
-    multi_select=true,
-    allow_custom_input=false,
-    options=[
-        {label="结构变异 (替换算子/block)", value="structural",
-         description="MHA→线性 attention、加残差、BN→LN；禁惰性压缩"},
-        {label="模型超参 (batch/optimizer)", value="hyperparam",
-         description="不动 model.py；改 batch/optimizer/scheduler/epochs"},
-        {label="学习率 (lr/scheduler/wd)", value="lr",
-         description="lr 数值 / lr_scheduler / warmup / weight_decay"},
-        {label="计算逻辑 (loss/数据增强)", value="compute",
-         description="label smoothing / mixup / dropout / focal loss"}
-    ]
-)
-```
+  请选择你想要的方向（可多选）：
+  - **结构变异 (structural)**：替换核心算子/block（attention、归一化、激活、残差），**禁止惰性压缩**
+  - **模型超参 (hyperparam)**：改 batch_size / optimizer 类型 / scheduler 类别 / epochs（不动 model.py）
+  - **学习率 (lr)**：lr 数值 / lr_scheduler / warmup_steps / weight_decay
+  - **计算逻辑 (compute)**：loss function / 数据增强（mixup 等）/ 正则化（dropout 等）
+
+  💡 推荐组合：structural + hyperparam（兼顾结构创新 + 训练优化）
+  ```
+
+- **options**（4 项，每项含 `label` / `value` / `description`，前端把 label 当 button 文本，value 是返回给你的标识）:
+
+  ```json
+  [
+    {"label": "结构变异 (替换算子/block)", "value": "structural",
+     "description": "MHA→线性 attention、加残差、BN→LN；禁惰性压缩"},
+    {"label": "模型超参 (batch/optimizer)", "value": "hyperparam",
+     "description": "不动 model.py；改 batch/optimizer/scheduler/epochs"},
+    {"label": "学习率 (lr/scheduler/wd)", "value": "lr",
+     "description": "lr 数值 / lr_scheduler / warmup / weight_decay"},
+    {"label": "计算逻辑 (loss/数据增强)", "value": "compute",
+     "description": "label smoothing / mixup / dropout / focal loss"}
+  ]
+  ```
 
 **约束**：
 - 用户必须选 **≥ 1 个**方向。空集无效 —— 整个 workflow 没有 mutator 会真正干活。
