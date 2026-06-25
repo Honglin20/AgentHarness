@@ -141,10 +141,18 @@ harness/prompts/
 2. **grep 验证**：`grep -rn "你必须先调用 TodoTool" harness/` 只在 `feedback.py` 命中。
 3. **step_gate 单测全绿**：`pytest harness/.../test_step_gate.py`（如有）或新增。
 
+> **⚠️ 验收 #1 的后续修订（refinement plan TASK 3 已实施）**：
+> 本 TASK 原本的「字节等价」契约是重构期的过渡要求。后续 refinement plan
+> 的 TASK 3（`94ece5c refactor(prompts): TASK3 unify feedback language to English`）
+> **有意打破了它**——把 step_gate / reminder 原中文文案统一改成英文，与已是英文的
+> `schema_retry_msg` 对齐。golden fixture 已重新生成，新契约是「English-only、CJK-free」
+> （见 `tests/test_prompt_feedback.py` 的 `test_all_feedback_functions_are_cjk_free`）。
+> 因此「保持各文案原有语言」的检视项已作废。详见 `harness/prompts/feedback.py` 模块 docstring。
+
 **代码质量检视清单**：
 - [ ] 文案函数纯函数（无副作用、无 I/O）
 - [ ] 参数化变量（如 tool_name、steps）通过参数传入，不硬编码
-- [ ] 不引入中英文混杂（保持各文案原有语言）
+- [x] ~~不引入中英文混杂（保持各文案原有语言）~~ → refinement TASK 3 统一为英文，见上方修订说明
 
 ---
 

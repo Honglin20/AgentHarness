@@ -71,51 +71,6 @@ def test_schema_retry_msg_matches_legacy():
     assert feedback.schema_retry_msg(tool_name, schema_json) == legacy
 
 
-# --- todo nudges (now English) ---
-def test_reminder_create_msg_is_english():
-    out = feedback.reminder_create_msg()
-    golden = (
-        "<system-reminder>"
-        "You have not created any task steps yet. **You MUST call the TodoTool** "
-        "(op='create', items=[{content, activeForm}, ...]). "
-        "**Do NOT use bash/Write/echo to write todo*.json or todo_plan*.json as a substitute** — "
-        "TodoTool is a tool call, not a file write.\n"
-        "Schema note: activeForm is the present-continuous description (e.g. 'Analyzing project structure'); "
-        "it is **not** the status field — status is managed by the framework automatically."
-        "</system-reminder>"
-    )
-    assert out == golden
-    assert "MUST" in out
-    assert not _CJK_RE.search(out)
-
-
-def test_reminder_update_active_msg_is_english():
-    content = "Analyzing project structure"
-    task_id = "t_2"
-    out = feedback.reminder_update_active_msg(content, task_id)
-    golden = (
-        f"<system-reminder>"
-        f"You have not updated task status in a while. Currently in_progress: '{content}'. "
-        f"If this stage is done, call TodoTool(op='update', task_id='{task_id}', status='completed'); "
-        f"if still working, you may ignore this nudge — no need to update detail mid-step."
-        f"</system-reminder>"
-    )
-    assert out == golden
-    assert not _CJK_RE.search(out)
-
-
-def test_reminder_update_idle_msg_is_english():
-    out = feedback.reminder_update_idle_msg()
-    golden = (
-        "<system-reminder>"
-        "You have not updated task status in a while. If the current stage is done, "
-        "call TodoTool(op='update', ..., status='completed'); if still working, you may ignore this nudge."
-        "</system-reminder>"
-    )
-    assert out == golden
-    assert not _CJK_RE.search(out)
-
-
 # --- TASK 3 contract: ALL feedback is English-only ---
 def test_all_feedback_functions_are_cjk_free():
     """TASK 3 acceptance: no feedback function returns CJK characters."""
@@ -123,9 +78,6 @@ def test_all_feedback_functions_are_cjk_free():
         "todo_not_created_msg": feedback.todo_not_created_msg(),
         "todo_not_terminal_msg": feedback.todo_not_terminal_msg(["'x'(status=pending)"]),
         "schema_retry_msg": feedback.schema_retry_msg("final_result", "{}"),
-        "reminder_create_msg": feedback.reminder_create_msg(),
-        "reminder_update_active_msg": feedback.reminder_update_active_msg("c", "t1"),
-        "reminder_update_idle_msg": feedback.reminder_update_idle_msg(),
     }
     offenders = [name for name, s in samples.items() if _CJK_RE.search(s)]
     assert not offenders, f"feedback still contains CJK: {offenders}"

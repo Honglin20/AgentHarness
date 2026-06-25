@@ -39,7 +39,6 @@
   "task2_failure_write_end_absent": false,
   "task3_feedback_cjk_present": {
     "todo_not_created_msg": false,
-    "reminder_create_msg": false,
     "schema_retry_msg_english": true
   },
   "task4_base_md_has_tool_selection_dup": false,

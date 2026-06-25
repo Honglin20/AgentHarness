@@ -194,14 +194,14 @@ def test_task2_baseline_failure_block_returns_empty_with_real_deps():
 def test_task3_feedback_is_now_english_only():
     """TASK 3 acceptance: feedback messages that were Chinese are now English.
 
-    Pre-refinement the step_gate / reminder messages were Chinese while
-    schema_retry was English (a zh/en mix). TASK 3 unified everything to
-    English. These were the offenders; they must now be CJK-free.
+    Pre-refinement the step_gate messages were Chinese while schema_retry was
+    English (a zh/en mix). TASK 3 unified everything to English. These were
+    the offenders; they must now be CJK-free. (The legacy todo_reminder
+    <system-reminder> nudges were removed with TodoReminderTracker in TASK 4
+    — their job is now done by the dynamic runtime_status layer.)
     """
     cjk_funcs = {
         "todo_not_created_msg": feedback.todo_not_created_msg(),
-        "reminder_create_msg": feedback.reminder_create_msg(),
-        "reminder_update_idle_msg": feedback.reminder_update_idle_msg(),
     }
     offenders = [name for name, s in cjk_funcs.items() if _has_cjk(s)]
     assert not offenders, f"feedback still contains CJK: {offenders}"
@@ -351,7 +351,6 @@ def test_dump_refinement_baseline_snapshot():
         "task2_failure_write_end_absent": True,  # proven by test_task2_baseline_*
         "task3_feedback_cjk_present": {
             "todo_not_created_msg": _has_cjk(feedback.todo_not_created_msg()),
-            "reminder_create_msg": _has_cjk(feedback.reminder_create_msg()),
             "schema_retry_msg_english": not _has_cjk(
                 feedback.schema_retry_msg("final_result", '{}')
             ),

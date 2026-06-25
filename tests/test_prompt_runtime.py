@@ -67,6 +67,82 @@ async def test_runtime_status_invoked_every_turn_not_just_on_failure():
     assert r3 == ""  # nothing to nudge about
 
 
+def test_runtime_status_registered_as_dynamic_on_real_agent():
+    """Per-request re-invocation is guaranteed by the pydantic-ai registration.
+
+    micro_agent.create() registers runtime_status via
+    ``agent.system_prompt(dynamic=True)(runtime_status)``. This test pins that
+    contract by building a real pydantic-ai Agent the same way and asserting
+    the function lands in the agent's DYNAMIC prompt registry (the set pydantic-ai
+    re-evaluates every request, replacing the prior turn in place via dynamic_ref).
+
+    Without dynamic=True, a system-prompt function is evaluated ONCE at run
+    start and its output frozen into message history — so the agent would never
+    see updated todo progress. This is the single most important property of the
+    refactor and the one a future careless edit (e.g. dropping dynamic=True, or
+    memoizing runtime_status) would silently break.
+    """
+    from pydantic_ai import Agent
+
+    # Build an agent the same way micro_agent.create() does (deps_type=AgentDeps).
+    agent = Agent("test", deps_type=AgentDeps, system_prompt="static")
+    # The exact registration call used in harness/engine/micro_agent.py.
+    agent.system_prompt(dynamic=True)(runtime_status)
+
+    # pydantic-ai stores dynamic prompts separately so they are re-evaluated
+    # every request; static ones are evaluated once. Assert our function is in
+    # the DYNAMIC bucket keyed by its __name__.
+    dynamic_fns = getattr(agent, "_system_prompt_dynamic_functions", {})
+    assert "runtime_status" in dynamic_fns, (
+        "runtime_status must be registered with dynamic=True or it freezes after "
+        "the first request (the bug the refactor fixed). Was dynamic=True dropped?"
+    )
+    # Sanity: the static prompt is NOT in the dynamic bucket (no false positive).
+    static_fns = [r for r in getattr(agent, "_system_prompt_functions", [])
+                  if not r.dynamic]
+    # 'static' is a plain string, so it won't appear as a function — but the
+    # dynamic bucket must contain ONLY runtime_status.
+    assert set(dynamic_fns) == {"runtime_status"}
+
+
+@pytest.mark.asyncio
+async def test_runtime_status_is_not_cached_across_state_changes(monkeypatch):
+    """A regression guard: if someone wraps runtime_status in lru_cache/@cache,
+    every turn would return the SAME frozen string. This test would fail.
+
+    We spy on the underlying block functions to prove runtime_status re-reads
+    live state on every call (3 evolving turns → 3 distinct outputs).
+    """
+    import harness.prompts.runtime as rt
+
+    call_count = {"n": 0}
+    real_todo = rt._todo_status_block
+
+    def counting_todo(state):
+        call_count["n"] += 1
+        return real_todo(state)
+
+    monkeypatch.setattr(rt, "_todo_status_block", counting_todo)
+
+    deps = AgentDeps(agent_name="a", workflow_id="w", node_id="a")
+    # Turn 1
+    await runtime_status(_make_ctx(deps))
+    # Turn 2 — create plan
+    state = ensure_todo_state(deps)
+    state.has_plan = True
+    state.steps.append(StepEntry(task_id="t_1", content="x", activeForm="x"))
+    await runtime_status(_make_ctx(deps))
+    # Turn 3 — complete
+    state.steps[0].status = "completed"
+    await runtime_status(_make_ctx(deps))
+
+    # If runtime_status were cached, _todo_status_block would run once, not 3×.
+    assert call_count["n"] == 3, (
+        f"runtime_status must re-read state every call (expected 3 reads, got "
+        f"{call_count['n']}) — has it been memoized/cached?"
+    )
+
+
 # --- Property 2: todo progress accuracy ---
 
 def test_todo_status_no_plan_urges_creation():

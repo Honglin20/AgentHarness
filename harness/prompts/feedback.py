@@ -1,22 +1,28 @@
 """Unified error/feedback message sources for the LLM.
 
 Centralizes the wording of every message the framework sends BACK to the
-model when something went wrong (schema rejection, todo-gate violation,
-progress reminders). Previously these strings were inlined in three places
-that described the same underlying contract with subtly different wording:
+model when something went wrong (schema rejection, todo-gate violation).
+Previously these strings were inlined in two places that described the
+same underlying contract with subtly different wording:
 
   - harness/engine/step_gate.py         (todo completion gate, ModelRetry)
   - harness/engine/llm_executor.py      (schema-retry SystemPromptPart)
-  - harness/tools/todo_reminder.py      (<system-reminder> nudges)
 
-TASK 2 is a pure move: every function here returns BYTE-IDENTICAL text to
-the site it replaced. The contract is frozen by
-``tests/test_prompt_feedback.py``.
+TASK 2 of the refactor is a pure move: every function here returns
+byte-identical text to the site it replaced. TASK 3 of the refinement
+plan later UNIFIED the language to English (the refactor preserved mixed
+zh/en only to keep its byte-for-byte contract). The golden fixtures in
+``tests/test_prompt_feedback.py`` were updated at that point to the
+English wording — they are the current contract.
 
-TASK 3 of the refinement plan later UNIFIED the language to English (the
-refactor preserved mixed zh/en only to keep its byte-for-byte contract).
-The golden fixtures in ``tests/test_prompt_feedback.py`` were updated at
-that point to the English wording — they are the current contract.
+Note: the legacy ``todo_reminder.py`` <system-reminder> nudges
+(``reminder_create_msg`` / ``reminder_update_active_msg`` /
+``reminder_update_idle_msg``) were removed alongside the
+``TodoReminderTracker`` class in TASK 4. Their job is now done by the
+dynamic ``runtime_status`` layer (``harness/prompts/runtime.py``), which
+surfaces todo progress every turn via a ``SystemPromptPart`` that is
+replaced in place rather than appended — so the per-turn nudges no longer
+need dedicated message functions.
 
 Design rules
 ------------
@@ -86,49 +92,4 @@ def schema_retry_msg(tool_name: str, schema_json: str) -> str:
         + schema_json
         + "\n\nDo NOT emit the schema as plain text or markdown. Switch to a "
         f"`{tool_name}` tool call now and fill every required field with concrete values."
-    )
-
-
-# ---------------------------------------------------------------------------
-# todo_reminder.py — <system-reminder> nudges (text moved here in TASK 2;
-# the tracker class itself is removed in TASK 4 when the dynamic layer
-# replaces it).
-# ---------------------------------------------------------------------------
-
-def reminder_create_msg() -> str:
-    """Nudge: agent hasn't created a todo plan yet.
-
-    English-only (language unified in TASK 3). The <system-reminder> wrapper
-    is a rendering convention, not language — kept as-is.
-    """
-    return (
-        "<system-reminder>"
-        "You have not created any task steps yet. **You MUST call the TodoTool** "
-        "(op='create', items=[{content, activeForm}, ...]). "
-        "**Do NOT use bash/Write/echo to write todo*.json or todo_plan*.json as a substitute** — "
-        "TodoTool is a tool call, not a file write.\n"
-        "Schema note: activeForm is the present-continuous description (e.g. 'Analyzing project structure'); "
-        "it is **not** the status field — status is managed by the framework automatically."
-        "</system-reminder>"
-    )
-
-
-def reminder_update_active_msg(content: str, task_id: str) -> str:
-    """Nudge: plan exists, an in_progress step hasn't been updated."""
-    return (
-        f"<system-reminder>"
-        f"You have not updated task status in a while. Currently in_progress: '{content}'. "
-        f"If this stage is done, call TodoTool(op='update', task_id='{task_id}', status='completed'); "
-        f"if still working, you may ignore this nudge — no need to update detail mid-step."
-        f"</system-reminder>"
-    )
-
-
-def reminder_update_idle_msg() -> str:
-    """Nudge: plan exists, no in_progress step, but no recent update."""
-    return (
-        "<system-reminder>"
-        "You have not updated task status in a while. If the current stage is done, "
-        "call TodoTool(op='update', ..., status='completed'); if still working, you may ignore this nudge."
-        "</system-reminder>"
     )
