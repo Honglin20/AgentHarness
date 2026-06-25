@@ -79,19 +79,27 @@ def assemble_answer(
 
     valid_values: set[str] = set()
     value_to_label: dict[str, str] = {}
+    label_to_value: dict[str, str] = {}
     if options:
         for opt in options:
             v = opt.value if opt.value is not None else opt.label
             valid_values.add(v)
             value_to_label[v] = opt.label
+            label_to_value[opt.label] = v
 
     seen: set[str] = set()
     selected: list[str] = []
     for v in selected_raw:
         if not isinstance(v, str):
             continue
+        # Frontend may send the option LABEL in selected[] instead of the
+        # value (observed in real runs). Translate label → value so the
+        # entry survives; entries matching neither are still dropped.
         if options and v not in valid_values:
-            continue
+            translated = label_to_value.get(v)
+            if translated is None:
+                continue
+            v = translated
         if v in seen:
             continue
         seen.add(v)
