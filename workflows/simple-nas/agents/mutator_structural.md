@@ -61,15 +61,21 @@ print('ACTIVE: structural in', ad)
 - `$session_dir/experience.md`（跨方向经验——避免重复失败尝试，**必读**）。
 - `$session_dir/setup.json`（运行约定 entry_run_cmd_template / variant_naming / dummy_input / care_about_latency）。
 
-## Step 1: 准备 variant 目录 + 算 vid
+## Step 1: 准备 variant 目录 + 算 vid（**方向+iter 命名，避免并发冲突**）
+
+4 个 mutator 并发跑，**不能读 tree.json 数节点推 vid**（会算出相同 vid 互相覆盖）。
+用 `direction + iter_num` 作为 vid，天然全局唯一：
 
 ```bash
 N=<iter_num from selector>
-VID="v$(( <已有 max v 编号> + 1 ))"   # 从 tree.json 数节点数推下一个 vid
+VID="structural_${N}"              # 如 structural_3，方向专属 + iter 唯一
 VD=$session_dir/variants/$VID
 mkdir -p $VD
 ```
-（vid 全局唯一、单调递增，写入 tree 后不回收。）
+
+**sub_agent 并发时**：主 mutator 是单点（sub_agent 已 join），分配 `<direction>_<iter>_<sub>`
+作为内部 sub-strategy 的临时标识，最终只选 1 个作为本 mutator 输出（vid = `structural_<N>`），
+其余 sub-strategies 在 summary / experience 里记录。
 
 ## 阶段 A：生成 structural 变异（产物：model.py + changes.md）
 

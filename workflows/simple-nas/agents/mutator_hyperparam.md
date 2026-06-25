@@ -60,14 +60,20 @@ print('ACTIVE: hyperparam in', ad)
 - `$session_dir/setup.json`（含 init_hyperparams，**变异基线**；entry_run_cmd_template / variant_naming / care_about_latency）。
 - `$session_dir/experience.md`（跨方向经验——**必读**）。
 
-## Step 1: 准备 variant 目录 + 算 vid
+## Step 1: 准备 variant 目录 + 算 vid（**方向+iter 命名，避免并发冲突**）
+
+4 个 mutator 并发跑，**不能读 tree.json 数节点推 vid**（会算出相同 vid 互相覆盖）。
+用 `direction + iter_num` 作为 vid，天然全局唯一：
 
 ```bash
 N=<iter_num from selector>
-VID="v$(( <已有 max v 编号> + 1 ))"
+VID="hyperparam_${N}"              # 如 hyperparam_3
 VD=$session_dir/variants/$VID
 mkdir -p $VD
 ```
+
+**sub_agent 并发时**：主 mutator 是单点，分配 `hyperparam_<N>_<sub>` 作为内部临时标识，
+最终只选 1 个作为本 mutator 输出（vid = `hyperparam_<N>`）。
 
 ## 阶段 A：生成 hyperparam 变异（产物：model.py = parent copy + hyperparams.json + changes.md）
 

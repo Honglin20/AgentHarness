@@ -67,14 +67,20 @@ print('ACTIVE: compute in', ad)
 - `$session_dir/experience.md`（跨方向经验——**必读**）。
 - `$session_dir/setup.json`（运行约定 entry_run_cmd_template / variant_naming / care_about_latency）。
 
-## Step 1: 准备 variant 目录 + 算 vid
+## Step 1: 准备 variant 目录 + 算 vid（**方向+iter 命名，避免并发冲突**）
+
+4 个 mutator 并发跑，**不能读 tree.json 数节点推 vid**（会算出相同 vid 互相覆盖）。
+用 `direction + iter_num` 作为 vid，天然全局唯一：
 
 ```bash
 N=<iter_num from selector>
-VID="v$(( <已有 max v 编号> + 1 ))"
+VID="compute_${N}"                 # 如 compute_3
 VD=$session_dir/variants/$VID
 mkdir -p $VD
 ```
+
+**sub_agent 并发时**：主 mutator 是单点，分配 `compute_<N>_<sub>` 作为内部临时标识，
+最终只选 1 个作为本 mutator 输出（vid = `compute_<N>`）。
 
 ## 阶段 A：生成 compute 变异（产物：model.py + changes.md）
 
