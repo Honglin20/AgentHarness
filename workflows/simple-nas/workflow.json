@@ -1,0 +1,171 @@
+{
+  "name": "simple-nas",
+  "agents": [
+    {
+      "name": "setup",
+      "after": [],
+      "tools": ["bash", "grep", "glob", "read_text_file", "ask_user"],
+      "model": null,
+      "retries": 2,
+      "result_type_name": "SetupResult",
+      "result_type_schema": {
+        "description": "setup output. Confirms necessary elements to run NAS, not a hardcoded interface.",
+        "properties": {
+          "summary": {"title": "Summary", "type": "string"},
+          "setup_path": {
+            "description": "<session_dir>/setup.json (C-SETUP contract)",
+            "title": "Setup Path", "type": "string"
+          },
+          "ready": {"title": "Ready", "type": "boolean"},
+          "entry": {"description": "Training entry file", "title": "Entry", "type": "string"},
+          "baseline_model_file": {"title": "Baseline Model File", "type": "string"}
+        },
+        "required": ["summary", "setup_path", "ready", "entry", "baseline_model_file"],
+        "title": "SetupResult", "type": "object"
+      }
+    },
+    {
+      "name": "baseline",
+      "after": ["setup"],
+      "tools": ["bash", "grep", "glob", "read_text_file"],
+      "model": null,
+      "retries": 2,
+      "result_type_name": "BaselineResult",
+      "result_type_schema": {
+        "description": "baseline output. Runs original training once, freezes baseline + understanding, writes v0 root.",
+        "properties": {
+          "summary": {"title": "Summary", "type": "string"},
+          "baseline_path": {
+            "description": "<session_dir>/baseline.json (C-BASELINE)",
+            "title": "Baseline Path", "type": "string"
+          },
+          "understanding_path": {
+            "description": "<session_dir>/baseline_understanding.md",
+            "title": "Understanding Path", "type": "string"
+          },
+          "tree_path": {
+            "description": "<session_dir>/tree.json (v0 root written)",
+            "title": "Tree Path", "type": "string"
+          },
+          "ok": {"title": "Ok", "type": "boolean"},
+          "v0_metrics": {
+            "description": "Baseline metrics from real training",
+            "title": "V0 Metrics", "type": "object", "additionalProperties": true
+          }
+        },
+        "required": ["summary", "baseline_path", "understanding_path", "tree_path", "ok"],
+        "title": "BaselineResult", "type": "object"
+      }
+    },
+    {
+      "name": "selector",
+      "after": ["baseline"],
+      "tools": ["bash", "grep", "glob", "read_text_file"],
+      "model": null,
+      "retries": 2,
+      "result_type_name": "SelectorResult",
+      "result_type_schema": {
+        "description": "selector output. V1: pick parent (greedy best promising) + assign one direction. No ToT (V2).",
+        "properties": {
+          "summary": {"title": "Summary", "type": "string"},
+          "iter_num": {"title": "Iter Num", "type": "integer"},
+          "parent_id": {"title": "Parent Id", "type": "string"},
+          "direction": {"title": "Direction", "type": "string"},
+          "selection_path": {
+            "description": "<session_dir>/iter_<N>/selection.json (necessary info for mutator)",
+            "title": "Selection Path", "type": "string"
+          }
+        },
+        "required": ["summary", "iter_num", "parent_id", "direction", "selection_path"],
+        "title": "SelectorResult", "type": "object"
+      }
+    },
+    {
+      "name": "mutator",
+      "after": ["selector"],
+      "tools": ["bash", "grep", "glob", "read_text_file"],
+      "model": null,
+      "retries": 2,
+      "result_type_name": "MutatorResult",
+      "result_type_schema": {
+        "description": "mutator output. Single agent, three internal phases (generate/run/collect). Merged runner — keeps context.",
+        "properties": {
+          "summary": {"title": "Summary", "type": "string"},
+          "vid": {"title": "Vid", "type": "string"},
+          "iter_num": {"title": "Iter Num", "type": "integer"},
+          "parent_id": {"title": "Parent Id", "type": "string"},
+          "direction": {"title": "Direction", "type": "string"},
+          "model_file": {"title": "Model File", "type": "string"},
+          "status_path": {
+            "description": "<session_dir>/variants/<vid>/status.json (C-STATUS sentinel)",
+            "title": "Status Path", "type": "string"
+          },
+          "metrics": {
+            "description": "Real metrics from metrics.json (empty/{} if failed)",
+            "title": "Metrics", "type": "object", "additionalProperties": true
+          },
+          "latency_ms": {
+            "anyOf": [{"type": "number"}, {"type": "null"}],
+            "title": "Latency Ms"
+          },
+          "ok": {"description": "True iff status.json ok=true (file evidence)", "title": "Ok", "type": "boolean"},
+          "variant_dir": {"title": "Variant Dir", "type": "string"}
+        },
+        "required": ["summary", "vid", "iter_num", "parent_id", "direction", "status_path", "ok", "variant_dir"],
+        "title": "MutatorResult", "type": "object"
+      }
+    },
+    {
+      "name": "analyzer",
+      "after": ["mutator"],
+      "tools": ["bash", "grep", "glob", "read_text_file"],
+      "model": null,
+      "retries": 2,
+      "on_pass": "reporter",
+      "on_fail": "selector",
+      "result_type_name": "AnalyzerResult",
+      "result_type_schema": {
+        "description": "analyzer output. Goal-based potential (no fitness). Updates tree + experience. Routes pass→reporter / fail→selector.",
+        "properties": {
+          "summary": {"title": "Summary", "type": "string"},
+          "iter_num": {"title": "Iter Num", "type": "integer"},
+          "vid": {"title": "Vid", "type": "string"},
+          "promising": {"title": "Promising", "type": "boolean"},
+          "target_met": {"title": "Target Met", "type": "boolean"},
+          "over_budget": {"title": "Over Budget", "type": "boolean"},
+          "decision": {"enum": ["pass", "fail"], "title": "Decision", "type": "string"},
+          "reason": {"title": "Reason", "type": "string"},
+          "next_best_id": {
+            "anyOf": [{"type": "string"}, {"type": "null"}],
+            "title": "Next Best Id"
+          }
+        },
+        "required": ["summary", "iter_num", "vid", "promising", "target_met", "over_budget", "decision", "reason"],
+        "title": "AnalyzerResult", "type": "object"
+      }
+    },
+    {
+      "name": "reporter",
+      "after": null,
+      "tools": ["bash", "grep", "glob", "read_text_file", "render_chart"],
+      "model": null,
+      "retries": 2,
+      "result_type_name": "ReporterResult",
+      "result_type_schema": {
+        "description": "reporter output. Reached only via analyzer decision=pass (target-met or over-budget).",
+        "properties": {
+          "summary": {"title": "Summary", "type": "string"},
+          "outcome": {"enum": ["达标成功", "部分成功", "未达标收尾"], "title": "Outcome", "type": "string"},
+          "recommended_vid": {"title": "Recommended Vid", "type": "string"},
+          "target_met": {"title": "Target Met", "type": "boolean"},
+          "report_path": {"title": "Report Path", "type": "string"},
+          "total_iters": {"title": "Total Iters", "type": "integer"},
+          "total_variants": {"title": "Total Variants", "type": "integer"}
+        },
+        "required": ["summary", "outcome", "recommended_vid", "target_met", "report_path", "total_iters", "total_variants"],
+        "title": "ReporterResult", "type": "object"
+      }
+    }
+  ],
+  "max_iterations": 1000
+}
