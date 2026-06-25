@@ -140,3 +140,38 @@ export async function patch<T>(url: string, body: unknown): Promise<T> {
   }
   return res.json();
 }
+
+// ---------------------------------------------------------------------------
+// Phase F.2: per-agent executor 切换（PATCH workflow.json）
+// ---------------------------------------------------------------------------
+
+export type ExecutorBackend = "pydantic-ai" | "claude-code";
+
+/** PATCH /api/workflows/definitions/{name}/agents/{agent_name} body & response. */
+export interface PatchAgentExecutorResponse {
+  status: "ok";
+  workflow: string;
+  agent: string;
+  executor: ExecutorBackend;
+  agent_dict: Record<string, unknown>;
+}
+
+/**
+ * Update a single agent's executor field in workflow.json (atomic server-side).
+ *
+ * 后端 route: PATCH /api/workflows/definitions/{name}/agents/{agent_name}
+ * 权限: 复用 delete_workflow_definition（shared admin-only / private owner-only）。
+ *
+ * Note: 切换正在运行的 run 的 executor 不会影响当前 run（agent 已经实例化）；
+ * 用户需要 reset run 才能让新 executor 生效。
+ */
+export async function patchAgentExecutor(
+  workflowName: string,
+  agentName: string,
+  executor: ExecutorBackend,
+): Promise<PatchAgentExecutorResponse> {
+  return patch<PatchAgentExecutorResponse>(
+    `/api/workflows/definitions/${encodeURIComponent(workflowName)}/agents/${encodeURIComponent(agentName)}`,
+    { executor },
+  );
+}

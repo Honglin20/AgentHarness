@@ -54,6 +54,14 @@ export interface WorkflowAgentDef {
   name: string;
   after?: string[];
   eval?: boolean;
+  /**
+   * Per-agent executor backend (Phase A-F of claude-code-executor).
+   * - "pydantic-ai" (default): existing pydantic-ai path
+   * - "claude-code": spawn `claude -p` subprocess; reuse Claude Code ecosystem
+   * Absent = "pydantic-ai" (default; workflow.json omits the field for backward
+   * compat — see harness/core/agent.py:Agent.to_dict).
+   */
+  executor?: "pydantic-ai" | "claude-code";
 }
 
 export interface WorkflowStartedPayload {
