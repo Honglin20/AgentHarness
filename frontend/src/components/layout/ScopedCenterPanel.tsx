@@ -129,6 +129,33 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
     return descMap;
   }, [selectedTemplate]);
 
+  // Phase F.2: agent name → executor backend map（从 selectedTemplate.agents 提取）
+  // 缺省 = "pydantic-ai"（与后端 Agent.to_dict 行为一致：默认值不写盘）
+  const agentExecutors = useMemo(() => {
+    if (!selectedTemplate) return undefined;
+    const wf = selectedTemplate as any;
+    const map: Record<string, "pydantic-ai" | "claude-code"> = {};
+    for (const a of wf.agents) {
+      if (a.executor) map[a.name] = a.executor;
+    }
+    // 全部默认时不返回 map（DAGPreview 拿到 undefined → 节点不显示 badge 颜色差异）
+    return Object.keys(map).length > 0 ? map : undefined;
+  }, [selectedTemplate]);
+
+  // Phase F.2: 切换成功后刷新 selectedTemplate（让 badge 立即更新）
+  const refreshSelectedTemplate = useCallback(async (agentName: string, next: "pydantic-ai" | "claude-code") => {
+    // 本地立即更新 selectedTemplate，避免等 refetch
+    if (!selectedTemplate) return;
+    const wf = selectedTemplate as any;
+    if (wf.agents) {
+      wf.agents = wf.agents.map((a: any) =>
+        a.name === agentName
+          ? (next === "pydantic-ai" ? { ...a, executor: undefined } : { ...a, executor: next })
+          : a,
+      );
+    }
+  }, [selectedTemplate]);
+
   const { sendAnswer, sendStopAndRegenerate, sendGuidance, sendFollowup } = useWSMethods();
 
   // Build agent list from DAG nodes for follow-up @mention
@@ -273,6 +300,11 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
                   dag={dag}
                   agentDescriptions={agentDescriptions}
                   onEditAgent={(name) => setEditAgentName(name)}
+                  workflowName={effectiveWorkflowName}
+                  agentExecutors={agentExecutors}
+                  executorSwitchDisabled={false}
+                  executorDisabledReason={undefined}
+                  onExecutorChanged={refreshSelectedTemplate}
                 />
               </div>
               <div className="shrink-0 border-t border-app-border px-4 py-2 text-center">
