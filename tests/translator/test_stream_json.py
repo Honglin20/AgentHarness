@@ -60,10 +60,73 @@ class TestSystemInit:
         assert out[0].type == "node.started"
         assert "tools" not in out[0].payload
 
-    def test_system_other_subtypes_ignored(self, ctx):
-        for sub in ("status", "hook_started", "hook_response"):
+    def test_system_hook_subtypes_ignored(self, ctx):
+        """Hook subtypes are NOT mapped to harness events (hooks are a
+        claude-internal concept). status + api_retry DO translate (P2-T4)
+        — see TestSystemApiRetry / TestSystemStatus below."""
+        for sub in ("hook_started", "hook_response"):
             ev = {"type": "system", "subtype": sub, "session_id": "s"}
             assert translate(ev, ctx) == []
+
+
+class TestSystemApiRetry:
+    """P2-T4: system/api_retry → agent.api_retry — surfaces real-time retry
+    progress to the frontend so users do not assume the agent is stuck."""
+
+    def test_api_retry_emits_with_full_payload(self, ctx):
+        ev = {
+            "type": "system", "subtype": "api_retry",
+            "retry_count": 2, "max_retries": 5, "wait_seconds": 1.5,
+            "error": "rate limited",
+        }
+        out = translate(ev, ctx)
+        assert len(out) == 1
+        e = out[0]
+        assert e.type == "agent.api_retry"
+        assert e.payload["node_id"] == "node-1"
+        assert e.payload["agent_name"] == "agent-1"
+        assert e.payload["retry_count"] == 2
+        assert e.payload["max_retries"] == 5
+        assert e.payload["wait_seconds"] == 1.5
+        assert e.payload["error_message"] == "rate limited"
+
+    def test_api_retry_minimal_payload(self, ctx):
+        """Only subtype is required; missing fields are omitted (not None)."""
+        ev = {"type": "system", "subtype": "api_retry"}
+        out = translate(ev, ctx)
+        assert len(out) == 1
+        assert out[0].type == "agent.api_retry"
+        assert "retry_count" not in out[0].payload
+
+
+class TestSystemStatus:
+    """P2-T4: system/status → agent.status_update — surfaces liveness
+    (requesting / thinking) so the frontend can show progress during
+    long gaps between message deltas."""
+
+    def test_status_emits_with_known_status(self, ctx):
+        ev = {"type": "system", "subtype": "status", "status": "thinking"}
+        out = translate(ev, ctx)
+        assert len(out) == 1
+        e = out[0]
+        assert e.type == "agent.status_update"
+        assert e.payload["status"] == "thinking"
+        assert e.payload["node_id"] == "node-1"
+
+    def test_status_with_optional_duration(self, ctx):
+        ev = {
+            "type": "system", "subtype": "status",
+            "status": "requesting", "duration_ms": 250,
+        }
+        out = translate(ev, ctx)
+        assert out[0].payload["duration_ms"] == 250
+
+    def test_status_missing_status_field_defaults_unknown(self, ctx):
+        """Defensive: if claude omits the status string, emit 'unknown'
+        rather than crashing — sinks can still render the event."""
+        ev = {"type": "system", "subtype": "status"}
+        out = translate(ev, ctx)
+        assert out[0].payload["status"] == "unknown"
 
 
 class TestStreamEventDelta:
@@ -260,7 +323,12 @@ class TestResultEvent:
         }
         assert e.payload["output_result"] == {"raw": "DONE"}
 
-    def test_result_error_emits_node_failed(self, ctx):
+    def test_result_error_no_longer_emits_node_failed(self, ctx):
+        """P2-T4: result.is_error=true MUST NOT emit node.failed from the
+        translator. The executor catches is_error via _extract_pre_translate
+        and emits agent.executor_error (critical) with full context. The
+        translator emitting node.failed here would double-count failures
+        on the frontend (ADR Decision 2 emit-uniqueness invariant)."""
         ev = {
             "type": "result",
             "subtype": "error",
@@ -269,14 +337,10 @@ class TestResultEvent:
             "duration_ms": 1000,
         }
         out = translate(ev, ctx)
-        assert len(out) == 1
-        e = out[0]
-        assert e.type == "node.failed"
-        assert "api_error_status" in e.payload["error"]
-        assert e.payload["error_type"] == "api_error"
-        assert e.payload["duration_ms"] == 1000
-        assert e.payload["will_retry"] is False
-        assert e.payload["attempt"] == 2  # 来自 ctx
+        assert out == [], (
+            "translator must not emit on result.is_error — executor owns "
+            "agent.executor_error emit (P2-T3) to preserve emit-uniqueness"
+        )
 
     def test_result_without_usage_still_emits_completed(self, ctx):
         ev = {"type": "result", "is_error": False, "duration_ms": 100}

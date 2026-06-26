@@ -16,11 +16,19 @@
   | assistant[tool_use]                      | agent.tool_call        |
   | user[tool_result]                        | agent.tool_result      |
   | result/success                           | node.completed         |
-  | result/error                             | node.failed            |
+  | result/error                             | (no emit — executor owns; see P2-T3)|
+  | system/api_retry                         | agent.api_retry        |
+  | system/status (requesting/thinking)      | agent.status_update    |
   | 其他                                       | (ignored)              |
 
 未知事件**不抛**——返回空列表 + debug log，保证翻译器对未来 claude 版本
 schema 演化有韧性（对应 detailed-design.md §11 G6 风险）。
+
+P2-T4 emit-uniqueness contract: ``result.is_error=true`` is NO LONGER
+translated to ``node.failed``. The executor catches it via
+``_extract_pre_translate`` and emits ``agent.executor_error`` (critical)
+with the full context. Translator emitting ``node.failed`` here would
+double-count failures on the frontend (ADR Decision 2 invariant).
 """
 from __future__ import annotations
 
@@ -118,8 +126,60 @@ def _translate_system(ev: dict, ctx: TranslateContext) -> list[TranslatedEvent]:
         if ctx.model:
             payload["model"] = ctx.model
         return [TranslatedEvent(type="node.started", payload=payload)]
-    # system/hook_started / hook_response / status → 忽略（hook 事件不映射到 harness）
+    if subtype == "api_retry":
+        return _translate_system_api_retry(ev, ctx)
+    if subtype == "status":
+        return _translate_system_status(ev, ctx)
+    # system/hook_started / hook_response → 忽略（hook 事件不映射到 harness）
     return []
+
+
+def _translate_system_api_retry(ev: dict, ctx: TranslateContext) -> list[TranslatedEvent]:
+    """Translate system/api_retry → agent.api_retry.
+
+    Claude Code emits this when an upstream API call is being retried
+    (rate limit / transient 5xx). Surfacing it lets the frontend show
+    real-time retry progress instead of a "stuck" feeling while the model
+    is silently retrying under the hood.
+    """
+    payload: dict[str, Any] = {
+        "node_id": ctx.node_id,
+        "agent_name": ctx.agent_name,
+    }
+    # Claude stream-json fields (best-effort — names may evolve):
+    #   retry_count: 1-indexed attempt number after the first try
+    #   max_retries: configured retry budget
+    #   wait_seconds: scheduled backoff
+    for src, dst in (
+        ("retry_count", "retry_count"),
+        ("max_retries", "max_retries"),
+        ("wait_seconds", "wait_seconds"),
+        ("error", "error_message"),
+    ):
+        if ev.get(src) is not None:
+            payload[dst] = ev.get(src)
+    return [TranslatedEvent(type="agent.api_retry", payload=payload)]
+
+
+def _translate_system_status(ev: dict, ctx: TranslateContext) -> list[TranslatedEvent]:
+    """Translate system/status → agent.status_update.
+
+    Claude Code emits "requesting" / "thinking" / etc. to signal liveness
+    between message deltas. Frontend can show a spinner / progress hint
+    so users do not assume the agent died during long gaps.
+    """
+    status = ev.get("status") or "unknown"
+    payload: dict[str, Any] = {
+        "node_id": ctx.node_id,
+        "agent_name": ctx.agent_name,
+        "status": status,
+    }
+    # Optional helpful fields (best-effort — claude versions differ)
+    for src in ("duration_ms", "duration", "message"):
+        v = ev.get(src)
+        if v is not None:
+            payload[src] = v
+    return [TranslatedEvent(type="agent.status_update", payload=payload)]
 
 
 def _translate_stream_event(ev: dict, ctx: TranslateContext) -> list[TranslatedEvent]:
@@ -248,33 +308,28 @@ def _translate_user(ev: dict, ctx: TranslateContext) -> list[TranslatedEvent]:
 
 
 def _translate_result(ev: dict, ctx: TranslateContext) -> list[TranslatedEvent]:
-    """result 是 claude run 的最终事件，包含 duration/usage/cost/result。"""
+    """result 是 claude run 的最终事件，包含 duration/usage/cost/result。
+
+    P2-T4: ``is_error=true`` is NO LONGER translated to ``node.failed``.
+    The executor catches it via ``_extract_pre_translate`` and emits
+    ``agent.executor_error`` (critical) with full context — translator
+    emitting ``node.failed`` here would double-count failures on the
+    frontend (ADR Decision 2 emit-uniqueness invariant).
+    """
     is_error = bool(ev.get("is_error"))
+    if is_error:
+        # Executor owns this emit — return empty so callers do not double-emit.
+        logger.debug(
+            "translate: result.is_error=true; skipping (executor emits "
+            "agent.executor_error instead, agent=%s", ctx.agent_name,
+        )
+        return []
+
     duration_ms = int(ev.get("duration_ms") or 0)
     usage = ev.get("usage") or {}
     cost = ev.get("total_cost_usd")
 
     token_usage = _build_token_usage(usage)
-
-    if is_error:
-        api_error = ev.get("api_error_status")
-        error_msg = (
-            f"claude run failed (api_error_status={api_error})"
-            if api_error
-            else "claude run failed (see claude stderr for details)"
-        )
-        return [TranslatedEvent(
-            type="node.failed",
-            payload={
-                "node_id": ctx.node_id,
-                "agent_name": ctx.agent_name,
-                "error": error_msg,
-                "error_type": "api_error" if api_error else "runtime",
-                "duration_ms": duration_ms,
-                "attempt": ctx.attempt,
-                "will_retry": False,  # 由调用方（execute_with_retry）覆盖
-            },
-        )]
 
     payload: dict[str, Any] = {
         "node_id": ctx.node_id,
