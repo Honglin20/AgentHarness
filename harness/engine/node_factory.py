@@ -106,22 +106,34 @@ def make_node_func(
     upstream_names = dep_map[agent_def.name] or []
     _judge_targets = judge_targets or {}
 
-    # Build the static system prompt via the central assembler. The output-
-    # format schema section is appended only when result_type is set; see
-    # harness/prompts/assembler.py for the layered design and the rationale
-    # for the ``final_result`` tool-call wording (pydantic-ai 1.x behavior +
-    # 2026-06-17 adapter_generator incident). The schema-derivation fallback
-    # (lenient: log + use the bare agent body) is preserved here so a broken
-    # result_type never crashes node construction.
-    augmented_prompt = parsed.prompt
-    if result_type is not None:
-        try:
-            augmented_prompt = assemble_static_prompt(parsed.prompt, result_type)
-        except Exception:
-            logger.warning(
-                "Failed to inject result_type schema into prompt for %s",
-                agent_def.name, exc_info=True,
-            )
+    # Build the static system prompt via the central assembler. The assembler
+    # is invoked unconditionally — base working norms must be injected for
+    # every agent (including free-text agents with result_type=None), and
+    # the paradigm dispatch (P1-T2) ensures CLI backends get base_minimal.md
+    # + minimal output format instead of pydantic-ai's TodoTool/final_result
+    # contracts.
+    #
+    # Fail-loud policy: ValueError from the assembler signals a real config
+    # bug (unknown executor / paradigm) and MUST propagate — silently
+    # falling back to a bare body would mask the typo and leave the agent
+    # running under the wrong paradigm. Schema-derivation failures from
+    # strip_schema / model_json_schema (broken result_type definition) are
+    # caught and degraded: log + use bare agent body so a single broken
+    # result_type does not crash workflow construction.
+    try:
+        augmented_prompt = assemble_static_prompt(
+            parsed.prompt, result_type, executor=agent_def.executor,
+        )
+    except ValueError:
+        # Re-raise as-is — fail-loud for unknown executor / paradigm.
+        raise
+    except Exception:
+        logger.warning(
+            "Failed to assemble static prompt for %s (executor=%s); "
+            "falling back to bare agent body",
+            agent_def.name, agent_def.executor, exc_info=True,
+        )
+        augmented_prompt = parsed.prompt
 
     async def node_func(state: HarnessState) -> dict:
         start_time = time.time()
@@ -221,6 +233,11 @@ def make_node_func(
             node_id=agent_def.name,
             token_aggregator=node_token_agg,
             iteration=current_invocation,
+            # ClaudeCodeExecutor 通过 deps.agent_md_content 拿 agent MD 作为
+            # claude -p 的 --append-system-prompt。pydantic-ai 路径不读这个
+            # 字段（它通过 augmented_prompt 直接构造 Agent）。AgentDeps 的
+            # extra="allow" 允许动态字段。
+            agent_md_content=augmented_prompt,
         )
 
         # Build the context (user message) — system prompt is already set via md_prompt
