@@ -281,6 +281,21 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="harness", description="AgentHarness CLI")
     sub = parser.add_subparsers(dest="command")
 
+    # P3-T8: load CLI profiles at startup so `harness run` agents resolve
+    # any registered executor name (builtin + project-level overrides).
+    # Idempotent + graceful — broken profiles disable themselves and
+    # never block CLI startup (P3-T9 contract).
+    try:
+        from harness.cli_profiles import load_all_profiles_at_startup
+        load_all_profiles_at_startup()
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning(
+            "CLI profile loading failed at startup; agents with non-builtin "
+            "executors will fail at construction time",
+            exc_info=True,
+        )
+
     ui = sub.add_parser("ui", help="Launch Web UI")
     ui.add_argument("--port", type=int, default=None)
     ui.add_argument("--host", type=str, default=None)
