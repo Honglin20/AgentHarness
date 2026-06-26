@@ -37,12 +37,21 @@ from harness.engine.llm_executor import AgentRunResult, BaseExecutor
 from harness.engine.token_aggregator import TokenAggregator
 from harness.engine._claude_subprocess import ClaudeRunResult, ClaudeSpawnConfig, run_claude
 from harness.engine._result_extractor import SchemaValidationError, extract_and_validate
+from harness.engine.cli_profile import CliProfile, get_profile
 from harness.engine.error_event import ErrorEvent, ExecutorError
 from harness.extensions.bus import safe_emit
 from harness.types import AgentResult
 from harness.translator import TranslateContext, TranslatedEvent, translate
 
 logger = logging.getLogger(__name__)
+
+
+# Claude Code 内置工具集（不需要 mcp__ 前缀）。被 _resolve_allowed_tools
+# 和 _inject_tool_name_mapping 共用。新增内置工具在这里加。
+_CLAUDE_BUILTIN_TOOLS: frozenset[str] = frozenset({
+    "Bash", "Read", "Edit", "Write", "Grep", "Glob",
+    "WebFetch", "WebSearch", "Task", "TodoWrite",
+})
 
 
 # 翻译器会 emit 这几类生命周期事件，但 node_factory 已经有自己的
@@ -116,6 +125,13 @@ class ClaudeCodeExecutor:
 
     ``__init__`` 参数与 ``LLMExecutor`` 平行（都接收 metadata），但额外需要
     ``agent_def``（读 system prompt / retries / tools 列表）。
+
+    P3-T4: profile-driven — cli path / flags / translator / extractor /
+    prompt paradigm / MCP template all come from the CliProfile (default
+    "claude-code" from harness/cli_profiles/claude.py). This makes the
+    class reusable for any CLI backend that shares claude's stream-json
+    output format — operators can override the profile to canary a
+    different claude build or experiment with a fork.
     """
 
     def __init__(
@@ -137,6 +153,8 @@ class ClaudeCodeExecutor:
         timeout_s: float | None = None,
         mcp_config_path: Any | None = None,
         enable_mcp: bool = True,
+        # P3-T4: profile override (None → registry lookup of "claude-code")
+        profile: CliProfile | None = None,
     ):
         self.agent_def = agent_def
         self._deps = deps
@@ -155,6 +173,21 @@ class ClaudeCodeExecutor:
         # 为 None 且 enable_mcp=True 时 _setup_mcp 会自动生成。
         self._mcp_config_path = mcp_config_path
         self._enable_mcp = enable_mcp
+        # P3-T4: profile-driven configuration. Resolve from registry if
+        # caller didn't pass one (the production path via executor_factory
+        # will pass get_profile("claude-code") explicitly once P3-T6 lands).
+        # Lookup happens at __init__ so a missing builtin fails fast at
+        # agent construction rather than mid-run.
+        if profile is None:
+            try:
+                profile = get_profile("claude-code")
+            except (KeyError, ValueError) as exc:
+                raise RuntimeError(
+                    f"ClaudeCodeExecutor requires 'claude-code' profile but "
+                    f"registry lookup failed: {exc}. Ensure "
+                    f"harness.cli_profiles is imported at startup."
+                ) from exc
+        self._profile = profile
 
         # Per-run MCP state（_setup_mcp 创建，_teardown_mcp 清理）
         self._proxy: Any | None = None  # McpProxyServer，避免顶层循环 import
@@ -368,7 +401,7 @@ class ClaudeCodeExecutor:
             workflow_id=self._wid,
             node_id=self._node_id,
             agent_name=self._agent_name,
-            executor="claude-code",
+            executor=self._profile.name,
             phase=phase,
             error_type=error_type,
             error_message=error_message,
@@ -394,6 +427,12 @@ class ClaudeCodeExecutor:
 
         allowed_tools = self._resolve_allowed_tools()
 
+        # 工具名映射注入：harness MCP 工具在 claude 子进程里暴露为
+        # mcp__harness__<name>，但 agent prompt 通常按字面写 "ask_user"。
+        # 不注入会让模型按字面调 ask_user → claude 报 "No such tool" →
+        # 整条 HITL 链路断。映射段强制告知模型完整工具名。
+        system_prompt = self._inject_tool_name_mapping(system_prompt)
+
         # 显式 > self._mcp_config_path（兼容旧测试 + 自定义注入）
         effective_mcp = mcp_config_path if mcp_config_path is not None else self._mcp_config_path
 
@@ -403,7 +442,7 @@ class ClaudeCodeExecutor:
         # 里的 ANTHROPIC_* 优先级最高。
         env_overlay = self._load_env_overlay()
 
-        return ClaudeSpawnConfig(
+        cfg = ClaudeSpawnConfig(
             prompt=context,
             mcp_config_path=effective_mcp,
             allowed_tools=allowed_tools,
@@ -411,11 +450,12 @@ class ClaudeCodeExecutor:
             cli_path=self._cli_path,
             env=env_overlay,
         )
+        return cfg
 
     def _load_env_overlay(self) -> dict[str, str]:
         """读项目 .env，提取 ANTHROPIC_*/CLAUDE_* 作为子进程 env overlay。
 
-        查找顺序：``{cwd}/.env``（harness server 启动目录）。
+        查找顺序：``harness.paths.get_env_file()``（项目根 .env）。
         只提取 LLM 相关前缀，避免把整个 .env（可能含敏感 HARNESS_API_KEY 等）
         带进子进程；HARNESS_* 已经在父进程 env 里，子进程天然继承。
 
@@ -423,10 +463,17 @@ class ClaudeCodeExecutor:
         ANTHROPIC_AUTH_TOKEN/BASE_URL 指向编程用的 gateway。如果 spawn
         的 claude -p 直接继承，会走同一个 gateway（可能限流 / 不是项目
         想用的）。项目 .env 提供独立配置，让子进程走项目指定的 gateway。
+
+        为什么用 ``get_env_file()`` 而不是 ``Path.cwd()/.env``：``runner.run``
+        会 ``os.chdir(work_dir)`` 让 agent 在工作目录运行，cwd 此刻指向
+        work_dir（通常没有 .env），会导致 overlay 返回空 dict、子进程回退到
+        继承父进程 env（被 shell 的 ANTHROPIC_* 污染）。``get_env_file()``
+        通过 HARNESS_PROJECT_ROOT / CWD heuristic / package parent 三层
+        fallback 稳定定位到项目根 .env，不受 chdir 影响。
         """
-        from pathlib import Path
+        from harness.paths import get_env_file
         overlay: dict[str, str] = {}
-        env_path = Path.cwd() / ".env"
+        env_path = get_env_file()
         if not env_path.exists():
             return overlay
         try:
@@ -483,12 +530,23 @@ class ClaudeCodeExecutor:
         self._mcp_serve_task = asyncio.create_task(self._proxy.serve_until_stopped())
 
         # 写 mcp-config JSON（claude --mcp-config <path>）
+        # 重要：claude 子进程的 cwd 是 workflow 的 work_dir（runner.run 调
+        # os.chdir(work_dir) 让 agent 在工作目录跑），claude 通过 mcp-config
+        # spawn MCP server 子进程时会继承这个 cwd。``python -m harness.mcp.server``
+        # 需要能 import harness 包，但 work_dir 没有 harness/，所以必须通过
+        # PYTHONPATH 指向项目根，否则 MCP server 启动时 ModuleNotFoundError →
+        # claude 标记 ``mcp_servers[].status = "failed"`` → 工具全部不可用。
+        from harness.paths import get_project_root
+        project_root = str(get_project_root())
         cfg = {
             "mcpServers": {
                 "harness": {
                     "command": sys.executable,
                     "args": ["-m", "harness.mcp.server"],
-                    "env": {SOCKET_PATH_ENV: socket_path},
+                    "env": {
+                        SOCKET_PATH_ENV: socket_path,
+                        "PYTHONPATH": project_root,
+                    },
                 }
             }
         }
@@ -568,17 +626,48 @@ class ClaudeCodeExecutor:
         tools = getattr(self.agent_def, "tools", None)
         if not tools:
             return None
-        CLAUDE_BUILTIN = {
-            "Bash", "Read", "Edit", "Write", "Grep", "Glob",
-            "WebFetch", "WebSearch", "Task", "TodoWrite",
-        }
         mapped: list[str] = []
         for t in tools:
-            if t.startswith("mcp__") or t in CLAUDE_BUILTIN:
+            if t.startswith("mcp__") or t in _CLAUDE_BUILTIN_TOOLS:
                 mapped.append(t)
             else:
                 mapped.append(f"mcp__harness__{t}")
         return mapped
+
+    def _inject_tool_name_mapping(self, system_prompt: str | None) -> str | None:
+        """在 agent MD 末尾追加 harness MCP 工具名映射段。
+
+        agent prompt 通常按字面引用工具名（"call ask_user"），但 claude
+        子进程通过 MCP 协议拿到的是 ``mcp__harness__<name>`` 全名。不注入
+        会让模型按字面调 ``ask_user`` → claude 报 "No such tool"。
+
+        映射段只列出 agent 自己声明的小写起头工具（harness 桥接工具），
+        claude 内置工具和大写 mcp__ 显式前缀工具不需要映射。
+        """
+        if self.agent_def is None:
+            return system_prompt
+        tools = getattr(self.agent_def, "tools", None) or []
+        harness_tools = [
+            t for t in tools
+            if not t.startswith("mcp__") and t not in _CLAUDE_BUILTIN_TOOLS
+        ]
+        if not harness_tools:
+            return system_prompt
+        lines = [
+            "",
+            "",
+            "## Tool Name Mapping (harness auto-injected)",
+            "",
+            "Tools referenced in your instructions are exposed through the harness MCP server.",
+            "Invoke them by their FULL ``mcp__harness__<name>`` name — using the bare name will fail.",
+            "",
+        ]
+        for t in harness_tools:
+            lines.append(f"- `{t}` → invoke as `mcp__harness__{t}`")
+        mapping_block = "\n".join(lines) + "\n"
+        if system_prompt:
+            return system_prompt + mapping_block
+        return mapping_block.lstrip()
 
     def _extract_and_validate_result(self, text: str):
         """Phase E: 从 claude result.text 提取 + schema 校验。
@@ -602,7 +691,9 @@ class ClaudeCodeExecutor:
             return AgentResult(summary=text)
 
         # 自定义 result_type：严格 JSON 提取 + 校验
-        return extract_and_validate(text, result_type)
+        # P3-T4: delegate to profile.result_extractor (claude profile
+        # delegates to _result_extractor.extract_and_validate).
+        return self._profile.result_extractor(text, result_type)
 
     def _build_translate_ctx(self) -> TranslateContext:
         return TranslateContext(
@@ -690,10 +781,29 @@ class ClaudeCodeExecutor:
         safe_emit(self._bus, ev.type, payload)
 
 
-# 显式协议契约校验：ClaudeCodeExecutor 实例必须满足 BaseExecutor
+# 显式协议契约校验：ClaudeCodeExecutor 实例必须满足 BaseExecutor。
+# P3-T4: pass a minimal mock profile so the check does not depend on the
+# profile registry being pre-loaded (import-time check must work even
+# before harness.cli_profiles is imported).
+def _build_check_profile() -> CliProfile:
+    return CliProfile(
+        name="claude-code",
+        prompt_paradigm="minimal",
+        cli_path_env="HARNESS_CLAUDE_CLI",
+        default_cli_path="claude",
+        flags=(),
+        prompt_channel="stdin",
+        mcp_flag_template=None,
+        env_overlay_prefixes=("ANTHROPIC_",),
+        translator=lambda r, c: [],
+        result_extractor=lambda t, rt: t,
+    )
+
+
 _BASE_EXECUTOR_CHECK = isinstance(
     ClaudeCodeExecutor(
-        agent_def=None, deps=None, workflow_id="x", node_id="x", agent_name="x"
+        agent_def=None, deps=None, workflow_id="x", node_id="x", agent_name="x",
+        profile=_build_check_profile(),
     ),
     BaseExecutor,
 )
