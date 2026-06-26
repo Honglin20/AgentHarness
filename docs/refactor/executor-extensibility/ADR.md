@@ -1,6 +1,6 @@
 # ADR: Executor Extensibility + Unified Error Flow + Layered Prompt
 
-**Status**: Proposed (2026-06-26)
+**Status**: Accepted (2026-06-26) — Phase 1 + 2 + 3 全部落地
 **Scope**: `harness/engine/`, `harness/prompts/`, `harness/cli_profiles/` (new), `server/runner.py`, `harness/cli_runner.py`, `frontend/src/stores/workflowStore.ts`, `frontend/src/types/events.ts`
 
 ---

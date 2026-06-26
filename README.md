@@ -897,6 +897,82 @@ render_chart(
 
 ---
 
+## 执行器与 CLI Profile
+
+每个 agent 在 `workflow.json` 中声明 `executor` 字段选择执行后端：
+
+```json
+{
+  "name": "greeter",
+  "executor": "claude-code",
+  "tools": ["ask_user"]
+}
+```
+
+### 内置执行器
+
+| executor | 范式 | 描述 |
+|---|---|---|
+| `pydantic-ai`（默认） | pydantic-ai | 进程内 pydantic-ai SDK；通过 `final_result` 工具返回结构化输出 |
+| `claude-code` | minimal | 子进程 `claude -p`；通过 MCP 桥接 harness 工具（ask_user 等） |
+
+`pydantic-ai` 是默认值（不写 `executor` 字段等价于 `pydantic-ai`）。`claude-code` 通过子进程跑独立的 claude CLI，适合需要 claude 内置工具（Bash / Edit / WebSearch 等）的场景。
+
+### CLI Profile：自定义后端
+
+每个 CLI 后端由一个 `CliProfile` 描述（声明 CLI 路径 / flags / prompt 通道 / MCP / 翻译器 / env 前缀）。Profile 文件位置（按优先级）：
+
+1. `$HARNESS_CLI_PROFILES_DIR/<name>.py`（env 覆盖整个目录）
+2. `<cwd>/.harness/cli_profiles/<name>.py`（项目级，最高默认优先级）
+3. `harness/cli_profiles/<name>.py`（builtin）
+
+同名的项目级 profile 覆盖 builtin（last-write-wins）。Profile 模块必须导出 `PROFILE: CliProfile`：
+
+```python
+# .harness/cli_profiles/opencode.py
+from harness.engine.cli_profile import CliProfile
+
+PROFILE = CliProfile(
+    name="opencode",
+    prompt_paradigm="minimal",
+    cli_path_env="HARNESS_OPENCODE_CLI",
+    default_cli_path="opencode",
+    flags=("--json",),
+    prompt_channel="stdin",
+    mcp_flag_template=None,           # opencode 不支持 MCP
+    env_overlay_prefixes=("OPENCODE_",),
+    translator=my_opencode_translator,
+    result_extractor=my_opencode_extractor,
+    default_timeout_s=300.0,
+)
+```
+
+写完后**重启 server / CLI** 即生效，agent 用 `executor: "opencode"` 就走该 profile。
+
+### 配置 env
+
+| env 变量 | 作用 |
+|---|---|
+| `HARNESS_<NAME>_CLI` | 覆盖 profile 的 cli path（如 `HARNESS_CLAUDE_CLI=/canary/claude`） |
+| `HARNESS_<NAME>_ENV_<KEY>` | 注入 / 覆盖子进程 env（如 `HARNESS_CLAUDE_CODE_ENV_ANTHROPIC_BASE_URL=...`） |
+| `HARNESS_CLI_PROFILES_DIR` | 覆盖项目级 profile 目录位置 |
+| `HARNESS_DISABLE_PROJECT_PROFILES` | `=1` 跳过项目级 profile 加载（CI / 共享目录） |
+
+`<NAME>` 是 profile.name 大写 + 短横线转下划线（`claude-code` → `CLAUDE_CODE`）。
+
+### 错误处理
+
+损坏的 profile（语法错 / 缺 PROFILE 导出 / 类型错）会被自动 disable 但**不阻塞 server 启动**。disabled profile 名出现在 `disabled_profile_diagnostics()`，agent 用到时抛清晰的 `ValueError` 含具体原因。
+
+错误流：每个 executor 错误（spawn / stream / result_parse / schema_validate / timeout）emit `agent.executor_error` 事件（critical，永不淘汰），携带 `stderr_tail` / `phase` / `exit_code` / `executor_extra` 字段。前端 toast + inline banner 即时显示，CLI 模式打印同样字段到 stderr。
+
+详见：
+- [ADR](docs/refactor/executor-extensibility/ADR.md) — 三大决策（Prompt 范式 / ErrorEvent / CliProfile）
+- [Phase 1 release](docs/releases/2026-06-26-prompt-paradigm-split.md) — Prompt 范式分层
+- [Phase 2 release](docs/releases/2026-06-26-error-event-contract.md) — ErrorEvent 契约
+
+---
+
 ## Benchmark 批量评测
 
 Benchmark 是一组持久化的测试任务，可一键用任意 Workflow 跑全部任务，收集分数并对比结果。

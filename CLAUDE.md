@@ -80,6 +80,20 @@ Bus 的 replay buffer 满了会 FIFO 淘汰 normal 事件，**critical 事件永
 
 ---
 
+## 执行器与 CLI Profile 契约
+
+详见 [`docs/refactor/executor-extensibility/ADR.md`](docs/refactor/executor-extensibility/ADR.md)。关键不变量：
+
+- **Prompt 范式二选一**：每个 executor 属于 `pydantic-ai` 或 `minimal` 范式之一（不能混）。`harness/prompts/assembler.py:executor_to_paradigm` 是范式分派入口；`register_executor_paradigm` 是 override hook。
+- **ErrorEvent emit-uniqueness**：每个 executor 错误**只在一个位置 emit**。Executor 内部封装 → emit `agent.executor_error` (critical) → raise `ExecutorError`。`node_factory` / `execute_with_retry` 接住 `ExecutorError` 不重 emit。翻译器不再为 `result.is_error` emit `node.failed`（让 executor 统一）。
+- **CliProfile 注册幂等**：同名 profile 后注册覆盖前注册；项目级（`<cwd>/.harness/cli_profiles/`）覆盖 builtin。损坏 profile 自动 disable 但不阻塞启动；用户用到时抛 `ValueError` 含具体原因。
+- **VALID_EXECUTORS 是函数**：`harness/core/agent.VALID_EXECUTORS()` 动态合并 `BUILTIN_EXECUTORS` + profile registry。新增 backend = 写一个 profile 文件，**不需要改白名单**。
+- **CLI/server payload parity**：`workflow.error` 通过 `harness.engine.error_event.build_workflow_error_payload` 统一构造，CLI 和 server emit 相同 schema。
+
+添加新 CLI backend：写 `harness/cli_profiles/<name>.py`（builtin）或 `./.harness/cli_profiles/<name>.py`（项目级），导出 `PROFILE: CliProfile`。详见 [README — 执行器与 CLI Profile](README.md#执行器与-cli-profile)。
+
+---
+
 ## 扩展系统职责分界
 
 | 类型 | 能做 | 不能做 |
