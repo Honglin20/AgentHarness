@@ -47,6 +47,49 @@ export const WorkflowCompletedPayloadSchema = z.object({
 export const WorkflowErrorPayloadSchema = z.object({
   workflow_id: workflowId,
   error: z.string().optional(),
+  error_type: z.string().optional(),
+  executor: z.string().optional(),
+  phase: z.string().optional(),
+  stderr_tail: z.string().optional(),
+  exit_code: z.number().optional(),
+  executor_extra: z.record(z.unknown()).optional(),
+  failed_node: z.string().optional(),
+  batch_id: z.string().optional(),
+}).passthrough();
+
+// P2-T1/T3: Executor-side structured failure. Mirrors ErrorEvent.to_payload.
+export const ExecutorErrorPayloadSchema = z.object({
+  workflow_id: workflowId,
+  node_id: nodeId,
+  agent_name: agentName,
+  executor: z.string(),
+  phase: z.string(),
+  error_type: z.string(),
+  error_message: z.string(),
+  stderr_tail: z.string().optional(),
+  exit_code: z.number().optional(),
+  timed_out: z.boolean(),
+  retry_attempt: z.number().optional(),
+  ts: z.number(),
+  extra: z.record(z.unknown()).optional(),
+}).passthrough();
+
+// P2-T4: API retry visibility (normal priority).
+export const ApiRetryPayloadSchema = z.object({
+  node_id: nodeId,
+  agent_name: agentName,
+  retry_count: z.number().optional(),
+  max_retries: z.number().optional(),
+  wait_seconds: z.number().optional(),
+  error_message: z.string().optional(),
+}).passthrough();
+
+// P2-T4: Liveness status (normal priority).
+export const StatusUpdatePayloadSchema = z.object({
+  node_id: nodeId,
+  agent_name: agentName,
+  status: z.string(),
+  duration_ms: z.number().optional(),
 }).passthrough();
 
 // ── Node lifecycle ──────────────────────────────────────────
@@ -230,6 +273,9 @@ export const eventPayloadSchemas: Partial<Record<EventType, z.ZodTypeAny>> = {
   "agent.tool_call": AgentToolCallPayloadSchema,
   "agent.tool_result": AgentToolResultPayloadSchema,
   "agent.tool_output_delta": AgentToolOutputDeltaPayloadSchema,
+  "agent.executor_error": ExecutorErrorPayloadSchema,
+  "agent.api_retry": ApiRetryPayloadSchema,
+  "agent.status_update": StatusUpdatePayloadSchema,
   "chat.question": ChatQuestionPayloadSchema,
   "chat.answer": ChatAnswerPayloadSchema,
   "chart.render": ChartRenderPayloadSchema,

@@ -21,6 +21,9 @@ export type EventType =
   | "agent.tool_call"
   | "agent.tool_result"
   | "agent.tool_output_delta"
+  | "agent.executor_error"
+  | "agent.api_retry"
+  | "agent.status_update"
   | "chart.render"
   | "chat.question"
   | "chat.answer"
@@ -83,6 +86,82 @@ export interface WorkflowCompletedPayload {
   workflow_id: string;
   duration_ms?: number;
   status: string;
+}
+
+/**
+ * Workflow-level failure (P2-T6/T7 unified error flow).
+ *
+ * Enriched fields come from the backend ExecutorError contract:
+ *  - executor / phase / stderr_tail / exit_code / executor_extra: present
+ *    when the underlying exception was an ExecutorError
+ *  - failed_node: most-recent node.failed event in the bus buffer
+ *  - batch_id: optional (present when the failed run belongs to a batch)
+ *
+ * CLI (cli_runner.py) and server (runner.py) emit identical schemas via
+ * harness.engine.error_event.build_workflow_error_payload so sinks
+ * render the same context regardless of which path produced the run.
+ */
+export interface WorkflowErrorPayload {
+  workflow_id: string;
+  user_id?: string;
+  error: string;
+  error_type?: string;
+  executor?: string;
+  phase?: string;
+  stderr_tail?: string;
+  exit_code?: number;
+  executor_extra?: Record<string, unknown>;
+  failed_node?: string;
+  batch_id?: string;
+}
+
+/**
+ * Executor-side structured failure (P2-T1/T3). Emitted by executors at
+ * the source (ClaudeCodeExecutor etc.) — never re-emitted by upstream
+ * layers (emit-uniqueness, ADR Decision 2). Critical priority (P2-T2)
+ * so the WS replay buffer never FIFO-evicts it.
+ */
+export interface ExecutorErrorPayload {
+  workflow_id: string;
+  node_id: string;
+  agent_name: string;
+  executor: string;
+  phase: string;
+  error_type: string;
+  error_message: string;
+  stderr_tail?: string;
+  exit_code?: number;
+  timed_out: boolean;
+  retry_attempt?: number;
+  ts: number;
+  extra?: Record<string, unknown>;
+}
+
+/**
+ * Real-time API retry visibility (P2-T4). Emitted by the stream-json
+ * translator when claude sends system/api_retry. Surfaces retry progress
+ * (retry_count / max_retries / wait_seconds) so the frontend can show
+ * "retrying (2/3): rate_limit" instead of a "stuck" feeling.
+ */
+export interface ApiRetryPayload {
+  node_id: string;
+  agent_name: string;
+  retry_count?: number;
+  max_retries?: number;
+  wait_seconds?: number;
+  error_message?: string;
+}
+
+/**
+ * Liveness status from the CLI backend (P2-T4). Emitted by the
+ * stream-json translator when claude sends system/status. Frontend can
+ * show a spinner / progress hint during long gaps between deltas.
+ */
+export interface StatusUpdatePayload {
+  node_id: string;
+  agent_name: string;
+  status: string;
+  duration_ms?: number;
 }
 
 // Node lifecycle events
@@ -385,7 +464,7 @@ export interface TodoReplacedPayload {
 export interface EventPayloadMap {
   "workflow.started": WorkflowStartedPayload;
   "workflow.completed": WorkflowCompletedPayload;
-  "workflow.error": { workflow_id: string; error: string };
+  "workflow.error": WorkflowErrorPayload;
   "workflow.cancelled": { workflow_id: string };
   "workflow.interrupted": { workflow_id: string; interrupt_value?: unknown };
   "workflow.waiting_for_guidance": { workflow_id: string; node_id: string; agent_name: string; partial_output: string };
@@ -398,6 +477,9 @@ export interface EventPayloadMap {
   "agent.tool_call": AgentToolCallPayload;
   "agent.tool_result": AgentToolResultPayload;
   "agent.tool_output_delta": AgentToolOutputDeltaPayload;
+  "agent.executor_error": ExecutorErrorPayload;
+  "agent.api_retry": ApiRetryPayload;
+  "agent.status_update": StatusUpdatePayload;
   "chart.render": ChartRenderPayload;
   "chat.question": ChatQuestionPayload;
   "chat.answer": ChatAnswerPayload;

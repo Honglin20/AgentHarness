@@ -15,6 +15,9 @@ import type {
   AgentRetryAttemptedPayload,
   AgentUsageUpdatePayload,
   AgentFailedWithClassifiedReasonPayload,
+  ExecutorErrorPayload,
+  ApiRetryPayload,
+  StatusUpdatePayload,
 } from "@/types/events";
 import { payload } from "./utils";
 import { toast } from "sonner";
@@ -242,6 +245,58 @@ export const agentHandlers: [string, EventHandler][] = [
         maxAttempts: p.max_attempts,
         ts: event.ts,
       });
+    },
+  ],
+
+  [
+    "agent.executor_error",
+    (stores, event, _ctx) => {
+      // P2-T1/T3: structured executor failure (stderr_tail / phase /
+      // exit_code / retry_attempt). Stash on the node so toast / banner
+      // can render the WHY. Toast fires here for immediate feedback;
+      // node.failed (from node_factory except) still owns lifecycle.
+      const p = payload<ExecutorErrorPayload>(event);
+      const currentWid = stores.workflow.getState().workflowId;
+      if (currentWid && p.workflow_id !== currentWid) return;
+      stores.workflow.getState().pushExecutorError(p.node_id, p);
+      const phaseTag = p.phase ? `[${p.phase}] ` : "";
+      toast.error(
+        `Agent "${p.agent_name}" ${phaseTag}failed (${p.error_type})`,
+        {
+          description: p.stderr_tail
+            ? p.stderr_tail.slice(0, 200)
+            : p.error_message,
+        },
+      );
+    },
+  ],
+
+  [
+    "agent.api_retry",
+    (stores, event, _ctx) => {
+      // P2-T4: transient retry in progress. Stash for live counter UI.
+      // Filter on active workflow so background retries don't toast-spam.
+      const p = payload<ApiRetryPayload>(event);
+      stores.workflow.getState().pushApiRetry(p.node_id, p);
+      // Low-key info toast: this is transient, not an error
+      const currentWid = stores.workflow.getState().workflowId;
+      const wfMatch = !event.payload?.workflow_id
+        || currentWid === event.payload.workflow_id;
+      if (wfMatch && p.retry_count !== undefined && p.max_retries !== undefined) {
+        toast.info(
+          `Agent "${p.agent_name}" retrying (${p.retry_count}/${p.max_retries})`,
+          { description: p.error_message ?? "Transient upstream failure" },
+        );
+      }
+    },
+  ],
+
+  [
+    "agent.status_update",
+    (stores, event, _ctx) => {
+      // P2-T4: liveness status. No toast — drives spinner hint only.
+      const p = payload<StatusUpdatePayload>(event);
+      stores.workflow.getState().pushStatusUpdate(p.node_id, p);
     },
   ],
 ];

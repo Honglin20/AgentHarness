@@ -6,10 +6,12 @@ import type { EventHandler } from "./types";
 import type {
   WorkflowStartedPayload,
   WorkflowCompletedPayload,
+  WorkflowErrorPayload,
 } from "@/types/events";
 import { computeRunSummary } from "@/lib/summary/runSummary";
 import { payload, resetAllStores, formatOutputAsMd } from "./utils";
 import { _processedSeqsByWorkflow, cleanupSeqTracker } from "./dedup";
+import { toast } from "sonner";
 
 export const workflowHandlers: [string, EventHandler][] = [
   [
@@ -54,13 +56,22 @@ export const workflowHandlers: [string, EventHandler][] = [
   [
     "workflow.error",
     (stores, event, ctx) => {
-      const p = payload<{ workflow_id: string; error: string }>(event);
+      // P2-T6/T7: rich payload (error_type / executor / phase / stderr_tail /
+      // failed_node / executor_extra). handleWorkflowError sweeps orphan
+      // "running" nodes (matches handleWorkflowCompleted) + stamps error on
+      // failed_node. Toast surfaces stderr_tail so users see WHY immediately.
+      const p = payload<WorkflowErrorPayload>(event);
       stores.conversation.getState().markAllPendingQuestionsInterrupted();
-      stores.workflow.getState().handleWorkflowCompleted({
-        workflow_id: p.workflow_id,
-        status: "failed",
-      });
+      stores.workflow.getState().handleWorkflowError(p);
       stores.output.getState().setWorkflowError(p.error);
+      // Toast: prefer stderr_tail over generic error string when available
+      const phaseTag = p.phase ? `[${p.phase}] ` : "";
+      const executorTag = p.executor ? ` (${p.executor})` : "";
+      toast.error(`Workflow failed${executorTag}: ${phaseTag}${p.error_type ?? "Error"}`, {
+        description: p.stderr_tail
+          ? p.stderr_tail.slice(0, 300)
+          : p.error,
+      });
       const summaryNodes = Object.values(stores.workflow.getState().nodes);
       const addChart = stores.chart.getState().addChart;
       computeRunSummary(summaryNodes, addChart, stores.span);

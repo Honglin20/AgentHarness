@@ -2,6 +2,10 @@ import { create } from "zustand";
 import type {
   WorkflowStartedPayload,
   WorkflowCompletedPayload,
+  WorkflowErrorPayload,
+  ExecutorErrorPayload,
+  ApiRetryPayload,
+  StatusUpdatePayload,
   NodeStartedPayload,
   NodeCompletedPayload,
   NodeFailedPayload,
@@ -52,6 +56,24 @@ export interface NodeState {
   retryAttempts?: RetryAttempt[];
   /** Final classified failure reason (set when all retries exhausted). */
   classifiedFailure?: ClassifiedFailure;
+  /**
+   * P2-T1/T3: structured executor error from agent.executor_error event.
+   * Carries stderr_tail / phase / exit_code / retry_attempt — rendered
+   * in the toast / banner so the user sees WHY the agent failed.
+   */
+  executorError?: ExecutorErrorPayload;
+  /**
+   * P2-T4: most recent API retry attempt (agent.api_retry event). Drives
+   * the live "retrying (2/3): rate_limit" indicator so users do not
+   * assume the agent is stuck during transient failures.
+   */
+  lastApiRetry?: ApiRetryPayload;
+  /**
+   * P2-T4: liveness status from the CLI backend (agent.status_update).
+   * "requesting" / "thinking" / etc. Drives the spinner hint during
+   * long gaps between message deltas.
+   */
+  lastStatus?: StatusUpdatePayload;
 }
 
 /** A single retry attempt record (agent.retry_attempted payload). */
@@ -83,6 +105,54 @@ interface WorkflowSnapshot {
   workflowName: string | null;
   dag: { nodes: string[]; edges: [string, string][]; conditional_edges?: { from: string; to: string; label: string }[] } | null;
   envelope: Record<string, number> | null;
+}
+
+/**
+ * Sweep orphan "running"/"retrying" nodes when the workflow terminates.
+ *
+ * Backend (server/runner.py) emits only `workflow.error`/`workflow.completed`
+ * on a workflow-level failure — it does NOT emit `node.failed` for whatever
+ * node was mid-execution (parallel siblings, scheduler-level crash, timeout).
+ * Without this sweep, the node's status stays "running" forever and the
+ * Outline view (which derives status from node.status) keeps showing
+ * "working" even though history correctly shows "failed".
+ *
+ * Behavior by terminal status:
+ *   - "failed":      mark every running/retrying node as "failed" so the UI
+ *                    reflects reality. Keeps `attempt`/`retryAttempts` for
+ *                    debugging context.
+ *   - "completed":   defensively sweep (a completed workflow shouldn't have
+ *                    running nodes, but guard against race anyway).
+ *   - "paused"/"interrupted": leave nodes UNTOUCHED — resume must be able to
+ *                    continue the in-flight node, so we can't fake-fail it.
+ */
+function sweepOrphanRunning(
+  nodes: Record<string, NodeState>,
+  terminalStatus: WorkflowState["status"],
+): Record<string, NodeState> {
+  // paused / interrupted → preserve in-flight nodes for resume.
+  if (terminalStatus === "paused" || terminalStatus === "interrupted") {
+    return nodes;
+  }
+  const failed = terminalStatus === "failed";
+  let changed = false;
+  const next: Record<string, NodeState> = {};
+  for (const [id, node] of Object.entries(nodes)) {
+    if (node.status === "running" || node.status === "retrying") {
+      changed = true;
+      next[id] = {
+        ...node,
+        status: "failed",
+        // Only stamp an error when the workflow actually failed — a
+        // "completed" sweep is defensive and shouldn't smear a failure
+        // message onto a node the backend considered successful.
+        ...(failed ? { error: node.error ?? "Workflow terminated" } : {}),
+      };
+    } else {
+      next[id] = node;
+    }
+  }
+  return changed ? next : nodes;
 }
 
 export interface WorkflowState {
@@ -150,6 +220,23 @@ export interface WorkflowState {
   // Event handlers
   handleWorkflowStarted: (payload: WorkflowStartedPayload) => void;
   handleWorkflowCompleted: (payload: WorkflowCompletedPayload) => void;
+  /**
+   * P2-T6/T7: workflow-level failure handler. Distinct from
+   * handleWorkflowCompleted because the payload carries executor-side
+   * context (stderr_tail / phase / failed_node) that we want to surface
+   * on the corresponding node + drive toast UI (P2-T9).
+   */
+  handleWorkflowError: (payload: WorkflowErrorPayload) => void;
+  /**
+   * P2-T1/T3: stash agent.executor_error on the node so toast / banner
+   * can render stderr_tail + phase. Does NOT flip status — node.failed
+   * (from node_factory except) is still the lifecycle owner.
+   */
+  pushExecutorError: (nodeId: string, payload: ExecutorErrorPayload) => void;
+  /** P2-T4: append the latest agent.api_retry for live retry counter UI. */
+  pushApiRetry: (nodeId: string, payload: ApiRetryPayload) => void;
+  /** P2-T4: stash the latest agent.status_update for liveness spinner UI. */
+  pushStatusUpdate: (nodeId: string, payload: StatusUpdatePayload) => void;
   handleNodeStarted: (payload: NodeStartedPayload) => void;
   handleNodeCompleted: (payload: NodeCompletedPayload) => void;
   handleNodeFailed: (payload: NodeFailedPayload) => void;
@@ -243,14 +330,22 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
     })),
 
   handleWorkflowCompleted: (payload) =>
-    set({
-      status: payload.status === "failed"
-        ? ("failed" as const)
-        : payload.status === "paused"
-          ? ("paused" as const)
-          : payload.status === "interrupted"
-            ? ("interrupted" as const)
-            : ("completed" as const),
+    set((state) => {
+      const status =
+        payload.status === "failed"
+          ? ("failed" as const)
+          : payload.status === "paused"
+            ? ("paused" as const)
+            : payload.status === "interrupted"
+              ? ("interrupted" as const)
+              : ("completed" as const);
+      return {
+        status,
+        // Sweep orphan running/retrying nodes — see sweepOrphanRunning docs.
+        // Without this, a workflow-level failure leaves mid-flight nodes
+        // stuck on "running" and the Outline view shows "working" forever.
+        nodes: sweepOrphanRunning(state.nodes, status),
+      };
     }),
 
   handleNodeStarted: (payload) =>
@@ -340,6 +435,91 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
         },
       },
     })),
+
+  handleWorkflowError: (payload) =>
+    set((state) => {
+      // Mark workflow status failed (mirrors old handleWorkflowCompleted
+      // path) and stamp the error onto the failed node if the payload
+      // carries one. executorError on the node is what the toast UI reads.
+      const nodes = { ...state.nodes };
+      if (payload.failed_node) {
+        const existing = nodes[payload.failed_node];
+        nodes[payload.failed_node] = {
+          ...(existing ?? {
+            id: payload.failed_node,
+            name: payload.failed_node,
+            status: "failed" as const,
+          }),
+          id: payload.failed_node,
+          status: "failed" as const,
+          error: payload.error,
+          errorType: payload.error_type,
+        };
+      }
+      return {
+        status: "failed" as const,
+        // Sweep orphans (existing behavior — without this, mid-flight
+        // nodes stay "running" forever on a workflow-level failure).
+        nodes: sweepOrphanRunning(nodes, "failed"),
+      };
+    }),
+
+  pushExecutorError: (nodeId, payload) =>
+    set((state) => {
+      const existing = state.nodes[nodeId];
+      return {
+        nodes: {
+          ...state.nodes,
+          [nodeId]: {
+            ...(existing ?? {
+              id: nodeId,
+              name: payload.agent_name ?? nodeId,
+              status: "failed" as const,
+            }),
+            id: nodeId,
+            executorError: payload,
+          },
+        },
+      };
+    }),
+
+  pushApiRetry: (nodeId, payload) =>
+    set((state) => {
+      const existing = state.nodes[nodeId];
+      return {
+        nodes: {
+          ...state.nodes,
+          [nodeId]: {
+            ...(existing ?? {
+              id: nodeId,
+              name: payload.agent_name ?? nodeId,
+              status: "retrying" as const,
+            }),
+            id: nodeId,
+            lastApiRetry: payload,
+          },
+        },
+      };
+    }),
+
+  pushStatusUpdate: (nodeId, payload) =>
+    set((state) => {
+      const existing = state.nodes[nodeId];
+      return {
+        nodes: {
+          ...state.nodes,
+          [nodeId]: {
+            ...(existing ?? {
+              id: nodeId,
+              name: payload.agent_name ?? nodeId,
+              status: "running" as const,
+            }),
+            id: nodeId,
+            lastStatus: payload,
+          },
+        },
+      };
+    }),
 
   setNodeUsage: (nodeId, requests, inputTokens, outputTokens, lastInput, lastOutput, cacheHit, lastCacheHit) =>
     set((state) => ({
