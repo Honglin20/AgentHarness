@@ -38,19 +38,31 @@ from harness.engine.schema_utils import strip_schema
 # clear it if they swap the file.
 # ---------------------------------------------------------------------------
 
-_BASE_MD_PATH = Path(__file__).resolve().parent / "base.md"
+# 范式 → base 文件名映射。pydantic-ai 范式用 base_pydantic.md（含 TodoTool /
+# final_result 强制契约）；minimal 范式（claude-code / codex / opencode / ...）
+# 用 base_minimal.md（去 pydantic-ai 专属工具契约）。
+#
+# P1-T1: 仅启用 pydantic-ai 路径（保持现有行为不变）；
+# P1-T2: assemble_static_prompt 加 executor 参数后，按范式分派加载。
+_BASE_MD_PATHS: dict[str, Path] = {
+    "pydantic-ai": Path(__file__).resolve().parent / "base_pydantic.md",
+    "minimal": Path(__file__).resolve().parent / "base_minimal.md",
+}
 
 
-@lru_cache(maxsize=1)
-def _load_base_layer() -> str:
-    """Read and cache the base working-norms prompt.
+@lru_cache(maxsize=2)
+def _load_base_layer(paradigm: str = "pydantic-ai") -> str:
+    """Read and cache the base working-norms prompt for the given paradigm.
 
     Returns the file content with surrounding whitespace stripped. If the
-    file is somehow missing, returns "" so assembly degrades gracefully to
-    the legacy (base-less) behavior rather than crashing every agent.
+    paradigm is unknown or the file is missing, returns "" so assembly
+    degrades gracefully rather than crashing every agent.
     """
+    path = _BASE_MD_PATHS.get(paradigm)
+    if path is None:
+        return ""
     try:
-        return _BASE_MD_PATH.read_text(encoding="utf-8").strip()
+        return path.read_text(encoding="utf-8").strip()
     except OSError:
         return ""
 
