@@ -1,12 +1,18 @@
 """Per-node executor factory — dispatches by ``agent_def.executor`` field.
 
-Phase A: ``LLMExecutor`` (pydantic-ai) is the only path that actually runs;
-``ClaudeCodeExecutor`` is a fail-loud placeholder until Phase C.
+P3-T6: dispatch is now profile-registry-driven. ``pydantic-ai`` is special
+(in-process, no CLI subprocess); every other registered executor name
+goes through ``ClaudeCodeExecutor`` with the matching ``CliProfile``.
+This lets operators register new CLI backends (opencode / codex / canary
+claude builds) via ``harness/cli_profiles/`` without touching this factory.
 
-新增 backend 的契约:
-  1. 在 ``harness.core.agent.VALID_EXECUTORS`` 加白名单
-  2. 实现一个 ``BaseExecutor`` 协议类（见 ``harness/engine/llm_executor.py``）
-  3. 在此 ``make_executor`` 加 ``elif`` 分支
+新增 backend 的契约（post-P3）:
+  1. 写一个 ``harness/cli_profiles/<name>.py`` 文件，导出 ``PROFILE: CliProfile``
+  2. ensure translator + result_extractor cover the backend's output format
+  3. (optional) project-level: ``./.harness/cli_profiles/<name>.py`` overrides builtin
+
+For non-CLI backends (in-process like pydantic-ai), keep the ``elif``
+form here — they do not have a CliProfile.
 
 详细设计: docs/plans/2026-06-25-claude-code-executor/detailed-design.md §4-§6
 """
@@ -39,25 +45,19 @@ def make_executor(
     """Dispatch to the right executor implementation based on ``agent_def.executor``.
 
     分派规则:
-      - ``"pydantic-ai"`` (default) → ``LLMExecutor``
-      - ``"claude-code"``            → ``ClaudeCodeExecutor`` (Phase A: 占位; Phase C: 实现)
+      - ``"pydantic-ai"`` (default) → ``LLMExecutor`` (in-process)
+      - any other registered name → ``ClaudeCodeExecutor`` with the
+        matching ``CliProfile`` (looked up via harness.engine.cli_profile.get_profile)
 
     所有 backend 共享同一组 metadata 参数（bus/ids/ext_ctx/...）；
-    ``pydantic_agent`` 仅 pydantic-ai 路径消费，claude-code 路径忽略。
+    ``pydantic_agent`` 仅 pydantic-ai 路径消费，CLI 路径忽略。
     """
     backend = getattr(agent_def, "executor", "pydantic-ai")
 
-    if backend == "claude-code":
-        # 局部 import 避免顶层依赖；Phase A 的占位类足以让 import 链路通
-        from harness.engine.claude_code_executor import ClaudeCodeExecutor
-
-        logger.debug(
-            "make_executor: dispatching agent %s to ClaudeCodeExecutor (Phase A scaffold)",
-            agent_name,
-        )
-        return ClaudeCodeExecutor(
-            agent_def=agent_def,
-            deps=deps,
+    if backend == "pydantic-ai":
+        return LLMExecutor(
+            pydantic_agent,
+            deps,
             event_bus=event_bus,
             workflow_id=workflow_id,
             node_id=node_id,
@@ -69,16 +69,34 @@ def make_executor(
             request_limit=request_limit,
         )
 
-    if backend != "pydantic-ai":
-        # 防御：Agent.__init__ 已经白名单校验，到这里的都是 bug
-        raise ValueError(
-            f"unknown executor backend {backend!r} on agent {agent_name!r}; "
-            f"valid options: see harness.core.agent.VALID_EXECUTORS"
-        )
+    # CLI backend: look up the profile and pass it to ClaudeCodeExecutor.
+    # Profile resolution lives in cli_profile.get_profile — clear errors
+    # for unknown / disabled profiles (P3-T3 / P3-T9).
+    from harness.engine.cli_profile import get_profile
+    from harness.engine.claude_code_executor import ClaudeCodeExecutor
 
-    return LLMExecutor(
-        pydantic_agent,
-        deps,
+    try:
+        profile = get_profile(backend)
+    except KeyError as exc:
+        raise ValueError(
+            f"unknown executor {backend!r} on agent {agent_name!r}; "
+            f"valid options: see harness.core.agent.VALID_EXECUTORS(). "
+            f"Detail: {exc}"
+        ) from exc
+    except ValueError as exc:
+        # Disabled profile — re-raise as ValueError so callers see the
+        # disable reason in the message.
+        raise ValueError(
+            f"executor {backend!r} on agent {agent_name!r} is unavailable: {exc}"
+        ) from exc
+
+    logger.debug(
+        "make_executor: dispatching agent %s to ClaudeCodeExecutor (profile=%s)",
+        agent_name, profile.name,
+    )
+    return ClaudeCodeExecutor(
+        agent_def=agent_def,
+        deps=deps,
         event_bus=event_bus,
         workflow_id=workflow_id,
         node_id=node_id,
@@ -88,4 +106,5 @@ def make_executor(
         cancel_fn=cancel_fn,
         token_aggregator=token_aggregator,
         request_limit=request_limit,
+        profile=profile,
     )
