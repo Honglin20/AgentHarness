@@ -9,6 +9,12 @@
 
 ## 2026-06
 
+- **2026-06-26** — **Prompt 范式分层（Phase 1 of executor-extensibility refactor）**：拆 `base.md` → `base_pydantic.md`（byte-identical）+ `base_minimal.md`（去 TodoTool/final_result 契约）；`assemble_static_prompt` 加 `executor` kwarg 分派范式（pydantic-ai / minimal）；`executor_to_paradigm` 默认映射 + `register_executor_paradigm` override hook；`node_factory` 总是调 assembler（修 free-text agent base 注入 bug）+ `except ValueError: raise` 保留 fail-loud；minimal 范式 golden baseline fixtures + 16 个新测试。**根因**：claude-code 路径被 pydantic-ai 的 TodoTool-MUST / final_result-tool 契约污染，模型 hallucinate 不存在的工具。真实 claude -p smoke 验证模型现在正确识别 ask_user 需求。70 prompt 测试全绿；全 backend 套件零新回归。Phase 2（ErrorEvent）+ Phase 3（CliProfile）pending。
+  → [完整 release note](../releases/2026-06-26-prompt-paradigm-split.md) | [ADR](../refactor/executor-extensibility/ADR.md) | [Plan](../plans/2026-06-26-executor-errors-prompt.md)
+
+- **2026-06-26** — **claude-code 路径盘驱动 + 工具映射 + env 配置修复**：用户切 executor 后跑 pydantic-ai 的 5 层叠加根因定位与修复。①`_create_and_start_workflow` 改盘驱动（POST body 不再覆盖 workflow.json）+ `_validate_workflow_dir` 查找顺序与 `list_saved_workflows` 对齐；②`_resolve_allowed_tools` 加 `mcp__harness__` 前缀映射；③`_load_env_overlay` 读项目 .env + `--setting-sources project` 跳过 `~/.claude/settings.json`（接入 DeepSeek）；④`node_factory` 构造 deps 时填 `agent_md_content`（claude 拿到 agent MD 作为 system prompt）。确立"workflow.json 是 agents 真相源"原则。**未解决**：ask_user 端到端实测、Phase G 翻译器补全（`api_retry`/`status`/`result.is_error`）、前端 retry UI。
+  → [完整 release note](../releases/2026-06-26-claude-code-disk-driven-and-env-fixes.md)
+
 - **2026-06-25** — **simple-nas 多方向专属 mutator 改造（路径 C）**：simple-nas 从单 mutator 串行改为 4 方向专属 mutator 并行（structural/hyperparam/lr/compute）。DAG 静态含 4 mutator 节点，setup 阶段用户 multi_select 选方向，未选方向的 mutator 头部 guard 自跳过（返回 `skipped: true`），analyzer fan-in 后串行更新 tree。**harness 核心 0 改动**（用 LangGraph 原生 fan-out/fan-in，不动 routing.py）。Task 6 静态检查时发现 plan 外并发风险：4 mutator 并发读 tree.json 推 vid 会算出相同 vid 互相覆盖，修复为 vid=`<direction>_<iter>` 无 lock。Review 阶段修复 5 项问题（CRITICAL: direction_to_agent dead code；HIGH: mutator guard `<N>` 路径字面量；M1-M3: schema/风格/首轮 experience 处理）。验证：compile + LangGraph 拓扑（11 节点 15 边）通过；完整 e2e 待用户跑（需 API key + UI + MNIST 训练）。
   → [完整 release note](../releases/2026-06-25-simple-nas-multi-mutator.md) | [Plan](../plans/2026-06-25-simple-nas-multi-mutator.md)
 
