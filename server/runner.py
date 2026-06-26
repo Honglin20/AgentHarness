@@ -16,6 +16,22 @@ from server.event_bus import EventBus
 logger = logging.getLogger(__name__)
 
 
+def _lookup_agent_executor(run_data: dict, node_id: str | None) -> str | None:
+    """Look up an agent's executor from agents_snapshot.
+
+    Used by workflow.error payload enrichment to surface which backend
+    crashed (e.g. "claude-code" vs "pydantic-ai") so the frontend can
+    show executor-specific hints.
+    """
+    if not node_id:
+        return None
+    snapshot = run_data.get("agents_snapshot") or []
+    for entry in snapshot:
+        if isinstance(entry, dict) and entry.get("name") == node_id:
+            return entry.get("executor") or "pydantic-ai"
+    return None
+
+
 def _serialize_outputs(outputs: dict) -> dict:
     """Convert BaseModel instances to dicts for JSON serialization."""
     return {
@@ -70,6 +86,10 @@ def _build_agents_snapshot(workflow) -> list[dict]:
             "on_fail": agent_def.on_fail,
             "eval": agent_def.eval if eval_target is None else True,
         }
+        # executor 仅在非默认值时写（与 Agent.to_dict 行为一致），保证旧 snapshot
+        # 自动兼容；reconstruct 时 Agent.from_dict 缺省读 DEFAULT_EXECUTOR。
+        if getattr(agent_def, "executor", "pydantic-ai") != "pydantic-ai":
+            snap["executor"] = agent_def.executor
         if agent_def.result_type is not None:
             from harness.schema_utils import result_type_to_schema
 
@@ -415,13 +435,54 @@ class WorkflowRunner:
                             batch_id, workflow_id, "failed", error=str(e)
                         )
 
-                # Emit error BEFORE persisting so the event lands in the buffer
-                # and gets saved with the run (replay parity with success path).
+                # P2-T6: workflow.error payload enriched with executor-side
+                # context so sinks (frontend / CLI / replay) can render the
+                # failure cause without scraping other events. When e is an
+                # ExecutorError, propagate stderr_tail / phase / executor /
+                # exit_code / executor_extra from the embedded ErrorEvent.
                 error_payload = {
                     "workflow_id": workflow_id,
                     "user_id": user_id,
                     "error": str(e),
+                    "error_type": type(e).__name__,
                 }
+
+                # ExecutorError carries a structured ErrorEvent — extract
+                # its fields onto the payload top-level (matches the
+                # agent.executor_event shape for sink-side uniformity).
+                from harness.engine.error_event import ExecutorError
+                if isinstance(e, ExecutorError):
+                    ev = e.error_event
+                    error_payload["executor"] = ev.executor
+                    if ev.phase:
+                        error_payload["phase"] = ev.phase
+                    if ev.stderr_tail:
+                        error_payload["stderr_tail"] = ev.stderr_tail
+                    if ev.exit_code is not None:
+                        error_payload["exit_code"] = ev.exit_code
+                    if ev.extra:
+                        error_payload["executor_extra"] = dict(ev.extra)
+
+                # failed_node: reverse-scan the bus buffer for the most
+                # recent node.failed event so the frontend can highlight
+                # which agent crashed (workflow-level errors don't always
+                # carry this; ExecutorError.node_id is the same info but
+                # only present on ExecutorError path).
+                if "failed_node" not in error_payload:
+                    for evt_type, evt_payload in reversed(getattr(event_bus, "buffer", [])):
+                        if evt_type == "node.failed":
+                            error_payload["failed_node"] = evt_payload.get("node_id")
+                            # Also surface executor from agents_snapshot if not
+                            # already set (covers non-ExecutorError paths).
+                            if "executor" not in error_payload:
+                                snap = _lookup_agent_executor(
+                                    repo.get(workflow_id) or {},
+                                    evt_payload.get("node_id"),
+                                )
+                                if snap:
+                                    error_payload["executor"] = snap
+                            break
+
                 if batch_id:
                     error_payload["batch_id"] = batch_id
                 event_bus.emit("workflow.error", error_payload)
