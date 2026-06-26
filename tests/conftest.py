@@ -11,4 +11,21 @@ os.environ.setdefault("HARNESS_SKIP_MCP", "1")
 # "claude-code" profile from the registry without each test file
 # importing harness.cli_profiles explicitly.
 import harness.cli_profiles  # noqa: F401
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _ensure_builtin_profiles_loaded():
+    """Reload builtin CLI profiles before each test.
+
+    Profile tests (test_cli_profile_*) call reset_registry() which
+    clears everything including builtins. Without this fixture, the next
+    test that constructs ClaudeCodeExecutor fails with "claude-code not
+    found". Reload right before each test so the registry always has
+    builtins available.
+    """
+    from harness.engine.cli_profile import registered_profile_names
+    if "claude-code" not in registered_profile_names():
+        from harness.cli_profiles import load_builtin_profiles
+        load_builtin_profiles()
 

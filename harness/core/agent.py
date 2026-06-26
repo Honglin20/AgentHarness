@@ -15,13 +15,38 @@ from pydantic import BaseModel
 from harness.compiler.md_parser import resolve_agent_md
 from harness.types import AgentResult
 
-# Whitelist of valid executor backends. ``pydantic-ai`` is the default and
-# historically the only option; ``claude-code`` spawns a ``claude -p``
-# subprocess to run the agent MD (Phase A introduces the field, Phase C
-# implements the executor). Adding a new backend = adding to this set +
-# providing an executor implementation in harness/engine/.
-VALID_EXECUTORS = frozenset({"pydantic-ai", "claude-code"})
+# Static builtin executor whitelist. ``pydantic-ai`` is the default and
+# historically the only in-process option; ``claude-code`` is the canonical
+# CLI subprocess backend (registered by harness/cli_profiles/claude.py).
+#
+# P3-T5: VALID_EXECUTORS is now a FUNCTION (dynamic) so user-registered
+# CliProfiles (opencode / codex / project-level) merge into the valid set
+# at runtime. The static ``BUILTIN_EXECUTORS`` frozenset is kept for
+# code that needs the unchanging builtin set (e.g. serialization tests).
+BUILTIN_EXECUTORS = frozenset({"pydantic-ai", "claude-code"})
 DEFAULT_EXECUTOR = "pydantic-ai"
+
+
+def VALID_EXECUTORS() -> frozenset[str]:
+    """Return the set of currently-valid executor names.
+
+    Merges ``BUILTIN_EXECUTORS`` with all profile names registered in the
+    CliProfile registry (builtins via harness/cli_profiles/, project-level
+    via <cwd>/.harness/cli_profiles/, disabled profiles included so users
+    see the failure rather than silently dropping).
+
+    Why a function not a frozenset: CliProfile registration happens at
+    runtime (server / CLI startup); a static frozenset cannot reflect
+    project-level overrides without re-import.
+    """
+    # Lazy import to avoid circular dependency (cli_profile imports from
+    # harness.translator which transitively touches harness.types).
+    try:
+        from harness.engine.cli_profile import registered_profile_names
+        return BUILTIN_EXECUTORS | registered_profile_names()
+    except ImportError:
+        # cli_profile unavailable during early bootstrap — return builtins.
+        return BUILTIN_EXECUTORS
 
 
 def _extract_description(agent_name: str, workflow_dir: Path) -> str:
@@ -88,10 +113,11 @@ class Agent:
         self.on_fail = on_fail
         self.eval = eval
         # executor 字段必须经白名单校验，fail-loud；任何新 backend 需先在
-        # VALID_EXECUTORS 注册（见模块顶部 docstring）。
-        if executor not in VALID_EXECUTORS:
+        # VALID_EXECUTORS() 注册（动态函数 — builtin + profile registry）。
+        valid = VALID_EXECUTORS()
+        if executor not in valid:
             raise ValueError(
-                f"executor must be one of {sorted(VALID_EXECUTORS)}, got {executor!r}"
+                f"executor must be one of {sorted(valid)}, got {executor!r}"
             )
         self.executor = executor
         # eval_target: set on materialized judge agents; survives save/load so

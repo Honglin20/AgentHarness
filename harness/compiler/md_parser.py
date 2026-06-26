@@ -62,7 +62,8 @@ def parse_agent_md(path: Path) -> ParsedAgent:
         raise FileNotFoundError(f"Agent file not found: {path}")
 
     # 局部 import 避免顶层循环：harness.core.agent 顶层依赖本模块的 resolve_agent_md。
-    from harness.core.agent import DEFAULT_EXECUTOR, VALID_EXECUTORS
+    # P3-T5: VALID_EXECUTORS is now a function (dynamic — builtin + profile registry).
+    from harness.core.agent import DEFAULT_EXECUTOR, VALID_EXECUTORS as _valid_executors_fn
 
     post = frontmatter.load(str(path))
 
@@ -74,9 +75,10 @@ def parse_agent_md(path: Path) -> ParsedAgent:
         raise ValueError(f"Missing required 'name' field in frontmatter of {path}")
 
     executor = post.metadata.get("executor", DEFAULT_EXECUTOR)
-    if executor not in VALID_EXECUTORS:
+    valid_executors = _valid_executors_fn()
+    if executor not in valid_executors:
         raise ValueError(
-            f"executor must be one of {sorted(VALID_EXECUTORS)}, got {executor!r} "
+            f"executor must be one of {sorted(valid_executors)}, got {executor!r} "
             f"in {path}"
         )
 

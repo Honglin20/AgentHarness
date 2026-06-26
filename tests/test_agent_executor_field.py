@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from harness.core.agent import (
+    BUILTIN_EXECUTORS,
     DEFAULT_EXECUTOR,
     VALID_EXECUTORS,
     Agent,
@@ -24,9 +25,37 @@ class TestExecutorFieldDefault:
         assert a.executor == "pydantic-ai"
 
     def test_valid_executors_whitelist_includes_both_backends(self):
-        assert "pydantic-ai" in VALID_EXECUTORS
-        assert "claude-code" in VALID_EXECUTORS
-        assert len(VALID_EXECUTORS) >= 2
+        # P3-T5: VALID_EXECUTORS is now a function (dynamic — builtin +
+        # profile registry). BUILTIN_EXECUTORS is the static set.
+        valid = VALID_EXECUTORS()
+        assert "pydantic-ai" in valid
+        assert "claude-code" in valid
+        assert len(valid) >= 2
+
+    def test_valid_executors_includes_registered_profiles(self):
+        """P3-T5: registering a profile adds it to the valid set."""
+        from harness.engine.cli_profile import (
+            CliProfile, register_cli_profile, reset_registry,
+        )
+        # Fixture: reset + reload builtins so test isolation holds
+        reset_registry()
+        try:
+            from harness.cli_profiles import load_builtin_profiles
+            load_builtin_profiles()
+            custom_profile = CliProfile(
+                name="mock-opencode", prompt_paradigm="minimal",
+                cli_path_env="HARNESS_OPENCODE_CLI", default_cli_path="opencode",
+                flags=(), prompt_channel="stdin", mcp_flag_template=None,
+                env_overlay_prefixes=("X",),
+                translator=lambda r, c: [], result_extractor=lambda t, rt: t,
+            )
+            register_cli_profile(custom_profile)
+            assert "mock-opencode" in VALID_EXECUTORS()
+            # Agent construction with the new executor succeeds
+            agent = Agent("x", executor="mock-opencode")
+            assert agent.executor == "mock-opencode"
+        finally:
+            reset_registry()
 
 
 class TestExecutorFieldAssignment:

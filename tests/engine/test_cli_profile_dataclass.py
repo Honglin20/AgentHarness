@@ -51,10 +51,16 @@ def _make_profile(name="test-cli", **overrides):
 
 @pytest.fixture(autouse=True)
 def _reset_registry():
-    """Each test gets a clean registry (registry is process-global)."""
+    """Each test gets a clean registry (registry is process-global).
+    After reset, reload builtins so the test sees the same state as
+    production startup — without this, downstream tests that depend on
+    the "claude-code" profile being registered would fail."""
     reset_registry()
+    from harness.cli_profiles import load_builtin_profiles
+    load_builtin_profiles()
     yield
     reset_registry()
+    load_builtin_profiles()
 
 
 # ---------------------------------------------------------------------------
@@ -130,9 +136,13 @@ def test_get_unknown_raises_keyerror_with_valid_options():
 
 
 def test_registered_profile_names_includes_all():
+    """Names just registered must be in the set. Other builtins (claude-code)
+    may also be present after the fixture reloads them."""
     register_cli_profile(_make_profile(name="alpha"))
     register_cli_profile(_make_profile(name="beta"))
-    assert registered_profile_names() == frozenset({"alpha", "beta"})
+    names = registered_profile_names()
+    assert "alpha" in names
+    assert "beta" in names
 
 
 # ---------------------------------------------------------------------------
