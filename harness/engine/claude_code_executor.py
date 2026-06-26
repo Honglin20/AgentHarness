@@ -453,11 +453,19 @@ class ClaudeCodeExecutor:
         return cfg
 
     def _load_env_overlay(self) -> dict[str, str]:
-        """读项目 .env，提取 ANTHROPIC_*/CLAUDE_* 作为子进程 env overlay。
+        """读项目 .env，按 profile.env_overlay_prefixes 提取 keys 作为
+        子进程 env overlay。同时支持 ``HARNESS_<NAME>_ENV_<KEY>`` 形式
+        覆盖 + ``HARNESS_<NAME>_CLI`` 覆盖 cli_path。
+
+        P3-T7: prefixes 来自 ``self._profile.env_overlay_prefixes``（claude
+        profile 是 ("ANTHROPIC_", "CLAUDE_")，opencode 可能是 ("OPENCODE_",)）。
+        以前硬编码 ANTHROPIC_/CLAUDE_ — 现在通过 profile 配置，新 backend
+        不需要改 executor 代码。
 
         查找顺序：``harness.paths.get_env_file()``（项目根 .env）。
-        只提取 LLM 相关前缀，避免把整个 .env（可能含敏感 HARNESS_API_KEY 等）
-        带进子进程；HARNESS_* 已经在父进程 env 里，子进程天然继承。
+        只提取 profile 声明的前缀，避免把整个 .env（可能含敏感
+        HARNESS_API_KEY 等）带进子进程；HARNESS_* 已经在父进程 env 里，
+        子进程天然继承。
 
         为什么需要：用户用 claude code 编程时，shell 全局 env 里的
         ANTHROPIC_AUTH_TOKEN/BASE_URL 指向编程用的 gateway。如果 spawn
@@ -472,28 +480,41 @@ class ClaudeCodeExecutor:
         fallback 稳定定位到项目根 .env，不受 chdir 影响。
         """
         from harness.paths import get_env_file
+        import os
         overlay: dict[str, str] = {}
         env_path = get_env_file()
-        if not env_path.exists():
-            return overlay
-        try:
-            content = env_path.read_text(encoding="utf-8")
-        except OSError:
-            return overlay
-        for raw_line in content.splitlines():
-            line = raw_line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            key = key.strip()
-            value = value.strip().strip("'").strip('"')
-            # 只 overlay LLM 相关；其他 env 让父进程继承
-            if key.startswith(("ANTHROPIC_", "CLAUDE_")):
-                overlay[key] = value
+        prefixes = tuple(self._profile.env_overlay_prefixes)
+        # Construct the per-profile env override prefix:
+        #   claude-code → HARNESS_CLAUDE_CODE_ENV_
+        # Profile names use kebab-case; convert to upper-snake for env vars.
+        profile_env_prefix = "HARNESS_" + self._profile.name.upper().replace("-", "_") + "_ENV_"
+        if env_path.exists():
+            try:
+                content = env_path.read_text(encoding="utf-8")
+            except OSError:
+                content = ""
+            for raw_line in content.splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip().strip("'").strip('"')
+                # Only overlay profile-declared prefixes; other env vars
+                # are inherited from the parent process naturally.
+                if key.startswith(prefixes):
+                    overlay[key] = value
+        # Layer 2: per-profile HARNESS_<NAME>_ENV_<KEY>=val overrides win
+        # over .env values. Lets operators do canary tests without editing
+        # the project .env (e.g. HARNESS_CLAUDE_CODE_ENV_ANTHROPIC_BASE_URL=...).
+        for env_key, env_value in os.environ.items():
+            if env_key.startswith(profile_env_prefix):
+                stripped = env_key[len(profile_env_prefix):]
+                overlay[stripped] = env_value
         if overlay:
             logger.debug(
-                "claude -p env overlay from .env: keys=%s",
-                sorted(overlay.keys()),
+                "%s env overlay: keys=%s",
+                self._profile.name, sorted(overlay.keys()),
             )
         return overlay
 
