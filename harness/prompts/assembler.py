@@ -1,21 +1,28 @@
 """Static system-prompt assembler.
 
 Builds the static portion of an agent's system prompt from layered sources.
-Extracted verbatim from ``harness/engine/node_factory.py`` (the
-``augmented_prompt`` construction at lines ~147-165) — TASK 1 is a pure
-behavior-preserving refactor. The byte-level contract is frozen by
-``tests/test_prompt_baseline.py``: ``assemble_static_prompt()`` must
-reproduce every golden fixture exactly.
+Extracted from ``harness/engine/node_factory.py`` (the ``augmented_prompt``
+construction at lines ~147-165). The byte-level contract for the pydantic-ai
+paradigm is frozen by ``tests/test_prompt_baseline.py``: ``assemble_static_prompt()``
+with default ``executor="pydantic-ai"`` must reproduce every golden fixture exactly.
 
-Layers assembled (TASK 1 scope — base layer added in TASK 3):
-  - agent_md_body : the agent's domain prompt (caller-supplied, verbatim)
-  - output format : appended only when result_type is provided; tells the
-                    model to call the ``final_result`` tool with the
-                    result_type's JSON schema.
+Paradigm split (P1-T2):
+  - ``pydantic-ai`` paradigm — TodoTool MUST / final_result tool contracts;
+        used by the pydantic-ai SDK executor (in-process tool dispatch).
+  - ``minimal`` paradigm — no pydantic-ai-only tool contracts; used by CLI
+        subprocess executors (claude-code / codex / opencode / ...) that
+        bring their own tool protocol (MCP / function calls) and would
+        otherwise be told to call non-existent tools.
 
-The output-format wording is deliberately identical to the legacy inline
-formulation. Do NOT "improve" it here without regenerating the baseline
-fixtures — that is the regression detector.
+Layers assembled:
+  [base]    base working norms (paradigm-specific md file)
+  [agent]   ``agent_md_body`` verbatim (domain logic)
+  [output]  ``## Output Format`` + schema (only when result_type set;
+            wording depends on paradigm)
+
+The pydantic-ai output-format wording is deliberately identical to the
+legacy inline formulation. Do NOT "improve" it without regenerating the
+baseline fixtures — that is the regression detector.
 """
 from __future__ import annotations
 
@@ -29,51 +36,99 @@ from pydantic import BaseModel
 from harness.engine.schema_utils import strip_schema
 
 # ---------------------------------------------------------------------------
-# Base-layer content (cross-agent working norms).
+# Paradigm registry.
 #
-# Loaded once from harness/prompts/base.md and cached (module-level, since
-# the file ships with the package and never changes within a process). A
-# process-level cache is correct here: base.md is framework-shipped, not
-# user-editable at runtime. The lru_cache wraps a function so tests can
-# clear it if they swap the file.
+# Two prompt paradigms exist; every executor (builtin or user-registered via
+# CliProfile in P3) must belong to exactly one. The paradigm dictates which
+# base-md file is loaded and which output-format wording is appended.
 # ---------------------------------------------------------------------------
 
-# 范式 → base 文件名映射。pydantic-ai 范式用 base_pydantic.md（含 TodoTool /
-# final_result 强制契约）；minimal 范式（claude-code / codex / opencode / ...）
-# 用 base_minimal.md（去 pydantic-ai 专属工具契约）。
+#: Canonical paradigm identifiers. Adding a third paradigm is a framework-level
+#: change — it requires a new base-md file + a new output-format template.
+PROMPT_PARADIGMS: frozenset[str] = frozenset({"pydantic-ai", "minimal"})
+
+
+#: Mapping from executor name → prompt paradigm. pydantic-ai is special (its
+#: paradigm shares the name); every CLI executor defaults to "minimal" until
+#: a CliProfile overrides it (P3-T1+).
+_EXECUTOR_PARADIGM_OVERRIDES: dict[str, str] = {}
+
+
+def register_executor_paradigm(executor: str, paradigm: str) -> None:
+    """Override the paradigm an executor belongs to.
+
+    Used by CliProfile registration (P3) to declare e.g. an executor that
+    should follow the pydantic-ai prompt paradigm even though it spawns a
+    subprocess. Default mapping covers builtin executors; overrides are
+    idempotent (last-write-wins).
+    """
+    if paradigm not in PROMPT_PARADIGMS:
+        raise ValueError(
+            f"unknown paradigm {paradigm!r}; valid options: {sorted(PROMPT_PARADIGMS)}"
+        )
+    _EXECUTOR_PARADIGM_OVERRIDES[executor] = paradigm
+
+
+def executor_to_paradigm(executor: str) -> str:
+    """Map an executor name to its prompt paradigm.
+
+    Rules:
+      - ``"pydantic-ai"`` (builtin) → ``"pydantic-ai"`` paradigm
+      - Anything else (including all CLI subprocess executors) → ``"minimal"``
+      - CliProfile-registered overrides via ``register_executor_paradigm``
+        take precedence (P3+).
+    """
+    if executor in _EXECUTOR_PARADIGM_OVERRIDES:
+        return _EXECUTOR_PARADIGM_OVERRIDES[executor]
+    if executor == "pydantic-ai":
+        return "pydantic-ai"
+    return "minimal"
+
+
+# ---------------------------------------------------------------------------
+# Base-layer content (paradigm-specific working norms).
 #
-# P1-T1: 仅启用 pydantic-ai 路径（保持现有行为不变）；
-# P1-T2: assemble_static_prompt 加 executor 参数后，按范式分派加载。
+# Loaded once per paradigm and cached (module-level, since the files ship
+# with the package and never change within a process). lru_cache covers
+# both paradigms; tests can .cache_clear() if they swap a file.
+# ---------------------------------------------------------------------------
+
 _BASE_MD_PATHS: dict[str, Path] = {
     "pydantic-ai": Path(__file__).resolve().parent / "base_pydantic.md",
     "minimal": Path(__file__).resolve().parent / "base_minimal.md",
 }
 
 
-@lru_cache(maxsize=2)
+@lru_cache(maxsize=len(_BASE_MD_PATHS))
 def _load_base_layer(paradigm: str = "pydantic-ai") -> str:
     """Read and cache the base working-norms prompt for the given paradigm.
 
-    Returns the file content with surrounding whitespace stripped. If the
-    paradigm is unknown or the file is missing, returns "" so assembly
-    degrades gracefully rather than crashing every agent.
+    Returns the file content with surrounding whitespace stripped. Unknown
+    paradigm → raises ValueError (fail-loud). Missing file → returns "" so
+    a corrupted install degrades gracefully rather than crashing every agent.
     """
-    path = _BASE_MD_PATHS.get(paradigm)
-    if path is None:
-        return ""
+    if paradigm not in _BASE_MD_PATHS:
+        raise ValueError(
+            f"unknown paradigm {paradigm!r}; valid options: {sorted(_BASE_MD_PATHS)}"
+        )
     try:
-        return path.read_text(encoding="utf-8").strip()
+        return _BASE_MD_PATHS[paradigm].read_text(encoding="utf-8").strip()
     except OSError:
         return ""
 
+
 # ---------------------------------------------------------------------------
-# Output-format section.
+# Output-format sections (paradigm-specific wording).
 #
-# Frozen wording — matches node_factory.py:147-165 byte-for-byte. Changing
-# this string changes the byte-level baseline; do so deliberately via
-# tests/capture_prompt_baseline.py regeneration.
+# Both templates append the result_type schema. The pydantic-ai wording is
+# frozen by baseline fixtures — DO NOT change without regenerating. The
+# minimal wording is new in P1-T2 (no legacy baseline to protect).
 # ---------------------------------------------------------------------------
-_OUTPUT_FORMAT_TEMPLATE = (
+
+#: pydantic-ai path: instructs the model to call the registered `final_result`
+#: tool with the result_type schema. Frozen wording — baseline fixtures
+#: assert byte-level stability.
+_OUTPUT_FORMAT_PYDANTIC_TEMPLATE = (
     "\n\n## Output Format\n"
     "Use tools freely. Before each tool call, briefly state what you intend to do and why.\n\n"
     "When the work is complete, **call the `final_result` tool** with arguments matching this schema:\n"
@@ -85,29 +140,54 @@ _OUTPUT_FORMAT_TEMPLATE = (
 )
 
 
-def _output_format_section(result_type: Type[BaseModel]) -> str:
-    """Render the output-format section for a result_type.
+#: minimal path: instructs the model to respond with JSON matching the schema
+#: directly. CLI backends (claude -p / codex / opencode) have no `final_result`
+#: tool registered — referencing it would confuse the model.
+_OUTPUT_FORMAT_MINIMAL_TEMPLATE = (
+    "\n\n## Output Format\n"
+    "When the work is complete, respond with a single JSON object matching this schema:\n"
+    "{schema}\n\n"
+    "Output ONLY the JSON object — no surrounding prose, no markdown fences. "
+    "If a previous attempt was rejected for being malformed JSON, switch "
+    "immediately to emitting a valid JSON object with the fields shown above."
+)
+
+
+def _output_format_section(result_type: Type[BaseModel], paradigm: str = "pydantic-ai") -> str:
+    """Render the output-format section for a result_type under a paradigm.
 
     Returns the section WITHOUT a leading separator — it is appended to the
-    agent body, which already provides the join point (``\\n\\n``). Caller
-    is responsible for concatenation order.
+    agent body, which already provides the join point (``\\n\\n``).
+
+    Raises ``ValueError`` on unknown paradigm (fail-loud, symmetric with
+    ``_load_base_layer``). Caller is expected to pass a canonical paradigm
+    via ``executor_to_paradigm``.
     """
+    if paradigm == "pydantic-ai":
+        template = _OUTPUT_FORMAT_PYDANTIC_TEMPLATE
+    elif paradigm == "minimal":
+        template = _OUTPUT_FORMAT_MINIMAL_TEMPLATE
+    else:
+        raise ValueError(
+            f"unknown paradigm {paradigm!r}; valid options: {sorted(PROMPT_PARADIGMS)}"
+        )
     schema = strip_schema(result_type.model_json_schema())
-    return _OUTPUT_FORMAT_TEMPLATE.format(
-        schema=json.dumps(schema, indent=2, ensure_ascii=False)
-    )
+    return template.format(schema=json.dumps(schema, indent=2, ensure_ascii=False))
 
 
 def assemble_static_prompt(
     agent_md_body: str,
     result_type: Type[BaseModel] | None,
+    *,
+    executor: str = "pydantic-ai",
 ) -> str:
     """Assemble the static system prompt for one agent.
 
     Layer order (first = seen first by the model):
-      [base]    base working norms (harness/prompts/base.md)
+      [base]    base working norms (paradigm-specific)
       [agent]   ``agent_md_body`` verbatim (domain logic)
-      [output]  ``## Output Format`` + schema (only when result_type set)
+      [output]  ``## Output Format`` + schema (only when result_type set;
+                wording depends on paradigm)
 
     Parameters
     ----------
@@ -116,8 +196,12 @@ def assemble_static_prompt(
         Treated as opaque text — no parsing or mutation here.
     result_type
         The agent's structured output type, or None for free-text agents.
-        When provided, an ``## Output Format`` section is appended instructing
-        the model to call the ``final_result`` tool with the type's schema.
+        When provided, a paradigm-specific ``## Output Format`` section is
+        appended.
+    executor
+        Executor name (``agent_def.executor``). Determines the prompt
+        paradigm via :func:`executor_to_paradigm`. Default ``"pydantic-ai"``
+        keeps every legacy call site byte-level unchanged.
 
     Returns
     -------
@@ -126,20 +210,21 @@ def assemble_static_prompt(
 
     Notes
     -----
-    - The base layer is cached at module load (base.md ships with the
+    - The base layer is cached at module load (paradigm-md ships with the
       framework and is immutable within a process).
     - result_type schema derivation failures are NOT caught here — callers
       needing the lenient fallback should wrap this call.
     - An empty ``agent_md_body`` still gets the base prefix; an empty
       ``result_type``-free agent with empty body yields just the base layer.
     """
+    paradigm = executor_to_paradigm(executor)
     parts: list[str] = []
-    base = _load_base_layer()
+    base = _load_base_layer(paradigm)
     if base:
         parts.append(base)
     if agent_md_body:
         parts.append(agent_md_body)
     prompt = "\n\n".join(parts)
     if result_type is not None:
-        prompt += _output_format_section(result_type)
+        prompt += _output_format_section(result_type, paradigm)
     return prompt
