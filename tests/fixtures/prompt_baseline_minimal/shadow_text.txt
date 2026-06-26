@@ -1,0 +1,25 @@
+# Reporter
+
+Write a report. Note: the framework calls `final_result` — match its schema.
+
+
+## Output Format
+When the work is complete, respond with a single JSON object matching this schema:
+{
+  "properties": {
+    "summary": {
+      "description": "Your final conclusion or answer. Be concise and direct.",
+      "type": "string"
+    },
+    "details": {
+      "type": "string | null",
+      "description": "Your reasoning process, analysis steps, and key observations. Show your chain of thought here."
+    }
+  },
+  "required": [
+    "summary"
+  ],
+  "type": "object"
+}
+
+Output ONLY the JSON object — no surrounding prose, no markdown fences. If a previous attempt was rejected for being malformed JSON, switch immediately to emitting a valid JSON object with the fields shown above.

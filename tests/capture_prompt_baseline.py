@@ -73,6 +73,40 @@ def legacy_assemble(agent_md_body: str, result_type: Type[BaseModel] | None) -> 
 
 
 # ---------------------------------------------------------------------------
+# Minimal-paradigm baseline (P1-T4).
+#
+# Captures the output-format wording used for CLI backends (claude-code /
+# codex / opencode). Distinct from legacy_assemble because the wording is
+# new — no legacy inline formulation to mirror.
+# ---------------------------------------------------------------------------
+
+_MINIMAL_OUTPUT_FORMAT_TEMPLATE = (
+    "\n\n## Output Format\n"
+    "When the work is complete, respond with a single JSON object matching this schema:\n"
+    "{schema}\n\n"
+    "Output ONLY the JSON object — no surrounding prose, no markdown fences. "
+    "If a previous attempt was rejected for being malformed JSON, switch "
+    "immediately to emitting a valid JSON object with the fields shown above."
+)
+
+
+def minimal_assemble(agent_md_body: str, result_type: Type[BaseModel] | None) -> str:
+    """Mirror of legacy_assemble for the minimal paradigm.
+
+    Used to lock the minimal output-format wording byte-level so that
+    changes to the wording are deliberate (regenerate fixtures) rather
+    than accidental drift.
+    """
+    augmented = agent_md_body
+    if result_type is not None:
+        schema = strip_schema(result_type.model_json_schema())
+        augmented += _MINIMAL_OUTPUT_FORMAT_TEMPLATE.format(
+            schema=json.dumps(schema, indent=2, ensure_ascii=False)
+        )
+    return augmented
+
+
+# ---------------------------------------------------------------------------
 # Golden input matrix — realistic agent shapes from the real codebase.
 # ---------------------------------------------------------------------------
 
@@ -139,6 +173,7 @@ def golden_inputs() -> list[tuple[str, str, Type[BaseModel] | None]]:
 # ---------------------------------------------------------------------------
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "prompt_baseline"
+MINIMAL_FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "prompt_baseline_minimal"
 
 
 def generate_fixtures() -> Path:
@@ -146,9 +181,14 @@ def generate_fixtures() -> Path:
 
     Each .txt is the exact string legacy_assemble() produces; manifest.json
     records case → result_type + byte size + sha256 prefix for quick audit.
+    Also regenerates minimal-paradigm fixtures under
+    fixtures/prompt_baseline_minimal/ so the minimal output-format wording
+    is locked at the same byte-level rigor.
     """
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
+    MINIMAL_FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
     manifest: list[dict[str, str]] = []
+    minimal_manifest: list[dict[str, str]] = []
     for name, body, result_type in golden_inputs():
         output = legacy_assemble(body, result_type)
         (FIXTURE_DIR / f"{name}.txt").write_text(output, encoding="utf-8")
@@ -160,7 +200,21 @@ def generate_fixtures() -> Path:
                 output.encode("utf-8")
             ).hexdigest()[:8],
         })
+        minimal_output = minimal_assemble(body, result_type)
+        (MINIMAL_FIXTURE_DIR / f"{name}.txt").write_text(minimal_output, encoding="utf-8")
+        minimal_manifest.append({
+            "case": name,
+            "result_type": "None" if result_type is None else result_type.__name__,
+            "bytes": str(len(minimal_output.encode("utf-8"))),
+            "sha256_first8": hashlib.sha256(
+                minimal_output.encode("utf-8")
+            ).hexdigest()[:8],
+            "paradigm": "minimal",
+        })
     (FIXTURE_DIR / "manifest.json").write_text(
         json.dumps(manifest, indent=2), encoding="utf-8"
+    )
+    (MINIMAL_FIXTURE_DIR / "manifest.json").write_text(
+        json.dumps(minimal_manifest, indent=2), encoding="utf-8"
     )
     return FIXTURE_DIR

@@ -1,0 +1,44 @@
+[
+  {
+    "case": "free_text",
+    "result_type": "None",
+    "bytes": "131",
+    "sha256_first8": "dd8ea54e",
+    "paradigm": "minimal"
+  },
+  {
+    "case": "default_agent_result",
+    "result_type": "AgentResult",
+    "bytes": "764",
+    "sha256_first8": "48c0e110",
+    "paradigm": "minimal"
+  },
+  {
+    "case": "custom_result_type",
+    "result_type": "_BaselineCustomResult",
+    "bytes": "997",
+    "sha256_first8": "8b58bb01",
+    "paradigm": "minimal"
+  },
+  {
+    "case": "shadow_text",
+    "result_type": "AgentResult",
+    "bytes": "788",
+    "sha256_first8": "f0643839",
+    "paradigm": "minimal"
+  },
+  {
+    "case": "empty_body",
+    "result_type": "AgentResult",
+    "bytes": "697",
+    "sha256_first8": "f96e7d82",
+    "paradigm": "minimal"
+  },
+  {
+    "case": "empty_body_no_result",
+    "result_type": "None",
+    "bytes": "0",
+    "sha256_first8": "e3b0c442",
+    "paradigm": "minimal"
+  }
+]
