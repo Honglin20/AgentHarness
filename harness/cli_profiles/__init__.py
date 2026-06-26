@@ -68,45 +68,45 @@ PROFILE_ATTR = "PROFILE"
 # ---------------------------------------------------------------------------
 
 
-def _load_profile_from_path(path: Path) -> CliProfile | None:
-    """Load a single profile module from ``path`` and return its PROFILE.
+def _load_profile_from_path(path: Path) -> tuple[CliProfile | None, str | None]:
+    """Load a single profile module from ``path``.
 
-    Returns None on any error — caller decides what to do with the
-    diagnostic (caller knows the profile name to disable).
+    Returns ``(profile, None)`` on success or ``(None, reason)`` on failure.
+    Caller uses the reason to call ``disable_profile(name, reason)`` so
+    operators see the actual error (not just "failed to load").
 
     Errors handled here:
-      - syntax / import errors
-      - missing PROFILE attribute
-      - PROFILE is not a CliProfile instance
+      - syntax / import errors (reason: "<ErrorType>: <message>")
+      - missing PROFILE attribute (reason: "module does not export PROFILE")
+      - PROFILE is not a CliProfile (reason: "PROFILE is <type>, not CliProfile")
     """
     module_name = f"_harness_cli_profile_{path.stem}"
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
         logger.warning("could not build spec for %s", path)
-        return None
+        return None, "importlib could not build module spec"
     module = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(module)  # type: ignore[union-attr]
     except Exception as exc:
+        reason = f"{type(exc).__name__}: {exc}"
         logger.warning(
-            "profile module %s failed to import: %s: %s",
-            path, type(exc).__name__, exc,
+            "profile module %s failed to import: %s", path, reason,
         )
-        return None
+        return None, reason
     profile = getattr(module, PROFILE_ATTR, None)
     if profile is None:
-        logger.warning(
-            "profile module %s does not export %r — skipping",
-            path, PROFILE_ATTR,
-        )
-        return None
+        reason = f"module {path.name} does not export {PROFILE_ATTR!r}"
+        logger.warning(reason)
+        return None, reason
     if not isinstance(profile, CliProfile):
-        logger.warning(
-            "profile module %s exported %r but it is %s, not CliProfile",
-            path, PROFILE_ATTR, type(profile).__name__,
+        reason = (
+            f"module {path.name} exported {PROFILE_ATTR!r} but it is "
+            f"{type(profile).__name__}, not CliProfile"
         )
-        return None
-    return profile
+        logger.warning(reason)
+        return None, reason
+    return profile, None
 
 
 def _discover_profile_files(directory: Path) -> list[Path]:
@@ -186,15 +186,12 @@ def _load_directory(directory: Path, label: str) -> int:
         # Profile name default = filename stem. If the loaded PROFILE
         # has a different .name attribute, that wins (caller intent).
         default_name = path.stem
-        profile = _load_profile_from_path(path)
+        profile, reason = _load_profile_from_path(path)
         if profile is None:
             # Module failed to load or didn't export a valid PROFILE.
             # Disable by filename stem so users get a clear error if
-            # they try to use it.
-            disable_profile(
-                default_name,
-                f"module {path.name} failed to load (see startup log)",
-            )
+            # they try to use it — include the specific failure reason.
+            disable_profile(default_name, reason or "unknown failure")
             continue
         try:
             register_cli_profile(profile)
