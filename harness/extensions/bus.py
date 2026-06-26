@@ -78,6 +78,13 @@ CRITICAL_EVENT_TYPES: frozenset[str] = frozenset({
     # failure summary. Earlier retry_attempted events are normal because
     # the final classified reason subsumes them.
     "agent.failed_with_classified_reason",
+    # Canonical executor error (P2-T1 ErrorEvent contract) — the rich
+    # payload (stderr_tail / phase / executor / exit_code / retry_attempt)
+    # is the ONLY emit point for executor failures; the translator stops
+    # emitting node.failed for claude result.is_error, and node_factory
+    # does not re-emit on ExecutorError catch. Losing this event means
+    # the frontend cannot reconstruct WHY a node failed even after refresh.
+    "agent.executor_error",
     # Interactive prompts: chat.question/answer/timeout are HITL anchors.
     # Missing any of these permanently blocks a human-in-the-loop decision
     # (ask_user would re-fire on refresh, but the original answer is lost).
