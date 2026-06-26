@@ -165,3 +165,99 @@ class ExecutorError(RuntimeError):
 
     def __reduce__(self):  # pragma: no cover — pickle support for tests
         return (self.__class__, (str(self), self.error_event))
+
+
+# ---------------------------------------------------------------------------
+# Workflow-level error payload builder (P2-T6 / P2-T7).
+#
+# Shared by ``server/runner.py::_run_workflow`` and
+# ``harness/cli_runner.py::run_with_persistence`` so the workflow.error
+# payload schema stays identical across sinks. CLI renders it via Rich /
+# stderr; frontend renders via toast / banner — both consume the same
+# event source (ADR Decision 2 unified error flow).
+# ---------------------------------------------------------------------------
+
+
+def _lookup_agent_executor(
+    agents_snapshot: list[dict] | None, node_id: str | None,
+) -> str | None:
+    """Map node_id → executor from agents_snapshot.
+
+    Returns ``"pydantic-ai"`` for entries that omit the executor field
+    (matches Agent.to_dict / from_dict behavior). Returns None for
+    unknown node_id or missing snapshot.
+    """
+    if not node_id or not agents_snapshot:
+        return None
+    for entry in agents_snapshot:
+        if isinstance(entry, dict) and entry.get("name") == node_id:
+            return entry.get("executor") or "pydantic-ai"
+    return None
+
+
+def _find_last_failed_node(
+    bus_buffer: list[tuple[str, dict]] | None,
+) -> str | None:
+    """Reverse-scan bus buffer for the most recent node.failed event."""
+    if not bus_buffer:
+        return None
+    for evt_type, evt_payload in reversed(bus_buffer):
+        if evt_type == "node.failed":
+            return evt_payload.get("node_id") if isinstance(evt_payload, dict) else None
+    return None
+
+
+def build_workflow_error_payload(
+    *,
+    workflow_id: str,
+    user_id: str | None,
+    error: Exception,
+    agents_snapshot: list[dict] | None,
+    bus_buffer: list[tuple[str, dict]] | None,
+    batch_id: str | None = None,
+) -> dict[str, Any]:
+    """Build a workflow.error payload from an exception.
+
+    Used by both server/runner.py and harness/cli_runner.py to guarantee
+    payload schema parity. Enrichment policy:
+      - error_type: always set (type(e).__name__)
+      - executor / phase / stderr_tail / exit_code / executor_extra:
+        only when isinstance(error, ExecutorError) — pulled from
+        error.error_event
+      - failed_node: reverse-scan bus buffer for most recent node.failed
+      - executor fallback: agents_snapshot lookup when not already set
+        (non-ExecutorError path)
+      - batch_id: optional
+    """
+    payload: dict[str, Any] = {
+        "workflow_id": workflow_id,
+        "user_id": user_id,
+        "error": str(error),
+        "error_type": type(error).__name__,
+    }
+
+    if isinstance(error, ExecutorError):
+        ev = error.error_event
+        payload["executor"] = ev.executor
+        if ev.phase:
+            payload["phase"] = ev.phase
+        if ev.stderr_tail:
+            payload["stderr_tail"] = ev.stderr_tail
+        if ev.exit_code is not None:
+            payload["exit_code"] = ev.exit_code
+        if ev.extra:
+            payload["executor_extra"] = dict(ev.extra)
+
+    failed_node = _find_last_failed_node(bus_buffer)
+    if failed_node:
+        payload["failed_node"] = failed_node
+        if "executor" not in payload:
+            executor = _lookup_agent_executor(agents_snapshot, failed_node)
+            if executor:
+                payload["executor"] = executor
+
+    if batch_id:
+        payload["batch_id"] = batch_id
+
+    return payload
+

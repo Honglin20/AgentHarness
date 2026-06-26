@@ -60,6 +60,33 @@ def _serialize_outputs(outputs: dict) -> dict:
     }
 
 
+def _build_agents_snapshot_for_error(workflow: "Workflow") -> list[dict]:
+    """Build agents_snapshot for the workflow.error payload.
+
+    Used only on the failure path — the success path goes through
+    ``build_agents_snapshot`` (the public mirror of
+    server/runner.py::_build_agents_snapshot). On failure we may not have
+    a fully populated workflow state, so this is best-effort: catch
+    exceptions and return an empty list so the payload still emits.
+
+    Returned snapshot is sufficient for _lookup_agent_executor to map
+    failed_node → executor; richer fields (md_content, result_type_name)
+    are omitted because the error path does not need them.
+    """
+    try:
+        snap: list[dict] = []
+        for agent_def in getattr(workflow, "agents", []) or []:
+            entry = {"name": agent_def.name, "executor": getattr(agent_def, "executor", "pydantic-ai")}
+            snap.append(entry)
+        return snap
+    except Exception:
+        logger.debug(
+            "agents_snapshot build failed on error path; payload will omit executor field",
+            exc_info=True,
+        )
+        return []
+
+
 def build_agents_snapshot(workflow: "Workflow") -> list[dict]:
     """Snapshot agent definitions with their current MD content.
 
@@ -291,9 +318,22 @@ async def run_with_persistence(
         status = "failed"
         error = str(e)
         result = None
-        # Emit workflow.error BEFORE persisting so it lands in the buffer
-        # and gets saved with the run — replay parity with server.
-        bus.emit("workflow.error", {"workflow_id": run_id, "error": error})
+        # P2-T7: Emit workflow.error with the SAME rich payload schema as
+        # server/runner.py so frontend (replay of CLI runs) + CLI sinks
+        # both render the full failure context (stderr_tail / phase /
+        # executor / failed_node / etc.). Previously CLI emitted a
+        # 2-field payload — frontend saw "error" string but missed WHY.
+        from harness.engine.error_event import build_workflow_error_payload
+        error_payload = build_workflow_error_payload(
+            workflow_id=run_id,
+            user_id=None,
+            error=e,
+            agents_snapshot=_build_agents_snapshot_for_error(workflow),
+            bus_buffer=getattr(bus, "buffer", []),
+        )
+        # CLI runs don't track batch_id; keep the original contract by
+        # not setting batch_id (helper omits it when None).
+        bus.emit("workflow.error", error_payload)
 
     finally:
         # MCP cleanup is best-effort. During asyncio.run shutdown MCP's

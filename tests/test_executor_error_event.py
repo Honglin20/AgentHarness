@@ -203,3 +203,156 @@ def test_non_canonical_phase_not_validated_at_runtime():
     ev = _sample_event(phase="made-up-phase")
     # No exception raised — Literal is type-hint only
     assert ev.phase == "made-up-phase"
+
+
+# ---------------------------------------------------------------------------
+# P2-T7: build_workflow_error_payload (shared by server + CLI)
+# ---------------------------------------------------------------------------
+
+
+def test_build_workflow_error_payload_executor_error_full_context():
+    """ExecutorError at workflow level → all executor fields surface."""
+    from harness.engine.error_event import build_workflow_error_payload
+    ev = _sample_event(
+        phase="spawn", stderr_tail="Error: invalid token",
+        exit_code=2, extra={"api_error_status": 401},
+    )
+    err = ExecutorError("claude exited code=2", ev)
+    payload = build_workflow_error_payload(
+        workflow_id="wf-1", user_id="u-1", error=err,
+        agents_snapshot=None, bus_buffer=None,
+    )
+    assert payload["workflow_id"] == "wf-1"
+    assert payload["user_id"] == "u-1"
+    assert payload["error_type"] == "ExecutorError"
+    assert payload["executor"] == "claude-code"
+    assert payload["phase"] == "spawn"
+    assert payload["stderr_tail"] == "Error: invalid token"
+    assert payload["exit_code"] == 2
+    assert payload["executor_extra"] == {"api_error_status": 401}
+
+
+def test_build_workflow_error_payload_plain_exception_uses_snapshot_fallback():
+    """Plain RuntimeError → no executor enrichment from exception, but
+    failed_node + executor surface via bus_buffer + agents_snapshot."""
+    from harness.engine.error_event import build_workflow_error_payload
+    err = RuntimeError("boom")
+    bus_buffer = [
+        ("node.started", {"node_id": "scout"}),
+        ("node.failed", {"node_id": "scout"}),
+    ]
+    snapshot = [{"name": "scout", "executor": "claude-code"}]
+    payload = build_workflow_error_payload(
+        workflow_id="wf-1", user_id=None, error=err,
+        agents_snapshot=snapshot, bus_buffer=bus_buffer,
+    )
+    assert payload["error_type"] == "RuntimeError"
+    assert "phase" not in payload
+    assert "stderr_tail" not in payload
+    assert payload["failed_node"] == "scout"
+    assert payload["executor"] == "claude-code"
+
+
+def test_build_workflow_error_payload_minimal_when_no_context():
+    """No bus_buffer + no snapshot + plain exception → minimal payload,
+    no failed_node / executor keys."""
+    from harness.engine.error_event import build_workflow_error_payload
+    err = RuntimeError("workflow setup crashed")
+    payload = build_workflow_error_payload(
+        workflow_id="wf-1", user_id=None, error=err,
+        agents_snapshot=None, bus_buffer=None,
+    )
+    assert "failed_node" not in payload
+    assert "executor" not in payload
+    assert payload["error_type"] == "RuntimeError"
+
+
+def test_build_workflow_error_payload_includes_batch_id():
+    """batch_id optional but propagated when provided."""
+    from harness.engine.error_event import build_workflow_error_payload
+    payload = build_workflow_error_payload(
+        workflow_id="wf-1", user_id="u", error=RuntimeError("x"),
+        agents_snapshot=None, bus_buffer=None, batch_id="batch-9",
+    )
+    assert payload["batch_id"] == "batch-9"
+
+
+def test_build_workflow_error_payload_handles_empty_bus_buffer():
+    """Empty bus_buffer (not None) must not crash; no failed_node surfaced."""
+    from harness.engine.error_event import build_workflow_error_payload
+    payload = build_workflow_error_payload(
+        workflow_id="wf-1", user_id=None, error=RuntimeError("x"),
+        agents_snapshot=[], bus_buffer=[],
+    )
+    assert "failed_node" not in payload
+
+
+# ---------------------------------------------------------------------------
+# _lookup_agent_executor + _find_last_failed_node helpers
+# ---------------------------------------------------------------------------
+
+
+def test_lookup_agent_executor_defaults_to_pydantic_ai_when_field_missing():
+    from harness.engine.error_event import _lookup_agent_executor
+    assert _lookup_agent_executor([{"name": "scout"}], "scout") == "pydantic-ai"
+
+
+def test_lookup_agent_executor_returns_none_for_unknown_or_missing():
+    from harness.engine.error_event import _lookup_agent_executor
+    assert _lookup_agent_executor(None, "scout") is None
+    assert _lookup_agent_executor([], "scout") is None
+    assert _lookup_agent_executor([{"name": "scout"}], None) is None
+    assert _lookup_agent_executor([{"name": "scout"}], "unknown") is None
+
+
+def test_find_last_failed_node_returns_most_recent():
+    """When multiple node.failed events exist, the most recent one wins
+    (reverse scan)."""
+    from harness.engine.error_event import _find_last_failed_node
+    bus_buffer = [
+        ("node.failed", {"node_id": "first"}),
+        ("node.completed", {"node_id": "first"}),
+        ("node.failed", {"node_id": "second"}),
+    ]
+    assert _find_last_failed_node(bus_buffer) == "second"
+
+
+def test_find_last_failed_node_returns_none_when_no_failed_event():
+    from harness.engine.error_event import _find_last_failed_node
+    assert _find_last_failed_node(None) is None
+    assert _find_last_failed_node([]) is None
+    assert _find_last_failed_node([("node.started", {}), ("node.completed", {})]) is None
+
+
+# ---------------------------------------------------------------------------
+# CLI / server payload parity (ADR Decision 2)
+# ---------------------------------------------------------------------------
+
+
+def test_cli_and_server_paths_produce_identical_payload_for_same_input():
+    """CLI (cli_runner.py) and server (runner.py) MUST emit identical
+    workflow.error payloads for the same exception + bus state. Locks
+    the unified-error-flow invariant (ADR Decision 2)."""
+    from harness.engine.error_event import build_workflow_error_payload
+    ev = _sample_event(phase="spawn", stderr_tail="X", exit_code=1)
+    err = ExecutorError("claude exited code=1", ev)
+    bus_buffer = [("node.failed", {"node_id": "greeter"})]
+    snapshot = [{"name": "greeter", "executor": "claude-code"}]
+
+    # Server call shape
+    server_payload = build_workflow_error_payload(
+        workflow_id="wf", user_id="server-user", error=err,
+        agents_snapshot=snapshot, bus_buffer=bus_buffer, batch_id="b1",
+    )
+    # CLI call shape (user_id=None, no batch_id)
+    cli_payload = build_workflow_error_payload(
+        workflow_id="wf", user_id=None, error=err,
+        agents_snapshot=snapshot, bus_buffer=bus_buffer,
+    )
+    # Common fields (everything except user_id / batch_id) must match
+    for key in ("error", "error_type", "executor", "phase",
+                "stderr_tail", "exit_code", "executor_extra", "failed_node"):
+        assert server_payload.get(key) == cli_payload.get(key), (
+            f"CLI/server payload drift on key={key!r}: "
+            f"server={server_payload.get(key)!r} cli={cli_payload.get(key)!r}"
+        )
