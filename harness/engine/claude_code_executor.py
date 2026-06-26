@@ -37,6 +37,7 @@ from harness.engine.llm_executor import AgentRunResult, BaseExecutor
 from harness.engine.token_aggregator import TokenAggregator
 from harness.engine._claude_subprocess import ClaudeRunResult, ClaudeSpawnConfig, run_claude
 from harness.engine._result_extractor import SchemaValidationError, extract_and_validate
+from harness.engine.error_event import ErrorEvent, ExecutorError
 from harness.extensions.bus import safe_emit
 from harness.types import AgentResult
 from harness.translator import TranslateContext, TranslatedEvent, translate
@@ -170,6 +171,12 @@ class ClaudeCodeExecutor:
         self._cumulative_cache_hit: int = 0
         self._final_result_text: str | None = None
         self._last_ttft_ms: int | None = None
+        # P2-T3: stream-side error state. Translator no longer emits
+        # node.failed for result.is_error=true (P2-T4) — the executor owns
+        # the emit. These fields capture the failure context for run() to
+        # construct a phase="stream" ErrorEvent after claude exits.
+        self._stream_error_seen: bool = False
+        self._stream_error_meta: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # Public API — BaseExecutor 协议
@@ -179,7 +186,10 @@ class ClaudeCodeExecutor:
         """spawn claude, stream-translate-emit, 返回 duck-type AgentRunResult。
 
         Raises:
-            RuntimeError: claude 子进程 exit_code != 0 或超时
+            ExecutorError: claude 子进程 exit_code != 0 / 超时 / 无 result /
+                schema 校验失败 / stream indicated is_error. Executor 已经
+                emit ``agent.executor_error`` 到 bus；node_factory / retry
+                层见 ExecutorError 不应重 emit（详见 error_event.py 契约）。
         """
         # 重置 per-run state（万一同一实例被重试逻辑复用）
         self._reset_run_state()
@@ -204,29 +214,88 @@ class ClaudeCodeExecutor:
             # Phase G 加精细 cancel 支持
 
             claude_result = await run_claude(cfg, on_line=on_line, timeout=self._timeout_s)
-            elapsed_ms = int((time.time() - t0) * 1000)
+
+            # Phase 2-T3: 统一错误封装 — 每个 phase 失败都 emit agent.executor_error
+            # (critical, P2-T2) + raise ExecutorError. node_factory except 见
+            # ExecutorError 走 retry 路径但不重 emit (emit-uniqueness 契约).
+            if claude_result.timed_out:
+                await self._emit_and_raise_executor_error(
+                    phase="timeout",
+                    error_type="ClaudeTimeout",
+                    error_message=(
+                        f"claude subprocess timed out after {self._timeout_s}s; "
+                        f"terminated via SIGTERM/SIGKILL"
+                    ),
+                    stderr_tail=claude_result.stderr[-500:] or None,
+                    exit_code=claude_result.exit_code,
+                    timed_out=True,
+                )
 
             if claude_result.exit_code != 0:
-                raise RuntimeError(
-                    f"claude subprocess exited code={claude_result.exit_code} "
-                    f"(timed_out={claude_result.timed_out}); stderr tail: "
-                    f"{claude_result.stderr[-500:]!r}"
+                await self._emit_and_raise_executor_error(
+                    phase="spawn",
+                    error_type="ClaudeSubprocessExit",
+                    error_message=(
+                        f"claude subprocess exited code={claude_result.exit_code}"
+                    ),
+                    stderr_tail=claude_result.stderr[-500:] or None,
+                    exit_code=claude_result.exit_code,
+                )
+
+            # stream indicated is_error (translator saw result.is_error=true;
+            # executor flagged via _extract_pre_translate). Translator no
+            # longer emits node.failed for this case (P2-T4) — executor owns it.
+            if self._stream_error_seen:
+                # Compose a helpful message from captured meta: prefer the
+                # claude-side error description, fall back to api_error_status.
+                api_status = self._stream_error_meta.get("api_error_status")
+                api_result = self._stream_error_meta.get("api_error_result")
+                if api_result:
+                    msg = f"claude stream failed: {api_result}"
+                elif api_status is not None:
+                    msg = f"claude stream failed (api_error_status={api_status})"
+                else:
+                    msg = "claude stream-json emitted result with is_error=true"
+                await self._emit_and_raise_executor_error(
+                    phase="stream",
+                    error_type="ClaudeStreamError",
+                    error_message=msg,
+                    stderr_tail=claude_result.stderr[-500:] or None,
+                    exit_code=claude_result.exit_code,
+                    extra=self._stream_error_meta,
                 )
 
             # result_text 为空说明 claude 没产出 result 事件（异常情况）
             if self._final_result_text is None:
-                raise RuntimeError(
-                    f"claude exited 0 but emitted no result event; "
-                    f"stderr tail: {claude_result.stderr[-500:]!r}"
+                await self._emit_and_raise_executor_error(
+                    phase="result_parse",
+                    error_type="ClaudeNoResultEvent",
+                    error_message=(
+                        "claude exited 0 but emitted no result event"
+                    ),
+                    stderr_tail=claude_result.stderr[-500:] or None,
+                    exit_code=claude_result.exit_code,
                 )
         finally:
             # cleanup MCP（即使是失败路径也要清理 socket + 文件）
             if self._enable_mcp and self._mcp_config_path is None:
                 await self._teardown_mcp()
 
-        # 构造 AgentRunResult（agent_run duck-type 让 node_factory 能正常消费）
-        # Phase E: 提取 + schema 校验；失败抛 SchemaValidationError 让 execute_with_retry 接管
-        validated_output = self._extract_and_validate_result(self._final_result_text)
+        # Phase E: 提取 + schema 校验. SchemaValidationError → wrap as
+        # ExecutorError(schema_validate) so execute_with_retry drives the
+        # retry uniformly. emit before raise so frontend sees the failure.
+        try:
+            validated_output = self._extract_and_validate_result(self._final_result_text)
+        except SchemaValidationError as e:
+            await self._emit_and_raise_executor_error(
+                phase="schema_validate",
+                error_type=type(e).__name__,
+                error_message=str(e),
+                stderr_tail=None,
+                exit_code=0,
+                extra={"raw_result_text_len": len(self._final_result_text or "")},
+            )
+            return  # unreachable (_emit_and_raise_executor_error raises)
 
         usage = _ClaudeUsage(
             input_tokens=self._cumulative_input,
@@ -274,6 +343,43 @@ class ClaudeCodeExecutor:
         self._cumulative_cache_hit = 0
         self._final_result_text = None
         self._last_ttft_ms = None
+        self._stream_error_seen = False
+        self._stream_error_meta = {}
+
+    async def _emit_and_raise_executor_error(
+        self,
+        *,
+        phase: str,
+        error_type: str,
+        error_message: str,
+        stderr_tail: str | None,
+        exit_code: int | None,
+        timed_out: bool = False,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        """Construct ErrorEvent → emit agent.executor_error (critical) → raise.
+
+        Single emit point per ADR Decision 2 invariant. Always raises
+        ExecutorError; the only caller that does not propagate is the
+        schema_validate path (it returns after the call for type-checker
+        peace of mind, but the raise makes it unreachable).
+        """
+        event = ErrorEvent(
+            workflow_id=self._wid,
+            node_id=self._node_id,
+            agent_name=self._agent_name,
+            executor="claude-code",
+            phase=phase,
+            error_type=error_type,
+            error_message=error_message,
+            stderr_tail=stderr_tail,
+            exit_code=exit_code,
+            timed_out=timed_out,
+            extra=extra or {},
+        )
+        if self._bus is not None:
+            safe_emit(self._bus, "agent.executor_error", event.to_payload())
+        raise ExecutorError(error_message, event)
 
     def _build_spawn_config(
         self, context: str, mcp_config_path: Any | None = None
@@ -291,13 +397,58 @@ class ClaudeCodeExecutor:
         # 显式 > self._mcp_config_path（兼容旧测试 + 自定义注入）
         effective_mcp = mcp_config_path if mcp_config_path is not None else self._mcp_config_path
 
+        # 项目 .env overlay：让 claude -p 子进程用项目级 LLM 配置，而不是
+        # 父进程（harness server 启动 shell）继承的全局 env。这样 claude code
+        # 编程环境的 ANTHROPIC_* 不会污染 spawn 的 claude -p 子进程；项目 .env
+        # 里的 ANTHROPIC_* 优先级最高。
+        env_overlay = self._load_env_overlay()
+
         return ClaudeSpawnConfig(
             prompt=context,
             mcp_config_path=effective_mcp,
             allowed_tools=allowed_tools,
             append_system_prompt=system_prompt,
             cli_path=self._cli_path,
+            env=env_overlay,
         )
+
+    def _load_env_overlay(self) -> dict[str, str]:
+        """读项目 .env，提取 ANTHROPIC_*/CLAUDE_* 作为子进程 env overlay。
+
+        查找顺序：``{cwd}/.env``（harness server 启动目录）。
+        只提取 LLM 相关前缀，避免把整个 .env（可能含敏感 HARNESS_API_KEY 等）
+        带进子进程；HARNESS_* 已经在父进程 env 里，子进程天然继承。
+
+        为什么需要：用户用 claude code 编程时，shell 全局 env 里的
+        ANTHROPIC_AUTH_TOKEN/BASE_URL 指向编程用的 gateway。如果 spawn
+        的 claude -p 直接继承，会走同一个 gateway（可能限流 / 不是项目
+        想用的）。项目 .env 提供独立配置，让子进程走项目指定的 gateway。
+        """
+        from pathlib import Path
+        overlay: dict[str, str] = {}
+        env_path = Path.cwd() / ".env"
+        if not env_path.exists():
+            return overlay
+        try:
+            content = env_path.read_text(encoding="utf-8")
+        except OSError:
+            return overlay
+        for raw_line in content.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip("'").strip('"')
+            # 只 overlay LLM 相关；其他 env 让父进程继承
+            if key.startswith(("ANTHROPIC_", "CLAUDE_")):
+                overlay[key] = value
+        if overlay:
+            logger.debug(
+                "claude -p env overlay from .env: keys=%s",
+                sorted(overlay.keys()),
+            )
+        return overlay
 
     # ------------------------------------------------------------------
     # MCP setup / teardown (Phase D)
@@ -402,17 +553,32 @@ class ClaudeCodeExecutor:
         return None
 
     def _resolve_allowed_tools(self) -> list[str] | None:
-        """从 agent_def.tools 提取白名单；None = claude 自选。"""
+        """从 agent_def.tools 提取白名单；None = claude 自选。
+
+        工具名映射规则（Phase D 工具桥接）：
+          - 已是 ``mcp__*`` 格式：原样透传（用户显式指定 server）
+          - 大写起头（``Bash``/``Read``/``Edit``...）：claude 内置工具，原样透传
+          - 小写起头（``ask_user``/``ping``...）：harness MCP 桥接工具，
+            自动加 ``mcp__harness__`` 前缀（mcp-config 里 server name = "harness"）
+
+        不映射会导致 claude 拒识工具名 → exit 1，stderr 为空。
+        """
         if self.agent_def is None:
             return None
         tools = getattr(self.agent_def, "tools", None)
         if not tools:
             return None
-        # agent_def.tools 是 harness 工具名（bash/read/...），需要映射到 claude 工具名
-        # Phase C 简化：只透传，让用户/agent MD 自己保证名字对（claude 默认接受
-        # 内置工具名首字母大写形式：Bash/Read/Edit/Write/Grep/Glob）
-        # Phase D 实现工具桥接后会加 mcp__* 前缀映射
-        return list(tools)
+        CLAUDE_BUILTIN = {
+            "Bash", "Read", "Edit", "Write", "Grep", "Glob",
+            "WebFetch", "WebSearch", "Task", "TodoWrite",
+        }
+        mapped: list[str] = []
+        for t in tools:
+            if t.startswith("mcp__") or t in CLAUDE_BUILTIN:
+                mapped.append(t)
+            else:
+                mapped.append(f"mcp__harness__{t}")
+        return mapped
 
     def _extract_and_validate_result(self, text: str):
         """Phase E: 从 claude result.text 提取 + schema 校验。
@@ -470,6 +636,21 @@ class ClaudeCodeExecutor:
         """
         if raw.get("type") != "result":
             return
+
+        # P2-T3: 检测 result.is_error 并捕获上下文。翻译器（P2-T4）不再 emit
+        # node.failed for this case — executor 在 run() 主循环里统一 emit
+        # phase="stream" 错误事件。
+        if raw.get("is_error"):
+            self._stream_error_seen = True
+            api_error_status = raw.get("api_error_status")
+            if api_error_status is not None:
+                self._stream_error_meta["api_error_status"] = api_error_status
+            # result.result 在 is_error 时通常含 claude 的错误描述
+            # (e.g. "rate limited" / "context overflow"). 保留供 emit 时
+            # 拼到 error_message，让前端不用看 stderr 就能定位原因。
+            error_result = raw.get("result")
+            if isinstance(error_result, str) and error_result.strip():
+                self._stream_error_meta["api_error_result"] = error_result.strip()[:500]
 
         # 提取最终 result.result 文本（Phase E 会做 JSON parse + schema 校验）
         if raw.get("result") is not None:

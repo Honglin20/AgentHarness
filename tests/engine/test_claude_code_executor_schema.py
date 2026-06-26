@@ -15,6 +15,7 @@ from harness.core.agent import Agent
 from harness.engine._claude_subprocess import ClaudeRunResult, ClaudeSpawnConfig
 from harness.engine._result_extractor import SchemaValidationError
 from harness.engine.claude_code_executor import ClaudeCodeExecutor
+from harness.engine.error_event import ExecutorError
 from harness.types import AgentResult
 
 
@@ -147,7 +148,9 @@ class TestCustomResultType:
         assert isinstance(result.agent_run.result.output, _Summary)
 
     def test_invalid_schema_raises_validation_error(self, monkeypatch):
-        """schema 不匹配 → SchemaValidationError → execute_with_retry 接管。"""
+        """schema 不匹配 → SchemaValidationError 被 P2-T3 包装为
+        ExecutorError(phase=schema_validate)，execute_with_retry 见
+        ExecutorError 走 retry 但不重 emit (emit-uniqueness 契约)。"""
         lines = [
             json.dumps({"type": "result", "is_error": False, "duration_ms": 100,
                         "result": '{"summary": "x"}',  # missing count
@@ -163,8 +166,12 @@ class TestCustomResultType:
             deps=None, workflow_id="w", node_id="n", agent_name="a",
             enable_mcp=False,
         )
-        with pytest.raises(SchemaValidationError, match="schema validation failed"):
+        with pytest.raises(ExecutorError) as exc_info:
             _run(ex.run("ctx"))
+        err = exc_info.value
+        assert err.error_event.phase == "schema_validate"
+        assert err.error_event.error_type == "SchemaValidationError"
+        assert "schema validation failed" in err.error_event.error_message
 
     def test_invalid_json_raises_validation_error(self, monkeypatch):
         """纯文本（无 JSON）+ custom result_type → 提取失败。"""
@@ -183,5 +190,8 @@ class TestCustomResultType:
             deps=None, workflow_id="w", node_id="n", agent_name="a",
             enable_mcp=False,
         )
-        with pytest.raises(SchemaValidationError, match="no JSON candidate"):
+        with pytest.raises(ExecutorError) as exc_info:
             _run(ex.run("ctx"))
+        err = exc_info.value
+        assert err.error_event.phase == "schema_validate"
+        assert "no JSON candidate" in err.error_event.error_message
