@@ -24,6 +24,7 @@ from harness.cost import calculate_cost
 from harness.engine.schema_utils import ReviewDecision
 from harness.prompts.assembler import assemble_static_prompt
 from harness.engine.llm_executor import LLMExecutor
+from harness.engine.error_event import ExecutorError
 from harness.engine.executor_factory import make_executor
 from harness.engine.llm_retry import execute_with_retry
 from harness.engine.node_phases import (
@@ -702,6 +703,40 @@ def make_node_func(
                 "input_prompt": locals().get("context", ""),
                 "system_prompt": augmented_prompt,
             }
+
+            # P2-T5: ExecutorError propagation contract.
+            #
+            # Executors (ClaudeCodeExecutor since P2-T3, future CliExecutorBase
+            # subclasses) catch their own phase-specific failures and emit
+            # ``agent.executor_error`` (critical) with the rich payload
+            # (stderr_tail / phase / executor / exit_code / retry_attempt /
+            # extra). Then they raise ExecutorError carrying the same
+            # ErrorEvent so this except clause can route without re-emitting.
+            #
+            # Emit-uniqueness invariant (ADR Decision 2):
+            #   - DO NOT re-emit agent.executor_error here.
+            #   - DO emit node.failed (node_factory owns node lifecycle) but
+            #     enrich its extra with executor-phase fields so the frontend
+            #     can render stderr_tail / phase alongside node-level context
+            #     (tool_calls_before_failure / io_data).
+            if isinstance(e, ExecutorError):
+                ev = e.error_event
+                # error_type from ErrorEvent is more specific than type(e).__name__
+                # (e.g. "ClaudeSubprocessExit" vs generic "ExecutorError").
+                error_type = ev.error_type or error_type
+                if ev.stderr_tail:
+                    extra["stderr_tail"] = ev.stderr_tail
+                if ev.phase:
+                    extra["executor_phase"] = ev.phase
+                if ev.executor:
+                    extra["executor"] = ev.executor
+                if ev.exit_code is not None:
+                    extra["exit_code"] = ev.exit_code
+                if ev.extra:
+                    # Merge executor-side extra (e.g. api_error_status) so
+                    # retry classification works off the node.failed payload
+                    # alone (some sinks only listen to node.failed).
+                    extra["executor_extra"] = dict(ev.extra)
 
             if bus:
                 safe_emit(bus, "node.failed", build_node_failed_payload(
