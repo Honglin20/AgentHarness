@@ -6,6 +6,8 @@ import type { ConversationMessage } from "@/stores/conversationStore";
 import type { ToolBrief } from "@/types/events";
 
 import { formatDuration } from "@/components/output/status-config";
+import { ExecutorErrorBanner } from "./ExecutorErrorBanner";
+import { ApiRetryBadge, StatusBadge } from "./LiveStatusBadges";
 import { MarkdownText } from "./MarkdownText";
 import {
   Sheet,
@@ -368,6 +370,10 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
   const nodeState = nodeId ? getNodeState?.(nodeId) : undefined;
   const retryAttempts = nodeState?.retryAttempts ?? [];
   const classifiedFailure = nodeState?.classifiedFailure;
+  // P2-T8/T9: structured executor error + live status indicators
+  const executorError = nodeState?.executorError;
+  const lastApiRetry = nodeState?.lastApiRetry;
+  const lastStatus = nodeState?.lastStatus;
 
   return (
     <div className="flex min-w-0 flex-col gap-1 py-1">
@@ -413,6 +419,16 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
           </p>
         </div>
       )}
+      {/* P2-T9: structured executor failure (stderr_tail / phase / exit_code).
+          Shown alongside classifiedFailure — they answer different questions:
+          classifiedFailure = "did retries run out + why"; executorError =
+          "what specifically broke on this attempt (stderr / exit code)". */}
+      {executorError && <ExecutorErrorBanner payload={executorError} />}
+      {/* P2-T9: live status indicators. ApiRetryBadge surfaces silent retries
+          (rate limit / 5xx) so users don't see "stuck". StatusBadge surfaces
+          claude liveness during long gaps between deltas. */}
+      {lastApiRetry && <ApiRetryBadge payload={lastApiRetry} />}
+      {lastStatus && isStreaming && <StatusBadge payload={lastStatus} />}
       {status === "error" && !text ? (
         <p className="text-sm text-red-500">An error occurred</p>
       ) : showCollapsed ? (
