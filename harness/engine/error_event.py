@@ -247,6 +247,13 @@ def build_workflow_error_payload(
             payload["exit_code"] = ev.exit_code
         if ev.extra:
             payload["executor_extra"] = dict(ev.extra)
+        # ErrorEvent.node_id is the canonical "where did this fail" when
+        # the executor raised directly (no node.failed in bus_buffer yet).
+        # bus_buffer scan below wins when present (covers non-ExecutorError
+        # paths where the executor didn't raise but a downstream node.failed
+        # was emitted).
+        if ev.node_id and "failed_node" not in payload:
+            payload["failed_node"] = ev.node_id
 
     failed_node = _find_last_failed_node(bus_buffer)
     if failed_node:
