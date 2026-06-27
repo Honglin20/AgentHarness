@@ -33,6 +33,7 @@ double-count failures on the frontend (ADR Decision 2 invariant).
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -258,8 +259,99 @@ def _translate_assistant(ev: dict, ctx: TranslateContext) -> list[TranslatedEven
                     "tool_call_id": tool_call_id,
                 },
             ))
+            # claude 2.1.150+ TaskUpdate 翻译：claude deprecated 了 TodoWrite，
+            # 改用 TaskCreate/TaskUpdate 做 plan tracking。这里把 TaskUpdate
+            # 的 tool_use 翻译成 harness todo.updated（task_id 来自 input.taskId）。
+            # TaskCreate 在 tool_result 阶段翻译（_translate_user），因为 task_id
+            # 由 claude 内部分配，只在 result 里返回（"Task #N created"）。
+            if tool_name == "TaskUpdate":
+                out.extend(_translate_taskupdate_use(tool_input, ctx))
         # text / thinking block 在 stream_event delta 已翻译，不重复
     return out
+
+
+# harness TodoStepItem.status 合法值（events.ts:456-462）。claude TaskUpdate
+# 的 status 集合跟 harness 略有差异（claude 用 cancelled，harness 用 skipped）。
+_TASK_STATUS_ALIASES = {"cancelled": "skipped"}
+_TASK_VALID_STATUSES = frozenset({"pending", "in_progress", "completed", "skipped"})
+
+
+def _translate_taskupdate_use(
+    tool_input: dict, ctx: TranslateContext
+) -> list[TranslatedEvent]:
+    """把 claude builtin TaskUpdate 翻译成 harness ``todo.updated``。
+
+    claude 2.1.150+ 的 plan tracking 工具是 TaskCreate/TaskUpdate（不是
+    TodoWrite，那个已被 deprecated）。TaskUpdate input: ``{taskId: str,
+    status: "in_progress"|"completed"|"cancelled"}``。task_id 是 claude
+    TaskCreate 时分配的数字字符串（"1", "2"...），跟 harness 的 task_id
+    字段语义一致 → 直接复用，无需映射。
+
+    为什么不在 tool_use 阶段翻译 TaskCreate：TaskCreate 的 input 里没有
+    taskId（task_id 是 claude 内部分配，只在 result 里返回）。所以
+    TaskCreate 在 _translate_user 阶段翻译（解析 result 文本）。
+    """
+    task_id = str(tool_input.get("taskId") or "")
+    if not task_id:
+        return []
+    status = tool_input.get("status") or "pending"
+    status = _TASK_STATUS_ALIASES.get(status, status)
+    if status not in _TASK_VALID_STATUSES:
+        status = "pending"
+    return [TranslatedEvent(
+        type="todo.updated",
+        payload={
+            "node_id": ctx.node_id,
+            "agent_name": ctx.agent_name,
+            "task_id": task_id,
+            "status": status,
+        },
+    )]
+
+
+# claude TaskCreate result 文本格式（实测 claude 2.1.150）：
+#   "Task #1 created successfully: Gather requirements"
+_TASKCREATE_RESULT_RE = re.compile(
+    r"Task #(\d+) created successfully: (.+)"
+)
+
+
+def _translate_taskcreate_result(
+    result_text: str, ctx: TranslateContext
+) -> list[TranslatedEvent]:
+    """把 claude TaskCreate 的 tool_result 翻译成 harness ``todo.created``。
+
+    为什么在 result 阶段翻译：claude TaskCreate 的 input 没有 task_id
+    （只有 subject/description/activeForm），task_id 由 claude 内部分配，
+    在 result 文本里返回（"Task #N created successfully: SUBJECT"）。
+
+    前端 ``handleTodoCreated`` 是增量的（按 task_id 去重 append），所以
+    每次 TaskCreate emit 一个 items=[单步] 的 todo.created 是安全的。
+
+    activeForm 丢失妥协：activeForm 在 tool_use input 里，但 translator 在
+    result 阶段拿不到（无状态）。fallback 到 subject。前端在 step 不是
+    in_progress 时也优先显示 content（StepIndicator），所以视觉影响小。
+    """
+    m = _TASKCREATE_RESULT_RE.match(result_text.strip())
+    if not m:
+        return []
+    task_id = m.group(1)
+    subject = m.group(2).strip()
+    if not subject:
+        return []
+    return [TranslatedEvent(
+        type="todo.created",
+        payload={
+            "node_id": ctx.node_id,
+            "agent_name": ctx.agent_name,
+            "items": [{
+                "task_id": task_id,
+                "content": subject,
+                "activeForm": subject,  # fallback：real activeForm 在 tool_use input
+                "status": "pending",    # TaskCreate 默认 pending
+            }],
+        },
+    )]
 
 
 def _translate_user(ev: dict, ctx: TranslateContext) -> list[TranslatedEvent]:
@@ -304,6 +396,9 @@ def _translate_user(ev: dict, ctx: TranslateContext) -> list[TranslatedEvent]:
                 "tool_call_id": tool_call_id,
             },
         ))
+        # claude TaskCreate result 翻译：解析 "Task #N created successfully:
+        # SUBJECT"，emit todo.created。task_id 来自 claude 内部分配的数字。
+        out.extend(_translate_taskcreate_result(result_text, ctx))
     return out
 
 

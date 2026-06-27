@@ -354,6 +354,158 @@ class TestResultEvent:
 # ---------------------------------------------------------------------------
 
 
+class TestTaskCreateTranslation:
+    """claude 2.1.150+ builtin TaskCreate/TaskUpdate → harness todo 翻译。
+
+    claude deprecated 了 TodoWrite，改用 TaskCreate/TaskUpdate 做 plan
+    tracking。translator 在两个阶段翻译：
+      - tool_result（user message）：解析 "Task #N created successfully:
+        SUBJECT" → emit todo.created（task_id 来自 claude 分配的数字）
+      - tool_use（assistant message）：TaskUpdate input {taskId, status} →
+        emit todo.updated（task_id 直接用 taskId，跟 created 一致）
+
+    前端 handleTodoCreated 是增量的（按 task_id 去重），所以每次 TaskCreate
+    emit 一个 items=[单步] 的 todo.created 是安全的。
+    """
+
+    def _taskcreate_result_event(self, task_num, subject, tool_use_id="r1"):
+        return {
+            "type": "user",
+            "message": {
+                "content": [
+                    {"type": "tool_result", "tool_use_id": tool_use_id,
+                     "content": f"Task #{task_num} created successfully: {subject}"},
+                ],
+            },
+        }
+
+    def _taskupdate_use_event(self, task_id, status, call_id="u1"):
+        return {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "tool_use", "id": call_id, "name": "TaskUpdate",
+                     "input": {"taskId": task_id, "status": status}},
+                ],
+            },
+        }
+
+    def test_taskcreate_result_emits_todo_created(self, ctx):
+        out = translate(self._taskcreate_result_event(1, "Gather reqs"), ctx)
+        assert [e.type for e in out] == ["agent.tool_result", "todo.created"]
+
+    def test_taskcreate_result_preserves_tool_result(self, ctx):
+        out = translate(self._taskcreate_result_event(1, "Gather reqs"), ctx)
+        tr = out[0]
+        assert tr.payload["tool_call_id"] == "r1"
+        assert "Task #1 created" in tr.payload["result"]
+
+    def test_taskcreate_result_maps_all_fields(self, ctx):
+        out = translate(self._taskcreate_result_event(42, "Step A"), ctx)
+        created = out[1]
+        assert created.payload["node_id"] == "node-1"
+        assert created.payload["agent_name"] == "agent-1"
+        items = created.payload["items"]
+        assert len(items) == 1
+        # task_id 直接用 claude 分配的数字字符串（让 TaskUpdate 能匹配）
+        assert items[0]["task_id"] == "42"
+        assert items[0]["content"] == "Step A"
+        # activeForm 在 input 里，result 拿不到 → fallback 到 content
+        assert items[0]["activeForm"] == "Step A"
+        assert items[0]["status"] == "pending"  # TaskCreate 默认 pending
+
+    def test_taskcreate_result_id_matches_taskupdate(self, ctx):
+        """关键不变量：TaskCreate 的 task_id 必须跟后续 TaskUpdate.taskId
+        一致，否则前端 todo.updated 找不到对应 step，状态无法更新。"""
+        created = translate(self._taskcreate_result_event(1, "X"), ctx)[1]
+        updated = translate(self._taskupdate_use_event("1", "completed"), ctx)[1]
+        assert created.payload["items"][0]["task_id"] == updated.payload["task_id"]
+
+    def test_taskcreate_result_non_matching_text_no_emit(self, ctx):
+        """非 TaskCreate 的 result 不触发翻译。"""
+        ev = {
+            "type": "user",
+            "message": {"content": [
+                {"type": "tool_result", "tool_use_id": "r1",
+                 "content": "ls: 5 files found"},
+            ]},
+        }
+        out = translate(ev, ctx)
+        assert [e.type for e in out] == ["agent.tool_result"]
+
+    def test_taskupdate_emits_todo_updated_after_tool_call(self, ctx):
+        out = translate(self._taskupdate_use_event("1", "completed"), ctx)
+        assert [e.type for e in out] == ["agent.tool_call", "todo.updated"]
+
+    def test_taskupdate_maps_status(self, ctx):
+        for claude_status, expected in [
+            ("in_progress", "in_progress"),
+            ("completed", "completed"),
+            ("pending", "pending"),
+            # claude 用 cancelled，harness 用 skipped
+            ("cancelled", "skipped"),
+            # 未知 status fallback 到 pending
+            ("weird", "pending"),
+        ]:
+            out = translate(self._taskupdate_use_event("1", claude_status), ctx)
+            updated = out[-1]
+            assert updated.type == "todo.updated"
+            assert updated.payload["status"] == expected, f"{claude_status} → {expected}"
+
+    def test_taskupdate_missing_taskid_no_emit(self, ctx):
+        """TaskUpdate 没 taskId 时不 emit（无法关联到 step）。"""
+        ev = {
+            "type": "assistant",
+            "message": {"content": [
+                {"type": "tool_use", "id": "u1", "name": "TaskUpdate",
+                 "input": {"status": "completed"}},  # 缺 taskId
+            ]},
+        }
+        out = translate(ev, ctx)
+        assert [e.type for e in out] == ["agent.tool_call"]
+
+    def test_non_taskupdate_tool_no_translation(self, ctx):
+        """非 TaskUpdate 的 tool_use 不触发 todo 翻译。"""
+        ev = {
+            "type": "assistant",
+            "message": {"content": [
+                {"type": "tool_use", "id": "c1", "name": "Bash",
+                 "input": {"command": "ls"}},
+            ]},
+        }
+        out = translate(ev, ctx)
+        assert [e.type for e in out] == ["agent.tool_call"]
+
+    def test_e2e_create_then_update_workflow(self, ctx):
+        """端到端：TaskCreate result → todo.created, TaskUpdate use → todo.updated。
+        验证 task_id 链路完整，前端能正确渲染 status 流转。"""
+        out = []
+        # 模型调 TaskCreate(subject="A")
+        out.extend(translate(self._taskcreate_result_event(1, "Task A"), ctx))
+        # 模型调 TaskCreate(subject="B")
+        out.extend(translate(self._taskcreate_result_event(2, "Task B"), ctx))
+        # 模型调 TaskUpdate(taskId="1", status="in_progress")
+        out.extend(translate(self._taskupdate_use_event("1", "in_progress"), ctx))
+        # 模型调 TaskUpdate(taskId="1", status="completed")
+        out.extend(translate(self._taskupdate_use_event("1", "completed"), ctx))
+        # 模型调 TaskUpdate(taskId="2", status="in_progress")
+        out.extend(translate(self._taskupdate_use_event("2", "in_progress"), ctx))
+
+        todo_events = [e for e in out if e.type.startswith("todo.")]
+        # 2 created + 3 updated
+        assert len(todo_events) == 5
+        # 第一个 created 是 Task A, task_id="1"
+        assert todo_events[0].payload["items"][0]["task_id"] == "1"
+        assert todo_events[0].payload["items"][0]["content"] == "Task A"
+        # 第二个 created 是 Task B, task_id="2"
+        assert todo_events[1].payload["items"][0]["task_id"] == "2"
+        # 后续 3 个 updated 都正确指向 task_id
+        assert todo_events[2].payload["task_id"] == "1"
+        assert todo_events[2].payload["status"] == "in_progress"
+        assert todo_events[3].payload["status"] == "completed"
+        assert todo_events[4].payload["task_id"] == "2"
+
+
 class TestDefensiveParsing:
     def test_non_dict_input_returns_empty(self, ctx):
         assert translate(None, ctx) == []  # type: ignore[arg-type]
