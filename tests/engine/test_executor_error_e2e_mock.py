@@ -25,7 +25,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from harness.engine._claude_subprocess import ClaudeRunResult, ClaudeSpawnConfig
+from harness.engine.cli_profile import CliRunResult, CliSpawnConfig
 from harness.engine.claude_code_executor import ClaudeCodeExecutor
 from harness.engine.error_event import (
     ErrorEvent,
@@ -105,8 +105,8 @@ def test_e2e_unified_error_flow_claude_code_spawn_failure():
 
     # Mock run_claude to fail with exit_code=1 + stderr indicating the spawn
     # problem (simulates bad ANTHROPIC_BASE_URL).
-    async def fake_run_claude(cfg, on_line=None, *, timeout=None):
-        return ClaudeRunResult(
+    async def fake_run_claude(cfg, profile=None, on_line=None, *, timeout=None):
+        return CliRunResult(
             exit_code=1,
             stderr="Error: ANTHROPIC_AUTH_TOKEN invalid\nConnection refused\n",
             timed_out=False,
@@ -135,7 +135,7 @@ def test_e2e_unified_error_flow_claude_code_spawn_failure():
         "harness.engine.node_factory.execute_with_retry",
         side_effect=_passthrough_retry,
     ), patch(
-        "harness.engine.claude_code_executor.run_claude",
+        "harness.engine.claude_code_executor.run_cli",
         side_effect=fake_run_claude,
     ), patch(
         "harness.engine.node_factory.safe_emit",
@@ -207,7 +207,7 @@ def test_e2e_unified_error_flow_stream_is_error():
 
     bus = _RecordingBus()
 
-    async def fake_run_claude(cfg, on_line=None, *, timeout=None):
+    async def fake_run_claude(cfg, profile=None, on_line=None, *, timeout=None):
         # Stream a result event with is_error=true (rate limited)
         if on_line is not None:
             await on_line(json.dumps({
@@ -218,7 +218,7 @@ def test_e2e_unified_error_flow_stream_is_error():
                 "result": "rate limited",
                 "usage": {},
             }))
-        return ClaudeRunResult(exit_code=0, stderr="", timed_out=False)
+        return CliRunResult(exit_code=0, stderr="", timed_out=False)
 
     failing_executor = ClaudeCodeExecutor(
         agent_def=Agent("analyzer"),
@@ -243,7 +243,7 @@ def test_e2e_unified_error_flow_stream_is_error():
         "harness.engine.node_factory.execute_with_retry",
         side_effect=_passthrough_retry,
     ), patch(
-        "harness.engine.claude_code_executor.run_claude",
+        "harness.engine.claude_code_executor.run_cli",
         side_effect=fake_run_claude,
     ), patch(
         "harness.engine.node_factory.safe_emit",
@@ -281,8 +281,8 @@ def test_e2e_emitted_payload_round_trips_through_frontend_schema():
     can reconstruct the same context for inline rendering (P2-T9)."""
     bus = _RecordingBus()
 
-    async def fake_run_claude(cfg, on_line=None, *, timeout=None):
-        return ClaudeRunResult(exit_code=2, stderr="boom\n", timed_out=False)
+    async def fake_run_claude(cfg, profile=None, on_line=None, *, timeout=None):
+        return CliRunResult(exit_code=2, stderr="boom\n", timed_out=False)
 
     failing_executor = ClaudeCodeExecutor(
         agent_def=Agent("x"),
@@ -291,7 +291,7 @@ def test_e2e_emitted_payload_round_trips_through_frontend_schema():
         enable_mcp=False,
     )
     with patch(
-        "harness.engine.claude_code_executor.run_claude",
+        "harness.engine.claude_code_executor.run_cli",
         side_effect=fake_run_claude,
     ):
         with pytest.raises(ExecutorError):

@@ -72,7 +72,7 @@ def test_executor_error_payload_uses_profile_name():
     "claude-code". Lets operators see which profile was active when a
     canary profile fails."""
     from unittest.mock import MagicMock, patch
-    from harness.engine._claude_subprocess import ClaudeRunResult
+    from harness.engine.cli_profile import CliRunResult
     from harness.engine.error_event import ExecutorError
 
     canary = _make_profile(name="claude-canary")
@@ -80,8 +80,8 @@ def test_executor_error_payload_uses_profile_name():
     bus.events = []
     bus.emit = lambda t, p, **k: bus.events.append((t, p))
 
-    async def fake_run_claude(cfg, on_line=None, *, timeout=None):
-        return ClaudeRunResult(exit_code=1, stderr="boom", timed_out=False)
+    async def fake_run_claude(cfg, profile=None, on_line=None, *, timeout=None):
+        return CliRunResult(exit_code=1, stderr="boom", timed_out=False)
 
     ex = ClaudeCodeExecutor(
         agent_def=Agent("x"), deps=None,
@@ -89,7 +89,7 @@ def test_executor_error_payload_uses_profile_name():
         enable_mcp=False, profile=canary,
     )
     with patch(
-        "harness.engine.claude_code_executor.run_claude",
+        "harness.engine.claude_code_executor.run_cli",
         side_effect=fake_run_claude,
     ):
         with pytest.raises(ExecutorError) as exc_info:
@@ -154,7 +154,7 @@ def test_profile_extractor_used_for_schema_validation():
     delegates to profile.result_extractor (not the global function)."""
     from pydantic import BaseModel
     from unittest.mock import MagicMock, patch
-    from harness.engine._claude_subprocess import ClaudeRunResult
+    from harness.engine.cli_profile import CliRunResult
     from harness.engine.error_event import ExecutorError
 
     class _Custom(BaseModel):
@@ -171,7 +171,7 @@ def test_profile_extractor_used_for_schema_validation():
     bus.events = []
     bus.emit = lambda t, p, **k: bus.events.append((t, p))
 
-    async def fake_run_claude(cfg, on_line=None, *, timeout=None):
+    async def fake_run_claude(cfg, profile=None, on_line=None, *, timeout=None):
         if on_line:
             import json
             await on_line(json.dumps({
@@ -179,7 +179,7 @@ def test_profile_extractor_used_for_schema_validation():
                 "duration_ms": 1, "result": '{"summary": "ok"}',
                 "usage": {},
             }))
-        return ClaudeRunResult(exit_code=0, stderr="", timed_out=False)
+        return CliRunResult(exit_code=0, stderr="", timed_out=False)
 
     ex = ClaudeCodeExecutor(
         agent_def=Agent("x", result_type=_Custom), deps=None,
@@ -187,7 +187,7 @@ def test_profile_extractor_used_for_schema_validation():
         enable_mcp=False, profile=custom_profile,
     )
     with patch(
-        "harness.engine.claude_code_executor.run_claude",
+        "harness.engine.claude_code_executor.run_cli",
         side_effect=fake_run_claude,
     ):
         result = _run(ex.run("ctx"))
@@ -195,3 +195,91 @@ def test_profile_extractor_used_for_schema_validation():
     assert len(extractor_calls) == 1
     assert extractor_calls[0][1] is _Custom
     assert isinstance(result.agent_run.result.output, _Custom)
+
+
+# ---------------------------------------------------------------------------
+# P3 completion: cli_path resolution + run_cli dispatch + setting-sources gate
+# ---------------------------------------------------------------------------
+
+
+def test_cli_path_default_from_profile_resolve(monkeypatch):
+    """No cli_path kwarg → __init__ falls back to profile.resolve_cli_path(),
+    which reads os.environ[HARNESS_CLAUDE_CLI] (or default "claude")."""
+    monkeypatch.setenv("HARNESS_CLAUDE_CLI", "ccr code")
+    ex = ClaudeCodeExecutor(
+        agent_def=Agent("x"), deps=None,
+        workflow_id="w", node_id="x", agent_name="x",
+        enable_mcp=False,
+    )
+    assert ex._cli_path == "ccr code"
+
+
+def test_cli_path_explicit_kwarg_wins_over_env(monkeypatch):
+    """Explicit cli_path kwarg overrides env override (test canary inject)."""
+    monkeypatch.setenv("HARNESS_CLAUDE_CLI", "ccr code")
+    ex = ClaudeCodeExecutor(
+        agent_def=Agent("x"), deps=None,
+        workflow_id="w", node_id="x", agent_name="x",
+        enable_mcp=False, cli_path="/tmp/claude-canary",
+    )
+    assert ex._cli_path == "/tmp/claude-canary"
+
+
+def test_run_uses_run_cli_with_profile(monkeypatch):
+    """ClaudeCodeExecutor.run() must call run_cli (not run_claude) and pass
+    self._profile as the second positional arg. Locks the P3 completion
+    switch — a regression to run_claude would silently bypass profile.flags."""
+    captured = {}
+
+    async def fake_run_cli(cfg, profile, on_line=None, *, timeout=None):
+        captured["cfg"] = cfg
+        captured["profile"] = profile
+        if on_line:
+            import json
+            await on_line(json.dumps({
+                "type": "result", "is_error": False,
+                "duration_ms": 1, "result": "ok", "usage": {},
+            }))
+        from harness.engine.cli_profile import CliRunResult
+        return CliRunResult(exit_code=0, stderr="", timed_out=False)
+
+    monkeypatch.setattr(
+        "harness.engine.claude_code_executor.run_cli",
+        fake_run_cli,
+    )
+    ex = ClaudeCodeExecutor(
+        agent_def=Agent("x"), deps=None,
+        workflow_id="w", node_id="x", agent_name="x",
+        enable_mcp=False,
+    )
+    _run(ex.run("ctx"))
+    assert captured["profile"] is ex._profile
+    assert captured["cfg"].flags == ex._profile.flags
+
+
+def test_setting_sources_project_added_when_env_overlay_nonempty(monkeypatch):
+    """env_overlay non-empty → --setting-sources project in extra_args
+    (isolates shell env pollution when .env provides ANTHROPIC_*)."""
+    ex = ClaudeCodeExecutor(
+        agent_def=Agent("x"), deps=None,
+        workflow_id="w", node_id="x", agent_name="x",
+        enable_mcp=False,
+    )
+    monkeypatch.setattr(ex, "_load_env_overlay", lambda: {"ANTHROPIC_BASE_URL": "x"})
+    cfg = ex._build_spawn_config("ctx")
+    args = list(cfg.extra_args)
+    assert "--setting-sources" in args
+    assert args[args.index("--setting-sources") + 1] == "project"
+
+
+def test_setting_sources_project_omitted_when_env_overlay_empty(monkeypatch):
+    """env_overlay empty → --setting-sources NOT added, so claude falls back
+    to ~/.claude/settings.json defaults instead of erroring on missing API config."""
+    ex = ClaudeCodeExecutor(
+        agent_def=Agent("x"), deps=None,
+        workflow_id="w", node_id="x", agent_name="x",
+        enable_mcp=False,
+    )
+    monkeypatch.setattr(ex, "_load_env_overlay", lambda: {})
+    cfg = ex._build_spawn_config("ctx")
+    assert "--setting-sources" not in cfg.extra_args

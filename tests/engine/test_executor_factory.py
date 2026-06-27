@@ -122,9 +122,9 @@ class TestMakeExecutorProtocolConformance:
         """
         import asyncio
         import json
-        from harness.engine._claude_subprocess import ClaudeRunResult
+        from harness.engine.cli_profile import CliRunResult
 
-        async def fake_run_claude(cfg, on_line=None, *, timeout=None):
+        async def fake_run_claude(cfg, profile=None, on_line=None, *, timeout=None):
             # 一条 result 事件让 run() 能正常完成
             if on_line is not None:
                 await on_line(json.dumps({
@@ -132,10 +132,10 @@ class TestMakeExecutorProtocolConformance:
                     "duration_ms": 1, "result": "ok",
                     "usage": {"input_tokens": 10, "output_tokens": 5},
                 }))
-            return ClaudeRunResult(exit_code=0, stderr="", timed_out=False)
+            return CliRunResult(exit_code=0, stderr="", timed_out=False)
 
         monkeypatch.setattr(
-            "harness.engine.claude_code_executor.run_claude", fake_run_claude
+            "harness.engine.claude_code_executor.run_cli", fake_run_claude
         )
 
         a = Agent("c", executor="claude-code")

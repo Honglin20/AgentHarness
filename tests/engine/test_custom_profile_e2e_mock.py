@@ -138,10 +138,10 @@ def test_custom_profile_error_emission_uses_profile_name(tmp_path, monkeypatch):
     # ClaudeCodeExecutor currently calls run_claude directly. This is
     # acceptable for the test — we're verifying error attribution, not
     # subprocess spawning.
-    from harness.engine._claude_subprocess import ClaudeRunResult
+    from harness.engine.cli_profile import CliRunResult
 
-    async def fake_run_claude(cfg, on_line=None, *, timeout=None):
-        return ClaudeRunResult(exit_code=1, stderr="opencode: auth failed", timed_out=False)
+    async def fake_run_claude(cfg, profile=None, on_line=None, *, timeout=None):
+        return CliRunResult(exit_code=1, stderr="opencode: auth failed", timed_out=False)
 
     agent = Agent("x", executor="mock-opencode")
     ex = make_executor(
@@ -151,7 +151,7 @@ def test_custom_profile_error_emission_uses_profile_name(tmp_path, monkeypatch):
     # Skip MCP setup (CI friendly — no real subprocess spawn)
     ex._enable_mcp = False
     with patch(
-        "harness.engine.claude_code_executor.run_claude",
+        "harness.engine.claude_code_executor.run_cli",
         side_effect=fake_run_claude,
     ):
         from harness.engine.error_event import ExecutorError
@@ -228,7 +228,7 @@ def test_e2e_custom_profile_unified_error_flow(tmp_path, monkeypatch):
     """Project profile + ClaudeCodeExecutor + ErrorEvent + workflow.error —
     the full P3 chain in one test."""
     from harness.engine.error_event import build_workflow_error_payload
-    from harness.engine._claude_subprocess import ClaudeRunResult
+    from harness.engine.cli_profile import CliRunResult
 
     project_profiles = tmp_path / ".harness/cli_profiles"
     project_profiles.mkdir(parents=True)
@@ -256,8 +256,8 @@ def test_e2e_custom_profile_unified_error_flow(tmp_path, monkeypatch):
         bus.buffer.append((t, p))
     bus.emit = emit
 
-    async def fake_run_claude(cfg, on_line=None, *, timeout=None):
-        return ClaudeRunResult(exit_code=2, stderr="opencode: rate limited", timed_out=False)
+    async def fake_run_claude(cfg, profile=None, on_line=None, *, timeout=None):
+        return CliRunResult(exit_code=2, stderr="opencode: rate limited", timed_out=False)
 
     agent = Agent("analyzer", executor="mock-opencode")
     ex = make_executor(
@@ -267,7 +267,7 @@ def test_e2e_custom_profile_unified_error_flow(tmp_path, monkeypatch):
     ex._enable_mcp = False  # CI friendly — skip MCP subprocess
 
     with patch(
-        "harness.engine.claude_code_executor.run_claude",
+        "harness.engine.claude_code_executor.run_cli",
         side_effect=fake_run_claude,
     ):
         from harness.engine.error_event import ExecutorError
