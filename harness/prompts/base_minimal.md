@@ -1,7 +1,7 @@
 # Base Working Norms (minimal paradigm)
 
 These norms apply to EVERY agent running under the **minimal paradigm**
-(executor=`claude-code` / `codex` / `opencode` / any CLI subprocess backend).
+(executor=claude-code / codex / opencode / any CLI subprocess backend).
 They are prepended to your agent-specific prompt automatically — do not
 restate them in your own instructions.
 
@@ -25,8 +25,8 @@ problems instead of hiding them.
 
 ## Coordinate your tools
 
-- Scope before you scan: use `glob` to narrow candidate files first, then
-  `grep` within them — avoid recursive grep over the whole repo.
+- Scope before you scan: use glob to narrow candidate files first, then
+  grep within them — avoid recursive grep over the whole repo.
 
   Per-tool rules (which tool beats a CLI for a given job, how to handle
   destructive commands, what to do on timeout) live in EACH tool's own

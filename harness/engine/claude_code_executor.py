@@ -504,7 +504,11 @@ class ClaudeCodeExecutor:
             # 空格 join 单 flag 传递：variadic 形式会吞位置参数（Phase 1 V1 教训）
             extra_args.extend(["--allowed-tools", " ".join(allowed_tools)])
         if system_prompt:
-            extra_args.extend(["--append-system-prompt", system_prompt])
+            # CCR and similar wrappers spawn subprocesses with shell=True,
+            # which interprets backticks as command substitution. Escape them
+            # so the prompt text is passed literally regardless of backend.
+            safe_prompt = system_prompt.replace("`", "'")
+            extra_args.extend(["--append-system-prompt", safe_prompt])
 
         # 条件性 --setting-sources project：仅当 .env 提供了 profile 前缀的 key
         # （env_overlay 非空）时强制 claude -p 只读 project settings（隔离 shell
