@@ -186,6 +186,16 @@ class _RewriteMiddleware(BaseMiddleware):
 
 
 class TestBeforeToolArgRewrite:
+    @pytest.fixture(autouse=True)
+    def _clear_dedup_guard(self):
+        """Clear the global dedup guard before each test to prevent inter-test
+        false positives from identical tool call signatures within the 5ms window."""
+        from harness.tools.dedup_guard import get_dedup_guard
+        guard = get_dedup_guard()
+        if guard:
+            guard.clear()
+        yield
+
     async def test_a1_rewritten_args_reach_the_tool(self):
         """A1: middleware rewrites tool_args → tool executes with new args."""
         mw = _RewriteMiddleware({"target": "REWRITTEN"})

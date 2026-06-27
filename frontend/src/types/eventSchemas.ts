@@ -52,7 +52,7 @@ export const WorkflowErrorPayloadSchema = z.object({
   phase: z.string().optional(),
   stderr_tail: z.string().optional(),
   exit_code: z.number().optional(),
-  executor_extra: z.record(z.unknown()).optional(),
+  executor_extra: z.record(z.string(), z.unknown()).optional(),
   failed_node: z.string().optional(),
   batch_id: z.string().optional(),
 }).passthrough();
@@ -71,7 +71,7 @@ export const ExecutorErrorPayloadSchema = z.object({
   timed_out: z.boolean(),
   retry_attempt: z.number().optional(),
   ts: z.number(),
-  extra: z.record(z.unknown()).optional(),
+  extra: z.record(z.string(), z.unknown()).optional(),
 }).passthrough();
 
 // P2-T4: API retry visibility (normal priority).
@@ -98,6 +98,15 @@ export const NodeStartedPayloadSchema = z.object({
   agent_name: agentName,
   attempt: z.number().optional(),
   model: z.string().optional(),
+  // 2026-06-26: backend + tools_resolved for UI transparency. Optional
+  // because older event replays don't carry them; .passthrough() also
+  // keeps them around even if we forget to update this schema.
+  backend: z.string().optional(),
+  tools_resolved: z.array(z.object({
+    declared: z.string(),
+    resolved: z.string(),
+    source: z.string(),
+  })).optional(),
 }).passthrough();
 
 export const NodeCompletedPayloadSchema = z.object({

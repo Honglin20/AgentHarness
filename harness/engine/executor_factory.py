@@ -67,6 +67,7 @@ def make_executor(
             cancel_fn=cancel_fn,
             token_aggregator=token_aggregator,
             request_limit=request_limit,
+            tools_declared=list(getattr(agent_def, "tools", None) or []),
         )
 
     # CLI backend: look up the profile and pass it to ClaudeCodeExecutor.

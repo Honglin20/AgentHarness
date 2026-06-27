@@ -14,7 +14,7 @@ should prefer importing from the specific module (e.g.
 """
 from __future__ import annotations
 
-from harness.agent import Agent, _extract_description
+from harness.agent import Agent, DEFAULT_EXECUTOR, _extract_description
 from harness.benchmark import (
     Benchmark,
     BenchmarkResult,

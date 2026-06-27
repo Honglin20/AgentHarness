@@ -914,9 +914,95 @@ render_chart(
 | executor | 范式 | 描述 |
 |---|---|---|
 | `pydantic-ai`（默认） | pydantic-ai | 进程内 pydantic-ai SDK；通过 `final_result` 工具返回结构化输出 |
-| `claude-code` | minimal | 子进程 `claude -p`；通过 MCP 桥接 harness 工具（ask_user 等） |
+| `claude-code` | minimal | 子进程 `claude -p`；默认走 Claude 内置工具，仅 `ask_user` 等无等价物的走 harness MCP（详见下文） |
 
 `pydantic-ai` 是默认值（不写 `executor` 字段等价于 `pydantic-ai`）。`claude-code` 通过子进程跑独立的 claude CLI，适合需要 claude 内置工具（Bash / Edit / WebSearch 等）的场景。
+
+### 工具管理（claude-code executor）
+
+`claude -p` 子进程能看到的工具来自**两个源**，agent 在 `workflow.json` 里声明的 `tools` 字段决定走哪条：
+
+1. **Claude 内置**（PascalCase）：`Bash`、`Read`、`Edit`、`Write`、`Grep`、`Glob`、`WebFetch`、`WebSearch`、`Task`、`TodoWrite`。Claude 自己实现，harness **看不到**单次调用（只看到最终结果）。
+2. **harness MCP 桥接**（小写，前缀 `mcp__harness__`）：由 harness 的 Python 实现执行，harness 能 emit `agent.tool_call` 事件、做 rate limit / token 统计、写 replay buffer。
+
+工具名解析规则（`harness/cli_bridge_tools.py:resolve_for_claude`）：
+
+| agent 写法 | 解析结果 | 含义 |
+|---|---|---|
+| `mcp__*` | 原样透传 | 显式 pin 某 MCP server |
+| 在 `BRIDGED_TOOLS` 里（如 `ask_user`） | `mcp__harness__<name>` | harness MCP 桥接 |
+| `Bash` / `Read` / `Grep`...（PascalCase） | 原样透传 | Claude 内置 |
+| 小写别名 `bash` / `grep` / `read_text_file`... | 映射到 PascalCase 内置 | Claude 内置 |
+| 其他 | 原样透传 | claude 调用时拒识 fail-loud |
+
+#### 默认桥接策略
+
+`harness/cli_bridge_tools.py` 里的 `BRIDGED_TOOLS` 字典列出**当前**走 MCP 桥接的工具及原因：
+
+```python
+BRIDGED_TOOLS: dict[str, str] = {
+    "ask_user": (
+        "Replaces Claude's AskUserQuestion. In -p mode AskUserQuestion cannot "
+        "spawn UI and returns a placeholder string, causing the model to "
+        "hallucinate user input..."
+    ),
+}
+```
+
+设计原则（2026-06-26 refactor 后）：
+- **重叠优先用 Claude 内置**：`bash`/`grep`/`glob`/`read_text_file` 等不桥接，让 Claude 用自己的 `Bash`/`Grep`/`Glob`/`Read`——避免重复实现，省 MCP 桥接开销。
+- **桥接只在必要时**：(a) Claude 没有等价物（`sub_agent`、`render_chart`），或 (b) Claude 有但 `-p` 模式下坏掉（`ask_user` 替代 `AskUserQuestion`）。
+
+#### 从 config 控制桥接
+
+操作者直接编辑 `harness/cli_bridge_tools.py` 的 `BRIDGED_TOOLS` 字典即可，**不需要改 executor 代码**：
+
+```python
+# 增加：让 sub_agent 走 harness MCP（NAS workflow 需要）
+BRIDGED_TOOLS["sub_agent"] = "No Claude equivalent — harness dynamic parallel subworkflow"
+
+# 删除：让 ask_user 也走 Claude 内置（不推荐，会触发 AskUserQuestion 占位 bug）
+del BRIDGED_TOOLS["ask_user"]
+```
+
+改动后**重启 server / CLI** 即生效。`_resolve_allowed_tools` + `_inject_tool_name_mapping` 在每次 spawn 时动态读取这个 dict。
+
+#### 小写别名映射
+
+`LOWER_TO_CLAUDE_BUILTIN` 字典把 legacy 小写工具名映射到 Claude 内置 PascalCase，方便旧 workflow 平滑迁移：
+
+```python
+LOWER_TO_CLAUDE_BUILTIN = {
+    "bash": "Bash",
+    "read": "Read",
+    "read_text_file": "Read",   # 多别名归一
+    "read_file": "Read",
+    "grep": "Grep",
+    "glob": "Glob",
+    "edit": "Edit",
+    "write": "Write",
+    # ...
+}
+```
+
+新增别名只需追加一行；不需要重启 server 之外的任何编译/打包。
+
+#### System prompt 注入
+
+当 agent 同时声明了"重叠工具 + 桥接工具"（如 `["bash", "ask_user"]`），executor 会**只在 system prompt 末尾注入桥接工具的名字映射**（`bash` 不需要，因为 Claude 天然认得 `Bash`）：
+
+```
+## Tool Name Mapping (harness auto-injected)
+- `ask_user` → invoke as `mcp__harness__ask_user`
+```
+
+避免模型按 agent prompt 字面调 `ask_user` 被 claude 拒识（"No such tool"）。
+
+#### 系统层屏蔽：`AskUserQuestion`
+
+`harness/cli_profiles/claude.py` 在 spawn flags 里硬编码 `--disallowedTools AskUserQuestion`，确保 Claude 永远不用自己坏掉的 AskUserQuestion，强制走 harness `ask_user` MCP。详见 [cli_profiles/claude.py](harness/cli_profiles/claude.py)。
+
+---
 
 ### CLI Profile：自定义后端
 

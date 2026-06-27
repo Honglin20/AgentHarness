@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, Request
 
-from harness.api import Agent, Workflow, _WORKFLOWS_DIR
+from harness.api import Agent, DEFAULT_EXECUTOR, Workflow, _WORKFLOWS_DIR
 
 if TYPE_CHECKING:
     from harness.run_store_interface import RunStoreInterface
@@ -42,11 +42,15 @@ def health_check() -> HealthResponse:
 def _validate_workflow_dir(workflow: str, user_id: str | None = None) -> Path:
     """Validate a workflow folder name and return its absolute path.
 
-    Search order:
-      0. Registry (builtin + project + extra registrations)
+    Search order（与 ``list_saved_workflows`` 保持一致，避免 PATCH 写一处
+    POST 读另一处的契约错位）:
       1. workflows/_shared/workflows/{workflow}/
       2. workflows/users/{user_id}/workflows/{workflow}/
       3. workflows/{workflow}/ (legacy)
+      4. Registry (builtin + project + extra registrations) — 仅当文件系统
+         查找全部失败时才回退到 registry，避免 project-scope 的 legacy
+         副本覆盖 shared 上的同名 workflow（用户 PATCH 写盘但启动 run 读
+         到旧副本的根因）。
 
     Args:
         workflow: Workflow name
@@ -60,32 +64,38 @@ def _validate_workflow_dir(workflow: str, user_id: str | None = None) -> Path:
     if not workflow or "/" in workflow or "\\" in workflow or workflow.startswith("."):
         raise HTTPException(status_code=400, detail="invalid workflow name")
 
-    # Try registry first (builtin + project resources)
-    from harness.registry import get_registry
-    try:
-        return get_registry().resolve_workflow(workflow).resource_dir
-    except FileNotFoundError:
-        # Not found in registry — fall through to filesystem lookup below.
-        logger.debug("Workflow %s not in registry — trying filesystem", workflow)
-
     # Re-read each call via the compatibility getter — tests historically
     # patched harness.api._WORKFLOWS_DIR (legacy binding), newer tests patch
     # harness.workflow._WORKFLOWS_DIR. The getter honors both.
     import harness.workflow as _wf_mod
     workflows_root = _wf_mod._get_workflows_dir()
 
-    # Try shared workflows first
+    # 1. Try shared workflows first
     shared_path = (workflows_root / "_shared" / "workflows" / workflow).resolve()
     if str(shared_path).startswith(str(workflows_root.resolve())) and (shared_path / "workflow.json").exists():
         return shared_path
 
-    # Try user's private workflows
+    # 2. Try user's private workflows
     if user_id and user_id != "default":
         private_path = (workflows_root / "users" / user_id / "workflows" / workflow).resolve()
         if str(private_path).startswith(str(workflows_root.resolve())) and (private_path / "workflow.json").exists():
             return private_path
 
-    # Fallback: workflows/{workflow}/ (legacy or already-resolved path)
+    # 3. Legacy: workflows/{workflow}/ (root-level, not under _shared)
+    legacy_path = (workflows_root / workflow).resolve()
+    if str(legacy_path).startswith(str(workflows_root.resolve())) and (legacy_path / "workflow.json").exists():
+        return legacy_path
+
+    # 4. Registry fallback (builtin + project resources) — 仅当文件系统
+    # 查找全部失败时才用，保证 PATCH 写盘的文件就是 POST 启动 run 时读的文件。
+    from harness.registry import get_registry
+    try:
+        return get_registry().resolve_workflow(workflow).resource_dir
+    except FileNotFoundError:
+        pass
+
+    # Final fallback: 返回 legacy 路径（即便 workflow.json 不存在）。
+    # 兼容 ad-hoc 启动场景：workflow_name 是临时拼的字符串，没有 workflow.json。
     resolved = (workflows_root / workflow).resolve()
     if not str(resolved).startswith(str(workflows_root.resolve())):
         raise HTTPException(status_code=400, detail="workflow escapes workflows root")
@@ -147,6 +157,65 @@ def _check_not_modified(request, mtime):
     return last_modified, ims_ts >= int(mtime)
 
 
+def _build_conversation_from_run(
+    run: dict,
+    run_id: str,
+    store: RunStoreInterface,
+) -> list[dict]:
+    """Build conversation on-the-fly from agent_io + per-iter sidecars.
+
+    v3 (ADR: single-source-streaming-state D3). After D4 removed conversation
+    from run_record, this is the canonical reconstruction path. Aggregates
+    every (node, iter) sidecar so multi-iter agents + thinking /
+    tool_streaming_outputs are preserved (the legacy agent_io-only path
+    loses them both).
+
+    Returns an empty list when agent_io is empty (run hasn't started yet).
+    """
+    from harness.extensions.collectors import build_conversation
+
+    agent_io = run.get("agent_io") or {}
+    if not agent_io:
+        return []
+
+    iter_index: dict = {}
+    try:
+        iter_index = store.get_iter_index(run_id) or {}
+    except Exception:
+        logger.warning("get_iter_index failed for %s — falling back to agent_io only", run_id, exc_info=True)
+
+    sidecar_data: dict[str, list[dict]] = {}
+    invocation_counts: dict[str, int] = {}
+    for node_id, entries in iter_index.items():
+        if not isinstance(entries, list):
+            continue
+        sidecars: list[dict] = []
+        node_iters: list[int] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            iter_num = entry.get("iter")
+            if not isinstance(iter_num, int):
+                continue
+            try:
+                sidecar = store.get_iter_sidecar(run_id, node_id, iter_num)
+            except Exception:
+                sidecar = None
+            if sidecar:
+                sidecars.append(sidecar)
+                node_iters.append(iter_num)
+        if sidecars:
+            sidecar_data[node_id] = sidecars
+        if node_iters:
+            invocation_counts[node_id] = max(node_iters)
+
+    return build_conversation(
+        agent_io,
+        invocation_counts=invocation_counts or None,
+        sidecar_data=sidecar_data or None,
+    )
+
+
 def _load_conversation_for_user(
     run_id: str,
     request: Request,
@@ -157,6 +226,12 @@ def _load_conversation_for_user(
 
     Used by GET /runs/{id}/conversation to slice cursor windows. Raises
     404 (run absent) or 403 (caller is not the owner and not admin).
+
+    v3 (ADR D3): for persisted runs without a stored conversation field
+    (D4 removed it from run_record), reconstruct on-the-fly from agent_io +
+    per-iter sidecars via ``_build_conversation_from_run``. This preserves
+    thinking / tool_streaming_outputs / multi-iter history that the old
+    agent_io-only path lost.
     """
     user = get_current_user(request)
     is_admin = get_user_manager().is_admin(user)
@@ -164,7 +239,12 @@ def _load_conversation_for_user(
     if run:
         if not is_admin and run.get("user_id", "default") != user.user_id:
             raise HTTPException(status_code=403, detail="Not your run")
-        return run.get("conversation") or []
+        conv = run.get("conversation") or []
+        if conv:
+            # Legacy run record with stored conversation — return as-is.
+            return conv
+        # D4 path: build on-the-fly from agent_io + sidecars (preserves v3 fields).
+        return _build_conversation_from_run(run, run_id, store)
     data = repo.get(run_id)
     if data is None:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -181,6 +261,13 @@ def _persisted_run_detail(run: dict) -> dict:
     endpoints. _has_* flags tell the client whether to bother fetching.
     """
     conv = run.get("conversation") or []
+    agent_io = run.get("agent_io") or {}
+    # v3 (ADR D3): _has_conversation is True when EITHER legacy stored
+    # conversation OR agent_io is present (the latter means sidecar-driven
+    # build_conversation can reconstruct it on demand). D4 removed
+    # conversation from run_record, so the agent_io signal is what makes
+    # the frontend actually fetch /runs/{id}/conversation for new runs.
+    has_conversation = bool(conv) or bool(agent_io)
     return {
         "run_id": run.get("run_id"),
         "workflow_name": run.get("workflow_name"),
@@ -200,7 +287,7 @@ def _persisted_run_detail(run: dict) -> dict:
         "followup_sessions": run.get("followup_sessions"),
         "_has_charts": run.get("_has_charts", False),
         "_has_events": run.get("_has_events", False),
-        "_has_conversation": len(conv) > 0,
+        "_has_conversation": has_conversation,
         "_has_outline": run.get("_has_outline", False),
         "todo_steps": run.get("todo_steps"),
     }
@@ -236,7 +323,7 @@ def _live_run_detail(run_id: str, data: dict, repo) -> dict:
 
 async def _create_and_start_workflow(
     name: str,
-    agents_defs: list[AgentDef],
+    agents_defs: list[AgentDef] | None,
     workflow_name: str,
     inputs: dict,
     batch_id: str | None = None,
@@ -248,6 +335,10 @@ async def _create_and_start_workflow(
 
     Shared by create_workflow (single run), create_batch (batch run), and
     run_benchmark. Creates an isolated Bus per workflow for concurrency safety.
+
+    agents 真相源是 workflow.json。wf_json_path 存在时完全用盘上 agents 定义
+    （scoped workflow 路径，含 PATCH 写入的 executor 等字段）；不存在时
+    fallback 到 agents_defs（ad-hoc 入口，POST body 自带 agents）。
     """
     workflow_id = str(uuid.uuid4())
 
@@ -257,42 +348,29 @@ async def _create_and_start_workflow(
     # Resolve workflow dir and load full agent definitions from workflow.json.
     wf_dir = _validate_workflow_dir(workflow_name, user_id)
     wf_json_path = wf_dir / "workflow.json"
-    disk_agents: dict[str, dict] = {}
-    if wf_json_path.exists():
-        try:
-            disk_agents = {
-                a["name"]: a
-                for a in json.loads(wf_json_path.read_text(encoding="utf-8")).get("agents", [])
-            }
-        except Exception:
-            logger.warning(
-                "Failed to parse disk agents from %s — proceeding with empty baseline",
-                wf_json_path, exc_info=True,
-            )
 
-    agents = []
-    for a in agents_defs:
-        # Merge: disk definition provides the full baseline, request overrides specifics
-        base = disk_agents.get(a.name, {})
-        base.update({
-            "name": a.name,
-            "after": a.after,
-            "on_pass": a.on_pass,
-            "on_fail": a.on_fail,
-            "eval": a.eval,
-            # Phase A-F: executor backend。POST body 是用户最新意图（前端
-            # PATCH 后立即跑），优先于 disk；非默认值才写，避免污染 base。
-            "executor": a.executor,
-        })
-        # 默认 "pydantic-ai" 不写盘（与 Agent.to_dict 行为一致），保证 base
-        # 干净；Agent.from_dict 缺省时也会填默认值。
-        if base.get("executor") == "pydantic-ai":
-            base.pop("executor", None)
-        if a.result_type_name:
-            base["result_type_name"] = a.result_type_name
-        if a.result_type_schema:
-            base["result_type_schema"] = a.result_type_schema
-        agents.append(Agent.from_dict(base))
+    if wf_json_path.exists():
+        # 盘驱动：scoped workflow 路径。完全用 workflow.json 上的 agents 定义，
+        # 忽略 POST body 的 agents_defs。PATCH 写入的 executor 等字段天然保留。
+        try:
+            disk_agents_list = json.loads(
+                wf_json_path.read_text(encoding="utf-8")
+            ).get("agents", [])
+        except Exception:
+            raise HTTPException(
+                status_code=500,
+                detail=f"workflow.json corrupted at {wf_json_path}",
+            )
+        agents = [Agent.from_dict(a) for a in disk_agents_list]
+    else:
+        # ad-hoc fallback：无盘可读（旧 WorkflowLauncher 入口）。
+        # agents_defs 必须由调用方提供，否则 fail loud。
+        if not agents_defs:
+            raise HTTPException(
+                status_code=400,
+                detail=f"workflow '{workflow_name}' has no workflow.json and no agents provided",
+            )
+        agents = [Agent.from_dict(a.model_dump()) for a in agents_defs]
 
     from harness.checkpoint import get_checkpoint_manager
     checkpoint_mgr = get_checkpoint_manager()
@@ -570,6 +648,7 @@ def _reconstruct_run_to_repo(repo, run_id: str, record: dict, request: Request) 
             "eval": a.get("eval", False),
             "result_type_name": a.get("result_type_name"),
             "result_type_schema": a.get("result_type_schema"),
+            "executor": a.get("executor", DEFAULT_EXECUTOR),
         })
         for a in agents_snapshot
         if not a["name"].startswith("_judge_") and "_passthrough" not in a["name"]

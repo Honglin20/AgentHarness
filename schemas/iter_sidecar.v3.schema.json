@@ -1,0 +1,141 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agent-harness.local/schemas/iter_sidecar.v3.schema.json",
+  "title": "Iter Sidecar v3",
+  "description": "Per-(node, iter) invocation record. v3 adds thinking / tool_streaming_outputs / schema_version / error fields (ADR: single-source-streaming-state D1). streaming_text is no longer cleared on finalize (D2). All new fields are optional — v2 sidecars still validate against v3.",
+  "type": "object",
+  "required": ["iter", "node_id"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 2,
+      "description": "Schema version marker. v3+ writers always emit 3. Absent on legacy v2 sidecars (read as v2)."
+    },
+    "iter": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "node_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["streaming", "completed", "failed", "interrupted"],
+      "description": "D7 lifecycle state. Legacy sidecars default to 'completed' (write-time)."
+    },
+    "last_seq": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "D7 sync point: event_bus seq at last flush. WS reconnect uses since_seq = last_seq. Also used by frontend setHydratedNodeTextCursor to dedup text/thinking/tool_output_delta replays (ADR D6)."
+    },
+    "started_at": {
+      "type": ["number", "string", "null"],
+      "description": "Epoch seconds or ISO-8601 timestamp."
+    },
+    "ended_at": {
+      "type": ["number", "string", "null"]
+    },
+    "duration_ms": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "input_prompt": {
+      "type": ["string", "null"]
+    },
+    "system_prompt": {
+      "type": ["string", "null"]
+    },
+    "streaming_text": {
+      "type": "string",
+      "description": "Accumulated agent.text_delta. v3: NO LONGER cleared on finalize (ADR D2) — preserved as the agent's natural-language stream alongside the structured output_result."
+    },
+    "thinking": {
+      "type": "string",
+      "description": "v3 NEW. Accumulated agent.thinking_delta (reasoning content). Empty string when agent produced no thinking."
+    },
+    "output_result": {
+      "description": "Agent output (any shape). Null until node.completed. Used as agent message content by build_conversation (structured, authoritative)."
+    },
+    "output": {
+      "description": "Legacy alias for output_result. Pre-v2 sidecars use this; kept for read compat."
+    },
+    "input": {
+      "description": "Legacy alias for input_prompt/upstream inputs."
+    },
+    "tool_calls": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/tool_call"}
+    },
+    "tool_streaming_outputs": {
+      "type": "object",
+      "description": "v3 NEW. Maps tool_call_id → accumulated partial output (bash stdout/stderr). Used to populate ConversationMessage.toolStreamingOutput so refresh preserves bash streaming output. Empty object when no streaming tools ran.",
+      "additionalProperties": {"type": "string"}
+    },
+    "todo_steps": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/todo_step"},
+      "description": "O1: per-iter todo steps filtered from snapshot.todo_states[node] by iteration === iter."
+    },
+    "summary": {
+      "type": "string"
+    },
+    "tokens": {
+      "type": ["object", "null"],
+      "properties": {
+        "input": {"type": "integer", "minimum": 0},
+        "output": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": true
+    },
+    "token_usage": {
+      "type": ["object", "null"],
+      "description": "Legacy alias for tokens."
+    },
+    "events_seq_range": {
+      "type": "array",
+      "items": {"type": "integer"},
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "error": {
+      "type": ["string", "null"],
+      "description": "v3 NEW (formalizes writer drift — v2 writer emitted this without schema listing). Set by mark_failed; null on completed/interrupted."
+    }
+  },
+  "$defs": {
+    "tool_call": {
+      "type": "object",
+      "required": ["tool_name"],
+      "additionalProperties": true,
+      "properties": {
+        "tool_name": {"type": "string"},
+        "tool_args": {"type": ["object", "string", "null"]},
+        "tool_result": {"description": "Any"},
+        "tool_call_id": {
+          "type": ["string", "null"],
+          "description": "pydantic-ai ToolCallPart.tool_call_id — used by frontend to match tool_result to tool_call when parallel same-name calls exist. Optional: legacy sidecars pre-fix omit it."
+        },
+        "ts": {"type": ["number", "integer", "null"]},
+        "seq": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "todo_step": {
+      "type": "object",
+      "required": ["task_id", "content", "status"],
+      "additionalProperties": true,
+      "properties": {
+        "task_id": {"type": "string"},
+        "content": {"type": "string"},
+        "status": {
+          "type": "string",
+          "enum": ["pending", "in_progress", "completed"]
+        },
+        "activeForm": {"type": ["string", "null"]},
+        "detail": {"description": "Any"},
+        "iteration": {"type": ["integer", "null"], "minimum": 1}
+      }
+    }
+  }
+}

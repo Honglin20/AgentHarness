@@ -484,6 +484,10 @@ export const useConversationStore = create<ConversationState>()((set) => ({
           questionInputPlaceholder: payload.input_placeholder ?? null,
         },
       ],
+      // v3 (ADR D5): set pendingQuestionId so usePendingQuestion() returns
+      // the live question id (parity with scoped store fix).
+      pendingQuestionId: payload.question_id,
+      pendingQuestionAgent: payload.agent_name ?? null,
     })),
 
   answerUserQuestion: (questionId, answer) =>

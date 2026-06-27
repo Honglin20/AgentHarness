@@ -70,12 +70,9 @@ describe("markAllPendingQuestionsInterrupted", () => {
 
   it("clears pendingQuestionId pointer", () => {
     addPendingQuestion("q1");
-    // pendingQuestionId is set by the chat.question router, not by
-    // addUserQuestion directly — simulate the router's effect here.
-    useConversationStore.setState({
-      pendingQuestionId: "q1",
-      pendingQuestionAgent: "agent_a",
-    });
+    // v3 (ADR D5): addUserQuestion now sets pendingQuestionId directly.
+    // No need to simulate the router — the store action itself sets the pointer.
+    expect(useConversationStore.getState().pendingQuestionId).toBe("q1");
 
     useConversationStore.getState().markAllPendingQuestionsInterrupted();
 
@@ -83,7 +80,22 @@ describe("markAllPendingQuestionsInterrupted", () => {
     expect(useConversationStore.getState().pendingQuestionAgent).toBeNull();
   });
 
-  it("is a no-op when there are no pending questions", () => {
+  it("v3 D5: addUserQuestion sets pendingQuestionId + pendingQuestionAgent", () => {
+    // Regression for ADR single-source-streaming-state D5: addUserQuestion
+    // previously only pushed the message — the derived pointer stayed null,
+    // so usePendingQuestion() returned nothing on the live WS path.
+    addPendingQuestion("q_xyz", "agent_selector");
+
+    const state = useConversationStore.getState();
+    expect(state.pendingQuestionId).toBe("q_xyz");
+    expect(state.pendingQuestionAgent).toBe("agent_selector");
+
+    // Message also carries the questionId (sanity check).
+    const msg = state.messages.find((m) => m.type === "question");
+    expect(msg?.questionId).toBe("q_xyz");
+  });
+
+  it("is a no-op on messages when there are no pending questions", () => {
     addPendingQuestion("q1");
     useConversationStore.getState().answerUserQuestion("q1", {
       selected: ["a"],
@@ -94,9 +106,11 @@ describe("markAllPendingQuestionsInterrupted", () => {
     useConversationStore.getState().markAllPendingQuestionsInterrupted();
     const after = useConversationStore.getState().messages;
 
-    // Reference equality — no new array allocated when nothing changed
-    // (pendingQuestionId is also null, so the early-return path triggers)
-    expect(after).toBe(before);
+    // v3 D5: addUserQuestion now sets pendingQuestionId, so the action
+    // DOES clear the pointer (no longer a pure no-op). But messages array
+    // is unchanged — no question had status=pending anymore.
+    expect(after).toEqual(before);
+    expect(useConversationStore.getState().pendingQuestionId).toBeNull();
   });
 
   it("does not touch non-question messages", () => {

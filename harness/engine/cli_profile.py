@@ -150,6 +150,42 @@ class CliProfile:
 _REGISTRY: dict[str, CliProfile] = {}
 _DISABLED: set[str] = set()  # profiles that failed to load — name kept for diagnostics
 
+#: Defensive auto-load flag. Set True the first time _auto_load_builtins_if_needed
+#: runs. reset_registry() clears it so tests can re-verify empty-registry paths.
+_BUILTINS_AUTO_LOADED: bool = False
+
+
+def _auto_load_builtins_if_needed() -> None:
+    """Lazy-load builtin profiles on first registry query.
+
+    Defends against entry points that import ``harness.engine.cli_profile``
+    directly (the registry) without going through ``harness.cli_profiles``
+    (the loader package). Symptom without this: server / CLI started before
+    P3-T8 wires ``load_all_profiles_at_startup`` into lifespan → registry
+    stays empty → ``get_profile("claude-code")`` raises spurious KeyError
+    with ``valid options: []``.
+
+    Idempotent via ``_BUILTINS_AUTO_LOADED``. Lazy import avoids the module
+    cycle: ``cli_profiles/__init__.py`` reads types from this module but
+    never calls this function.
+
+    Failures are swallowed on purpose — the caller falls through to a
+    KeyError / ValueError with diagnostic info, which is more actionable
+    than a loader ImportError during early bootstrap.
+    """
+    global _BUILTINS_AUTO_LOADED
+    if _BUILTINS_AUTO_LOADED:
+        return
+    _BUILTINS_AUTO_LOADED = True
+    try:
+        from harness.cli_profiles import load_builtin_profiles
+        load_builtin_profiles()
+    except Exception:
+        # Loader unavailable (early bootstrap) or broken — let the caller
+        # surface the empty-registry error. Logging here would be noise
+        # because reset_registry re-arms and the next access retries.
+        pass
+
 
 def register_cli_profile(profile: CliProfile) -> None:
     """Register a CliProfile. Idempotent — last-write-wins.
@@ -188,6 +224,7 @@ def get_profile(name: str) -> CliProfile:
         KeyError: when name is not registered.
         ValueError: when name is registered but disabled (with reason).
     """
+    _auto_load_builtins_if_needed()
     if name in _DISABLED:
         reason = _DISABLED_REASONS.get(name, "unknown reason")
         raise ValueError(
@@ -208,6 +245,7 @@ def registered_profile_names() -> frozenset[str]:
 
     Used by VALID_EXECUTORS() to merge with BUILTIN_EXECUTORS.
     """
+    _auto_load_builtins_if_needed()
     return frozenset(_REGISTRY.keys()) | frozenset(_DISABLED)
 
 
@@ -217,7 +255,14 @@ def disabled_profile_diagnostics() -> dict[str, str]:
 
 
 def reset_registry() -> None:
-    """Clear the registry (tests only)."""
+    """Clear the registry (tests only).
+
+    Re-arms ``_BUILTINS_AUTO_LOADED`` so the next ``get_profile`` /
+    ``registered_profile_names`` call re-triggers the lazy builtin load —
+    mirrors the "fresh process" semantics tests rely on.
+    """
+    global _BUILTINS_AUTO_LOADED
     _REGISTRY.clear()
     _DISABLED.clear()
     _DISABLED_REASONS.clear()
+    _BUILTINS_AUTO_LOADED = False

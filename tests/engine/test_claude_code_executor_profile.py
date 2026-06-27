@@ -100,13 +100,41 @@ def test_executor_error_payload_uses_profile_name():
     assert bus.events[-1][1]["executor"] == "claude-canary"
 
 
-def test_missing_builtin_profile_raises_runtime_error():
-    """If the registry has no 'claude-code' profile (e.g. operator never
-    imported harness.cli_profiles), construction fails loud with a
-    message pointing at the fix."""
+def test_missing_builtin_profile_self_heals_then_raises_if_loader_broken(monkeypatch):
+    """Self-heal contract: empty registry triggers lazy builtin load on
+    first get_profile call. ClaudeCodeExecutor(profile=None) succeeds
+    because the lazy load fills the registry.
+
+    Regression for the stale-server bug: a server started before P3-T8
+    never called load_all_profiles_at_startup in lifespan, leaving the
+    registry empty. Without self-heal, ClaudeCodeExecutor construction
+    would fail with a confusing KeyError. With self-heal, the first
+    access repopulates the registry transparently.
+    """
     from harness.engine.cli_profile import reset_registry
+    import harness.engine.cli_profile as cp_mod
     reset_registry()
+    assert not cp_mod._BUILTINS_AUTO_LOADED, "reset_registry must re-arm the auto-load flag"
     try:
+        # Construction succeeds — self-heal loads claude-code on first lookup.
+        ex = ClaudeCodeExecutor(
+            agent_def=Agent("x"), deps=None,
+            workflow_id="w", node_id="x", agent_name="x",
+            enable_mcp=False,
+        )
+        assert ex._profile.name == "claude-code"
+        assert cp_mod._BUILTINS_AUTO_LOADED, "auto-load flag must be set after first lookup"
+
+        # If the loader is genuinely broken (e.g. corrupt profile module),
+        # the same construction surfaces a clear RuntimeError pointing at
+        # the fix — defensive contract for operators.
+        reset_registry()
+
+        def _force_load_fail():
+            # Set the flag so the real impl doesn't run, leaving registry empty.
+            cp_mod._BUILTINS_AUTO_LOADED = True
+
+        monkeypatch.setattr(cp_mod, "_auto_load_builtins_if_needed", _force_load_fail)
         with pytest.raises(RuntimeError, match="requires 'claude-code' profile"):
             ClaudeCodeExecutor(
                 agent_def=Agent("x"), deps=None,
@@ -114,7 +142,9 @@ def test_missing_builtin_profile_raises_runtime_error():
                 enable_mcp=False,
             )
     finally:
-        # Restore registry for other tests
+        # Restore registry + flag for other tests
+        monkeypatch.undo()
+        reset_registry()
         from harness.cli_profiles import load_builtin_profiles
         load_builtin_profiles()
 

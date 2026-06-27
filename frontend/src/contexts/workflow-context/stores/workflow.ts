@@ -113,6 +113,13 @@ export function createWorkflowStore(
             attempt: payload.attempt,
             tools: payload.tools,
             model: payload.model,
+            // 2026-06-26: surface backend + resolved tools for UI transparency.
+            // Mirrors workflowStore.handleNodeStarted. Scoped store is what
+            // the conversation panel actually reads (ScopedConversationTab
+            // uses useScopedStore("workflow")), so the global-store edit alone
+            // wasn't enough — ToolsBadge needs these fields here too.
+            backend: payload.backend,
+            toolsResolved: payload.tools_resolved,
           },
         },
       })),
@@ -268,6 +275,89 @@ export function createWorkflowStore(
     setActiveWid: (wid) => cache.setActiveWid(wid),
 
     clearCache: () => cache.clearCache(),
+
+    // P2-T8 error/retry/status handlers — mirror workflowStore.ts impls.
+    // Kept structurally identical so scoped stores behave the same as the
+    // global store when these events route through eventRouter.
+    handleWorkflowError: (payload) =>
+      set((state) => {
+        const nodes = { ...state.nodes };
+        if (payload.failed_node) {
+          const existing = nodes[payload.failed_node];
+          nodes[payload.failed_node] = {
+            ...(existing ?? {
+              id: payload.failed_node,
+              name: payload.failed_node,
+              status: "failed" as const,
+            }),
+            id: payload.failed_node,
+            status: "failed" as const,
+            error: payload.error,
+            errorType: payload.error_type,
+          };
+        }
+        return {
+          status: "failed" as const,
+          nodes,
+        };
+      }),
+
+    pushExecutorError: (nodeId, payload) =>
+      set((state) => {
+        const existing = state.nodes[nodeId];
+        return {
+          nodes: {
+            ...state.nodes,
+            [nodeId]: {
+              ...(existing ?? {
+                id: nodeId,
+                name: payload.agent_name ?? nodeId,
+                status: "failed" as const,
+              }),
+              id: nodeId,
+              executorError: payload,
+            },
+          },
+        };
+      }),
+
+    pushApiRetry: (nodeId, payload) =>
+      set((state) => {
+        const existing = state.nodes[nodeId];
+        return {
+          nodes: {
+            ...state.nodes,
+            [nodeId]: {
+              ...(existing ?? {
+                id: nodeId,
+                name: payload.agent_name ?? nodeId,
+                status: "retrying" as const,
+              }),
+              id: nodeId,
+              lastApiRetry: payload,
+            },
+          },
+        };
+      }),
+
+    pushStatusUpdate: (nodeId, payload) =>
+      set((state) => {
+        const existing = state.nodes[nodeId];
+        return {
+          nodes: {
+            ...state.nodes,
+            [nodeId]: {
+              ...(existing ?? {
+                id: nodeId,
+                name: payload.agent_name ?? nodeId,
+                status: "running" as const,
+              }),
+              id: nodeId,
+              lastStatus: payload,
+            },
+          },
+        };
+      }),
   }));
 
   // WorkflowState lacks a string index signature, but withCache only relies on
@@ -292,6 +382,7 @@ export function createWorkflowStore(
       dag: (snap.dag as WorkflowState["dag"]) ?? null,
       envelope: (snap.envelope as WorkflowState["envelope"]) ?? null,
     }),
+
     makeEmptySnapshot: () => ({
       nodes: {},
       status: "running",

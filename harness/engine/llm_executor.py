@@ -19,6 +19,7 @@ from pydantic_ai.messages import ModelRequest, SystemPromptPart, RetryPromptPart
 from harness.extensions.base import ToolCtx
 from harness.extensions.bus import safe_emit
 from harness.engine.token_aggregator import TokenAggregator
+from harness.engine.tool_resolution import ToolResolution
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,19 @@ class BaseExecutor(Protocol):
         """
         ...
 
+    def resolve_tools(self) -> list[ToolResolution]:
+        """返回本 backend 对 agent 声明工具的解析结果。
+
+        每个 executor 子类实现具体解析规则（claude-code 走 cli_bridge_tools
+        config；pydantic-ai 全部当 in-process function；未来的 opencode 等
+        backend 各自定义）。``node_factory`` 在 ``node.started`` emit 时调用
+        本方法把结果传给前端展示。
+
+        返回 ``list[ToolResolution]``，顺序与 ``agent_def.tools`` 一致；
+        agent 没声明工具时返回 ``[]``。
+        """
+        ...
+
 
 class LLMExecutor:
     """Run a Pydantic AI agent via iter() with streaming + interrupt support.
@@ -112,6 +126,7 @@ class LLMExecutor:
         cancel_fn: Callable[[str], None] | None = None,
         token_aggregator: TokenAggregator | None = None,
         request_limit: int | None = None,
+        tools_declared: list[str] | None = None,
     ):
         self._agent = pydantic_agent
         self._deps = deps
@@ -127,6 +142,12 @@ class LLMExecutor:
         # env (default 200). Forwarded to agent.iter(usage_limits=...) — controls
         # when PydanticAI raises UsageLimitExceeded (see llm_retry.py classify).
         self._request_limit = request_limit
+        # Declared tool names (workflow.json ``tools`` field). Used by
+        # resolve_tools() to surface what the operator wrote vs what the
+        # pydantic-ai Agent actually registered. None when the executor
+        # was built outside the standard node_factory path (tests / direct
+        # ad-hoc construction) — resolve_tools() returns [] in that case.
+        self._tools_declared: list[str] | None = tools_declared
         self.tool_calls: list[dict[str, Any]] = []
         self._span_seq = 0
         self._last_ttft_ms: int | None = None
@@ -145,6 +166,14 @@ class LLMExecutor:
         self._last_input: int = 0
         self._last_output: int = 0
         self._last_cache_hit: int = 0
+
+    def resolve_tools(self) -> list[ToolResolution]:
+        """pydantic-ai backend resolution. See ``resolve_tools_for_backend``."""
+        from harness.engine.tool_resolution import resolve_tools_for_backend
+
+        if not self._tools_declared:
+            return []
+        return resolve_tools_for_backend(self._tools_declared, "pydantic-ai")
 
     # ------------------------------------------------------------------
     # Public API

@@ -10,6 +10,8 @@ import inspect
 
 import pytest
 
+from pathlib import Path
+
 from harness.run_store_interface import RunStoreInterface
 from harness.run_store import RunStore
 
@@ -98,6 +100,7 @@ def test_can_subclass_for_alternative_backend():
             events=None,
             created_at=None,
             work_dir=None,
+            todo_steps=None,
         ):
             self._runs[run_id] = {
                 "run_id": run_id,
@@ -174,6 +177,25 @@ def test_can_subclass_for_alternative_backend():
 
         def get_events_mtime(self, run_id):
             return self._mtimes.get(run_id)
+
+        # snapshot / iter sidecar stubs (required by RunStoreInterface)
+        def save_snapshot(self, run_id, snapshot):
+            pass
+
+        def get_snapshot(self, run_id):
+            return None
+
+        def save_iter_sidecar(self, run_id, node_id, iter_num, data):
+            pass
+
+        def get_iter_sidecar(self, run_id, node_id, iter_num):
+            return None
+
+        def update_iter_index(self, run_id, node_id, iter_summary):
+            pass
+
+        def get_iter_index(self, run_id):
+            return None
 
     store = InMemoryStore()
     assert isinstance(store, RunStoreInterface)

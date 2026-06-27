@@ -15,18 +15,20 @@ class AgentDef(BaseModel):
     eval: bool = False
     result_type_name: str | None = None
     result_type_schema: dict[str, Any] | None = None
-    # Phase A-F: per-agent executor backend；缺省 = "pydantic-ai"。
-    # 前端 PATCH /workflows/definitions/{name}/agents/{agent} 写入 workflow.json，
-    # 前端启动 run 时把整份 agents 列表 POST 到 /api/workflows。如果本字段
-    # 不声明，pydantic 会静默丢弃，导致 executor=claude-code 的 agent 跑出来
-    # 还是 pydantic-ai（pydantic-ai 路径）。
+    # per-agent executor backend；缺省 = "pydantic-ai"。
+    # 真相源是 workflow.json；POST body 的 agents 仅在 ad-hoc（无 workflow.json）
+    # 场景下作 fallback。scoped workflow 启动 run 时后端忽略此字段，从盘读。
     executor: Literal["pydantic-ai", "claude-code"] = "pydantic-ai"
 
 
 class CreateWorkflowRequest(BaseModel):
-    """Request to create and start a workflow."""
+    """Request to create and start a workflow.
+
+    agents 字段仅在 ad-hoc 模式（无 workflow.json）下被消费；scoped workflow
+    启动 run 时后端从 workflow.json 读 agents 定义，忽略此字段。
+    """
     name: str
-    agents: list[AgentDef]
+    agents: list[AgentDef] | None = None
     workflow: str
     inputs: dict = Field(default_factory=dict)
     work_dir: str | None = None  # Working directory to execute in
@@ -153,7 +155,7 @@ class BatchRunItem(BaseModel):
 class CreateBatchRequest(BaseModel):
     """Request to create a batch of workflow runs."""
     name: str
-    agents: list[AgentDef]
+    agents: list[AgentDef] | None = None
     workflow: str
     items: list[BatchRunItem]
     work_dir: str | None = None

@@ -11,6 +11,7 @@ import type {
   NodeFailedPayload,
   ToolBrief,
   ToolCallBrief,
+  ToolResolution,
   AgentTokenUsage,
 } from "@/types/events";
 
@@ -45,6 +46,18 @@ export interface NodeState {
   /** Per-agent token breakdown — present when backend emits `token_breakdown`. */
   tokenBreakdown?: Record<string, AgentTokenUsage>;
   tools?: ToolBrief[];
+  /**
+   * Executor backend for this node (2026-06-26). "claude-code" / "pydantic-ai" /
+   * future "opencode" etc. Set from node.started payload; absent on old replays.
+   * UI renders as a badge next to agent name to make dispatch strategy visible.
+   */
+  backend?: string;
+  /**
+   * Per-tool resolution info from node.started. Lets UI show
+   * "bash → Bash (Claude built-in)" instead of just the declared name.
+   * Absent on old replays → UI falls back to the declared tools list.
+   */
+  toolsResolved?: ToolResolution[];
   model?: string;
   costUsd?: number;
   ttftMs?: number;
@@ -359,6 +372,10 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => ({
           attempt: payload.attempt,
           tools: payload.tools,
           model: payload.model,
+          // 2026-06-26: surface backend + resolved tools for UI transparency.
+          // Optional fields — absent on old replays (treated as undefined).
+          backend: payload.backend,
+          toolsResolved: payload.tools_resolved,
         },
       },
     })),

@@ -267,6 +267,12 @@ export function createConversationStore(
             iteration: payload.node_id ? (state.currentIterationByNode[payload.node_id] ?? 1) : undefined,
           },
         ],
+        // v3 (ADR: single-source-streaming-state D5): set pendingQuestionId
+        // so usePendingQuestion() returns the live question id. Previously
+        // this setter was missing — only message was pushed, leaving the
+        // derived pointer null even on fresh ask_user.
+        pendingQuestionId: payload.question_id,
+        pendingQuestionAgent: payload.agent_name ?? null,
       })),
 
     answerUserQuestion: (questionId, answer) =>

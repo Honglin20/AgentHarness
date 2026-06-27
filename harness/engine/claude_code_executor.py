@@ -35,6 +35,7 @@ from typing import Any, Callable
 
 from harness.engine.llm_executor import AgentRunResult, BaseExecutor
 from harness.engine.token_aggregator import TokenAggregator
+from harness.engine.tool_resolution import ToolResolution
 from harness.engine._claude_subprocess import ClaudeRunResult, ClaudeSpawnConfig, run_claude
 from harness.engine._result_extractor import SchemaValidationError, extract_and_validate
 from harness.engine.cli_profile import CliProfile, get_profile
@@ -46,12 +47,9 @@ from harness.translator import TranslateContext, TranslatedEvent, translate
 logger = logging.getLogger(__name__)
 
 
-# Claude Code 内置工具集（不需要 mcp__ 前缀）。被 _resolve_allowed_tools
-# 和 _inject_tool_name_mapping 共用。新增内置工具在这里加。
-_CLAUDE_BUILTIN_TOOLS: frozenset[str] = frozenset({
-    "Bash", "Read", "Edit", "Write", "Grep", "Glob",
-    "WebFetch", "WebSearch", "Task", "TodoWrite",
-})
+# Claude 内置工具集 + lowercase 别名映射现在由 harness.cli_bridge_tools
+# 统一管理（便于操作者编辑）。_resolve_allowed_tools / _rewrite_bare_tool_names
+# 都从那里读 BRIDGED_TOOLS + LOWER_TO_CLAUDE_BUILTIN。
 
 
 # 翻译器会 emit 这几类生命周期事件，但 node_factory 已经有自己的
@@ -235,6 +233,10 @@ class ClaudeCodeExecutor:
             mcp_config_path = await self._setup_mcp()
 
         try:
+            # claude -p requires non-empty stdin. When context is empty (no
+            # inputs, no upstream), provide a minimal default user message.
+            if not context.strip():
+                context = "Proceed with the task as described in your instructions."
             cfg = self._build_spawn_config(context, mcp_config_path)
             ctx = self._build_translate_ctx()
 
@@ -427,11 +429,13 @@ class ClaudeCodeExecutor:
 
         allowed_tools = self._resolve_allowed_tools()
 
-        # 工具名映射注入：harness MCP 工具在 claude 子进程里暴露为
-        # mcp__harness__<name>，但 agent prompt 通常按字面写 "ask_user"。
-        # 不注入会让模型按字面调 ask_user → claude 报 "No such tool" →
-        # 整条 HITL 链路断。映射段强制告知模型完整工具名。
-        system_prompt = self._inject_tool_name_mapping(system_prompt)
+        # Bare 工具名重写：BRIDGED_TOOLS 里的工具在 claude 子进程里暴露为
+        # mcp__harness__<name>，但 agent MD 通常按字面写 "ask_user"。
+        # 旧路径（_inject_tool_name_mapping）在 prompt 末尾追加 mapping 段，
+        # 同时提及 bare 和 mcp__ 两个名字 → 模型同时尝试两者 → 重复调用
+        # （run bc2f394c：greeter 3 次 / survey 2 次）。
+        # 改为 in-place 文本替换：prompt 里只剩 mcp__ 全名，从源头消除歧义。
+        system_prompt = self._rewrite_bare_tool_names(system_prompt)
 
         # 显式 > self._mcp_config_path（兼容旧测试 + 自定义注入）
         effective_mcp = mcp_config_path if mcp_config_path is not None else self._mcp_config_path
@@ -442,8 +446,11 @@ class ClaudeCodeExecutor:
         # 里的 ANTHROPIC_* 优先级最高。
         env_overlay = self._load_env_overlay()
 
+        # claude -p requires non-empty stdin — fallback when context is empty
+        # (e.g. first node with no inputs or upstream outputs).
+        prompt = context if context else "Complete the task described in the system prompt."
         cfg = ClaudeSpawnConfig(
-            prompt=context,
+            prompt=prompt,
             mcp_config_path=effective_mcp,
             allowed_tools=allowed_tools,
             append_system_prompt=system_prompt,
@@ -634,61 +641,65 @@ class ClaudeCodeExecutor:
     def _resolve_allowed_tools(self) -> list[str] | None:
         """从 agent_def.tools 提取白名单；None = claude 自选。
 
-        工具名映射规则（Phase D 工具桥接）：
-          - 已是 ``mcp__*`` 格式：原样透传（用户显式指定 server）
-          - 大写起头（``Bash``/``Read``/``Edit``...）：claude 内置工具，原样透传
-          - 小写起头（``ask_user``/``ping``...）：harness MCP 桥接工具，
-            自动加 ``mcp__harness__`` 前缀（mcp-config 里 server name = "harness"）
+        Resolution 走 ``harness.cli_bridge_tools.resolve_for_claude``：
+          - 在 BRIDGED_TOOLS 里 → ``mcp__harness__<name>``（harness MCP 桥接）
+          - lowercase 别名（bash/grep/...） → Claude built-in canonical（``Bash``）
+          - 显式 ``mcp__*`` / 大写 built-in → 原样透传
 
-        不映射会导致 claude 拒识工具名 → exit 1，stderr 为空。
+        详见 ``harness/cli_bridge_tools.py`` 模块 docstring。
         """
+        from harness.cli_bridge_tools import resolve_for_claude
+
         if self.agent_def is None:
             return None
         tools = getattr(self.agent_def, "tools", None)
         if not tools:
             return None
-        mapped: list[str] = []
-        for t in tools:
-            if t.startswith("mcp__") or t in _CLAUDE_BUILTIN_TOOLS:
-                mapped.append(t)
-            else:
-                mapped.append(f"mcp__harness__{t}")
-        return mapped
+        return [resolve_for_claude(t) for t in tools]
 
-    def _inject_tool_name_mapping(self, system_prompt: str | None) -> str | None:
-        """在 agent MD 末尾追加 harness MCP 工具名映射段。
+    def resolve_tools(self) -> list[ToolResolution]:
+        """claude-code backend resolution. See ``resolve_tools_for_backend``."""
+        from harness.engine.tool_resolution import resolve_tools_for_backend
 
-        agent prompt 通常按字面引用工具名（"call ask_user"），但 claude
-        子进程通过 MCP 协议拿到的是 ``mcp__harness__<name>`` 全名。不注入
-        会让模型按字面调 ``ask_user`` → claude 报 "No such tool"。
-
-        映射段只列出 agent 自己声明的小写起头工具（harness 桥接工具），
-        claude 内置工具和大写 mcp__ 显式前缀工具不需要映射。
-        """
         if self.agent_def is None:
+            return []
+        tools = getattr(self.agent_def, "tools", None) or []
+        return resolve_tools_for_backend(tools, "claude-code")
+
+    def _rewrite_bare_tool_names(self, system_prompt: str | None) -> str | None:
+        """把 agent MD 里的 bare 工具名替换成 MCP 全名（in-place）。
+
+        BRIDGED_TOOLS 里的工具在 claude 子进程里暴露为 ``mcp__harness__<name>``。
+        agent MD 通常按字面引用（"call `ask_user`"），不替换会让模型按字面
+        调 bare 名字 → claude 报 "No such tool"。
+
+        旧路径 ``_inject_tool_name_mapping`` 在 prompt 末尾追加 mapping 段，
+        同时提及 bare 和 mcp__ 两个名字 → 模型同时尝试两者 → 重复调用
+        （run bc2f394c：greeter 3 次 / survey 2 次，见 ADR）。
+
+        本方法做 in-place 文本替换：prompt 里只剩 ``mcp__harness__<name>`` 一个
+        引用，从源头消除歧义。用 negative lookbehind/lookahead 匹配独立 token，
+        避免误伤子串（如 ``ask_user_count``）。
+
+        非 BRIDGED_TOOLS（bash/grep/...）不替换——它们已映射到 Claude built-in，
+        prompt 字面与 claude 看到的工具名一致。
+        """
+        import re
+        from harness.cli_bridge_tools import BRIDGED_TOOLS
+
+        if self.agent_def is None or not system_prompt:
             return system_prompt
         tools = getattr(self.agent_def, "tools", None) or []
-        harness_tools = [
-            t for t in tools
-            if not t.startswith("mcp__") and t not in _CLAUDE_BUILTIN_TOOLS
-        ]
-        if not harness_tools:
+        bridged = [t for t in tools if t in BRIDGED_TOOLS]
+        if not bridged:
             return system_prompt
-        lines = [
-            "",
-            "",
-            "## Tool Name Mapping (harness auto-injected)",
-            "",
-            "Tools referenced in your instructions are exposed through the harness MCP server.",
-            "Invoke them by their FULL ``mcp__harness__<name>`` name — using the bare name will fail.",
-            "",
-        ]
-        for t in harness_tools:
-            lines.append(f"- `{t}` → invoke as `mcp__harness__{t}`")
-        mapping_block = "\n".join(lines) + "\n"
-        if system_prompt:
-            return system_prompt + mapping_block
-        return mapping_block.lstrip()
+        result = system_prompt
+        for t in bridged:
+            full_name = f"mcp__harness__{t}"
+            # 独立 token：前后非字母数字下划线
+            pattern = rf"(?<![a-zA-Z0-9_]){re.escape(t)}(?![a-zA-Z0-9_])"
+            result = re.sub(pattern, full_name, result)
+        return result
 
     def _extract_and_validate_result(self, text: str):
         """Phase E: 从 claude result.text 提取 + schema 校验。

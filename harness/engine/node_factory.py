@@ -167,9 +167,36 @@ def make_node_func(
 
         # Emit node.started event (legacy WS path)
         if bus:
+            # Compute per-tool resolution + backend tag upfront so the UI
+            # can render "agent uses [claude-code], bash → Bash (Claude
+            # built-in)" immediately when the node starts. Logic lives in
+            # resolve_tools_for_backend (single source of truth) — same
+            # function the executor instance methods use.
+            from harness.engine.tool_resolution import resolve_tools_for_backend
+            backend = getattr(agent_def, "executor", "pydantic-ai")
+            tools_resolved = [
+                r.to_dict() for r in resolve_tools_for_backend(
+                    list(getattr(agent_def, "tools", None) or []),
+                    backend,
+                )
+            ]
+            # claude-code 路径下，ToolRegistry 的 tool_info 是 pydantic-ai 路径
+            # 的工具快照（含 TodoTool/sub_agent/bash/... 共 30+），不反映 claude
+            # 子进程实际暴露的工具。前端 AgentMessage.tsx 读 tools 字段显示数量，
+            # 会渲染 "31 tools" 误导。改为用 tools_resolved 重建 ToolBrief 列表，
+            # 让 emit 的 tools 与 claude 实际看到的工具一致。
+            if backend == "claude-code":
+                emit_tool_info = [
+                    {"name": r["resolved"], "description": r["source"]}
+                    for r in tools_resolved
+                ]
+            else:
+                emit_tool_info = tool_info
             safe_emit(bus, "node.started", build_node_started_payload(
                 builder_self.workflow_id, agent_def.name, agent_def.name,
-                model=model, tools=tool_info, iteration=current_invocation,
+                model=model, tools=emit_tool_info, iteration=current_invocation,
+                backend=backend,
+                tools_resolved=tools_resolved or None,
             ))
 
         # Check if any upstream dependency has failed — skip this node

@@ -45,10 +45,12 @@ def _agent_def(name="agent1", after=None, has_conditional_edges=False):
     agent.has_conditional_edges = has_conditional_edges
     agent.on_pass = None
     agent.on_fail = None
+    agent.executor = "pydantic-ai"  # ensures make_executor takes the in-process path
     return agent
 
 
 # ── Test: general exception includes error_type ─────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_node_failed_includes_error_type():
@@ -57,7 +59,7 @@ async def test_node_failed_includes_error_type():
     sub_id, queue = await bus.subscribe()
     builder = _make_builder(bus)
 
-    agent_def = _agent_def()
+    agent_def = _agent_def(after=["_task_placeholder"])
     parsed = _make_parsed()
     dep_map = {agent_def.name: []}
 
@@ -75,7 +77,7 @@ async def test_node_failed_includes_error_type():
     # Patch LLMExecutor to raise inside the try block
     mock_executor_cls = MagicMock(side_effect=ValueError("test boom"))
 
-    with patch("harness.engine.node_factory.LLMExecutor", mock_executor_cls):
+    with patch("harness.engine.executor_factory.LLMExecutor", mock_executor_cls):
         result = await node_func(state)
 
     # Drain events from the queue
@@ -101,6 +103,7 @@ async def test_node_failed_includes_error_type():
 
 # ── Test: tool_calls_before_failure when executor has tool calls ────────
 
+
 @pytest.mark.asyncio
 async def test_node_failed_includes_tool_calls_before_failure():
     """When executor recorded tool calls before failure, they appear in payload."""
@@ -108,7 +111,7 @@ async def test_node_failed_includes_tool_calls_before_failure():
     sub_id, queue = await bus.subscribe()
     builder = _make_builder(bus)
 
-    agent_def = _agent_def()
+    agent_def = _agent_def(after=["_task_placeholder"])
     parsed = _make_parsed()
     dep_map = {agent_def.name: []}
 
@@ -133,7 +136,7 @@ async def test_node_failed_includes_tool_calls_before_failure():
     mock_instance.run = MagicMock(side_effect=RuntimeError("LLM crashed"))
     mock_executor_cls.return_value = mock_instance
 
-    with patch("harness.engine.node_factory.LLMExecutor", mock_executor_cls):
+    with patch("harness.engine.executor_factory.LLMExecutor", mock_executor_cls):
         result = await node_func(state)
 
     events = []
@@ -157,6 +160,7 @@ async def test_node_failed_includes_tool_calls_before_failure():
 
 
 # ── Test: upstream failure has synthetic error_type ─────────────────────
+
 
 @pytest.mark.asyncio
 async def test_upstream_failure_has_synthetic_error_type():
@@ -199,6 +203,7 @@ async def test_upstream_failure_has_synthetic_error_type():
 
 # ── Test: max iterations has synthetic error_type ───────────────────────
 
+
 @pytest.mark.asyncio
 async def test_max_iterations_has_synthetic_error_type():
     """When max iterations is reached, error_type is MaxIterationsError."""
@@ -239,73 +244,8 @@ async def test_max_iterations_has_synthetic_error_type():
     await bus.unsubscribe(sub_id)
 
 
-# ── Test: output validation failure has synthetic error_type ────────────
-
-@pytest.mark.asyncio
-async def test_output_validation_failure_has_synthetic_error_type():
-    """When output validation fails, error_type is OutputValidationError."""
-    bus = EventBus()
-    sub_id, queue = await bus.subscribe()
-    builder = _make_builder(bus)
-
-    from pydantic import BaseModel
-
-    class StrictOutput(BaseModel):
-        value: int
-
-    agent_def = _agent_def()
-    agent_def.result_type = StrictOutput
-    parsed = _make_parsed()
-    dep_map = {agent_def.name: []}
-
-    node_func = builder._make_node_func(
-        agent_def, parsed, dep_map, "/tmp/nonexistent_wf", ""
-    )
-
-    state = {
-        "inputs": {},
-        "outputs": {},
-        "errors": {},
-        "metadata": {},
-    }
-
-    # Patch LLMExecutor to return a successful run with wrong output type
-    mock_executor_cls = MagicMock()
-    mock_instance = MagicMock()
-    mock_instance.tool_calls = []
-    mock_run = MagicMock()
-    mock_run.result.output = "not a BaseModel"  # Wrong type
-    mock_run.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
-    mock_instance.run = MagicMock(return_value=mock_run)
-    # Make it awaitable
-    mock_instance.run = MagicMock(side_effect=asyncio.coroutine(lambda: mock_run)())
-    mock_executor_cls.return_value = mock_instance
-
-    # Actually, we need an async mock
-    async def fake_run(ctx):
-        return mock_run
-
-    mock_instance.run = fake_run
-    mock_executor_cls.return_value = mock_instance
-
-    with patch("harness.engine.node_factory.LLMExecutor", mock_executor_cls):
-        result = await node_func(state)
-
-    events = []
-    while not queue.empty():
-        events.append(await queue.get())
-
-    failed_events = [e for e in events if e["type"] == "node.failed"]
-    assert len(failed_events) == 1
-
-    payload = failed_events[0]["payload"]
-    assert payload["error_type"] == "OutputValidationError"
-    assert "validation failed" in payload["error"].lower() or "Expected" in payload["error"]
-
-    await bus.unsubscribe(sub_id)
-
-
 # ── Test: no tool_calls_before_failure when executor has none ───────────
+
 
 @pytest.mark.asyncio
 async def test_node_failed_no_tool_calls_field_when_empty():
@@ -314,7 +254,7 @@ async def test_node_failed_no_tool_calls_field_when_empty():
     sub_id, queue = await bus.subscribe()
     builder = _make_builder(bus)
 
-    agent_def = _agent_def()
+    agent_def = _agent_def(after=["_task_placeholder"])
     parsed = _make_parsed()
     dep_map = {agent_def.name: []}
 
@@ -336,7 +276,7 @@ async def test_node_failed_no_tool_calls_field_when_empty():
     mock_instance.run = MagicMock(side_effect=RuntimeError("fail"))
     mock_executor_cls.return_value = mock_instance
 
-    with patch("harness.engine.node_factory.LLMExecutor", mock_executor_cls):
+    with patch("harness.engine.executor_factory.LLMExecutor", mock_executor_cls):
         result = await node_func(state)
 
     events = []

@@ -329,6 +329,12 @@ export interface RunSnapshot {
   dag?: { nodes: string[]; edges: [string, string][]; conditional_edges?: { from: string; to: string; label: string }[] } | null;
   agent_io?: Record<string, unknown>;
   conversation?: unknown[];
+  /**
+   * Tail of the raw event stream (last N events). Optional — only present
+   * when the snapshot sidecar embeds events for diagnostics / chat-question
+   * detection. activateRun reads this to surface hasChatQuestionInEvents.
+   */
+  events?: unknown[];
   /** Total message count in the full backend conversation (pre-tail). */
   conversation_total?: number;
   charts?: { groupOrder?: string[]; groups?: Record<string, unknown> } | null;

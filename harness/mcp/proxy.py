@@ -204,8 +204,22 @@ class McpProxyServer:
             logger.debug("proxy: client disconnected")
 
     async def _dispatch(self, req: McpCallRequest) -> McpCallResponse:
-        """根据 tool_name 调 handler；handler 不存在或抛错时返回 is_error=True。"""
+        """根据 tool_name 调 handler；handler 不存在或抛错时返回 is_error=True。
+
+        工具名已由 ClaudeCodeExecutor 在 ``--allowed-tools`` 中映射为
+        ``mcp__harness__<name>`` 格式（见 claude_code_executor.py 的
+        _resolve_allowed_tools / _rewrite_bare_tool_names），
+        但 handler 注册时用的是裸名（``ask_user`` 而非 ``mcp__harness__ask_user``）。
+        先精确查找；找不到时尝试剥离 ``mcp__harness__`` 前缀再查。
+        """
         handler = _HANDLERS.get(req.tool_name)
+        if handler is None and req.tool_name.startswith("mcp__harness__"):
+            stripped = req.tool_name[len("mcp__harness__"):]
+            handler = _HANDLERS.get(stripped)
+            if handler is not None:
+                logger.debug(
+                    "proxy: mapped %r -> %r", req.tool_name, stripped,
+                )
         if handler is None:
             logger.warning("proxy: no handler for tool %r (registered: %s)",
                            req.tool_name, list_registered_handlers())

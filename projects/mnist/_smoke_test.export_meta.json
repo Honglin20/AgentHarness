@@ -1,0 +1,19 @@
+{
+  "onnx_path": "_smoke_test.onnx",
+  "params": 17226,
+  "opset_version": 17,
+  "input_schema": {
+    "kind": "tensor",
+    "keys": [
+      "input"
+    ],
+    "shapes": [
+      [
+        1,
+        64
+      ]
+    ],
+    "source": "dummy_inputs"
+  },
+  "model_class": "ConfigurableMLP"
+}

@@ -470,10 +470,21 @@ def _iter_sidecar_to_messages(sidecar: dict, node_id: str, iter_num: int) -> lis
 @router.patch("/runs/{run_id}/conversation")
 async def update_run_conversation(
     run_id: str, body: UpdateRunConversationRequest, request: Request,
+    response: Response,
     store: RunStoreInterface = Depends(get_run_store_dep),
     repo: WorkflowRepository = Depends(get_repository_dep),
 ) -> dict:
-    """Update conversation messages for a run — persisted or in-memory."""
+    """Update conversation messages for a run — persisted or in-memory.
+
+    @deprecated v3 (ADR: single-source-streaming-state D7). The backend is
+    now the source of truth — chat.question/answer/timeout events land in
+    +events.json and loadRunFromPersistedData replays them on hydration.
+    This client→server PATCH will be removed in a follow-up PR.
+    """
+    # Sunset signal — clients should stop pushing conversation state.
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = "Mon, 17 Sept 2026 00:00:00 GMT"
+
     conversation = body.conversation
 
     user = get_current_user(request)

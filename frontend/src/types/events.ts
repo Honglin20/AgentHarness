@@ -183,6 +183,49 @@ export interface NodeStartedPayload {
    * emitted before Plan F backend deploy → consumers treat as 1.
    */
   iteration?: number;
+  /**
+   * Executor backend for this node. Added 2026-06-26 alongside tools_resolved
+   * for UI transparency — surfaces next to agent name as a badge so operators
+   * see at-a-glance whether the agent runs on pydantic-ai / claude-code /
+   * future opencode / etc. Absent on older backend events → consumers treat
+   * as the default ("pydantic-ai").
+   */
+  backend?: string;
+  /**
+   * Per-tool resolution info from BaseExecutor.resolve_tools(). Lets UI show
+   * "bash → Bash (Claude built-in)" instead of just the declared name, so
+   * operators can verify dispatch strategy (BRIDGED_TOOLS config etc.) at
+   * runtime. Each entry is independent — agents can mix Claude built-ins,
+   * harness MCP, and unknown tools.
+   *
+   * Absent on older backend events → UI falls back to displaying declared
+   * tool names from the DAG.
+   */
+  tools_resolved?: ToolResolution[];
+}
+
+/**
+ * How one declared tool name resolves for the active backend.
+ *
+ * Stable contract — mirrors backend's harness.engine.tool_resolution.ToolResolution.
+ * Adding fields is OK; renaming/removing breaks the wire format.
+ *
+ * Future backends (opencode/codex/...) just emit different `resolved` / `source`
+ * strings — frontend renders verbatim, no UI changes per backend.
+ */
+export interface ToolResolution {
+  /** Tool name as declared in workflow.json (what the operator wrote). */
+  declared: string;
+  /** Tool name the backend actually sees (e.g. "Bash", "mcp__harness__ask_user"). */
+  resolved: string;
+  /**
+   * Human-readable source category. Convention:
+   *   - "Claude built-in" / "pydantic-ai function" / "<backend> built-in"
+   *   - "harness MCP" (bridged via mcp__harness__ prefix)
+   *   - "external MCP" (explicit mcp__<server>__<name>)
+   *   - "unknown" (backend doesn't know how to resolve)
+   */
+  source: string;
 }
 
 export interface TokenUsage {

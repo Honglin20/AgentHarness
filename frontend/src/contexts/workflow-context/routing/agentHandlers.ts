@@ -20,6 +20,7 @@ import type {
   StatusUpdatePayload,
 } from "@/types/events";
 import { payload } from "./utils";
+import { isTextNodeDuplicate } from "./dedup";
 import { toast } from "sonner";
 
 export const agentHandlers: [string, EventHandler][] = [
@@ -27,6 +28,11 @@ export const agentHandlers: [string, EventHandler][] = [
     "agent.text_delta",
     (stores, event, _ctx) => {
       const p = payload<AgentTextDeltaPayload>(event);
+      // v3 (ADR D6): skip if the hydrated sidecar already covered this seq —
+      // otherwise WS-replayed deltas would double the text content.
+      const wid = stores.workflow.getState().workflowId ?? undefined;
+      const seq = (event as { seq?: number }).seq;
+      if (isTextNodeDuplicate(wid, p.node_id, seq)) return;
       stores.output.getState().appendText(p.node_id, p.text);
       stores.conversation.getState().appendAgentText(p.node_id, p.text);
     },
@@ -36,6 +42,9 @@ export const agentHandlers: [string, EventHandler][] = [
     "agent.thinking_delta",
     (stores, event, _ctx) => {
       const p = payload<AgentThinkingDeltaPayload>(event);
+      const wid = stores.workflow.getState().workflowId ?? undefined;
+      const seq = (event as { seq?: number }).seq;
+      if (isTextNodeDuplicate(wid, p.node_id, seq)) return;
       stores.conversation.getState().appendAgentThinking(p.node_id, p.text);
     },
   ],
@@ -83,6 +92,11 @@ export const agentHandlers: [string, EventHandler][] = [
       // same (nodeId, toolName) — fine for sequential bash, can cross-wire
       // for parallel same-name bash streaming (rare; tracked as follow-up).
       const p = payload<AgentToolOutputDeltaPayload>(event);
+      // v3 (ADR D6): skip if hydrated sidecar already covered this seq —
+      // tool_streaming_outputs is reverse-filled from sidecar on hydration.
+      const wid = stores.workflow.getState().workflowId ?? undefined;
+      const seq = (event as { seq?: number }).seq;
+      if (isTextNodeDuplicate(wid, p.node_id, seq)) return;
       // Find the last running tool_call on this node with the same name and
       // route the streaming line to it. Future: extend WS payload + schema
       // to carry tool_call_id here too.

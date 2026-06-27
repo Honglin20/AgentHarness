@@ -272,6 +272,7 @@ class ChartCollector:
 def build_conversation(
     agent_io: dict[str, dict],
     invocation_counts: dict[str, int] | None = None,
+    sidecar_data: dict[str, list[dict]] | None = None,
 ) -> list[dict]:
     """Build conversation messages from ``agent_io`` (per-node output data).
 
@@ -294,6 +295,16 @@ def build_conversation(
     field is absent and the frontend treats it as iter=1. Caller is
     responsible for providing accurate counts — typically from
     ``builder.node_invocation_counts`` (live) or ``iter_index`` (replay).
+
+    v3 (ADR: single-source-streaming-state D3): ``sidecar_data`` is the
+    **preferred** source when provided. Shape: ``{node_id: [sidecar_iter1,
+    sidecar_iter2, ...]}``. When present, multi-iter agents emit one
+    message group per iter (preserves history instead of only latest).
+    Agent message ``content`` still uses ``_format_output(output_result)``
+    (structured, authoritative); ``thinking`` and ``toolStreamingOutput``
+    are reverse-filled from the sidecar — these fields are absent from
+    ``agent_io``. When ``sidecar_data`` is None, falls back to the legacy
+    agent_io-only path (backward compat).
     """
     messages: list[dict] = []
     counter = 0
@@ -303,6 +314,102 @@ def build_conversation(
         counter += 1
         return f"msg-{counter}"
 
+    # v3 path — sidecar_data is the authoritative source.
+    if sidecar_data:
+        for agent_name, iters in sidecar_data.items():
+            if not isinstance(iters, list):
+                continue
+            # Stable order: by iter number ascending.
+            for sidecar in sorted(iters, key=lambda s: s.get("iter", 1) if isinstance(s, dict) else 1):
+                if not isinstance(sidecar, dict):
+                    continue
+                iter_num = sidecar.get("iter")
+                iter_field = {"iteration": iter_num} if isinstance(iter_num, int) else {}
+                output_result = sidecar.get("output_result")
+                thinking = sidecar.get("thinking") or ""
+                # Prefer legacy aliases only when primary is absent.
+                if output_result is None:
+                    output_result = sidecar.get("output")
+                input_prompt = sidecar.get("input_prompt")
+                if input_prompt is None:
+                    input_prompt = sidecar.get("input")
+                tool_calls = sidecar.get("tool_calls") or []
+                tool_streaming = sidecar.get("tool_streaming_outputs") or {}
+
+                # Agent message (content from output_result — authoritative)
+                if output_result is not None:
+                    content = _format_output(output_result)
+                    msg: dict = {
+                        "id": _next_id(),
+                        "type": "agent",
+                        "nodeId": agent_name,
+                        "agentName": agent_name,
+                        "content": content,
+                        "status": "done",
+                        "timestamp": 0,
+                        **iter_field,
+                    }
+                    if thinking:
+                        msg["thinking"] = thinking
+                    messages.append(msg)
+                elif thinking:
+                    # Thinking-only agent (no structured output) — still emit
+                    # so the reasoning is visible. content stays empty so the
+                    # frontend doesn't render fallback input_prompt as content.
+                    messages.append({
+                        "id": _next_id(),
+                        "type": "agent",
+                        "nodeId": agent_name,
+                        "agentName": agent_name,
+                        "content": "",
+                        "thinking": thinking,
+                        "status": "done",
+                        "timestamp": 0,
+                        **iter_field,
+                    })
+                elif input_prompt and not tool_calls:
+                    # No output, no thinking, but had input — fallback view.
+                    messages.append({
+                        "id": _next_id(),
+                        "type": "agent",
+                        "nodeId": agent_name,
+                        "agentName": agent_name,
+                        "content": str(input_prompt),
+                        "status": "done",
+                        "timestamp": 0,
+                        **iter_field,
+                    })
+
+                # Tool calls — reverse-fill toolStreamingOutput from sidecar
+                for tc in tool_calls:
+                    if not isinstance(tc, dict):
+                        continue
+                    tool_name = tc.get("tool_name", "")
+                    tool_args = tc.get("tool_args", {})
+                    # sidecar writes 'tool_result'; agent_io writes 'result'. Accept both.
+                    tool_result = tc.get("tool_result")
+                    if tool_result is None:
+                        tool_result = tc.get("result")
+                    tool_call_id = tc.get("tool_call_id")
+                    msg = {
+                        "id": _next_id(),
+                        "type": "tool_call",
+                        "nodeId": agent_name,
+                        "agentName": agent_name,
+                        "content": "",
+                        "toolName": tool_name,
+                        "toolArgs": tool_args,
+                        "toolResult": str(tool_result) if tool_result is not None else None,
+                        "toolStatus": "done",
+                        "timestamp": 0,
+                        **iter_field,
+                    }
+                    if tool_call_id and tool_call_id in tool_streaming:
+                        msg["toolStreamingOutput"] = tool_streaming[tool_call_id]
+                    messages.append(msg)
+        return messages
+
+    # Legacy fallback — agent_io only (no thinking / tool_streaming / multi-iter).
     for agent_name, io_data in agent_io.items():
         if not isinstance(io_data, dict):
             continue

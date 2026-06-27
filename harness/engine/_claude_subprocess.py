@@ -28,6 +28,14 @@ DEFAULT_FLAGS: tuple[str, ...] = (
     "--include-partial-messages",
     "--verbose",
     "--strict-mcp-config",  # 只用 --mcp-config 提供的 server，忽略全局
+    # 跳过 user 级 ~/.claude/settings.json 的 env 字段（可能硬编码了别的 gateway
+    # 配置，优先级高于 shell env，导致项目 .env 的 ANTHROPIC_* 被覆盖）。
+    # 只加载 project 级 settings，让子进程 env 完全由项目 .env 控制。
+    "--setting-sources", "project",
+    # 禁用 Claude Code 内置 AskUserQuestion：在 -p 模式下它无法 spawn UI，
+    # 会返回占位字符串让模型 hallucinate（run a9886d3e 实证）。强制模型
+    # 走 harness 的 mcp__harness__ask_user（功能等价 + 走 BLOCK 链）。
+    "--disallowedTools", "AskUserQuestion",
 )
 
 
@@ -104,6 +112,7 @@ async def run_claude(
 
     # 并发：读 stdout 行 + 累计 stderr + 等退出
     stderr_chunks: list[str] = []
+    stdout_lines: list[str] = []  # TEMP DEBUG: capture for "no result" diagnosis
     timed_out = False
 
     async def _drain_stderr():
@@ -123,6 +132,7 @@ async def run_claude(
             text = line.decode("utf-8", errors="replace").rstrip("\n")
             if not text:
                 continue
+            stdout_lines.append(text)  # TEMP DEBUG
             if on_line is not None:
                 try:
                     await on_line(text)
@@ -160,6 +170,27 @@ async def run_claude(
         "claude exited code=%s timed_out=%s stderr_bytes=%d",
         exit_code, timed_out, len(stderr_full),
     )
+    # TEMP DEBUG: dump cmd + stderr + prompt + ACTUAL subprocess env to file when exit != 0
+    # ALSO dump on exit=0 if no result event in stdout (NAS "no result" regression)
+    has_result_event = any('"type":"result"' in line or '"type": "result"' in line for line in stdout_lines)
+    if exit_code != 0 or not has_result_event:
+        import os, time
+        debug_path = f"/tmp/claude-exit-debug-{int(time.time())}.log"
+        actual_subprocess_env = _build_env(cfg.env)  # ← 子进程真正拿到的 env
+        with open(debug_path, "w") as f:
+            f.write(f"=== CMD ===\n{' '.join(cmd)}\n\n")
+            f.write(f"=== PROMPT (first 500 chars) ===\n{cfg.prompt[:500]}\n\n")
+            f.write(f"=== EXIT CODE ===\n{exit_code}\n\n")
+            f.write(f"=== STDOUT ({len(stdout_lines)} lines, has_result_event={has_result_event}) ===\n")
+            for i, line in enumerate(stdout_lines[-30:]):  # last 30 lines
+                f.write(f"[{i}] {line[:500]}\n")
+            f.write(f"\n=== STDERR ({len(stderr_full)} bytes) ===\n{stderr_full}\n\n")
+            f.write(f"=== SUBPROCESS ENV (ACTUAL — what claude -p received) ===\n")
+            for k in sorted(actual_subprocess_env.keys()):
+                if k.startswith("HARNESS_") or k.startswith("ANTHROPIC_") or k.startswith("CLAUDE_"):
+                    f.write(f"{k}={actual_subprocess_env[k][:200]}\n")
+            f.write(f"\n=== STDIN PROMPT BYTES ===\nlen={len(cfg.prompt.encode('utf-8'))}\n")
+        logger.warning("claude exit debug dumped to %s (exit=%s, has_result=%s)", debug_path, exit_code, has_result_event)
     return ClaudeRunResult(exit_code=exit_code, stderr=stderr_full, timed_out=timed_out)
 
 

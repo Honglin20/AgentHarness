@@ -285,6 +285,10 @@ class TestRunInBackground:
         assert "[background task started]" in result
         assert "task_id: bg_" in result
 
+        # Wait for background task to finish so it doesn't pollute the next test.
+        # The monitor thread fires bash.background_completed asynchronously.
+        time.sleep(2.5)
+
     def test_background_registers_task(self, tmp_path):
         # Capture emitted events via a fake bus. patcher must outlive the
         # with-block because the monitor thread runs asynchronously.

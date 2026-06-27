@@ -420,3 +420,156 @@ class TestConversationCollectorIntegration:
         assert len(messages) == 2
         assert messages[0]["agentName"] == "a1"
         assert messages[1]["agentName"] == "a2"
+
+
+# ---------------------------------------------------------------------------
+# v3 tests — ADR: single-source-streaming-state D3
+# ---------------------------------------------------------------------------
+
+def test_build_conversation_with_sidecar_data_includes_thinking():
+    """v3 D3: when sidecar_data is provided, agent messages get thinking field
+    reverse-filled from sidecar. Content still comes from output_result
+    (structured, authoritative) — streaming_text does NOT override.
+    """
+    agent_io = {
+        "selector": {
+            "agent_name": "selector",
+            "output_result": {"summary": "picked s2"},
+            "tool_calls": [],
+        },
+    }
+    sidecar_data = {
+        "selector": [
+            {
+                "iter": 1,
+                "node_id": "selector",
+                "output_result": {"summary": "picked s2"},
+                "streaming_text": "raw token stream...",
+                "thinking": "Let me reason about which strategy is best.",
+                "tool_calls": [],
+                "tool_streaming_outputs": {},
+            },
+        ],
+    }
+
+    messages = build_conversation(agent_io, sidecar_data=sidecar_data)
+
+    assert len(messages) == 1
+    assert messages[0]["type"] == "agent"
+    # Content from output_result (NOT streaming_text).
+    assert "picked s2" in messages[0]["content"]
+    # Thinking reverse-filled from sidecar.
+    assert messages[0]["thinking"] == "Let me reason about which strategy is best."
+
+
+def test_build_conversation_sidecar_tool_streaming_outputs_reverse_filled():
+    """v3 D3: tool_call messages get toolStreamingOutput reverse-filled from sidecar."""
+    agent_io = {}  # sidecar_data path doesn't need agent_io
+    sidecar_data = {
+        "analyzer": [
+            {
+                "iter": 1,
+                "node_id": "analyzer",
+                "output_result": None,
+                "thinking": "",
+                "tool_calls": [
+                    {
+                        "tool_name": "bash",
+                        "tool_args": {"cmd": "ls"},
+                        "tool_call_id": "call_xyz",
+                        "tool_result": "file1\nfile2",
+                    },
+                ],
+                "tool_streaming_outputs": {
+                    "call_xyz": "[stderr] warning...\nfile1\nfile2",
+                },
+            },
+        ],
+    }
+
+    messages = build_conversation(agent_io, sidecar_data=sidecar_data)
+
+    assert len(messages) == 1
+    assert messages[0]["type"] == "tool_call"
+    assert messages[0]["toolStreamingOutput"] == "[stderr] warning...\nfile1\nfile2"
+
+
+def test_build_conversation_multi_iter_emits_per_iter_messages():
+    """v3 D3: cycle agent with multiple iters emits one message group per iter.
+
+    Regression for NAS bug where agent_io only retained latest iter, so
+    history iters vanished from build_conversation's output.
+    """
+    agent_io = {}  # agent_io only has latest iter; sidecar_data has all.
+    sidecar_data = {
+        "scout": [
+            {
+                "iter": 1,
+                "node_id": "scout",
+                "output_result": "iter 1 output",
+                "thinking": "iter 1 reasoning",
+                "tool_calls": [],
+                "tool_streaming_outputs": {},
+            },
+            {
+                "iter": 2,
+                "node_id": "scout",
+                "output_result": "iter 2 output",
+                "thinking": "iter 2 reasoning",
+                "tool_calls": [],
+                "tool_streaming_outputs": {},
+            },
+        ],
+    }
+
+    messages = build_conversation(agent_io, sidecar_data=sidecar_data)
+
+    # 2 agent messages, one per iter, stamped with iteration field.
+    agent_msgs = [m for m in messages if m["type"] == "agent"]
+    assert len(agent_msgs) == 2
+    iters = sorted(m["iteration"] for m in agent_msgs)
+    assert iters == [1, 2]
+    # Each iter's thinking is preserved.
+    thinking_by_iter = {m["iteration"]: m["thinking"] for m in agent_msgs}
+    assert thinking_by_iter[1] == "iter 1 reasoning"
+    assert thinking_by_iter[2] == "iter 2 reasoning"
+
+
+def test_build_conversation_falls_back_to_agent_io_when_no_sidecar():
+    """v3 D3: sidecar_data=None falls back to legacy agent_io path (backward compat)."""
+    agent_io = {
+        "analyzer": {
+            "agent_name": "analyzer",
+            "output_result": "ok",
+            "tool_calls": [],
+        },
+    }
+    messages = build_conversation(agent_io)
+    assert len(messages) == 1
+    assert messages[0]["content"] == "ok"
+    # No thinking field on legacy path.
+    assert "thinking" not in messages[0]
+
+
+def test_build_conversation_thinking_only_agent_emits_message():
+    """v3 D3: agent with only thinking (no output_result) still emits a message.
+
+    Edge case: reasoning models that haven't produced final output yet.
+    Without this branch, the thinking content vanishes from history.
+    """
+    sidecar_data = {
+        "ponderer": [
+            {
+                "iter": 1,
+                "node_id": "ponderer",
+                "output_result": None,
+                "thinking": "Deep thoughts...",
+                "tool_calls": [],
+                "tool_streaming_outputs": {},
+            },
+        ],
+    }
+    messages = build_conversation({}, sidecar_data=sidecar_data)
+    assert len(messages) == 1
+    assert messages[0]["thinking"] == "Deep thoughts..."
+    assert messages[0]["content"] == ""  # empty content (no output_result)

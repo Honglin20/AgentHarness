@@ -1,0 +1,31 @@
+{
+  "entry": "projects/mnist/train.py",
+  "entry_run_cmd_template": "python projects/mnist/train.py --epochs {epochs} --data-ratio {data_ratio} --hidden-dim {hidden_dim} --num-layers {num_layers} --activation {activation} --use-batchnorm {use_batchnorm} --lr {lr} --batch-size {batch_size} --out {checkpoint_path} --metrics-out {metrics_out}",
+  "entry_metrics_out": "train_metrics.json (fields: acc, loss_curve, params, duration_sec, config)",
+  "baseline_model_file": "projects/mnist/model.py",
+  "baseline_model_class": "ConfigurableMLP",
+  "init_hyperparams": {
+    "lr": 0.001,
+    "batch_size": 32,
+    "epochs": 5,
+    "hidden_dim": 64,
+    "num_layers": 2,
+    "activation": "relu",
+    "use_batchnorm": false,
+    "data_ratio": 1.0
+  },
+  "metrics": [
+    {"name": "acc", "direction": "higher", "threshold": 0.97}
+  ],
+  "latency_target": null,
+  "latency_target_unit": "ms",
+  "care_about_latency": false,
+  "dummy_input": "torch.randn(batch_size=1, 64) — model expects flat 64-dim vectors (sklearn digits 8x8), not (1,1,28,28) MNIST images",
+  "variant_naming": {
+    "variants_dir": "sessions/current/variants",
+    "filename_pattern": "<vid>/model.py",
+    "how_entry_loads_it": "Overwrite projects/mnist/model.py with variant file before training run. Entry hardcodes 'from model import ConfigurableMLP', so variant file must export class ConfigurableMLP(nn.Module)."
+  },
+  "directions": ["structural", "business", "hyperparam"],
+  "wallclock_budget_sec": 36000
+}
