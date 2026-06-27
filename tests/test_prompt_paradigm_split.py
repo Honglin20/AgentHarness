@@ -36,13 +36,19 @@ def _git_show_head(path: str) -> str:
     return out.stdout
 
 
-def test_base_pydantic_byte_identical_to_legacy_base_md():
-    """pydantic-ai path content must NOT change across the split."""
-    legacy = _git_show_head("harness/prompts/base.md")
-    actual = BASE_PYDANTIC.read_text(encoding="utf-8")
-    assert actual == legacy, (
-        "base_pydantic.md drifted from the pre-split base.md. "
-        "The pydantic-ai path must be a byte-level no-op for P1-T1."
+def test_base_pydantic_excludes_todo_tool_mandate():
+    """Post-TODO-opt-in: base_pydantic.md must NOT mandate TodoTool as first action.
+
+    The TodoTool is now opt-in (EXPLICIT tier). The base prompt must not tell
+    agents to call TodoTool since most agents won't have it loaded. Agents that
+    opt into TodoTool get todo guidance via the dynamic runtime_status layer.
+    """
+    content = BASE_PYDANTIC.read_text(encoding="utf-8")
+    forbidden = ["Your first action MUST be `TodoTool(op='create'"]
+    found = [w for w in forbidden if w in content]
+    assert not found, (
+        f"base_pydantic.md still mandates TodoTool as first action: {found}. "
+        "TodoTool is now opt-in — the base prompt must not force it."
     )
 
 

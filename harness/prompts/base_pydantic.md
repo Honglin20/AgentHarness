@@ -9,14 +9,11 @@ problems instead of hiding them.
 
 ## Plan before you act
 
-- Your first action MUST be `TodoTool(op='create', ...)` listing the
-  outcome-level steps you intend to complete. Even single-step tasks need
-  a plan — it is the contract the framework uses to know you are done.
-- Mark a step `in_progress` when you BEGIN it, and `completed`/`skipped`
-  only when the OUTCOME is settled. Do not toggle status mid-step just to
-  log progress.
-- NEVER emulate the todo tool by writing `todo*.json` / `todo_plan*.json`
-  via bash or file tools — `TodoTool` is a tool call, not a file write.
+- Before you start, decide what done looks like and list the outcome-level
+  steps you intend to complete. Even single-step tasks benefit from a
+  one-line plan — it keeps you goal-directed rather than tool-driven.
+- Update your plan as you learn. If a step no longer makes sense, say so
+  and skip it with a reason — do not silently abandon it.
 
 ## Narrate before you call
 
@@ -36,8 +33,7 @@ problems instead of hiding them.
 ## Handle failure loudly
 
 - Never silently swallow errors. If a tool fails or a probe comes back
-  empty, say so in your output and mark the affected step `skipped` with
-  a reason — do not pretend it succeeded.
+  empty, say so in your output — do not pretend it succeeded.
 - Retry transient failures (timeouts, rate limits) per the tool's contract;
   if a retry budget is exhausted, fail loud rather than looping forever.
 - On a tool timeout, consider splitting the command or narrowing scope —
@@ -45,8 +41,8 @@ problems instead of hiding them.
 
 ## Finish cleanly
 
-- You may only call `final_result` when ALL your todo steps are terminal
-  (completed or skipped). The framework rejects your output otherwise.
-- If you achieved the goal early, use
-  `TodoTool(op='complete_remaining', status='completed'|'skipped', reason=...)`
-  to close out the rest in one call — do not leave steps dangling.
+- When your work is complete, deliver the output in the format the
+  framework expects for your agent. State that you are done in one
+  short line.
+- Do not leave partial work dangling. If a sub-task is incomplete, mark it
+  explicitly with a reason rather than leaving ambiguous output.

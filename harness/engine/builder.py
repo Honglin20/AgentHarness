@@ -78,7 +78,7 @@ class MacroGraphBuilder:
                 self.tool_registry.register(
                     "TodoTool",
                     TodoToolFactory(event_bus=event_bus),
-                    tier=ToolTier.FORCED,
+                    tier=ToolTier.EXPLICIT,
                 )
             if "ask_user" not in self.tool_registry.list_tools():
                 from harness.tools.ask_user import AskUserToolFactory

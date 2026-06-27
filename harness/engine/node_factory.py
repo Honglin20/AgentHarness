@@ -276,6 +276,12 @@ def make_node_func(
             # extra="allow" 允许动态字段。
             agent_md_content=augmented_prompt,
         )
+        # _todo_enabled controls whether runtime_status surfaces todo progress
+        # and step_gate enforces the create-before-work contract. Set from the
+        # agent's resolved tools — only True when TodoTool was actually loaded.
+        # micro_factory.create() stores _has_todo on the agent instance.
+        _has_todo = final_tool_names is not None and "TodoTool" in final_tool_names
+        deps._todo_enabled = _has_todo
 
         # Build the context (user message) — system prompt is already set via md_prompt
         context = micro_factory.build_node_prompt(

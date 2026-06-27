@@ -49,6 +49,7 @@ async def test_runtime_status_invoked_every_turn_not_just_on_failure():
     call repeatedly with evolving state (the precondition for every-turn use).
     """
     deps = AgentDeps(agent_name="a", workflow_id="w", node_id="a")
+    deps._todo_enabled = True  # TodoTool loaded → gate active
 
     # Turn 1: no plan yet → should urge creation.
     r1 = await runtime_status(_make_ctx(deps))
@@ -118,13 +119,14 @@ async def test_runtime_status_is_not_cached_across_state_changes(monkeypatch):
     call_count = {"n": 0}
     real_todo = rt._todo_status_block
 
-    def counting_todo(state):
+    def counting_todo(state, *, enabled=False):
         call_count["n"] += 1
-        return real_todo(state)
+        return real_todo(state, enabled=enabled)
 
     monkeypatch.setattr(rt, "_todo_status_block", counting_todo)
 
     deps = AgentDeps(agent_name="a", workflow_id="w", node_id="a")
+    deps._todo_enabled = True
     # Turn 1
     await runtime_status(_make_ctx(deps))
     # Turn 2 — create plan
@@ -146,7 +148,7 @@ async def test_runtime_status_is_not_cached_across_state_changes(monkeypatch):
 # --- Property 2: todo progress accuracy ---
 
 def test_todo_status_no_plan_urges_creation():
-    out = _todo_status_block(None)
+    out = _todo_status_block(None, enabled=True)
     assert "no plan yet" in out
     assert "TodoTool(op='create'" in out
 
@@ -159,7 +161,7 @@ def test_todo_status_partial_progress():
         StepEntry(task_id="t_2", content="active task", activeForm="doing", status="in_progress"),
         StepEntry(task_id="t_3", content="pending task", activeForm="doing", status="pending"),
     ]
-    out = _todo_status_block(state)
+    out = _todo_status_block(state, enabled=True)
     assert "1/3" in out
     assert "active task" in out
     assert "pending task" in out
@@ -173,7 +175,7 @@ def test_todo_status_all_terminal_is_quiet():
         StepEntry(task_id="t_1", content="a", activeForm="a", status="completed"),
         StepEntry(task_id="t_2", content="b", activeForm="b", status="skipped"),
     ]
-    assert _todo_status_block(state) == ""
+    assert _todo_status_block(state, enabled=True) == ""
 
 
 def test_todo_status_truncates_long_pending_list():
@@ -184,7 +186,7 @@ def test_todo_status_truncates_long_pending_list():
         StepEntry(task_id=f"t_{i}", content=f"task{i}", activeForm=f"task{i}", status="pending")
         for i in range(5)
     ]
-    out = _todo_status_block(state)
+    out = _todo_status_block(state, enabled=True)
     assert "+2 more" in out
 
 
@@ -270,6 +272,7 @@ def test_reminders_block_caps_at_five():
 @pytest.mark.asyncio
 async def test_runtime_status_combines_todo_and_failure():
     deps = AgentDeps(agent_name="a", workflow_id="w", node_id="a")
+    deps._todo_enabled = True
     state = ensure_todo_state(deps)
     state.has_plan = True
     state.steps.append(StepEntry(task_id="t_1", content="x", activeForm="x", status="in_progress"))

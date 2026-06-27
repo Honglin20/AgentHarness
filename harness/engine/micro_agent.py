@@ -54,6 +54,11 @@ class MicroAgentFactory:
             )
 
         resolved_tools = self.tool_registry.resolve(tools, exclude=exclude_tools)
+        # Determine whether TodoTool is in the resolved tool set.
+        # When True, step_gate + runtime_status todo block activate.
+        # When False, both are silent — no todo prompts, no enforcement.
+        _resolved_names = {t.name for t in resolved_tools} if resolved_tools else set()
+        has_todo = "TodoTool" in _resolved_names
 
         effective_result_type = result_type if result_type is not None else AgentResult
         client = LLMClient(model=agent_model) if model else LLMClient()
@@ -72,12 +77,14 @@ class MicroAgentFactory:
             deps_type=AgentDeps,
         )
 
-        # Inject step completion gate as output_validator. On violation raises
-        # ModelRetry → pydantic-ai continues iter() with retry prompt in
-        # message_history (does NOT restart; preserves prior tool calls).
-        @agent.output_validator
-        async def _step_gate(ctx, data):
-            return await step_gate_validator(ctx, data)
+        # Inject step completion gate only when TodoTool is loaded.
+        # When an agent doesn't opt into TodoTool, there is no contract to
+        # enforce — skip the gate entirely so the agent can produce output
+        # without todo create / step-completion checks.
+        if has_todo:
+            @agent.output_validator
+            async def _step_gate(ctx, data):
+                return await step_gate_validator(ctx, data)
 
         # Register the dynamic runtime-status system prompt (TASK 4). pydantic-ai
         # calls runtime_status BEFORE EVERY model request and REPLACES the prior
@@ -87,6 +94,11 @@ class MicroAgentFactory:
         # TodoReminderTracker. Reads ctx.deps (AgentDeps), which tools mutate
         # to surface failures. See harness/prompts/runtime.py.
         agent.system_prompt(dynamic=True)(runtime_status)
+
+        # Store flag so node_factory can set _todo_enabled on AgentDeps.
+        # runtime_status reads this flag to decide whether to surface todo
+        # progress (has_todo=True) or stay silent about todo (has_todo=False).
+        agent._has_todo = has_todo
 
         return agent
 

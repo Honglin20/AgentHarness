@@ -58,6 +58,11 @@ async def step_gate_validator(ctx: Any, data: Any) -> Any:
         )
         return data
 
+    # When TodoTool is not loaded for this agent, there is no contract to
+    # enforce — skip both gates silently.
+    if not getattr(deps, "_todo_enabled", False):
+        return data
+
     todo_state = get_todo_state(deps)
 
     # Gate 1: agent must have called todo op='create'.

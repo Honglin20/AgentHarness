@@ -46,10 +46,10 @@ def _find_filesystem_server(
 def default_tool_registry(event_bus=None) -> ToolRegistry:
     """Create the default tool registry with three-tier classification.
 
-    Tier 1 (FORCED):   TodoTool   — framework-mandated, always injected
+    Tier 1 (FORCED):   (none — reserved for future framework-mandated tools)
     Tier 2 (DEFAULT):  bash/grep/glob/sub_agent + ask_user
                                    — loaded when agent.tools is null
-    Tier 3 (EXPLICIT): render_chart
+    Tier 3 (EXPLICIT): TodoTool + render_chart + codegraph_*
                                    — only when agent.tools lists it
 
     Filesystem MCP and codegraph MCP tools are registered separately by
@@ -64,16 +64,16 @@ def default_tool_registry(event_bus=None) -> ToolRegistry:
     registry = ToolRegistry()
 
     # ── Tier 1: FORCED ────────────────────────────────────────────────
-    # TodoTool is mandatory because the dynamic runtime_status system prompt
-    # (harness/prompts/runtime.py) reads todo state to surface progress every
-    # turn, and the step_gate output validator enforces "create before work".
-    # Always register TodoTool (even without event_bus)
+    # No FORCED tools — TodoTool is now EXPLICIT (opt-in per agent).
+    # Agents that want step planning list TodoTool explicitly in their
+    # workflow.json `tools` field. When loaded, step_gate + runtime_status
+    # todo block activate automatically.
     from harness.tools.todo import TodoToolFactory
     registry.register(
         "TodoTool",
         TodoToolFactory(event_bus=event_bus),
         source="built-in",
-        tier=ToolTier.FORCED,
+        tier=ToolTier.EXPLICIT,
     )
 
     # ── Tier 2: DEFAULT ───────────────────────────────────────────────

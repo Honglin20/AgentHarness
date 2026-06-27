@@ -41,12 +41,15 @@ if TYPE_CHECKING:
     pass  # typing-only imports would go here
 
 
-def _todo_status_block(state) -> str:
+def _todo_status_block(state, *, enabled: bool) -> str:
     """Render the todo-progress portion of the runtime status.
 
-    Returns "" when there is nothing actionable (plan complete, all done) so
-    the dynamic prompt stays quiet once the agent is behaving correctly.
+    Returns "" when TodoTool is not loaded (enabled=False), or when there is
+    nothing actionable (plan complete, all done).
     """
+    if not enabled:
+        return ""
+
     if state is None or not state.has_plan:
         return (
             "<runtime-status>\n"
@@ -168,9 +171,10 @@ async def runtime_status(ctx: RunContext[AgentDeps]) -> str:
         # silent (no status) is safe — the agent still has its static prompt.
         return ""
 
+    todo_enabled = getattr(deps, "_todo_enabled", False)
     blocks = [
         b for b in (
-            _todo_status_block(get_todo_state(deps)),
+            _todo_status_block(get_todo_state(deps), enabled=todo_enabled),
             _iteration_block(deps),
             _failure_block(deps),
             _reminders_block(deps),
