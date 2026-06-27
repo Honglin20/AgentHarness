@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle, XCircle, X, Trash2, Play, RotateCcw, Pause, CheckSquare, Square } from "lucide-react";
+import { CheckCircle, XCircle, X, Trash2, Play, RotateCcw, Pause, CheckSquare, Square, Copy } from "lucide-react";
 import { useRunHistoryStore, invalidateRunCache, type RunSummary, type RunRecord } from "@/stores/runHistoryStore";
 import { useViewStore } from "@/stores/viewStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
@@ -109,6 +109,22 @@ const RunHistoryItem = React.memo(function RunHistoryItem({
         {run.inputs?.task ? String(run.inputs.task) : run.run_id.slice(0, 8)}
       </span>
       <span className="shrink-0 text-[10px] text-muted-foreground whitespace-nowrap">{formatTime(run.created_at)}</span>
+      {!isSelectMode && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            navigator.clipboard.writeText(run.run_id).then(
+              () => showSuccess(`Copied: ${run.run_id}`),
+              () => showError("Copy failed"),
+            );
+          }}
+          className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground group-hover:opacity-100"
+          title={`Copy run_id: ${run.run_id}`}
+          aria-label="Copy run id"
+        >
+          <Copy className="h-3 w-3" />
+        </button>
+      )}
       {!isSelectMode && isRunning && (
         <button
           onClick={(e) => onPauseRun(e, run.run_id)}

@@ -1,13 +1,13 @@
 """Run persistence + lifecycle endpoints (list/get/delete/update/resume/rerun)."""
 import logging
 import time
-import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 logger = logging.getLogger(__name__)
 
 from harness.api import Agent, Workflow
+from harness.persistence.run_id import generate_run_id
 from harness.run_store_interface import RunStoreInterface
 from harness.tools.registry import ToolRegistry
 from harness.user_manager import get_current_user, get_user_manager
@@ -732,7 +732,7 @@ async def rerun(
         for a in agents_snapshot
     ]
 
-    new_id = str(uuid.uuid4())
+    new_id = generate_run_id(workflow_name)
 
     # Create isolated Bus for this rerun
     event_bus = _new_bus()

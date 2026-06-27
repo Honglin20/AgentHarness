@@ -9,13 +9,13 @@ from __future__ import annotations
 import json
 import logging
 import time
-import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, Request
 
 from harness.api import Agent, DEFAULT_EXECUTOR, Workflow, _WORKFLOWS_DIR
+from harness.persistence.run_id import generate_run_id
 
 if TYPE_CHECKING:
     from harness.run_store_interface import RunStoreInterface
@@ -340,7 +340,7 @@ async def _create_and_start_workflow(
     （scoped workflow 路径，含 PATCH 写入的 executor 等字段）；不存在时
     fallback 到 agents_defs（ad-hoc 入口，POST body 自带 agents）。
     """
-    workflow_id = str(uuid.uuid4())
+    workflow_id = generate_run_id(workflow_name)
 
     # Each workflow gets its own Bus — fully isolated events + extensions
     event_bus = _new_bus()

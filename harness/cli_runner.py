@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import logging
 import os
-import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -36,6 +35,7 @@ from pydantic import BaseModel
 
 from harness.compiler.dag_builder import build_dag
 from harness.extensions.bus import Bus
+from harness.persistence.run_id import generate_run_id
 from harness.extensions.collectors import ChartCollector, ConversationCollector
 from harness.extensions.console import ConsoleOutput
 from harness.extensions.base import BaseHook
@@ -199,7 +199,7 @@ async def run_with_persistence(
     failed record then re-raises — callers should let the exception
     propagate to set a non-zero exit code.
     """
-    run_id = str(uuid.uuid4())
+    run_id = generate_run_id(workflow.name)
 
     # 1) Register the output hook (also ensures _event_bus is populated).
     if output_hook is None:
