@@ -62,12 +62,12 @@ async def run_cli(
     # Diagnostic logging — full cmd (no truncation) + env overlay keys so
     # operators can see exactly what's being spawned. Token values are
     # NOT logged (only key names) to avoid leaking secrets.
-    logger.info("[%s] full cmd: %s", profile.name, cmd)
+    logger.warning("[%s] full cmd: %s", profile.name, cmd)
     if cfg.env_overlay:
-        logger.info("[%s] env_overlay keys: %s",
+        logger.warning("[%s] env_overlay keys: %s",
                     profile.name, sorted(cfg.env_overlay.keys()))
     else:
-        logger.info("[%s] env_overlay: (empty — subprocess inherits parent env)",
+        logger.warning("[%s] env_overlay: (empty — subprocess inherits parent env)",
                     profile.name)
 
     t_spawn = time.monotonic()
@@ -207,7 +207,7 @@ def _build_env(env_overlay: dict[str, str] | None) -> dict[str, str]:
     # Diagnostic: show relevant env keys the subprocess will receive
     diag_keys = {k: v for k, v in base.items()
                  if any(k.startswith(p) for p in ("HARNESS_", "ANTHROPIC_", "CLAUDE_", "PATH", "HOME"))}
-    logger.info("[_build_env] subprocess env (relevant keys): %s",
+    logger.warning("[_build_env] subprocess env (relevant keys): %s",
                 {k: (v[:80] + "..." if len(v) > 80 else v) for k, v in sorted(diag_keys.items())})
     return base
 

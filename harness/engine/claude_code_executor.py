@@ -201,7 +201,7 @@ class ClaudeCodeExecutor:
 
         # ── Diagnostic: dump every relevant input to cli_path resolution ──
         _env_path = _resolve_env_path_for_diag()
-        logger.info(
+        logger.warning(
             "[%s] __init__ cli_path resolution: "
             "explicit_kwarg=%r profile.cli_path_env=%r "
             "raw_os_environ=%r resolve_cli_path()=%r "
@@ -259,12 +259,12 @@ class ClaudeCodeExecutor:
         if mcp_config_path is None and self._enable_mcp:
             t_mcp_start = time.monotonic()
             mcp_config_path = await self._setup_mcp()
-            logger.info(
+            logger.warning(
                 "[%s] _setup_mcp completed in %.2fs (mcp_config_path=%s)",
                 self._profile.name, time.monotonic() - t_mcp_start, mcp_config_path,
             )
         else:
-            logger.info(
+            logger.warning(
                 "[%s] MCP disabled (enable_mcp=%s, mcp_config_path=%s)",
                 self._profile.name, self._enable_mcp, self._mcp_config_path,
             )
@@ -275,7 +275,7 @@ class ClaudeCodeExecutor:
             if not context.strip():
                 context = "Proceed with the task as described in your instructions."
             cfg = self._build_spawn_config(context, mcp_config_path)
-            logger.info(
+            logger.warning(
                 "[%s] spawn config: cli_path=%r flags=%d items extra_args=%d items mcp_flag_args=%d items",
                 self._profile.name, cfg.cli_path,
                 len(cfg.flags), len(cfg.extra_args), len(cfg.mcp_flag_args),
