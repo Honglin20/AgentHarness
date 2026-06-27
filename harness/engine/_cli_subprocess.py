@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shlex
 import signal
 from typing import Awaitable, Callable
 
@@ -146,10 +147,16 @@ async def run_cli(
 def _build_cmd(cfg: CliSpawnConfig) -> list[str]:
     """Construct the argv. Prompt is delivered separately (stdin or argv).
 
+    ``cfg.cli_path`` is split with ``shlex.split`` so a single token like
+    ``"claude"`` stays as ``["claude"]`` while a wrapper invocation like
+    ``"ccr code"`` expands to ``["ccr", "code"]``. ``create_subprocess_exec``
+    does not invoke a shell, so multi-token cli_path must be split here.
+
     For argv-mode binaries, the prompt is appended as the last positional
     arg. Some CLIs (codex) expect this; others (claude) read stdin only.
     """
-    cmd: list[str] = [cfg.cli_path, *cfg.flags]
+    cli_parts = shlex.split(cfg.cli_path) if cfg.cli_path else []
+    cmd: list[str] = [*cli_parts, *cfg.flags]
     cmd.extend(cfg.mcp_flag_args)
     cmd.extend(cfg.extra_args)
     if cfg.prompt_channel == "argv":

@@ -19,7 +19,8 @@ from harness.translator import translate as _claude_translator
 
 #: Claude Code CLI invocation flags. Migrated verbatim from the pre-P3
 #: ``harness/engine/_claude_subprocess.py:DEFAULT_FLAGS`` so existing
-#: behaviour is preserved byte-level.
+#: behaviour is preserved byte-level — except for ``--setting-sources``
+#: which is now applied conditionally by ClaudeCodeExecutor (see below).
 #:
 #: Adding / removing flags here changes every claude -p spawn — bump the
 #: ADR + add a release-note entry.
@@ -30,10 +31,12 @@ CLAUDE_FLAGS: tuple[str, ...] = (
     "--include-partial-messages",
     "--verbose",
     "--strict-mcp-config",  # only use servers from --mcp-config, ignore global
-    # Skip user-level ~/.claude/settings.json env field (may hardcode a
-    # different gateway). Only load project-level settings so subprocess
-    # env is fully controlled by the project's .env.
-    "--setting-sources", "project",
+    # NOTE: --setting-sources project is intentionally NOT here. When the
+    # project .env provides ANTHROPIC_*/CLAUDE_* overlay, the executor
+    # appends it to isolate shell-global env pollution. When .env is empty
+    # (e.g. remote server relying on ~/.claude/settings.json defaults),
+    # the flag is omitted so claude -p falls back to its own defaults
+    # instead of erroring on missing API config.
 )
 
 

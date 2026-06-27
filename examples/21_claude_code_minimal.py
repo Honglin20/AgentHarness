@@ -1,7 +1,7 @@
 """#21 — claude-code 后端最小示例：单节点 + `claude -p` 子进程。
 
 验证 AgentHarness 通过 `claude -p` 子进程驱动 agent 的链路是否打通：
-Agent(executor="claude-code") → ClaudeCodeExecutor → run_claude → claude -p。
+Agent(executor="claude-code") → ClaudeCodeExecutor → run_cli → claude -p。
 对应的 agent 定义见 workflows/claude_code_demo/agents/greeter.md。
 
 前置:
@@ -10,6 +10,13 @@ Agent(executor="claude-code") → ClaudeCodeExecutor → run_claude → claude -
   - root 环境下需要在 .env 加一行：
         HARNESS_CLAUDE_CODE_ENV_IS_SANDBOX=1
     （详见 harness/engine/claude_code_executor.py:_load_env_overlay 的 Layer 2）
+
+远程服务器用 wrapper（如 ccr code）代替 claude 时，在 .env 加：
+    HARNESS_CLAUDE_CLI="ccr code"
+
+shlex 会自动拆分（单 token "claude" 也兼容）。当 .env 没配 ANTHROPIC_* 时，
+harness 不再强制 --setting-sources project，让 claude fallback 到
+~/.claude/settings.json 默认配置，避免 API 错误。
 
 用法:
     python examples/21_claude_code_minimal.py

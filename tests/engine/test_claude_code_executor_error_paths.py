@@ -16,7 +16,7 @@ import pytest
 from pydantic import BaseModel
 
 from harness.core.agent import Agent
-from harness.engine._claude_subprocess import ClaudeRunResult, ClaudeSpawnConfig
+from harness.engine.cli_profile import CliRunResult, CliSpawnConfig
 from harness.engine._result_extractor import SchemaValidationError
 from harness.engine.claude_code_executor import ClaudeCodeExecutor
 from harness.engine.error_event import ErrorEvent, ExecutorError
@@ -45,11 +45,11 @@ def make_fake_run_claude(
     stderr: str = "",
     timed_out: bool = False,
 ):
-    async def fake(cfg: ClaudeSpawnConfig, on_line=None, *, timeout=None):
+    async def fake(cfg: CliSpawnConfig, profile=None, on_line=None, *, timeout=None):
         if on_line is not None:
             for line in lines:
                 await on_line(line)
-        return ClaudeRunResult(
+        return CliRunResult(
             exit_code=exit_code, stderr=stderr, timed_out=timed_out,
         )
     return fake
@@ -88,7 +88,7 @@ def test_spawn_phase_nonzero_exit_emits_and_raises(monkeypatch):
     ExecutorError. The payload must carry stderr_tail + exit_code."""
     bus = FakeBus()
     monkeypatch.setattr(
-        "harness.engine.claude_code_executor.run_claude",
+        "harness.engine.claude_code_executor.run_cli",
         make_fake_run_claude(exit_code=1, stderr="Error: invalid token\n"),
     )
     ex = _make_executor(bus=bus)
@@ -115,7 +115,7 @@ def test_timeout_phase_emits_with_timed_out_true(monkeypatch):
     from exit_code!=0 to disambiguate SIGTERM-from-us vs exit-from-cli."""
     bus = FakeBus()
     monkeypatch.setattr(
-        "harness.engine.claude_code_executor.run_claude",
+        "harness.engine.claude_code_executor.run_cli",
         make_fake_run_claude(timed_out=True, exit_code=-1),
     )
     ex = _make_executor(bus=bus)
@@ -146,7 +146,7 @@ def test_stream_phase_is_error_emits_with_api_error_status(monkeypatch):
         }),
     ]
     monkeypatch.setattr(
-        "harness.engine.claude_code_executor.run_claude",
+        "harness.engine.claude_code_executor.run_cli",
         make_fake_run_claude(lines),
     )
     ex = _make_executor(bus=bus)
@@ -173,7 +173,7 @@ def test_stream_phase_error_message_includes_claude_result_description(monkeypat
         }),
     ]
     monkeypatch.setattr(
-        "harness.engine.claude_code_executor.run_claude",
+        "harness.engine.claude_code_executor.run_cli",
         make_fake_run_claude(lines),
     )
     ex = _make_executor(bus=bus)
@@ -196,7 +196,7 @@ def test_stream_phase_no_result_description_falls_back_to_api_status(monkeypatch
         }),
     ]
     monkeypatch.setattr(
-        "harness.engine.claude_code_executor.run_claude",
+        "harness.engine.claude_code_executor.run_cli",
         make_fake_run_claude(lines),
     )
     ex = _make_executor(bus=bus)
@@ -219,7 +219,7 @@ def test_stream_phase_no_node_failed_emitted_from_translator(monkeypatch):
         }),
     ]
     monkeypatch.setattr(
-        "harness.engine.claude_code_executor.run_claude",
+        "harness.engine.claude_code_executor.run_cli",
         make_fake_run_claude(lines),
     )
     ex = _make_executor(bus=bus)
@@ -239,7 +239,7 @@ def test_result_parse_phase_no_result_event_emits(monkeypatch):
     bus = FakeBus()
     # empty stdout — no result line
     monkeypatch.setattr(
-        "harness.engine.claude_code_executor.run_claude",
+        "harness.engine.claude_code_executor.run_cli",
         make_fake_run_claude(lines=(), exit_code=0),
     )
     ex = _make_executor(bus=bus)
@@ -264,7 +264,7 @@ def test_schema_validate_phase_wraps_schema_validation_error(monkeypatch):
         }),
     ]
     monkeypatch.setattr(
-        "harness.engine.claude_code_executor.run_claude",
+        "harness.engine.claude_code_executor.run_cli",
         make_fake_run_claude(lines),
     )
     # Provide a custom result_type so _extract_and_validate_result invokes
@@ -295,7 +295,7 @@ def test_exactly_one_executor_error_event_per_failure(monkeypatch, phase_setup):
     bus = FakeBus()
     phase, kwargs = phase_setup
     monkeypatch.setattr(
-        "harness.engine.claude_code_executor.run_claude",
+        "harness.engine.claude_code_executor.run_cli",
         make_fake_run_claude(**kwargs),
     )
     ex = _make_executor(bus=bus)
@@ -309,7 +309,7 @@ def test_no_bus_no_emit_but_still_raises(monkeypatch):
     """If bus is None (unit test / CI), executor still raises ExecutorError
     so the caller's retry layer can route. Emit is skipped, not crashed."""
     monkeypatch.setattr(
-        "harness.engine.claude_code_executor.run_claude",
+        "harness.engine.claude_code_executor.run_cli",
         make_fake_run_claude(exit_code=1, stderr="boom"),
     )
     ex = ClaudeCodeExecutor(
@@ -330,7 +330,7 @@ def test_emitted_payload_round_trips_through_error_event(monkeypatch):
     so the frontend / replay path / sinks all see the same shape."""
     bus = FakeBus()
     monkeypatch.setattr(
-        "harness.engine.claude_code_executor.run_claude",
+        "harness.engine.claude_code_executor.run_cli",
         make_fake_run_claude(exit_code=2, stderr="Error: rate limit\n"),
     )
     ex = _make_executor(bus=bus)

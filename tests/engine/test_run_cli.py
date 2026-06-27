@@ -307,3 +307,33 @@ def test_run_cli_on_line_exception_does_not_crash_subprocess(monkeypatch):
     assert result.exit_code == 0
     # Second line still processed despite first-line exception
     assert received == ["good-2"]
+
+
+# ---------------------------------------------------------------------------
+# Multi-token cli_path (ccr code wrapper support)
+# ---------------------------------------------------------------------------
+
+
+def test_build_cmd_shlex_splits_multi_token_cli_path():
+    """Multi-token cli_path (e.g. "ccr code" wrapper) must be shlex-split
+    so create_subprocess_exec receives them as separate argv entries.
+    Single token "claude" stays as a single-element list.
+
+    asyncio.create_subprocess_exec does NOT invoke a shell, so without
+    shlex.split a multi-token cli_path would be treated as a single
+    non-existent binary name.
+    """
+    # Multi-token: wrapper like claude-code-router
+    cfg_multi = CliSpawnConfig(
+        prompt="x", cli_path="ccr code", flags=("-p",),
+        prompt_channel="stdin",
+    )
+    cmd = _build_cmd(cfg_multi)
+    assert cmd[:3] == ["ccr", "code", "-p"]
+
+    # Single token: unchanged behaviour
+    cfg_single = CliSpawnConfig(
+        prompt="x", cli_path="claude", flags=("-p",),
+        prompt_channel="stdin",
+    )
+    assert _build_cmd(cfg_single)[:2] == ["claude", "-p"]

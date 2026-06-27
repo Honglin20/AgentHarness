@@ -25,7 +25,7 @@ from harness.engine.claude_code_executor import (
     _ClaudeUsage,
 )
 from harness.engine.llm_executor import AgentRunResult, BaseExecutor
-from harness.engine._claude_subprocess import ClaudeRunResult, ClaudeSpawnConfig
+from harness.engine.cli_profile import CliRunResult, CliSpawnConfig
 
 
 # ---------------------------------------------------------------------------
@@ -45,12 +45,12 @@ class FakeBus:
 
 def make_fake_run_claude(lines: Sequence[str], *, exit_code: int = 0, stderr: str = "", timed_out: bool = False):
     """构造一个 fake run_claude：按行触发 on_line callback，然后返回指定 exit_code。"""
-    async def fake(cfg: ClaudeSpawnConfig, on_line=None, *, timeout=None):
-        assert isinstance(cfg, ClaudeSpawnConfig)
+    async def fake(cfg: CliSpawnConfig, profile=None, on_line=None, *, timeout=None):
+        assert isinstance(cfg, CliSpawnConfig)
         if on_line is not None:
             for line in lines:
                 await on_line(line)
-        return ClaudeRunResult(exit_code=exit_code, stderr=stderr, timed_out=timed_out)
+        return CliRunResult(exit_code=exit_code, stderr=stderr, timed_out=timed_out)
     return fake
 
 
@@ -151,7 +151,7 @@ class TestProtocol:
 class TestRunBasicFlow:
     def test_run_returns_agent_run_result_with_extracted_text(self, monkeypatch):
         monkeypatch.setattr(
-            "harness.engine.claude_code_executor.run_claude",
+            "harness.engine.claude_code_executor.run_cli",
             make_fake_run_claude(SAMPLE_LINES_SUCCESS),
         )
         bus = FakeBus()
@@ -163,7 +163,7 @@ class TestRunBasicFlow:
 
     def test_run_emits_text_delta_to_bus(self, monkeypatch):
         monkeypatch.setattr(
-            "harness.engine.claude_code_executor.run_claude",
+            "harness.engine.claude_code_executor.run_cli",
             make_fake_run_claude(SAMPLE_LINES_SUCCESS),
         )
         bus = FakeBus()
@@ -180,7 +180,7 @@ class TestRunBasicFlow:
 
     def test_run_emits_thinking_delta(self, monkeypatch):
         monkeypatch.setattr(
-            "harness.engine.claude_code_executor.run_claude",
+            "harness.engine.claude_code_executor.run_cli",
             make_fake_run_claude(SAMPLE_LINES_SUCCESS),
         )
         bus = FakeBus()
@@ -193,7 +193,7 @@ class TestRunBasicFlow:
 
     def test_run_emits_tool_call_and_result(self, monkeypatch):
         monkeypatch.setattr(
-            "harness.engine.claude_code_executor.run_claude",
+            "harness.engine.claude_code_executor.run_cli",
             make_fake_run_claude(SAMPLE_LINES_SUCCESS),
         )
         bus = FakeBus()
@@ -213,7 +213,7 @@ class TestRunBasicFlow:
     def test_run_does_not_emit_lifecycle_events(self, monkeypatch):
         """node_factory 自己 emit node.started/completed/failed；executor 不能重复。"""
         monkeypatch.setattr(
-            "harness.engine.claude_code_executor.run_claude",
+            "harness.engine.claude_code_executor.run_cli",
             make_fake_run_claude(SAMPLE_LINES_SUCCESS),
         )
         bus = FakeBus()
@@ -229,7 +229,7 @@ class TestRunBasicFlow:
 class TestRunUsageTracking:
     def test_cumulative_usage_extracted_from_result(self, monkeypatch):
         monkeypatch.setattr(
-            "harness.engine.claude_code_executor.run_claude",
+            "harness.engine.claude_code_executor.run_cli",
             make_fake_run_claude(SAMPLE_LINES_SUCCESS),
         )
         ex = make_executor()
@@ -242,7 +242,7 @@ class TestRunUsageTracking:
 
     def test_get_last_request_usage_after_run(self, monkeypatch):
         monkeypatch.setattr(
-            "harness.engine.claude_code_executor.run_claude",
+            "harness.engine.claude_code_executor.run_cli",
             make_fake_run_claude(SAMPLE_LINES_SUCCESS),
         )
         ex = make_executor()
@@ -259,7 +259,7 @@ class TestRunUsageTracking:
     def test_tool_calls_tracked_for_emit_metadata(self, monkeypatch):
         """node_factory 后续会读 executor.tool_calls 挂到 ext_ctx.metadata。"""
         monkeypatch.setattr(
-            "harness.engine.claude_code_executor.run_claude",
+            "harness.engine.claude_code_executor.run_cli",
             make_fake_run_claude(SAMPLE_LINES_SUCCESS),
         )
         ex = make_executor()
@@ -277,7 +277,7 @@ class TestRunUsageTracking:
 class TestRunErrorPaths:
     def test_nonzero_exit_raises_runtime_error(self, monkeypatch):
         monkeypatch.setattr(
-            "harness.engine.claude_code_executor.run_claude",
+            "harness.engine.claude_code_executor.run_cli",
             make_fake_run_claude([], exit_code=1, stderr="boom"),
         )
         ex = make_executor()
@@ -292,7 +292,7 @@ class TestRunErrorPaths:
                 "delta": {"type": "text_delta", "text": "hi"}}}),
         ]
         monkeypatch.setattr(
-            "harness.engine.claude_code_executor.run_claude",
+            "harness.engine.claude_code_executor.run_cli",
             make_fake_run_claude(no_result_lines, exit_code=0),
         )
         ex = make_executor()
@@ -306,7 +306,7 @@ class TestRunErrorPaths:
             json.dumps({"type": "result", "is_error": False, "duration_ms": 1, "result": "ok"}),
         ]
         monkeypatch.setattr(
-            "harness.engine.claude_code_executor.run_claude",
+            "harness.engine.claude_code_executor.run_cli",
             make_fake_run_claude(mixed_lines),
         )
         ex = make_executor()
@@ -315,9 +315,9 @@ class TestRunErrorPaths:
 
     def test_translate_callback_exception_does_not_crash_run(self, monkeypatch):
         """翻译 callback 内部抛错，run() 仍要正常完成（subprocess helper 兜底）。"""
-        # on_line 在 _claude_subprocess 内部已经 try/except；这里间接验证
+        # on_line 在 _cli_subprocess 内部已经 try/except；这里间接验证
         monkeypatch.setattr(
-            "harness.engine.claude_code_executor.run_claude",
+            "harness.engine.claude_code_executor.run_cli",
             make_fake_run_claude(SAMPLE_LINES_SUCCESS),
         )
         ex = make_executor()
@@ -331,12 +331,20 @@ class TestRunErrorPaths:
 
 
 class TestSpawnConfigConstruction:
+    def _flag_value(self, cfg, flag):
+        """Get the value following a --flag in cfg.extra_args, or None."""
+        args = list(cfg.extra_args)
+        if flag in args:
+            return args[args.index(flag) + 1]
+        return None
+
     def test_resolve_system_prompt_from_deps(self):
         class Deps:
             agent_md_content = "AGENT_MD_BODY"
         ex = make_executor(deps=Deps())
         cfg = ex._build_spawn_config("ctx")
-        assert cfg.append_system_prompt == "AGENT_MD_BODY"
+        # System prompt lands in extra_args as `--append-system-prompt <body>`
+        assert self._flag_value(cfg, "--append-system-prompt") == "AGENT_MD_BODY"
         assert cfg.prompt == "ctx"
 
     def test_resolve_system_prompt_from_agent_def(self):
@@ -344,31 +352,36 @@ class TestSpawnConfigConstruction:
             prompt = "AGENT_DEF_PROMPT"
         ex = make_executor(agent_def=AgentDef())
         cfg = ex._build_spawn_config("ctx")
-        assert cfg.append_system_prompt == "AGENT_DEF_PROMPT"
+        assert self._flag_value(cfg, "--append-system-prompt") == "AGENT_DEF_PROMPT"
 
     def test_resolve_system_prompt_none_when_no_source(self):
         ex = make_executor()
         cfg = ex._build_spawn_config("ctx")
-        assert cfg.append_system_prompt is None
+        # No system prompt → --append-system-prompt absent
+        assert "--append-system-prompt" not in cfg.extra_args
 
     def test_resolve_allowed_tools_from_agent_def(self):
         class AgentDef:
             tools = ["Bash", "Read"]
         ex = make_executor(agent_def=AgentDef())
         cfg = ex._build_spawn_config("ctx")
-        assert cfg.allowed_tools == ["Bash", "Read"]
+        # Allowed tools space-joined into a single --allowed-tools arg (Phase 1 V1 lesson)
+        assert self._flag_value(cfg, "--allowed-tools") == "Bash Read"
 
     def test_resolve_allowed_tools_none_when_unset(self):
         class AgentDef:
             tools = None
         ex = make_executor(agent_def=AgentDef())
         cfg = ex._build_spawn_config("ctx")
-        assert cfg.allowed_tools is None
+        # No tools → --allowed-tools absent
+        assert "--allowed-tools" not in cfg.extra_args
 
     def test_mcp_config_path_forwarded(self):
         ex = make_executor(mcp_config_path="/tmp/mcp.json")
         cfg = ex._build_spawn_config("ctx")
-        assert str(cfg.mcp_config_path) == "/tmp/mcp.json"
+        # MCP path rendered via profile.build_mcp_flag_args → mcp_flag_args tuple
+        assert "--mcp-config" in cfg.mcp_flag_args
+        assert "/tmp/mcp.json" in cfg.mcp_flag_args
 
 
 # ---------------------------------------------------------------------------
@@ -380,7 +393,7 @@ class TestStateResetBetweenRuns:
     def test_tool_calls_reset_between_runs(self, monkeypatch):
         """如果同一个 executor 实例被重试逻辑复用（不太可能，但要稳健），per-run state 必须重置。"""
         monkeypatch.setattr(
-            "harness.engine.claude_code_executor.run_claude",
+            "harness.engine.claude_code_executor.run_cli",
             make_fake_run_claude(SAMPLE_LINES_SUCCESS),
         )
         ex = make_executor()

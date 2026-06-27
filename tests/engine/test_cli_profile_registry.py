@@ -41,9 +41,15 @@ def test_claude_builtin_profile_loads_on_import():
     assert "claude-code" in registered_profile_names()
 
 
-def test_claude_profile_fields_match_legacy_default_flags():
-    """CLAUDE_FLAGS migrated verbatim from _claude_subprocess.DEFAULT_FLAGS.
-    Drift here would silently change every claude -p spawn."""
+def test_claude_profile_fields_match_expected_flags():
+    """CLAUDE_FLAGS locks the fixed claude -p invocation. Drift here would
+    silently change every spawn.
+
+    Note: ``--setting-sources project`` is intentionally NOT in profile.flags
+    — it's applied conditionally by ClaudeCodeExecutor._build_spawn_config
+    (only when env_overlay is non-empty, i.e. .env provided ANTHROPIC_*/CLAUDE_*).
+    When .env is empty, claude falls back to ~/.claude/settings.json defaults.
+    """
     profile = get_profile("claude-code")
     assert profile.flags == (
         "-p",
@@ -52,8 +58,9 @@ def test_claude_profile_fields_match_legacy_default_flags():
         "--include-partial-messages",
         "--verbose",
         "--strict-mcp-config",
-        "--setting-sources", "project",
     )
+    # Setting-sources must NOT be a fixed flag (it's conditional now)
+    assert "--setting-sources" not in profile.flags
 
 
 def test_claude_profile_uses_minimal_paradigm():

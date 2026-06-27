@@ -1,8 +1,8 @@
 """ClaudeCodeExecutor — per-node ``claude -p`` 子进程执行器（Phase C 实现）。
 
 工作流：
-  1. 构造 ClaudeSpawnConfig（prompt + system prompt + 工具白名单）
-  2. spawn claude 子进程（stdin 注入 prompt）
+  1. 构造 CliSpawnConfig（prompt + profile.flags + extra_args 含动态 flag）
+  2. spawn claude 子进程（stdin 注入 prompt，由 profile.prompt_channel 决定）
   3. 流式读 stdout 行 → JSON parse → translate → emit 到 event_bus
   4. 等子进程退出；exit_code != 0 抛 RuntimeError
   5. 从最后一条 result 事件提取 ``result.result`` 字段
@@ -10,6 +10,13 @@
 
 接口与 LLMExecutor 完全平行（实现 BaseExecutor 协议），node_factory 不需要
 知道是 pydantic-ai 还是 claude-code。
+
+P3 补完：执行细节由 ``self._profile`` (CliProfile) 驱动——cli_path 来自
+``profile.resolve_cli_path()``（支持 HARNESS_CLAUDE_CLI env override + shlex
+多 token 如 "ccr code"），固定 flags 来自 profile.flags，MCP flag 由
+profile.build_mcp_flag_args 渲染。``--setting-sources project`` 条件性追加：
+仅当 env_overlay 非空时强制只读 project settings；否则让 claude fallback
+到 ``~/.claude/settings.json`` 默认配置，避免缺 .env 时 API 错误。
 
 Phase D 集成 harness MCP server（ping / ask_user / TodoTool / render_chart 桥接）：
   - run() 之前 _setup_mcp 启动 McpProxyServer + 写临时 mcp-config JSON
@@ -36,9 +43,9 @@ from typing import Any, Callable
 from harness.engine.llm_executor import AgentRunResult, BaseExecutor
 from harness.engine.token_aggregator import TokenAggregator
 from harness.engine.tool_resolution import ToolResolution
-from harness.engine._claude_subprocess import ClaudeRunResult, ClaudeSpawnConfig, run_claude
+from harness.engine._cli_subprocess import run_cli
 from harness.engine._result_extractor import SchemaValidationError, extract_and_validate
-from harness.engine.cli_profile import CliProfile, get_profile
+from harness.engine.cli_profile import CliProfile, CliRunResult, CliSpawnConfig, get_profile
 from harness.engine.error_event import ErrorEvent, ExecutorError
 from harness.extensions.bus import safe_emit
 from harness.types import AgentResult
@@ -147,7 +154,7 @@ class ClaudeCodeExecutor:
         token_aggregator: TokenAggregator | None = None,
         request_limit: int | None = None,
         # Claude-specific:
-        cli_path: str = "claude",
+        cli_path: str | None = None,
         timeout_s: float | None = None,
         mcp_config_path: Any | None = None,
         enable_mcp: bool = True,
@@ -165,7 +172,6 @@ class ClaudeCodeExecutor:
         self._cancel_fn = cancel_fn
         self._token_aggregator = token_aggregator
         self._request_limit = request_limit
-        self._cli_path = cli_path
         self._timeout_s = timeout_s
         # 显式传入的 mcp_config_path（一般用于测试 / 自定义 MCP）；
         # 为 None 且 enable_mcp=True 时 _setup_mcp 会自动生成。
@@ -186,6 +192,11 @@ class ClaudeCodeExecutor:
                     f"harness.cli_profiles is imported at startup."
                 ) from exc
         self._profile = profile
+        # P3 cli_path resolution: explicit kwarg wins; else profile.resolve_cli_path()
+        # reads os.environ[profile.cli_path_env] with default profile.default_cli_path.
+        # This honours HARNESS_CLAUDE_CLI override (single token "claude" or multi
+        # token wrapper like "ccr code" — _cli_subprocess._build_cmd shlex.splits it).
+        self._cli_path = cli_path if cli_path is not None else profile.resolve_cli_path()
 
         # Per-run MCP state（_setup_mcp 创建，_teardown_mcp 清理）
         self._proxy: Any | None = None  # McpProxyServer，避免顶层循环 import
@@ -248,12 +259,12 @@ class ClaudeCodeExecutor:
             # 当前实现：spawn 期间不主动 check（pydantic-ai 路径在 iter 中 check）；
             # Phase G 加精细 cancel 支持
 
-            claude_result = await run_claude(cfg, on_line=on_line, timeout=self._timeout_s)
+            cli_result = await run_cli(cfg, profile=self._profile, on_line=on_line, timeout=self._timeout_s)
 
             # Phase 2-T3: 统一错误封装 — 每个 phase 失败都 emit agent.executor_error
             # (critical, P2-T2) + raise ExecutorError. node_factory except 见
             # ExecutorError 走 retry 路径但不重 emit (emit-uniqueness 契约).
-            if claude_result.timed_out:
+            if cli_result.timed_out:
                 await self._emit_and_raise_executor_error(
                     phase="timeout",
                     error_type="ClaudeTimeout",
@@ -261,20 +272,20 @@ class ClaudeCodeExecutor:
                         f"claude subprocess timed out after {self._timeout_s}s; "
                         f"terminated via SIGTERM/SIGKILL"
                     ),
-                    stderr_tail=claude_result.stderr[-500:] or None,
-                    exit_code=claude_result.exit_code,
+                    stderr_tail=cli_result.stderr[-500:] or None,
+                    exit_code=cli_result.exit_code,
                     timed_out=True,
                 )
 
-            if claude_result.exit_code != 0:
+            if cli_result.exit_code != 0:
                 await self._emit_and_raise_executor_error(
                     phase="spawn",
                     error_type="ClaudeSubprocessExit",
                     error_message=(
-                        f"claude subprocess exited code={claude_result.exit_code}"
+                        f"claude subprocess exited code={cli_result.exit_code}"
                     ),
-                    stderr_tail=claude_result.stderr[-500:] or None,
-                    exit_code=claude_result.exit_code,
+                    stderr_tail=cli_result.stderr[-500:] or None,
+                    exit_code=cli_result.exit_code,
                 )
 
             # stream indicated is_error (translator saw result.is_error=true;
@@ -295,8 +306,8 @@ class ClaudeCodeExecutor:
                     phase="stream",
                     error_type="ClaudeStreamError",
                     error_message=msg,
-                    stderr_tail=claude_result.stderr[-500:] or None,
-                    exit_code=claude_result.exit_code,
+                    stderr_tail=cli_result.stderr[-500:] or None,
+                    exit_code=cli_result.exit_code,
                     extra=self._stream_error_meta,
                 )
 
@@ -308,8 +319,8 @@ class ClaudeCodeExecutor:
                     error_message=(
                         "claude exited 0 but emitted no result event"
                     ),
-                    stderr_tail=claude_result.stderr[-500:] or None,
-                    exit_code=claude_result.exit_code,
+                    stderr_tail=cli_result.stderr[-500:] or None,
+                    exit_code=cli_result.exit_code,
                 )
         finally:
             # cleanup MCP（即使是失败路径也要清理 socket + 文件）
@@ -418,8 +429,14 @@ class ClaudeCodeExecutor:
 
     def _build_spawn_config(
         self, context: str, mcp_config_path: Any | None = None
-    ) -> ClaudeSpawnConfig:
+    ) -> CliSpawnConfig:
         """从 agent_def + context 构造 spawn 配置。
+
+        P3 补完：返回 profile-agnostic ``CliSpawnConfig``。所有 claude-specific
+        动态 flag（``--allowed-tools`` / ``--append-system-prompt`` / 条件性
+        ``--setting-sources project``）拼到 ``extra_args``，由
+        ``_cli_subprocess._build_cmd`` 透传给最终 argv。固定 flags 来自
+        ``self._profile.flags``，MCP flag 由 ``profile.build_mcp_flag_args`` 渲染。
 
         mcp_config_path 显式传入时优先；None 时 fallback 到 self._mcp_config_path
         （用于测试 / 自定义场景，run() 主流程会通过 _setup_mcp 生成并显式传入）。
@@ -449,20 +466,45 @@ class ClaudeCodeExecutor:
         # claude -p requires non-empty stdin — fallback when context is empty
         # (e.g. first node with no inputs or upstream outputs).
         prompt = context if context else "Complete the task described in the system prompt."
-        cfg = ClaudeSpawnConfig(
+
+        # claude-specific 动态 flag → extra_args（_cli_subprocess._build_cmd 透传）
+        extra_args: list[str] = []
+        if allowed_tools:
+            # 空格 join 单 flag 传递：variadic 形式会吞位置参数（Phase 1 V1 教训）
+            extra_args.extend(["--allowed-tools", " ".join(allowed_tools)])
+        if system_prompt:
+            extra_args.extend(["--append-system-prompt", system_prompt])
+
+        # 条件性 --setting-sources project：仅当 .env 提供了 profile 前缀的 key
+        # （env_overlay 非空）时强制 claude -p 只读 project settings（隔离 shell
+        # 全局 env 污染）。.env 缺失时不加，让 claude fallback 到
+        # ~/.claude/settings.json + shell env 默认配置，避免 API 错误。
+        if env_overlay:
+            extra_args.extend(["--setting-sources", "project"])
+
+        cfg = CliSpawnConfig(
             prompt=prompt,
-            mcp_config_path=effective_mcp,
-            allowed_tools=allowed_tools,
-            append_system_prompt=system_prompt,
             cli_path=self._cli_path,
-            env=env_overlay,
+            flags=self._profile.flags,
+            prompt_channel=self._profile.prompt_channel,
+            env_overlay=env_overlay,
+            mcp_flag_args=self._profile.build_mcp_flag_args(
+                str(effective_mcp) if effective_mcp else None
+            ),
+            extra_args=tuple(extra_args),
         )
         return cfg
 
     def _load_env_overlay(self) -> dict[str, str]:
         """读项目 .env，按 profile.env_overlay_prefixes 提取 keys 作为
         子进程 env overlay。同时支持 ``HARNESS_<NAME>_ENV_<KEY>`` 形式
-        覆盖 + ``HARNESS_<NAME>_CLI`` 覆盖 cli_path。
+        覆盖单个 env var。
+
+        注意：本函数**只负责 env var 透传**。cli_path 的覆盖走另一条路：
+        ``profile.resolve_cli_path()`` 读 ``os.environ[profile.cli_path_env]``
+        （claude profile 即 ``HARNESS_CLAUDE_CLI``），在 ``__init__`` 里调用。
+        env_overlay 是否非空还驱动 ``--setting-sources project`` 条件性追加
+        （见 ``_build_spawn_config``）。
 
         P3-T7: prefixes 来自 ``self._profile.env_overlay_prefixes``（claude
         profile 是 ("ANTHROPIC_", "CLAUDE_")，opencode 可能是 ("OPENCODE_",)）。

@@ -12,7 +12,7 @@ import pytest
 from pydantic import BaseModel
 
 from harness.core.agent import Agent
-from harness.engine._claude_subprocess import ClaudeRunResult, ClaudeSpawnConfig
+from harness.engine.cli_profile import CliRunResult, CliSpawnConfig
 from harness.engine._result_extractor import SchemaValidationError
 from harness.engine.claude_code_executor import ClaudeCodeExecutor
 from harness.engine.error_event import ExecutorError
@@ -34,11 +34,11 @@ class FakeBus:
 
 
 def make_fake_run_claude(lines: Sequence[str], *, exit_code: int = 0):
-    async def fake(cfg: ClaudeSpawnConfig, on_line=None, *, timeout=None):
+    async def fake(cfg: CliSpawnConfig, profile=None, on_line=None, *, timeout=None):
         if on_line is not None:
             for line in lines:
                 await on_line(line)
-        return ClaudeRunResult(exit_code=exit_code, stderr="", timed_out=False)
+        return CliRunResult(exit_code=exit_code, stderr="", timed_out=False)
     return fake
 
 
@@ -63,7 +63,7 @@ class TestDefaultResultTypeAgentResult:
                         "result": "hello world", "usage": {}}),
         ]
         monkeypatch.setattr(
-            "harness.engine.claude_code_executor.run_claude",
+            "harness.engine.claude_code_executor.run_cli",
             make_fake_run_claude(lines),
         )
         ex = ClaudeCodeExecutor(
@@ -89,7 +89,7 @@ class TestResultTypeNone:
                         "result": "free text", "usage": {}}),
         ]
         monkeypatch.setattr(
-            "harness.engine.claude_code_executor.run_claude",
+            "harness.engine.claude_code_executor.run_cli",
             make_fake_run_claude(lines),
         )
         ex = ClaudeCodeExecutor(
@@ -114,7 +114,7 @@ class TestCustomResultType:
                         "usage": {}}),
         ]
         monkeypatch.setattr(
-            "harness.engine.claude_code_executor.run_claude",
+            "harness.engine.claude_code_executor.run_cli",
             make_fake_run_claude(lines),
         )
         agent_def = Agent("a", result_type=_Summary)
@@ -135,7 +135,7 @@ class TestCustomResultType:
                         "usage": {}}),
         ]
         monkeypatch.setattr(
-            "harness.engine.claude_code_executor.run_claude",
+            "harness.engine.claude_code_executor.run_cli",
             make_fake_run_claude(lines),
         )
         agent_def = Agent("a", result_type=_Summary)
@@ -157,7 +157,7 @@ class TestCustomResultType:
                         "usage": {}}),
         ]
         monkeypatch.setattr(
-            "harness.engine.claude_code_executor.run_claude",
+            "harness.engine.claude_code_executor.run_cli",
             make_fake_run_claude(lines),
         )
         agent_def = Agent("a", result_type=_Summary)
@@ -181,7 +181,7 @@ class TestCustomResultType:
                         "usage": {}}),
         ]
         monkeypatch.setattr(
-            "harness.engine.claude_code_executor.run_claude",
+            "harness.engine.claude_code_executor.run_cli",
             make_fake_run_claude(lines),
         )
         agent_def = Agent("a", result_type=_Summary)
