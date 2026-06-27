@@ -24,6 +24,7 @@ import logging
 import os
 import shlex
 import signal
+import time
 from typing import Awaitable, Callable
 
 from harness.engine.cli_profile import CliProfile, CliRunResult, CliSpawnConfig
@@ -58,9 +59,18 @@ async def run_cli(
         FileNotFoundError: when cfg.cli_path does not exist.
     """
     cmd = _build_cmd(cfg)
-    logger.info("spawn %s: %s ...", profile.name, " ".join(cmd[:6]))
-    logger.debug("full %s cmd: %s", profile.name, cmd)
+    # Diagnostic logging — full cmd (no truncation) + env overlay keys so
+    # operators can see exactly what's being spawned. Token values are
+    # NOT logged (only key names) to avoid leaking secrets.
+    logger.info("[%s] full cmd: %s", profile.name, cmd)
+    if cfg.env_overlay:
+        logger.info("[%s] env_overlay keys: %s",
+                    profile.name, sorted(cfg.env_overlay.keys()))
+    else:
+        logger.info("[%s] env_overlay: (empty — subprocess inherits parent env)",
+                    profile.name)
 
+    t_spawn = time.monotonic()
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -68,6 +78,12 @@ async def run_cli(
         stdin=asyncio.subprocess.PIPE,
         cwd=cfg.cwd,
         env=_build_env(cfg.env_overlay),
+    )
+    logger.info(
+        "[%s] subprocess pid=%s started after %.2fs (prompt_channel=%s, prompt_bytes=%d)",
+        profile.name, getattr(proc, "pid", "<unknown>"),
+        time.monotonic() - t_spawn,
+        cfg.prompt_channel, len(cfg.prompt.encode("utf-8")),
     )
 
     # Deliver the prompt — stdin (claude-style) or argv (most others).
@@ -79,24 +95,42 @@ async def run_cli(
         await proc.stdin.drain()
     proc.stdin.close()
     await proc.stdin.wait_closed()
+    logger.info(
+        "[%s] stdin closed after %.2fs, waiting for first stdout line...",
+        profile.name, time.monotonic() - t_spawn,
+    )
 
     stderr_chunks: list[str] = []
     timed_out = False
+    first_stdout_seen = False
 
     async def _drain_stderr():
+        # Real-time stderr → logger so operators can see what the CLI is
+        # complaining about while it's stuck (don't have to wait for exit).
         assert proc.stderr is not None
         while True:
             chunk = await proc.stderr.read(4096)
             if not chunk:
                 break
-            stderr_chunks.append(chunk.decode("utf-8", errors="replace"))
+            text = chunk.decode("utf-8", errors="replace")
+            stderr_chunks.append(text)
+            for line in text.splitlines():
+                if line.strip():
+                    logger.warning("[%s stderr] %s", profile.name, line.rstrip())
 
     async def _drain_stdout():
+        nonlocal first_stdout_seen
         assert proc.stdout is not None
         while True:
             line = await proc.stdout.readline()
             if not line:
                 break
+            if not first_stdout_seen:
+                first_stdout_seen = True
+                logger.info(
+                    "[%s] first stdout line after %.2fs",
+                    profile.name, time.monotonic() - t_spawn,
+                )
             text = line.decode("utf-8", errors="replace").rstrip("\n")
             if not text:
                 continue
@@ -138,8 +172,9 @@ async def run_cli(
     exit_code = proc.returncode if proc.returncode is not None else -1
     stderr_full = "".join(stderr_chunks)
     logger.info(
-        "%s exited code=%s timed_out=%s stderr_bytes=%d",
+        "[%s] exited code=%s timed_out=%s stderr_bytes=%d total=%.2fs",
         profile.name, exit_code, timed_out, len(stderr_full),
+        time.monotonic() - t_spawn,
     )
     return CliRunResult(exit_code=exit_code, stderr=stderr_full, timed_out=timed_out)
 

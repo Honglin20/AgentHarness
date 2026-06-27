@@ -241,7 +241,17 @@ class ClaudeCodeExecutor:
         # 前端联动工具（ask_user 等）。enable_mcp=False 跳过（CI 单测常用）。
         mcp_config_path = self._mcp_config_path
         if mcp_config_path is None and self._enable_mcp:
+            t_mcp_start = time.monotonic()
             mcp_config_path = await self._setup_mcp()
+            logger.info(
+                "[%s] _setup_mcp completed in %.2fs (mcp_config_path=%s)",
+                self._profile.name, time.monotonic() - t_mcp_start, mcp_config_path,
+            )
+        else:
+            logger.info(
+                "[%s] MCP disabled (enable_mcp=%s, mcp_config_path=%s)",
+                self._profile.name, self._enable_mcp, self._mcp_config_path,
+            )
 
         try:
             # claude -p requires non-empty stdin. When context is empty (no
@@ -249,6 +259,11 @@ class ClaudeCodeExecutor:
             if not context.strip():
                 context = "Proceed with the task as described in your instructions."
             cfg = self._build_spawn_config(context, mcp_config_path)
+            logger.info(
+                "[%s] spawn config: cli_path=%r flags=%d items extra_args=%d items mcp_flag_args=%d items",
+                self._profile.name, cfg.cli_path,
+                len(cfg.flags), len(cfg.extra_args), len(cfg.mcp_flag_args),
+            )
             ctx = self._build_translate_ctx()
 
             # 把 stdout 每行喂翻译器，再 emit
