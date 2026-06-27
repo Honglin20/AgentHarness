@@ -204,6 +204,11 @@ def _build_env(env_overlay: dict[str, str] | None) -> dict[str, str]:
     base = dict(os.environ)
     if env_overlay:
         base.update(env_overlay)
+    # Diagnostic: show relevant env keys the subprocess will receive
+    diag_keys = {k: v for k, v in base.items()
+                 if any(k.startswith(p) for p in ("HARNESS_", "ANTHROPIC_", "CLAUDE_", "PATH", "HOME"))}
+    logger.info("[_build_env] subprocess env (relevant keys): %s",
+                {k: (v[:80] + "..." if len(v) > 80 else v) for k, v in sorted(diag_keys.items())})
     return base
 
 

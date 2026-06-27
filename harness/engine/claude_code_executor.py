@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import sys
 import tempfile
 import time
@@ -197,6 +198,21 @@ class ClaudeCodeExecutor:
         # This honours HARNESS_CLAUDE_CLI override (single token "claude" or multi
         # token wrapper like "ccr code" — _cli_subprocess._build_cmd shlex.splits it).
         self._cli_path = cli_path if cli_path is not None else profile.resolve_cli_path()
+
+        # ── Diagnostic: dump every relevant input to cli_path resolution ──
+        _env_path = _resolve_env_path_for_diag()
+        logger.info(
+            "[%s] __init__ cli_path resolution: "
+            "explicit_kwarg=%r profile.cli_path_env=%r "
+            "raw_os_environ=%r resolve_cli_path()=%r "
+            "env_file=%s",
+            profile.name,
+            cli_path,
+            profile.cli_path_env,
+            os.environ.get(profile.cli_path_env, "(not set)"),
+            self._cli_path,
+            _env_path,
+        )
 
         # Per-run MCP state（_setup_mcp 创建，_teardown_mcp 清理）
         self._proxy: Any | None = None  # McpProxyServer，避免顶层循环 import
@@ -868,6 +884,16 @@ class ClaudeCodeExecutor:
         payload = dict(ev.payload)
         payload.setdefault("workflow_id", self._wid)
         safe_emit(self._bus, ev.type, payload)
+
+
+def _resolve_env_path_for_diag() -> str:
+    """Resolve env file path for diagnostic logging — mirrors harness.config logic."""
+    from harness.paths import get_env_file
+    cwd_env = Path.cwd() / ".env"
+    if cwd_env.exists():
+        return str(cwd_env)
+    env_file = get_env_file()
+    return str(env_file) if env_file.exists() else f"(not found; cwd={Path.cwd()})"
 
 
 # 显式协议契约校验：ClaudeCodeExecutor 实例必须满足 BaseExecutor。
