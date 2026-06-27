@@ -9,6 +9,9 @@
 
 ## 2026-06
 
+- **2026-06-27** — **P3 CliProfile 补完（架构债清理）**：P3 重构 docs 宣称 T1~T11 全部完成，但实际 `ClaudeCodeExecutor` 仍走老路径 `_claude_subprocess.run_claude`，通用 `run_cli` + 4 个 CliProfile 字段（flags / cli_path_env / mcp_flag_template / prompt_channel）全是死代码。本次彻底切换：(1) executor 切到 `run_cli(cfg, profile=self._profile, ...)`；(2) `__init__` cli_path 默认 None 走 `profile.resolve_cli_path()`（兑现 `HARNESS_CLAUDE_CLI` env override）；(3) `_cli_subprocess._build_cmd` 加 `shlex.split` 支持多 token cli_path（如 `"ccr code"` wrapper）；(4) 删除 `_claude_subprocess.py`（243 行下线）；(5) `--setting-sources project` 改条件性（仅当 env_overlay 非空才加），让 .env 缺失时 claude fallback 到 `~/.claude/settings.json` 默认配置而非报 API 错；(6) 修 `_load_env_overlay` docstring 撒的谎。297 backend 测试全绿 + 6 新测试（cli_path env override / shlex 多 token / setting-sources gate / run_cli dispatch 等）。**遗留**：`translator` + `prompt_paradigm` 两个字段仍死代码（涉及 prompt 核心路径，下一 PR）。
+  → commit `d854db2`
+
 - **2026-06-26** — **流态数据持久化（single-source-streaming-state ADR）**：4 个"刷新后看不到"bug 的统一根治——ask_user 刷新丢选项 / text+thinking 中间过程丢失 / multi-iter 历史丢失 / bash tool_output_delta 不持久化。根因：WS 实时事件流和持久化 sidecar 用了两套不统一的数据模型。落地 D1-D7：sidecar schema v3 加 `thinking` / `tool_streaming_outputs` / `schema_version` / `error`；`InflightSidecarWriter` 加 `on_thinking_delta` / `on_tool_output_delta`，`finalize` 不再清空；`_build_iter_data` 从 bus.buffer 累积 streaming state；`build_conversation` 反向填充 + multi-iter 聚合；前端 hydration 重放 chat.* events + 反推 `pendingQuestionId` + `setHydratedNodeTextCursor` 防 dup；客户端反向 PATCH 标记 deprecated。**Plan agent 未发现的 dead code**：`InflightWriterRegistry` 从未 attach，实际 sidecar 写盘走 `_build_iter_data`——已用 `_collect_streaming_state_from_bus` 解决。前端 308/308 + 后端 v3 单测 7/7 + collectors 29/29 全绿。
   → [release note](../releases/2026-06-26-streaming-state-persistence.md) | [ADR](../refactor/single-source-streaming-state/ADR.md)
 
