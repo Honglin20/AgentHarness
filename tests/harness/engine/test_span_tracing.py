@@ -2,6 +2,8 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from harness.engine.llm_executor import AgentRunResult, LLMExecutor
 
 
@@ -27,6 +29,18 @@ def _make_part(tool_name, args=None, content=""):
     return part
 
 
+def _llm_ctx():
+    """Build a minimal ctx object with real usage values so _handle_model_request
+    baseline tracking does not receive MagicMock objects."""
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        state=SimpleNamespace(
+            usage=SimpleNamespace(input_tokens=0, output_tokens=0, cache_read_tokens=0),
+            message_history=[],
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Span tracing: LLM calls
 # ---------------------------------------------------------------------------
@@ -34,7 +48,8 @@ def _make_part(tool_name, args=None, content=""):
 class TestLLMSpanTracing:
     """span.start and span.end events for LLM (model-request) nodes."""
 
-    def test_llm_span_start_and_end_emitted(self):
+    @pytest.mark.asyncio
+    async def test_llm_span_start_and_end_emitted(self):
         """LLMExecutor emits span.start before streaming and span.end after."""
         bus = _FakeBus()
         agent_mock = MagicMock()
@@ -45,9 +60,6 @@ class TestLLMSpanTracing:
             agent_mock, MagicMock(),
             event_bus=bus, workflow_id="wf1", node_id="node1", agent_name="agent1",
         )
-
-        span_start_called = False
-        span_end_called = False
 
         # Patch the async context managers to simulate streaming
         mock_stream = AsyncMock()
@@ -67,9 +79,7 @@ class TestLLMSpanTracing:
         mock_node = MagicMock()
         mock_node.stream = MagicMock(return_value=mock_stream)
 
-        result = asyncio.get_event_loop().run_until_complete(
-            executor._handle_model_request(mock_node, MagicMock())
-        )
+        result = await executor._handle_model_request(mock_node, _llm_ctx())
 
         # Should have span.start and span.end
         span_starts = [e for e in bus.events if e[0] == "span.start"]
@@ -90,7 +100,8 @@ class TestLLMSpanTracing:
         assert end_payload["span_type"] == "llm"
         assert end_payload["span_id"] == "node1-s1"
 
-    def test_llm_span_no_emit_without_bus(self):
+    @pytest.mark.asyncio
+    async def test_llm_span_no_emit_without_bus(self):
         """No span events when bus is None."""
         executor = LLMExecutor(
             MagicMock(), MagicMock(),
@@ -106,9 +117,7 @@ class TestLLMSpanTracing:
         mock_node = MagicMock()
         mock_node.stream = MagicMock(return_value=mock_stream)
 
-        asyncio.get_event_loop().run_until_complete(
-            executor._handle_model_request(mock_node, MagicMock())
-        )
+        await executor._handle_model_request(mock_node, _llm_ctx())
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +127,8 @@ class TestLLMSpanTracing:
 class TestToolSpanTracing:
     """span.start and span.end events for tool-call nodes."""
 
-    def test_tool_span_start_and_end_emitted(self):
+    @pytest.mark.asyncio
+    async def test_tool_span_start_and_end_emitted(self):
         """LLMExecutor emits span.start on tool call and span.end on tool result."""
         bus = _FakeBus()
         executor = LLMExecutor(
@@ -148,9 +158,7 @@ class TestToolSpanTracing:
 
         executor._fire_tool_call_hook = AsyncMock()
 
-        asyncio.get_event_loop().run_until_complete(
-            executor._handle_call_tools(mock_node, MagicMock())
-        )
+        await executor._handle_call_tools(mock_node, MagicMock())
 
         span_starts = [e for e in bus.events if e[0] == "span.start"]
         span_ends = [e for e in bus.events if e[0] == "span.end"]
@@ -168,7 +176,8 @@ class TestToolSpanTracing:
         assert end_payload["tool_name"] == "bash"
         assert end_payload["span_id"] == start_payload["span_id"]
 
-    def test_tool_span_multiple_calls(self):
+    @pytest.mark.asyncio
+    async def test_tool_span_multiple_calls(self):
         """Multiple tool calls produce separate span IDs."""
         bus = _FakeBus()
         executor = LLMExecutor(
@@ -210,9 +219,7 @@ class TestToolSpanTracing:
 
         executor._fire_tool_call_hook = AsyncMock()
 
-        asyncio.get_event_loop().run_until_complete(
-            executor._handle_call_tools(mock_node, MagicMock())
-        )
+        await executor._handle_call_tools(mock_node, MagicMock())
 
         span_starts = [e for e in bus.events if e[0] == "span.start"]
         span_ends = [e for e in bus.events if e[0] == "span.end"]
@@ -234,7 +241,8 @@ class TestToolSpanTracing:
 class TestTTFT:
     """Time-to-first-token is measured and returned in AgentRunResult."""
 
-    def test_ttft_measured_on_text_delta(self):
+    @pytest.mark.asyncio
+    async def test_ttft_measured_on_text_delta(self):
         """TTFT is set when the first text delta arrives."""
         bus = _FakeBus()
         agent_mock = MagicMock()
@@ -261,14 +269,13 @@ class TestTTFT:
         mock_node = MagicMock()
         mock_node.stream = MagicMock(return_value=mock_stream)
 
-        asyncio.get_event_loop().run_until_complete(
-            executor._handle_model_request(mock_node, MagicMock())
-        )
+        await executor._handle_model_request(mock_node, _llm_ctx())
 
         assert executor._last_ttft_ms is not None
         assert executor._last_ttft_ms >= 0
 
-    def test_ttft_none_when_no_tokens(self):
+    @pytest.mark.asyncio
+    async def test_ttft_none_when_no_tokens(self):
         """TTFT stays None when no tokens are produced."""
         executor = LLMExecutor(
             MagicMock(), MagicMock(),
@@ -283,9 +290,7 @@ class TestTTFT:
         mock_node = MagicMock()
         mock_node.stream = MagicMock(return_value=mock_stream)
 
-        asyncio.get_event_loop().run_until_complete(
-            executor._handle_model_request(mock_node, MagicMock())
-        )
+        await executor._handle_model_request(mock_node, _llm_ctx())
 
         assert executor._last_ttft_ms is None
 
@@ -357,7 +362,8 @@ class _async_iter:
 class TestSpanTimestamps:
     """All span.start and span.end payloads carry a positive ts field."""
 
-    def test_llm_span_timestamps(self):
+    @pytest.mark.asyncio
+    async def test_llm_span_timestamps(self):
         """LLM span.start and span.end include positive ts (epoch ms)."""
         bus = _FakeBus()
         agent_mock = MagicMock()
@@ -383,9 +389,7 @@ class TestSpanTimestamps:
         mock_node = MagicMock()
         mock_node.stream = MagicMock(return_value=mock_stream)
 
-        asyncio.get_event_loop().run_until_complete(
-            executor._handle_model_request(mock_node, MagicMock())
-        )
+        await executor._handle_model_request(mock_node, _llm_ctx())
 
         span_events = [(et, p) for et, p in bus.events if et in ("span.start", "span.end")]
         assert len(span_events) == 2, f"Expected 2 span events, got {len(span_events)}"
@@ -395,7 +399,8 @@ class TestSpanTimestamps:
             assert isinstance(payload["ts"], int), f"{event_type} ts should be int, got {type(payload['ts'])}"
             assert payload["ts"] > 0, f"{event_type} ts should be positive, got {payload['ts']}"
 
-    def test_tool_span_timestamps(self):
+    @pytest.mark.asyncio
+    async def test_tool_span_timestamps(self):
         """Tool span.start and span.end include positive ts (epoch ms)."""
         bus = _FakeBus()
         executor = LLMExecutor(
@@ -425,9 +430,7 @@ class TestSpanTimestamps:
 
         executor._fire_tool_call_hook = AsyncMock()
 
-        asyncio.get_event_loop().run_until_complete(
-            executor._handle_call_tools(mock_node, MagicMock())
-        )
+        await executor._handle_call_tools(mock_node, MagicMock())
 
         span_events = [(et, p) for et, p in bus.events if et in ("span.start", "span.end")]
         assert len(span_events) == 2, f"Expected 2 span events, got {len(span_events)}"

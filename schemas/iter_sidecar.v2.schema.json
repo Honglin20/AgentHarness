@@ -95,6 +95,10 @@
         "tool_name": {"type": "string"},
         "tool_args": {"type": ["object", "string", "null"]},
         "tool_result": {"description": "Any"},
+        "tool_call_id": {
+          "type": ["string", "null"],
+          "description": "pydantic-ai ToolCallPart.tool_call_id — used by frontend to match tool_result to tool_call when parallel same-name calls exist. Optional: legacy sidecars pre-fix omit it."
+        },
         "ts": {"type": ["number", "integer", "null"]},
         "seq": {"type": ["integer", "null"], "minimum": 0}
       }

@@ -1,11 +1,15 @@
 """Workflow lifecycle endpoints (definitions, create, cancel, status, dag, trace)."""
+import json
 import shutil
 import uuid
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from harness.api import Workflow
+from harness.persistence.sidecar_io import atomic_write_json
 from harness.user_manager import get_current_user, get_user_manager
 from server._helpers import (
     _check_workflow_owner,
@@ -28,6 +32,92 @@ from server.schemas import (
 )
 
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Phase F: PATCH single-agent executor (per-agent backend switch)
+# ---------------------------------------------------------------------------
+
+
+class UpdateAgentExecutorRequest(BaseModel):
+    """PATCH /workflows/definitions/{name}/agents/{agent_name} body.
+
+    每次只更新一个字段（executor），保持 PATCH 语义最小。
+    """
+
+    executor: Literal["pydantic-ai", "claude-code"] = Field(
+        description="Executor backend for this agent. 'pydantic-ai' (default) "
+                    "uses the existing pydantic-ai path; 'claude-code' spawns "
+                    "claude -p subprocess (Phase A-E)."
+    )
+
+
+@router.patch("/workflows/definitions/{name}/agents/{agent_name}")
+async def update_agent_executor(
+    name: str,
+    agent_name: str,
+    body: UpdateAgentExecutorRequest,
+    request: Request,
+) -> dict:
+    """Update a single agent's ``executor`` field in workflow.json.
+
+    Atomic (tmpfile + os.replace) — readers see either old or new file,
+    never half-written. Permission model mirrors delete_workflow_definition:
+    shared workflows admin-only, private workflows owner-only.
+
+    Returns the updated agent dict (post-write read-back).
+    """
+    user = get_current_user(request)
+    user_mgr = get_user_manager()
+    user_id = user.user_id if user.user_id != "default" else None
+
+    workflows = Workflow.list_saved(user_id=user_id)
+    target = next((w for w in workflows if w["name"] == name), None)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Workflow '{name}' not found")
+
+    scope = target.get("scope", "legacy")
+    if not user_mgr.can_delete_workflow(user, scope, user.user_id):
+        # 复用 delete 权限语义：能删就能改
+        if scope == "shared":
+            raise HTTPException(status_code=403, detail="Cannot modify shared workflow (admin only)")
+        raise HTTPException(status_code=403, detail="Cannot modify workflow (not yours)")
+
+    wf_dir = Path(target["workflow_dir"])
+    wf_json = wf_dir / "workflow.json"
+    if not wf_json.exists():
+        raise HTTPException(status_code=404, detail=f"workflow.json missing at {wf_json}")
+
+    # 读 + 改 + atomic 写
+    try:
+        data = json.loads(wf_json.read_text())
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"workflow.json corrupted: {e}")
+
+    agents = data.get("agents") or []
+    target_agent = next((a for a in agents if a.get("name") == agent_name), None)
+    if target_agent is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agent_name}' not found in workflow '{name}'",
+        )
+
+    # 应用 executor 更新（白名单已由 Literal 保证；这里只写非默认值）
+    if body.executor == "pydantic-ai":
+        # 默认值不写盘，保持 workflow.json diff 最小（与 Agent.to_dict 行为一致）
+        target_agent.pop("executor", None)
+    else:
+        target_agent["executor"] = body.executor
+
+    atomic_write_json(wf_json, data)
+
+    return {
+        "status": "ok",
+        "workflow": name,
+        "agent": agent_name,
+        "executor": body.executor,
+        "agent_dict": target_agent,
+    }
 
 
 @router.get("/workflows/definitions")

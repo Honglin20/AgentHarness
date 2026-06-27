@@ -11,7 +11,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Protocol, runtime_checkable
 
 from pydantic_graph import End
 from pydantic_ai.messages import ModelRequest, SystemPromptPart, RetryPromptPart
@@ -19,6 +19,7 @@ from pydantic_ai.messages import ModelRequest, SystemPromptPart, RetryPromptPart
 from harness.extensions.base import ToolCtx
 from harness.extensions.bus import safe_emit
 from harness.engine.token_aggregator import TokenAggregator
+from harness.engine.tool_resolution import ToolResolution
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,60 @@ class AgentRunResult:
     agent_run: Any  # pydantic_ai AgentRun
     stop_regen: dict[str, Any] | None = None
     ttft_ms: int | None = None
+
+
+@runtime_checkable
+class BaseExecutor(Protocol):
+    """协议：DAG 节点执行器接口。
+
+    LLMExecutor (pydantic-ai 路径) 和 ClaudeCodeExecutor (claude-code 路径,
+    Phase C 实现) 都实现此协议。node_factory 通过 ``make_executor`` 工厂
+    按 ``agent_def.executor`` 字段分派到具体实现。
+
+    新增 backend = 实现此协议 + 在 ``make_executor`` 注册分支 +
+    在 ``harness.core.agent.VALID_EXECUTORS`` 加白名单。
+
+    添加新方法到本协议前，必须确认 LLMExecutor 与 ClaudeCodeExecutor
+    均能语义一致地实现，否则 DAG 引擎会出现 backend-coupled 行为。
+    """
+
+    #: 本节点执行过程中累计的工具调用记录；node_factory 用它生成 sidecar IO 快照
+    #: 和 step 计数。每个 entry 至少含 tool_name / tool_call_id / input / output。
+    tool_calls: list[dict[str, Any]]
+
+    async def run(self, context: str) -> AgentRunResult:
+        """执行一次 agent run。``context`` 是 build_node_prompt 拼出的 user message。
+
+        返回 AgentRunResult；失败由调用方（execute_with_retry）分类重试。
+        """
+        ...
+
+    def record_usage(self, usage_obj: Any) -> None:
+        """把一次 LLM 请求的 usage（input/output/cache tokens）记进聚合器。
+
+        node_factory 在 run 结束后调一次，用于 BudgetBar 和 sidecar 持久化。
+        """
+        ...
+
+    def get_last_request_usage(self) -> dict[str, int]:
+        """返回最近一次 LLM 请求的 usage delta（key: input/output/cache_read/cache_creation）。
+
+        用于单次请求的 token 报告；与 record_usage 的累计语义不同。
+        """
+        ...
+
+    def resolve_tools(self) -> list[ToolResolution]:
+        """返回本 backend 对 agent 声明工具的解析结果。
+
+        每个 executor 子类实现具体解析规则（claude-code 走 cli_bridge_tools
+        config；pydantic-ai 全部当 in-process function；未来的 opencode 等
+        backend 各自定义）。``node_factory`` 在 ``node.started`` emit 时调用
+        本方法把结果传给前端展示。
+
+        返回 ``list[ToolResolution]``，顺序与 ``agent_def.tools`` 一致；
+        agent 没声明工具时返回 ``[]``。
+        """
+        ...
 
 
 class LLMExecutor:
@@ -71,6 +126,7 @@ class LLMExecutor:
         cancel_fn: Callable[[str], None] | None = None,
         token_aggregator: TokenAggregator | None = None,
         request_limit: int | None = None,
+        tools_declared: list[str] | None = None,
     ):
         self._agent = pydantic_agent
         self._deps = deps
@@ -86,6 +142,12 @@ class LLMExecutor:
         # env (default 200). Forwarded to agent.iter(usage_limits=...) — controls
         # when PydanticAI raises UsageLimitExceeded (see llm_retry.py classify).
         self._request_limit = request_limit
+        # Declared tool names (workflow.json ``tools`` field). Used by
+        # resolve_tools() to surface what the operator wrote vs what the
+        # pydantic-ai Agent actually registered. None when the executor
+        # was built outside the standard node_factory path (tests / direct
+        # ad-hoc construction) — resolve_tools() returns [] in that case.
+        self._tools_declared: list[str] | None = tools_declared
         self.tool_calls: list[dict[str, Any]] = []
         self._span_seq = 0
         self._last_ttft_ms: int | None = None
@@ -104,6 +166,14 @@ class LLMExecutor:
         self._last_input: int = 0
         self._last_output: int = 0
         self._last_cache_hit: int = 0
+
+    def resolve_tools(self) -> list[ToolResolution]:
+        """pydantic-ai backend resolution. See ``resolve_tools_for_backend``."""
+        from harness.engine.tool_resolution import resolve_tools_for_backend
+
+        if not self._tools_declared:
+            return []
+        return resolve_tools_for_backend(self._tools_declared, "pydantic-ai")
 
     # ------------------------------------------------------------------
     # Public API
@@ -588,37 +658,57 @@ class LLMExecutor:
         if not isinstance(raw_args, dict):
             raw_args = {}
 
+        tool_call_id = getattr(part, "tool_call_id", None)
         entry = {
             "tool_name": part.tool_name,
             "tool_args": raw_args,
+            "tool_call_id": tool_call_id,
         }
         self.tool_calls.append(entry)
         if not self._bus:
             return
-        safe_emit(self._bus, "agent.tool_call", {
+        payload_call: dict[str, Any] = {
             "workflow_id": self._wid,
             "node_id": self._node_id,
             "agent_name": self._agent_name,
             "tool_name": part.tool_name,
             "tool_args": raw_args,
-        })
+        }
+        if tool_call_id:
+            payload_call["tool_call_id"] = tool_call_id
+        safe_emit(self._bus, "agent.tool_call", payload_call)
 
     def _emit_tool_result(self, part) -> None:
         result_str = str(part.content) if hasattr(part, "content") else ""
-        # Attach result to the last unmatched tool_call entry
-        for tc in reversed(self.tool_calls):
-            if tc["tool_name"] == part.tool_name and "tool_result" not in tc:
-                tc["tool_result"] = result_str
-                break
+        tool_call_id = getattr(part, "tool_call_id", None)
+        # Match strictly by tool_call_id so parallel same-name calls do not have
+        # their results crossed. If the ID is absent or no entry matches, log
+        # and drop rather than land the result on the wrong call.
+        matched = False
+        if tool_call_id:
+            for tc in reversed(self.tool_calls):
+                if tc.get("tool_call_id") == tool_call_id and "tool_result" not in tc:
+                    tc["tool_result"] = result_str
+                    matched = True
+                    break
+        if not matched:
+            logger.warning(
+                "llm_executor: tool_result for tool_call_id=%s tool_name=%s had no "
+                "matching tool_call (wf=%s node=%s) — dropped",
+                tool_call_id, part.tool_name, self._wid, self._node_id,
+            )
         if not self._bus:
             return
-        safe_emit(self._bus, "agent.tool_result", {
+        payload_result: dict[str, Any] = {
             "workflow_id": self._wid,
             "node_id": self._node_id,
             "agent_name": self._agent_name,
             "tool_name": part.tool_name,
             "result": result_str,
-        })
+        }
+        if tool_call_id:
+            payload_result["tool_call_id"] = tool_call_id
+        safe_emit(self._bus, "agent.tool_result", payload_result)
 
     # ------------------------------------------------------------------
     # Extension hook helpers
@@ -634,12 +724,23 @@ class LLMExecutor:
         if self._ext_ctx is None or self._bus is None:
             return
         if hasattr(self._bus, "run_hooks"):
-            # Reuse the normalized args stored by _emit_tool_call
-            last_tc = next(
-                (tc for tc in reversed(self.tool_calls)
-                 if tc["tool_name"] == part.tool_name),
-                None,
-            )
+            # Reuse the normalized args stored by _emit_tool_call. Match by
+            # tool_call_id so the hook sees the correct args when multiple
+            # same-name calls are in flight; fall back to tool_name only if
+            # the part lacks an ID (legacy pydantic-ai or synthetic events).
+            tool_call_id = getattr(part, "tool_call_id", None)
+            if tool_call_id:
+                last_tc = next(
+                    (tc for tc in reversed(self.tool_calls)
+                     if tc.get("tool_call_id") == tool_call_id),
+                    None,
+                )
+            else:
+                last_tc = next(
+                    (tc for tc in reversed(self.tool_calls)
+                     if tc["tool_name"] == part.tool_name),
+                    None,
+                )
             tctx = ToolCtx(
                 node=self._ext_ctx,
                 tool_name=part.tool_name,

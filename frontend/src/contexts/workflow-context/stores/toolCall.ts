@@ -12,7 +12,7 @@ export function createToolCallStore(
     records: {},
     order: [],
 
-    addToolCall: (id, nodeId, agentName, toolName, args) => {
+    addToolCall: (id, nodeId, agentName, toolName, args, toolCallId) => {
       /* Phase 2 实现 */
     },
     addToolResult: (id, result) => {
@@ -26,7 +26,7 @@ export function createToolCallStore(
   const store = createStore<ToolCallState>()((set, get) => ({
     ...initialState,
 
-    addToolCall: (id, nodeId, agentName, toolName, args) => {
+    addToolCall: (id, nodeId, agentName, toolName, args, toolCallId) => {
       if (id in get().records) return;
       set((state) => ({
         records: {
@@ -37,6 +37,7 @@ export function createToolCallStore(
             agentName,
             toolName,
             args,
+            toolCallId,
             timestamp: Date.now(),
           },
         },

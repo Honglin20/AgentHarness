@@ -15,6 +15,39 @@ from pydantic import BaseModel
 from harness.compiler.md_parser import resolve_agent_md
 from harness.types import AgentResult
 
+# Static builtin executor whitelist. ``pydantic-ai`` is the default and
+# historically the only in-process option; ``claude-code`` is the canonical
+# CLI subprocess backend (registered by harness/cli_profiles/claude.py).
+#
+# P3-T5: VALID_EXECUTORS is now a FUNCTION (dynamic) so user-registered
+# CliProfiles (opencode / codex / project-level) merge into the valid set
+# at runtime. The static ``BUILTIN_EXECUTORS`` frozenset is kept for
+# code that needs the unchanging builtin set (e.g. serialization tests).
+BUILTIN_EXECUTORS = frozenset({"pydantic-ai", "claude-code"})
+DEFAULT_EXECUTOR = "pydantic-ai"
+
+
+def VALID_EXECUTORS() -> frozenset[str]:
+    """Return the set of currently-valid executor names.
+
+    Merges ``BUILTIN_EXECUTORS`` with all profile names registered in the
+    CliProfile registry (builtins via harness/cli_profiles/, project-level
+    via <cwd>/.harness/cli_profiles/, disabled profiles included so users
+    see the failure rather than silently dropping).
+
+    Why a function not a frozenset: CliProfile registration happens at
+    runtime (server / CLI startup); a static frozenset cannot reflect
+    project-level overrides without re-import.
+    """
+    # Lazy import to avoid circular dependency (cli_profile imports from
+    # harness.translator which transitively touches harness.types).
+    try:
+        from harness.engine.cli_profile import registered_profile_names
+        return BUILTIN_EXECUTORS | registered_profile_names()
+    except ImportError:
+        # cli_profile unavailable during early bootstrap — return builtins.
+        return BUILTIN_EXECUTORS
+
 
 def _extract_description(agent_name: str, workflow_dir: Path) -> str:
     """Return the first non-heading, non-frontmatter, non-empty line of the agent MD.
@@ -62,6 +95,7 @@ class Agent:
         on_fail: str | None = None,
         eval: bool = False,
         eval_target: str | None = None,
+        executor: str = DEFAULT_EXECUTOR,
     ):
         self.name = name
         # None 表示仅通过条件边触发，不作为入口节点
@@ -78,6 +112,14 @@ class Agent:
         self.on_pass = on_pass
         self.on_fail = on_fail
         self.eval = eval
+        # executor 字段必须经白名单校验，fail-loud；任何新 backend 需先在
+        # VALID_EXECUTORS() 注册（动态函数 — builtin + profile registry）。
+        valid = VALID_EXECUTORS()
+        if executor not in valid:
+            raise ValueError(
+                f"executor must be one of {sorted(valid)}, got {executor!r}"
+            )
+        self.executor = executor
         # eval_target: set on materialized judge agents; survives save/load so
         # the engine can route them through _make_judge_node_func after reload.
         # Stored as a public attr (also assigned to the legacy _eval_target
@@ -109,6 +151,10 @@ class Agent:
         if self.result_type is not None and self.result_type is not AgentResult:
             d["result_type_name"] = self.result_type.__name__
             d["result_type_schema"] = self.result_type.model_json_schema()
+        # executor 字段：仅在非默认值时写入 workflow.json，保证旧文件零变化。
+        # from_dict 缺省读 DEFAULT_EXECUTOR，所以旧 workflow.json 自动兼容。
+        if self.executor != DEFAULT_EXECUTOR:
+            d["executor"] = self.executor
         return d
 
     @classmethod
@@ -129,4 +175,5 @@ class Agent:
             on_fail=d.get("on_fail"),
             eval=bool(d.get("eval", False)),
             eval_target=d.get("eval_target"),
+            executor=d.get("executor", DEFAULT_EXECUTOR),
         )

@@ -1,13 +1,13 @@
 """Run persistence + lifecycle endpoints (list/get/delete/update/resume/rerun)."""
 import logging
 import time
-import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 logger = logging.getLogger(__name__)
 
 from harness.api import Agent, Workflow
+from harness.persistence.run_id import generate_run_id
 from harness.run_store_interface import RunStoreInterface
 from harness.tools.registry import ToolRegistry
 from harness.user_manager import get_current_user, get_user_manager
@@ -458,6 +458,10 @@ def _iter_sidecar_to_messages(sidecar: dict, node_id: str, iter_num: int) -> lis
                 # to avoid double-encoding.
                 "toolResult": tool_result,
                 "toolStatus": "done",
+                # tool_call_id propagates pydantic-ai's ToolCallPart.tool_call_id
+                # so the frontend can match tool_result → tool_call for parallel
+                # same-name calls. Empty string for legacy sidecars (pre-fix).
+                "toolCallId": tc.get("tool_call_id") or "",
                 "timestamp": tc.get("ts") or tc.get("seq") or 0,
                 "iteration": iter_num,
             })
@@ -466,10 +470,21 @@ def _iter_sidecar_to_messages(sidecar: dict, node_id: str, iter_num: int) -> lis
 @router.patch("/runs/{run_id}/conversation")
 async def update_run_conversation(
     run_id: str, body: UpdateRunConversationRequest, request: Request,
+    response: Response,
     store: RunStoreInterface = Depends(get_run_store_dep),
     repo: WorkflowRepository = Depends(get_repository_dep),
 ) -> dict:
-    """Update conversation messages for a run — persisted or in-memory."""
+    """Update conversation messages for a run — persisted or in-memory.
+
+    @deprecated v3 (ADR: single-source-streaming-state D7). The backend is
+    now the source of truth — chat.question/answer/timeout events land in
+    +events.json and loadRunFromPersistedData replays them on hydration.
+    This client→server PATCH will be removed in a follow-up PR.
+    """
+    # Sunset signal — clients should stop pushing conversation state.
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = "Mon, 17 Sept 2026 00:00:00 GMT"
+
     conversation = body.conversation
 
     user = get_current_user(request)
@@ -717,7 +732,7 @@ async def rerun(
         for a in agents_snapshot
     ]
 
-    new_id = str(uuid.uuid4())
+    new_id = generate_run_id(workflow_name)
 
     # Create isolated Bus for this rerun
     event_bus = _new_bus()

@@ -4,9 +4,13 @@ version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2.0",
-    "pydantic-ai>=0.0.36",
+    # pydantic_ai 2.0+ required: DeepSeekProvider's deepseek-v4-* profile
+    # (openai_supports_tool_choice_required=False, reasoning_content mapping)
+    # is the load-bearing fix for "Thinking mode does not support this
+    # tool_choice" 400s. Older versions also rename OpenAIModel→OpenAIChatModel.
+    "pydantic-ai>=2.0.0",
     "langgraph>=0.2.0",
-    "python-frontmatter>=1.0",
+    "langgraph-checkpoint-sqlite>=2.0",
     # rich is imported unconditionally by harness/extensions/console.py and the
     # new harness/extensions/tui/* package, so it belongs in the main deps rather
     # than a misleading `[console]` extra. The historical extra is removed; the
@@ -16,9 +20,37 @@ dependencies = [
     # audits, OutputCompactor thresholds). Falls back to a heuristic if the
     # import fails, so it is a soft dependency at runtime.
     "tiktoken>=0.7",
+    "python-frontmatter>=1.0",
+    # Web server stack — server/app.py is FastAPI, launched via uvicorn
+    # (harness/cli.py, benchmark/, workflow_runtime.py all call uvicorn.run).
+    # starlette is pulled in by fastapi but is imported directly (server SSE /
+    # middleware) so it is pinned explicitly.
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "starlette>=0.36",
+    # YAML front-matter / config parsing (harness/compiler/md_parser.py and
+    # the ~/.nas/cloud.yaml loader).
+    "PyYAML>=6.0",
+    # Direct import in server/ (async client) and several harness helpers;
+    # also an optional transitive of pydantic-ai, but pinned explicitly so a
+    # fresh install never loses it.
+    "httpx>=0.27",
+    # Pin cryptography below 49 to keep using published binary wheels.
+    # pydantic-ai[mcp] → fastmcp-slim → authlib → cryptography resolves to
+    # 49.x upstream, which ships no prebuilt wheel for some platforms and
+    # forces a Rust source build that fails in minimal environments.
+    # authlib has no upper bound on cryptography, so 45.x is fully compatible.
+    "cryptography>=43,<49",
 ]
 
 [project.optional-dependencies]
+# torch is a runtime requirement of the *user's training project*, not of the
+# framework itself — it is only imported from harness/builtin/tutorials/...
+# example models. Install separately when running NAS against real projects:
+#   uv pip install torch   (or uv sync --extra torch)
+torch = [
+    "torch>=2.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",

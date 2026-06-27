@@ -7,17 +7,30 @@ import type { Node, Edge } from "@xyflow/react";
 import dagre from "dagre";
 import { DAGPreviewNode } from "./DAGPreviewNode";
 import type { DAGShape } from "./DAGStatusBar";
+import type { ExecutorBackend } from "@/lib/api";
 
 interface DAGPreviewProps {
   dag: NonNullable<DAGShape>;
   agentDescriptions?: Record<string, string>;
   onEditAgent?: (agentName: string) => void;
+  /**
+   * Workflow name — 提供后 DAG 节点会渲染 ExecutorSelect（Phase F.2）。
+   * 不提供 = 节点不渲染切换下拉（如 portal preview / replay）。
+   */
+  workflowName?: string;
+  /** agent name → executor，从 workflow definitions 提取；缺省 = "pydantic-ai"。 */
+  agentExecutors?: Record<string, ExecutorBackend>;
+  /** 切换 disabled（如 run 进行中 / replay）。 */
+  executorSwitchDisabled?: boolean;
+  executorDisabledReason?: string;
+  /** 切换成功后回调；父组件应在这里 refresh workflow definitions。 */
+  onExecutorChanged?: (agentName: string, next: ExecutorBackend) => void;
 }
 
 const nodeTypes = { preview: DAGPreviewNode };
 
 const NODE_WIDTH = 220;
-const NODE_HEIGHT = 72;
+const NODE_HEIGHT = 110;
 const NODESEP = 50;
 const RANKSEP = 120;
 
@@ -59,7 +72,16 @@ function FitViewOnUpdate({ nodes }: { nodes: Node[] }) {
   return null;
 }
 
-export function DAGPreview({ dag, agentDescriptions = {}, onEditAgent }: DAGPreviewProps) {
+export function DAGPreview({
+  dag,
+  agentDescriptions = {},
+  onEditAgent,
+  workflowName,
+  agentExecutors,
+  executorSwitchDisabled,
+  executorDisabledReason,
+  onExecutorChanged,
+}: DAGPreviewProps) {
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
       onEditAgent?.(node.id);
@@ -75,6 +97,14 @@ export function DAGPreview({ dag, agentDescriptions = {}, onEditAgent }: DAGPrev
       data: {
         label: name,
         description: agentDescriptions[name] ?? "",
+        // Phase F.2: 注入 executor 切换上下文（仅在 workflowName 提供时启用）
+        executor: agentExecutors?.[name],
+        workflowName,
+        switchDisabled: executorSwitchDisabled,
+        disabledReason: executorDisabledReason,
+        onExecutorChanged: onExecutorChanged
+          ? (next: ExecutorBackend) => onExecutorChanged(name, next)
+          : undefined,
       },
     }));
 
@@ -109,7 +139,10 @@ export function DAGPreview({ dag, agentDescriptions = {}, onEditAgent }: DAGPrev
 
     const laidNodes = layoutWithDagre(rawNodes, edgeList);
     return { nodes: laidNodes, edges: edgeList };
-  }, [dag, agentDescriptions]);
+  }, [
+    dag, agentDescriptions, workflowName, agentExecutors,
+    executorSwitchDisabled, executorDisabledReason, onExecutorChanged,
+  ]);
 
   const showMiniMap = dag.nodes.length > 5;
 

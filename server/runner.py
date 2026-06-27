@@ -16,6 +16,21 @@ from server.event_bus import EventBus
 logger = logging.getLogger(__name__)
 
 
+def _lookup_agent_executor(run_data: dict, node_id: str | None) -> str | None:
+    """Look up an agent's executor from agents_snapshot.
+
+    Used by workflow.error payload enrichment to surface which backend
+    crashed (e.g. "claude-code" vs "pydantic-ai") so the frontend can
+    show executor-specific hints.
+
+    P2-T7: delegate to the shared helper in harness.engine.error_event
+    to keep the agent-snapshot lookup logic in one place. Kept as a thin
+    wrapper for backwards compat with tests/server/test_runner_error_payload.py.
+    """
+    from harness.engine.error_event import _lookup_agent_executor as _impl
+    return _impl(run_data.get("agents_snapshot"), node_id)
+
+
 def _serialize_outputs(outputs: dict) -> dict:
     """Convert BaseModel instances to dicts for JSON serialization."""
     return {
@@ -70,6 +85,21 @@ def _build_agents_snapshot(workflow) -> list[dict]:
             "on_fail": agent_def.on_fail,
             "eval": agent_def.eval if eval_target is None else True,
         }
+        # executor + dispatch info (backend / tools_resolved). Always emit
+        # backend + tools_resolved so the replay path can render the badge
+        # even for old runs (computed deterministically from agent_def —
+        # no need to wait for iter sidecar). executor field stays opt-in
+        # (only non-default) for back-compat with Agent.from_dict readers.
+        backend = getattr(agent_def, "executor", "pydantic-ai")
+        if backend != "pydantic-ai":
+            snap["executor"] = backend
+        from harness.engine.tool_resolution import resolve_tools_for_backend
+        snap["backend"] = backend
+        snap["tools_resolved"] = [
+            r.to_dict() for r in resolve_tools_for_backend(
+                list(agent_def.tools or []), backend,
+            )
+        ]
         if agent_def.result_type is not None:
             from harness.schema_utils import result_type_to_schema
 
@@ -400,6 +430,8 @@ class WorkflowRunner:
                 # Store error for REST endpoints
                 from server.repository import get_repository
                 repo = get_repository()
+                wf_data: dict | None = None
+                batch_id: str | None = None
                 if repo.contains(workflow_id):
                     repo.update_status(workflow_id, "failed", {
                         "outputs": {},
@@ -415,15 +447,20 @@ class WorkflowRunner:
                             batch_id, workflow_id, "failed", error=str(e)
                         )
 
-                # Emit error BEFORE persisting so the event lands in the buffer
-                # and gets saved with the run (replay parity with success path).
-                error_payload = {
-                    "workflow_id": workflow_id,
-                    "user_id": user_id,
-                    "error": str(e),
-                }
-                if batch_id:
-                    error_payload["batch_id"] = batch_id
+                # P2-T6: workflow.error payload enriched with executor-side
+                # context so sinks (frontend / CLI / replay) can render the
+                # failure cause without scraping other events. P2-T7:
+                # extracted to harness.engine.error_event.build_workflow_error_payload
+                # so CLI + server share the same schema.
+                from harness.engine.error_event import build_workflow_error_payload
+                error_payload = build_workflow_error_payload(
+                    workflow_id=workflow_id,
+                    user_id=user_id,
+                    error=e,
+                    agents_snapshot=(wf_data or {}).get("agents_snapshot"),
+                    bus_buffer=getattr(event_bus, "buffer", []),
+                    batch_id=batch_id,
+                )
                 event_bus.emit("workflow.error", error_payload)
 
                 # Persist failed run to disk (with event-ordered conversation)

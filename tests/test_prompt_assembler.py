@@ -36,7 +36,7 @@ def test_assembler_equals_base_plus_legacy(name, body, result_type, monkeypatch)
     """
     # No-base output (oracle).
     assembler_mod._load_base_layer.cache_clear()
-    monkeypatch.setattr(assembler_mod, "_load_base_layer", lambda: "")
+    monkeypatch.setattr(assembler_mod, "_load_base_layer", lambda *a, **kw: "")
     without_base = assemble_static_prompt(body, result_type)
 
     # Base-on output (real).
@@ -71,7 +71,7 @@ def test_assembler_without_base_matches_legacy(name, body, result_type, monkeypa
     # Clear the real cache BEFORE patching (after patch, the name points at a
     # plain lambda with no cache_clear).
     assembler_mod._load_base_layer.cache_clear()
-    monkeypatch.setattr(assembler_mod, "_load_base_layer", lambda: "")
+    monkeypatch.setattr(assembler_mod, "_load_base_layer", lambda *a, **kw: "")
     expected = (FIXTURE_DIR / f"{name}.txt").read_text(encoding="utf-8")
     actual = assemble_static_prompt(body, result_type)
     assert actual == expected, (
@@ -82,7 +82,7 @@ def test_assembler_without_base_matches_legacy(name, body, result_type, monkeypa
 def test_assembler_free_text_no_schema(monkeypatch):
     """Free-text agents (result_type=None) get base + body verbatim, no schema tail."""
     assembler_mod._load_base_layer.cache_clear()
-    monkeypatch.setattr(assembler_mod, "_load_base_layer", lambda: "")
+    monkeypatch.setattr(assembler_mod, "_load_base_layer", lambda *a, **kw: "")
     out = assemble_static_prompt("just a body", None)
     assert out == "just a body"
 

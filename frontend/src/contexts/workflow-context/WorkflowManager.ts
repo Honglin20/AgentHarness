@@ -243,6 +243,13 @@ class WorkflowManager {
    * a refresh occurs (ask_user answer / timeout / follow-up user message).
    * Failure is silent — best-effort, same as the existing terminal-event
    * persistence path in eventRouter.
+   *
+   * @deprecated v3 (ADR: single-source-streaming-state D7). The backend is
+   * now the source of truth — chat.question/answer/timeout events land in
+   * +events.json (CRITICAL_EVENT_TYPES) and loadRunFromPersistedData replays
+   * them through chatHandlers on hydration. text/thinking/tool_streaming
+   * persist via per-iter sidecar v3. This client→server PATCH will be
+   * removed in a follow-up PR once telemetry confirms zero traffic.
    */
   private async _persistConversation(workflowId: string): Promise<void> {
     const entry = this.workflows.get(workflowId);

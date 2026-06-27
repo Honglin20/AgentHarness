@@ -45,17 +45,25 @@ class ParsedAgent(BaseModel):
     on_pass: str | None = None
     on_fail: str | None = None
     eval: bool = False
+    # 默认值与 harness.core.agent.DEFAULT_EXECUTOR 字面值保持一致；
+    # 白名单由 parse_agent_md 内部 import 校验，避免顶层循环依赖。
+    executor: str = "pydantic-ai"
 
 
 def parse_agent_md(path: Path) -> ParsedAgent:
     """Parse an agent Markdown file with YAML frontmatter.
 
     Raises:
-        ValueError: If frontmatter is missing or 'name' field is absent.
+        ValueError: If frontmatter is missing or 'name' field is absent,
+                    or if ``executor`` is not in the whitelist.
         FileNotFoundError: If the file doesn't exist.
     """
     if not path.exists():
         raise FileNotFoundError(f"Agent file not found: {path}")
+
+    # 局部 import 避免顶层循环：harness.core.agent 顶层依赖本模块的 resolve_agent_md。
+    # P3-T5: VALID_EXECUTORS is now a function (dynamic — builtin + profile registry).
+    from harness.core.agent import DEFAULT_EXECUTOR, VALID_EXECUTORS as _valid_executors_fn
 
     post = frontmatter.load(str(path))
 
@@ -65,6 +73,14 @@ def parse_agent_md(path: Path) -> ParsedAgent:
     name = post.metadata.get("name")
     if not name:
         raise ValueError(f"Missing required 'name' field in frontmatter of {path}")
+
+    executor = post.metadata.get("executor", DEFAULT_EXECUTOR)
+    valid_executors = _valid_executors_fn()
+    if executor not in valid_executors:
+        raise ValueError(
+            f"executor must be one of {sorted(valid_executors)}, got {executor!r} "
+            f"in {path}"
+        )
 
     prompt = post.content.strip()
 
@@ -86,6 +102,7 @@ def parse_agent_md(path: Path) -> ParsedAgent:
         on_pass=post.metadata.get("on_pass"),
         on_fail=post.metadata.get("on_fail"),
         eval=bool(post.metadata.get("eval", False)),
+        executor=executor,
     )
 
 
@@ -98,9 +115,14 @@ def write_agent_md(
     retries: int = 3,
     on_pass: str | None = None,
     on_fail: str | None = None,
+    executor: str | None = None,
 ) -> None:
-    """Write an agent Markdown file with YAML frontmatter."""
-    metadata = {"name": name, "retries": retries}
+    """Write an agent Markdown file with YAML frontmatter.
+
+    ``executor`` is only written when explicitly provided AND non-default
+    (i.e. not ``"pydantic-ai"``) to keep generated MD diffs minimal.
+    """
+    metadata: dict = {"name": name, "retries": retries}
     if tools:
         metadata["tools"] = tools
     if model:
@@ -109,6 +131,8 @@ def write_agent_md(
         metadata["on_pass"] = on_pass
     if on_fail is not None:
         metadata["on_fail"] = on_fail
+    if executor is not None and executor != "pydantic-ai":
+        metadata["executor"] = executor
 
     frontmatter_str = yaml.dump(metadata, default_flow_style=False, allow_unicode=True).strip()
     content = f"---\n{frontmatter_str}\n---\n\n{prompt.strip()}\n"

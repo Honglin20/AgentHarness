@@ -21,6 +21,9 @@ export type EventType =
   | "agent.tool_call"
   | "agent.tool_result"
   | "agent.tool_output_delta"
+  | "agent.executor_error"
+  | "agent.api_retry"
+  | "agent.status_update"
   | "chart.render"
   | "chat.question"
   | "chat.answer"
@@ -54,6 +57,14 @@ export interface WorkflowAgentDef {
   name: string;
   after?: string[];
   eval?: boolean;
+  /**
+   * Per-agent executor backend (Phase A-F of claude-code-executor).
+   * - "pydantic-ai" (default): existing pydantic-ai path
+   * - "claude-code": spawn `claude -p` subprocess; reuse Claude Code ecosystem
+   * Absent = "pydantic-ai" (default; workflow.json omits the field for backward
+   * compat — see harness/core/agent.py:Agent.to_dict).
+   */
+  executor?: "pydantic-ai" | "claude-code";
 }
 
 export interface WorkflowStartedPayload {
@@ -77,6 +88,82 @@ export interface WorkflowCompletedPayload {
   status: string;
 }
 
+/**
+ * Workflow-level failure (P2-T6/T7 unified error flow).
+ *
+ * Enriched fields come from the backend ExecutorError contract:
+ *  - executor / phase / stderr_tail / exit_code / executor_extra: present
+ *    when the underlying exception was an ExecutorError
+ *  - failed_node: most-recent node.failed event in the bus buffer
+ *  - batch_id: optional (present when the failed run belongs to a batch)
+ *
+ * CLI (cli_runner.py) and server (runner.py) emit identical schemas via
+ * harness.engine.error_event.build_workflow_error_payload so sinks
+ * render the same context regardless of which path produced the run.
+ */
+export interface WorkflowErrorPayload {
+  workflow_id: string;
+  user_id?: string;
+  error: string;
+  error_type?: string;
+  executor?: string;
+  phase?: string;
+  stderr_tail?: string;
+  exit_code?: number;
+  executor_extra?: Record<string, unknown>;
+  failed_node?: string;
+  batch_id?: string;
+}
+
+/**
+ * Executor-side structured failure (P2-T1/T3). Emitted by executors at
+ * the source (ClaudeCodeExecutor etc.) — never re-emitted by upstream
+ * layers (emit-uniqueness, ADR Decision 2). Critical priority (P2-T2)
+ * so the WS replay buffer never FIFO-evicts it.
+ */
+export interface ExecutorErrorPayload {
+  workflow_id: string;
+  node_id: string;
+  agent_name: string;
+  executor: string;
+  phase: string;
+  error_type: string;
+  error_message: string;
+  stderr_tail?: string;
+  exit_code?: number;
+  timed_out: boolean;
+  retry_attempt?: number;
+  ts: number;
+  extra?: Record<string, unknown>;
+}
+
+/**
+ * Real-time API retry visibility (P2-T4). Emitted by the stream-json
+ * translator when claude sends system/api_retry. Surfaces retry progress
+ * (retry_count / max_retries / wait_seconds) so the frontend can show
+ * "retrying (2/3): rate_limit" instead of a "stuck" feeling.
+ */
+export interface ApiRetryPayload {
+  node_id: string;
+  agent_name: string;
+  retry_count?: number;
+  max_retries?: number;
+  wait_seconds?: number;
+  error_message?: string;
+}
+
+/**
+ * Liveness status from the CLI backend (P2-T4). Emitted by the
+ * stream-json translator when claude sends system/status. Frontend can
+ * show a spinner / progress hint during long gaps between deltas.
+ */
+export interface StatusUpdatePayload {
+  node_id: string;
+  agent_name: string;
+  status: string;
+  duration_ms?: number;
+}
+
 // Node lifecycle events
 export interface ToolBrief {
   name: string;
@@ -96,6 +183,49 @@ export interface NodeStartedPayload {
    * emitted before Plan F backend deploy → consumers treat as 1.
    */
   iteration?: number;
+  /**
+   * Executor backend for this node. Added 2026-06-26 alongside tools_resolved
+   * for UI transparency — surfaces next to agent name as a badge so operators
+   * see at-a-glance whether the agent runs on pydantic-ai / claude-code /
+   * future opencode / etc. Absent on older backend events → consumers treat
+   * as the default ("pydantic-ai").
+   */
+  backend?: string;
+  /**
+   * Per-tool resolution info from BaseExecutor.resolve_tools(). Lets UI show
+   * "bash → Bash (Claude built-in)" instead of just the declared name, so
+   * operators can verify dispatch strategy (BRIDGED_TOOLS config etc.) at
+   * runtime. Each entry is independent — agents can mix Claude built-ins,
+   * harness MCP, and unknown tools.
+   *
+   * Absent on older backend events → UI falls back to displaying declared
+   * tool names from the DAG.
+   */
+  tools_resolved?: ToolResolution[];
+}
+
+/**
+ * How one declared tool name resolves for the active backend.
+ *
+ * Stable contract — mirrors backend's harness.engine.tool_resolution.ToolResolution.
+ * Adding fields is OK; renaming/removing breaks the wire format.
+ *
+ * Future backends (opencode/codex/...) just emit different `resolved` / `source`
+ * strings — frontend renders verbatim, no UI changes per backend.
+ */
+export interface ToolResolution {
+  /** Tool name as declared in workflow.json (what the operator wrote). */
+  declared: string;
+  /** Tool name the backend actually sees (e.g. "Bash", "mcp__harness__ask_user"). */
+  resolved: string;
+  /**
+   * Human-readable source category. Convention:
+   *   - "Claude built-in" / "pydantic-ai function" / "<backend> built-in"
+   *   - "harness MCP" (bridged via mcp__harness__ prefix)
+   *   - "external MCP" (explicit mcp__<server>__<name>)
+   *   - "unknown" (backend doesn't know how to resolve)
+   */
+  source: string;
 }
 
 export interface TokenUsage {
@@ -160,6 +290,8 @@ export interface AgentToolCallPayload {
   agent_name: string;
   tool_name: string;
   tool_args: Record<string, unknown>;
+  /** Pydantic-ai ToolCallPart.tool_call_id. Required for matching result events. */
+  tool_call_id: string;
 }
 
 export interface AgentToolResultPayload {
@@ -167,6 +299,8 @@ export interface AgentToolResultPayload {
   agent_name: string;
   tool_name: string;
   result: unknown;
+  /** Echoes the originating tool_call's ID. Required. */
+  tool_call_id: string;
 }
 
 export interface AgentToolOutputDeltaPayload {
@@ -373,7 +507,7 @@ export interface TodoReplacedPayload {
 export interface EventPayloadMap {
   "workflow.started": WorkflowStartedPayload;
   "workflow.completed": WorkflowCompletedPayload;
-  "workflow.error": { workflow_id: string; error: string };
+  "workflow.error": WorkflowErrorPayload;
   "workflow.cancelled": { workflow_id: string };
   "workflow.interrupted": { workflow_id: string; interrupt_value?: unknown };
   "workflow.waiting_for_guidance": { workflow_id: string; node_id: string; agent_name: string; partial_output: string };
@@ -386,6 +520,9 @@ export interface EventPayloadMap {
   "agent.tool_call": AgentToolCallPayload;
   "agent.tool_result": AgentToolResultPayload;
   "agent.tool_output_delta": AgentToolOutputDeltaPayload;
+  "agent.executor_error": ExecutorErrorPayload;
+  "agent.api_retry": ApiRetryPayload;
+  "agent.status_update": StatusUpdatePayload;
   "chart.render": ChartRenderPayload;
   "chat.question": ChatQuestionPayload;
   "chat.answer": ChatAnswerPayload;

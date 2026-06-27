@@ -52,6 +52,24 @@ async def lifespan(app: FastAPI):
     app.state.event_bus = bus
     app.state.runner = runner
 
+    # P3-T8: load CLI profiles at startup so agents referencing any
+    # registered executor name resolve correctly. Builtin profiles
+    # (claude-code) are eagerly loaded on `import harness.cli_profiles`
+    # already; this call ALSO picks up project-level profiles from
+    # <cwd>/.harness/cli_profiles/. Broken profiles are logged + disabled
+    # but never block startup (P3-T9 contract).
+    from harness.cli_profiles import load_all_profiles_at_startup
+    try:
+        n_builtin, n_project = load_all_profiles_at_startup()
+        if n_project > 0:
+            print(f"  CLI profiles:     {n_builtin} builtin + {n_project} project-level")
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception(
+            "CLI profile loading failed at startup; agents with non-builtin "
+            "executors will fail at construction time"
+        )
+
     # Build tool catalog (built-in + MCP filesystem + MCP codegraph).
     # Test isolation: setting HARNESS_SKIP_MCP=1 skips MCP startup so unit
     # tests don't spawn subprocesses whose anyio cleanup path can hang the

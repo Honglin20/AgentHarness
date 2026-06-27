@@ -4,13 +4,36 @@ import { Handle, Position } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
 import { Bot, Pencil } from "lucide-react";
 
+import { ExecutorSelect } from "./ExecutorSelect";
+import type { ExecutorBackend } from "@/lib/api";
+
 export type DAGPreviewNodeData = {
   label: string;
   description: string;
+  /**
+   * Executor backend for this node; undefined = "pydantic-ai" (default).
+   * 由父组件从 workflow.json 注入。
+   */
+  executor?: ExecutorBackend;
+  /** workflow name，用于 ExecutorSelect 写回。 */
+  workflowName?: string;
+  /** 切换 disabled（如 run 进行中）。 */
+  switchDisabled?: boolean;
+  disabledReason?: string;
+  /** 切换成功后回调；父组件应更新本地 state。 */
+  onExecutorChanged?: (next: ExecutorBackend) => void;
 };
 
 export function DAGPreviewNode({ data }: NodeProps) {
-  const { label, description } = data as unknown as DAGPreviewNodeData;
+  const {
+    label,
+    description,
+    executor,
+    workflowName,
+    switchDisabled,
+    disabledReason,
+    onExecutorChanged,
+  } = data as unknown as DAGPreviewNodeData;
   return (
     <div className="group min-w-[200px] max-w-[260px] rounded-lg border border-border bg-background px-4 py-3 shadow-sm ring-1 ring-border/30 transition-all duration-150 hover:shadow-md hover:border-accent hover:ring-accent/30">
       <Handle type="target" position={Position.Top} className="!bg-muted-foreground !w-2 !h-2 !border-2 !border-background !rounded-full" />
@@ -33,6 +56,19 @@ export function DAGPreviewNode({ data }: NodeProps) {
             <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
               {description}
             </p>
+          )}
+          {workflowName && (
+            <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+              <ExecutorSelect
+                workflowName={workflowName}
+                agentName={label}
+                value={executor}
+                disabled={switchDisabled}
+                disabledReason={disabledReason}
+                onChanged={onExecutorChanged}
+                compact
+              />
+            </div>
           )}
         </div>
       </div>

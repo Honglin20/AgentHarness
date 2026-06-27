@@ -15,8 +15,12 @@ import type {
   AgentRetryAttemptedPayload,
   AgentUsageUpdatePayload,
   AgentFailedWithClassifiedReasonPayload,
+  ExecutorErrorPayload,
+  ApiRetryPayload,
+  StatusUpdatePayload,
 } from "@/types/events";
 import { payload } from "./utils";
+import { isTextNodeDuplicate } from "./dedup";
 import { toast } from "sonner";
 
 export const agentHandlers: [string, EventHandler][] = [
@@ -24,6 +28,11 @@ export const agentHandlers: [string, EventHandler][] = [
     "agent.text_delta",
     (stores, event, _ctx) => {
       const p = payload<AgentTextDeltaPayload>(event);
+      // v3 (ADR D6): skip if the hydrated sidecar already covered this seq —
+      // otherwise WS-replayed deltas would double the text content.
+      const wid = stores.workflow.getState().workflowId ?? undefined;
+      const seq = (event as { seq?: number }).seq;
+      if (isTextNodeDuplicate(wid, p.node_id, seq)) return;
       stores.output.getState().appendText(p.node_id, p.text);
       stores.conversation.getState().appendAgentText(p.node_id, p.text);
     },
@@ -33,6 +42,9 @@ export const agentHandlers: [string, EventHandler][] = [
     "agent.thinking_delta",
     (stores, event, _ctx) => {
       const p = payload<AgentThinkingDeltaPayload>(event);
+      const wid = stores.workflow.getState().workflowId ?? undefined;
+      const seq = (event as { seq?: number }).seq;
+      if (isTextNodeDuplicate(wid, p.node_id, seq)) return;
       stores.conversation.getState().appendAgentThinking(p.node_id, p.text);
     },
   ],
@@ -42,12 +54,13 @@ export const agentHandlers: [string, EventHandler][] = [
     (stores, event, ctx) => {
       const p = payload<AgentToolCallPayload>(event);
       const id = ctx.counter.next();
+      const toolCallId = p.tool_call_id;
       stores.toolCall
         .getState()
-        .addToolCall(id, p.node_id, p.agent_name, p.tool_name, p.tool_args || {});
+        .addToolCall(id, p.node_id, p.agent_name, p.tool_name, p.tool_args || {}, toolCallId);
       stores.conversation
         .getState()
-        .addToolCall(p.node_id, p.agent_name, p.tool_name, p.tool_args || {});
+        .addToolCall(p.node_id, p.agent_name, p.tool_name, p.tool_args || {}, toolCallId);
     },
   ],
 
@@ -55,32 +68,55 @@ export const agentHandlers: [string, EventHandler][] = [
     "agent.tool_result",
     (stores, event, _ctx) => {
       const p = payload<AgentToolResultPayload>(event);
+      const toolCallId = p.tool_call_id;
+      // toolCall store: translate tool_call_id → record.id (the client-side
+      // tc-N key). Conversation store matches by toolCallId directly.
       const store = stores.toolCall.getState();
       const match = store.order
         .map((oid) => store.records[oid])
-        .reverse()
-        .find(
-          (r) =>
-            r.nodeId === p.node_id &&
-            r.toolName === p.tool_name &&
-            r.result === undefined
-        );
+        .find((r) => r.toolCallId === toolCallId && r.result === undefined);
       if (match) {
         stores.toolCall.getState().addToolResult(match.id, String(p.result ?? ""));
       }
       stores.conversation
         .getState()
-        .addToolResult(p.node_id, p.tool_name, String(p.result ?? ""));
+        .addToolResult(toolCallId, String(p.result ?? ""));
     },
   ],
 
   [
     "agent.tool_output_delta",
     (stores, event, _ctx) => {
+      // NOTE: tool_output_delta does not yet carry tool_call_id (see G.3 in
+      // the fix plan). Matching falls back to the last running call of the
+      // same (nodeId, toolName) — fine for sequential bash, can cross-wire
+      // for parallel same-name bash streaming (rare; tracked as follow-up).
       const p = payload<AgentToolOutputDeltaPayload>(event);
-      stores.conversation
-        .getState()
-        .appendToolOutput(p.node_id, p.tool_name, p.line, p.stream);
+      // v3 (ADR D6): skip if hydrated sidecar already covered this seq —
+      // tool_streaming_outputs is reverse-filled from sidecar on hydration.
+      const wid = stores.workflow.getState().workflowId ?? undefined;
+      const seq = (event as { seq?: number }).seq;
+      if (isTextNodeDuplicate(wid, p.node_id, seq)) return;
+      // Find the last running tool_call on this node with the same name and
+      // route the streaming line to it. Future: extend WS payload + schema
+      // to carry tool_call_id here too.
+      const convState = stores.conversation.getState();
+      const messages = convState.messages;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i];
+        if (
+          m.type === "tool_call" &&
+          m.nodeId === p.node_id &&
+          m.toolName === p.tool_name &&
+          m.toolResult === undefined &&
+          m.toolCallId
+        ) {
+          convState.appendToolOutput(m.toolCallId, p.line, p.stream);
+          return;
+        }
+      }
+      // No matching running call — drop the line (better than landing on a
+      // completed/unrelated message).
     },
   ],
 
@@ -94,9 +130,22 @@ export const agentHandlers: [string, EventHandler][] = [
       const p = payload<AgentToolOutputTruncatedPayload>(event);
       const note = `⚠️ ${p.tool_name} output truncated: ${p.total_chars.toLocaleString()} chars ` +
         `(> ${p.max_chars.toLocaleString()} max) — full output saved to ${p.output_path}`;
-      stores.conversation
-        .getState()
-        .appendToolOutput(p.node_id, p.tool_name, note, "stdout");
+      // Same fallback strategy as tool_output_delta above.
+      const convState = stores.conversation.getState();
+      const messages = convState.messages;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i];
+        if (
+          m.type === "tool_call" &&
+          m.nodeId === p.node_id &&
+          m.toolName === p.tool_name &&
+          m.toolResult === undefined &&
+          m.toolCallId
+        ) {
+          convState.appendToolOutput(m.toolCallId, note, "stdout");
+          return;
+        }
+      }
     },
   ],
 
@@ -210,6 +259,58 @@ export const agentHandlers: [string, EventHandler][] = [
         maxAttempts: p.max_attempts,
         ts: event.ts,
       });
+    },
+  ],
+
+  [
+    "agent.executor_error",
+    (stores, event, _ctx) => {
+      // P2-T1/T3: structured executor failure (stderr_tail / phase /
+      // exit_code / retry_attempt). Stash on the node so toast / banner
+      // can render the WHY. Toast fires here for immediate feedback;
+      // node.failed (from node_factory except) still owns lifecycle.
+      const p = payload<ExecutorErrorPayload>(event);
+      const currentWid = stores.workflow.getState().workflowId;
+      if (currentWid && p.workflow_id !== currentWid) return;
+      stores.workflow.getState().pushExecutorError(p.node_id, p);
+      const phaseTag = p.phase ? `[${p.phase}] ` : "";
+      toast.error(
+        `Agent "${p.agent_name}" ${phaseTag}failed (${p.error_type})`,
+        {
+          description: p.stderr_tail
+            ? p.stderr_tail.slice(0, 200)
+            : p.error_message,
+        },
+      );
+    },
+  ],
+
+  [
+    "agent.api_retry",
+    (stores, event, _ctx) => {
+      // P2-T4: transient retry in progress. Stash for live counter UI.
+      // Filter on active workflow so background retries don't toast-spam.
+      const p = payload<ApiRetryPayload>(event);
+      stores.workflow.getState().pushApiRetry(p.node_id, p);
+      // Low-key info toast: this is transient, not an error
+      const currentWid = stores.workflow.getState().workflowId;
+      const wfMatch = !event.payload?.workflow_id
+        || currentWid === event.payload.workflow_id;
+      if (wfMatch && p.retry_count !== undefined && p.max_retries !== undefined) {
+        toast.info(
+          `Agent "${p.agent_name}" retrying (${p.retry_count}/${p.max_retries})`,
+          { description: p.error_message ?? "Transient upstream failure" },
+        );
+      }
+    },
+  ],
+
+  [
+    "agent.status_update",
+    (stores, event, _ctx) => {
+      // P2-T4: liveness status. No toast — drives spinner hint only.
+      const p = payload<StatusUpdatePayload>(event);
+      stores.workflow.getState().pushStatusUpdate(p.node_id, p);
     },
   ],
 ];

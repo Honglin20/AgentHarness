@@ -1,0 +1,64 @@
+{
+  "v1": {
+    "name": "V1",
+    "passed": true,
+    "exit_code": 0,
+    "elapsed_s": 8.76,
+    "stdout_len": 4,
+    "stdout_sample": "PONG",
+    "stderr_sample": ""
+  },
+  "v2": {
+    "name": "V2",
+    "passed": true,
+    "exit_code": 0,
+    "elapsed_s": 16.19,
+    "total_lines": 12,
+    "parsed_events": 12,
+    "parse_errors": 0,
+    "event_type_counts": {
+      "type=system": 4,
+      "type=stream_event": 6,
+      "type=assistant": 1,
+      "type=result": 1
+    },
+    "has_init_signal": true,
+    "has_text_signal": true,
+    "has_result": true,
+    "samples": {
+      "first_event": {
+        "type": "system",
+        "subtype": "hook_started",
+        "hook_id": "1af0e865-c732-4017-8f9e-cbe90e82b21f",
+        "hook_name": "SessionStart:startup",
+        "hook_event": "SessionStart",
+        "uuid": "2ff29769-1d26-4040-b7be-fd8a9efc560d",
+        "session_id": "d5b3cc24-fbcd-4128-b2d7-0dcc946983a4"
+      },
+      "result_event": {
+        "_truncated_keys": [
+          "type",
+          "subtype",
+          "is_error",
+          "api_error_status",
+          "duration_ms",
+          "duration_api_ms",
+          "ttft_ms",
+          "num_turns",
+          "result",
+          "stop_reason",
+          "session_id",
+          "total_cost_usd",
+          "usage",
+          "modelUsage",
+          "permission_denials",
+          "terminal_reason",
+          "fast_mode_state",
+          "uuid"
+        ],
+        "_len": 1045
+      }
+    },
+    "stderr_sample": ""
+  }
+}

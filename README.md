@@ -897,6 +897,168 @@ render_chart(
 
 ---
 
+## 执行器与 CLI Profile
+
+每个 agent 在 `workflow.json` 中声明 `executor` 字段选择执行后端：
+
+```json
+{
+  "name": "greeter",
+  "executor": "claude-code",
+  "tools": ["ask_user"]
+}
+```
+
+### 内置执行器
+
+| executor | 范式 | 描述 |
+|---|---|---|
+| `pydantic-ai`（默认） | pydantic-ai | 进程内 pydantic-ai SDK；通过 `final_result` 工具返回结构化输出 |
+| `claude-code` | minimal | 子进程 `claude -p`；默认走 Claude 内置工具，仅 `ask_user` 等无等价物的走 harness MCP（详见下文） |
+
+`pydantic-ai` 是默认值（不写 `executor` 字段等价于 `pydantic-ai`）。`claude-code` 通过子进程跑独立的 claude CLI，适合需要 claude 内置工具（Bash / Edit / WebSearch 等）的场景。
+
+### 工具管理（claude-code executor）
+
+`claude -p` 子进程能看到的工具来自**两个源**，agent 在 `workflow.json` 里声明的 `tools` 字段决定走哪条：
+
+1. **Claude 内置**（PascalCase）：`Bash`、`Read`、`Edit`、`Write`、`Grep`、`Glob`、`WebFetch`、`WebSearch`、`Task`、`TodoWrite`。Claude 自己实现，harness **看不到**单次调用（只看到最终结果）。
+2. **harness MCP 桥接**（小写，前缀 `mcp__harness__`）：由 harness 的 Python 实现执行，harness 能 emit `agent.tool_call` 事件、做 rate limit / token 统计、写 replay buffer。
+
+工具名解析规则（`harness/cli_bridge_tools.py:resolve_for_claude`）：
+
+| agent 写法 | 解析结果 | 含义 |
+|---|---|---|
+| `mcp__*` | 原样透传 | 显式 pin 某 MCP server |
+| 在 `BRIDGED_TOOLS` 里（如 `ask_user`） | `mcp__harness__<name>` | harness MCP 桥接 |
+| `Bash` / `Read` / `Grep`...（PascalCase） | 原样透传 | Claude 内置 |
+| 小写别名 `bash` / `grep` / `read_text_file`... | 映射到 PascalCase 内置 | Claude 内置 |
+| 其他 | 原样透传 | claude 调用时拒识 fail-loud |
+
+#### 默认桥接策略
+
+`harness/cli_bridge_tools.py` 里的 `BRIDGED_TOOLS` 字典列出**当前**走 MCP 桥接的工具及原因：
+
+```python
+BRIDGED_TOOLS: dict[str, str] = {
+    "ask_user": (
+        "Replaces Claude's AskUserQuestion. In -p mode AskUserQuestion cannot "
+        "spawn UI and returns a placeholder string, causing the model to "
+        "hallucinate user input..."
+    ),
+}
+```
+
+设计原则（2026-06-26 refactor 后）：
+- **重叠优先用 Claude 内置**：`bash`/`grep`/`glob`/`read_text_file` 等不桥接，让 Claude 用自己的 `Bash`/`Grep`/`Glob`/`Read`——避免重复实现，省 MCP 桥接开销。
+- **桥接只在必要时**：(a) Claude 没有等价物（`sub_agent`、`render_chart`），或 (b) Claude 有但 `-p` 模式下坏掉（`ask_user` 替代 `AskUserQuestion`）。
+
+#### 从 config 控制桥接
+
+操作者直接编辑 `harness/cli_bridge_tools.py` 的 `BRIDGED_TOOLS` 字典即可，**不需要改 executor 代码**：
+
+```python
+# 增加：让 sub_agent 走 harness MCP（NAS workflow 需要）
+BRIDGED_TOOLS["sub_agent"] = "No Claude equivalent — harness dynamic parallel subworkflow"
+
+# 删除：让 ask_user 也走 Claude 内置（不推荐，会触发 AskUserQuestion 占位 bug）
+del BRIDGED_TOOLS["ask_user"]
+```
+
+改动后**重启 server / CLI** 即生效。`_resolve_allowed_tools` + `_inject_tool_name_mapping` 在每次 spawn 时动态读取这个 dict。
+
+#### 小写别名映射
+
+`LOWER_TO_CLAUDE_BUILTIN` 字典把 legacy 小写工具名映射到 Claude 内置 PascalCase，方便旧 workflow 平滑迁移：
+
+```python
+LOWER_TO_CLAUDE_BUILTIN = {
+    "bash": "Bash",
+    "read": "Read",
+    "read_text_file": "Read",   # 多别名归一
+    "read_file": "Read",
+    "grep": "Grep",
+    "glob": "Glob",
+    "edit": "Edit",
+    "write": "Write",
+    # ...
+}
+```
+
+新增别名只需追加一行；不需要重启 server 之外的任何编译/打包。
+
+#### System prompt 注入
+
+当 agent 同时声明了"重叠工具 + 桥接工具"（如 `["bash", "ask_user"]`），executor 会**只在 system prompt 末尾注入桥接工具的名字映射**（`bash` 不需要，因为 Claude 天然认得 `Bash`）：
+
+```
+## Tool Name Mapping (harness auto-injected)
+- `ask_user` → invoke as `mcp__harness__ask_user`
+```
+
+避免模型按 agent prompt 字面调 `ask_user` 被 claude 拒识（"No such tool"）。
+
+#### 系统层屏蔽：`AskUserQuestion`
+
+`harness/cli_profiles/claude.py` 在 spawn flags 里硬编码 `--disallowedTools AskUserQuestion`，确保 Claude 永远不用自己坏掉的 AskUserQuestion，强制走 harness `ask_user` MCP。详见 [cli_profiles/claude.py](harness/cli_profiles/claude.py)。
+
+---
+
+### CLI Profile：自定义后端
+
+每个 CLI 后端由一个 `CliProfile` 描述（声明 CLI 路径 / flags / prompt 通道 / MCP / 翻译器 / env 前缀）。Profile 文件位置（按优先级）：
+
+1. `$HARNESS_CLI_PROFILES_DIR/<name>.py`（env 覆盖整个目录）
+2. `<cwd>/.harness/cli_profiles/<name>.py`（项目级，最高默认优先级）
+3. `harness/cli_profiles/<name>.py`（builtin）
+
+同名的项目级 profile 覆盖 builtin（last-write-wins）。Profile 模块必须导出 `PROFILE: CliProfile`：
+
+```python
+# .harness/cli_profiles/opencode.py
+from harness.engine.cli_profile import CliProfile
+
+PROFILE = CliProfile(
+    name="opencode",
+    prompt_paradigm="minimal",
+    cli_path_env="HARNESS_OPENCODE_CLI",
+    default_cli_path="opencode",
+    flags=("--json",),
+    prompt_channel="stdin",
+    mcp_flag_template=None,           # opencode 不支持 MCP
+    env_overlay_prefixes=("OPENCODE_",),
+    translator=my_opencode_translator,
+    result_extractor=my_opencode_extractor,
+    default_timeout_s=300.0,
+)
+```
+
+写完后**重启 server / CLI** 即生效，agent 用 `executor: "opencode"` 就走该 profile。
+
+### 配置 env
+
+| env 变量 | 作用 |
+|---|---|
+| `HARNESS_<NAME>_CLI` | 覆盖 profile 的 cli path（如 `HARNESS_CLAUDE_CLI=/canary/claude`） |
+| `HARNESS_<NAME>_ENV_<KEY>` | 注入 / 覆盖子进程 env（如 `HARNESS_CLAUDE_CODE_ENV_ANTHROPIC_BASE_URL=...`） |
+| `HARNESS_CLI_PROFILES_DIR` | 覆盖项目级 profile 目录位置 |
+| `HARNESS_DISABLE_PROJECT_PROFILES` | `=1` 跳过项目级 profile 加载（CI / 共享目录） |
+
+`<NAME>` 是 profile.name 大写 + 短横线转下划线（`claude-code` → `CLAUDE_CODE`）。
+
+### 错误处理
+
+损坏的 profile（语法错 / 缺 PROFILE 导出 / 类型错）会被自动 disable 但**不阻塞 server 启动**。disabled profile 名出现在 `disabled_profile_diagnostics()`，agent 用到时抛清晰的 `ValueError` 含具体原因。
+
+错误流：每个 executor 错误（spawn / stream / result_parse / schema_validate / timeout）emit `agent.executor_error` 事件（critical，永不淘汰），携带 `stderr_tail` / `phase` / `exit_code` / `executor_extra` 字段。前端 toast + inline banner 即时显示，CLI 模式打印同样字段到 stderr。
+
+详见：
+- [ADR](docs/refactor/executor-extensibility/ADR.md) — 三大决策（Prompt 范式 / ErrorEvent / CliProfile）
+- [Phase 1 release](docs/releases/2026-06-26-prompt-paradigm-split.md) — Prompt 范式分层
+- [Phase 2 release](docs/releases/2026-06-26-error-event-contract.md) — ErrorEvent 契约
+
+---
+
 ## Benchmark 批量评测
 
 Benchmark 是一组持久化的测试任务，可一键用任意 Workflow 跑全部任务，收集分数并对比结果。

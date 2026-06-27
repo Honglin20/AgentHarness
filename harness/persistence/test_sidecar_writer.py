@@ -51,8 +51,8 @@ def test_full_lifecycle(tmp_path: Path):
     w.on_text_delta("Hello ", 101)
     w.on_text_delta("world", 102)
     w.on_text_delta("!", 103)
-    w.on_tool_call({"tool_name": "bash", "tool_args": {"cmd": "ls"}}, 104)
-    w.on_tool_result("bash", "file1\nfile2", 105)
+    w.on_tool_call({"tool_name": "bash", "tool_args": {"cmd": "ls"}, "tool_call_id": "call_1"}, 104)
+    w.on_tool_result("bash", "file1\nfile2", 105, tool_call_id="call_1")
     w.finalize(output_result={"summary": "done"}, last_seq=110)
 
     data = json.loads(w.path.read_text())
@@ -64,6 +64,7 @@ def test_full_lifecycle(tmp_path: Path):
     assert len(data["tool_calls"]) == 1
     assert data["tool_calls"][0]["tool_name"] == "bash"
     assert data["tool_calls"][0]["tool_result"] == "file1\nfile2"
+    assert data["tool_calls"][0]["tool_call_id"] == "call_1"
 
 
 def test_lifecycle_initial_on_started_writes_streaming_sidecar(tmp_path: Path):
@@ -327,4 +328,99 @@ def test_attach_to_bus_returns_detach_callable(tmp_path: Path):
     assert reg.route_event in bus._sync_listeners
 
     detach()
-    assert reg.route_event not in bus._sync_listeners
+
+
+# ── tool_call_id matching (parallel same-name calls) ─────────────────
+
+
+def test_on_tool_result_matches_by_tool_call_id_not_name(tmp_path: Path):
+    """Parallel same-name tool calls must pair by tool_call_id, not by name.
+
+    Reproduces the original bug: pydantic-ai yields both function_tool_call
+    events upfront, then results one at a time. Name-based reverse matching
+    lands result A on call B. With ID-based matching, each result lands on
+    its own call.
+    """
+    w = _make_writer(tmp_path)
+    w.on_started(input_prompt="", system_prompt="", last_seq=100)
+    # Two parallel bash calls — same name, different IDs.
+    w.on_tool_call({"tool_name": "bash", "tool_args": {"cmd": "ls"}, "tool_call_id": "A"}, 101)
+    w.on_tool_call({"tool_name": "bash", "tool_args": {"cmd": "pwd"}, "tool_call_id": "B"}, 102)
+    # Result for A arrives first.
+    w.on_tool_result("bash", "result-for-A", 103, tool_call_id="A")
+
+    w.flush()
+    data = json.loads(w.path.read_text())
+    assert data["tool_calls"][0]["tool_call_id"] == "A"
+    assert data["tool_calls"][0]["tool_result"] == "result-for-A"
+    # B must NOT receive A's result (the bug).
+    assert data["tool_calls"][1]["tool_call_id"] == "B"
+    assert "tool_result" not in data["tool_calls"][1]
+
+    # Now result for B arrives — lands on B, leaves A untouched.
+    w.on_tool_result("bash", "result-for-B", 104, tool_call_id="B")
+    w.flush()
+    data = json.loads(w.path.read_text())
+    assert data["tool_calls"][0]["tool_result"] == "result-for-A"
+    assert data["tool_calls"][1]["tool_result"] == "result-for-B"
+
+
+def test_on_tool_result_unknown_tool_call_id_drops_with_warning(tmp_path: Path):
+    """Unknown tool_call_id must not pollute any existing entry; warn + drop."""
+    w = _make_writer(tmp_path)
+    w.on_started(input_prompt="", system_prompt="", last_seq=100)
+    w.on_tool_call({"tool_name": "bash", "tool_args": {}, "tool_call_id": "A"}, 101)
+
+    # Result arrives claiming an ID we never saw.
+    with patch.object(
+        __import__("harness.persistence.sidecar_writer", fromlist=["logger"]).logger,
+        "warning",
+    ) as mock_warn:
+        w.on_tool_result("bash", "orphan", 102, tool_call_id="Z")
+        assert mock_warn.called, "expected drop warning for unknown tool_call_id"
+
+    w.flush()
+    data = json.loads(w.path.read_text())
+    assert "tool_result" not in data["tool_calls"][0], "orphan result must not attach"
+
+
+def test_on_tool_result_without_tool_call_id_drops_with_warning(tmp_path: Path):
+    """Missing tool_call_id (legacy pydantic-ai or synthetic event) drops, no crash."""
+    w = _make_writer(tmp_path)
+    w.on_started(input_prompt="", system_prompt="", last_seq=100)
+    w.on_tool_call({"tool_name": "bash", "tool_args": {}, "tool_call_id": "A"}, 101)
+
+    w.on_tool_result("bash", "no-id", 102)  # no tool_call_id kwarg
+
+    w.flush()
+    data = json.loads(w.path.read_text())
+    assert "tool_result" not in data["tool_calls"][0]
+
+
+def test_registry_routes_tool_call_id_end_to_end(tmp_path: Path):
+    """Bus agent.tool_call / agent.tool_result events carry tool_call_id
+    through the registry into the persisted sidecar entry."""
+    reg = InflightWriterRegistry(runs_dir=tmp_path, debounce_ms=0)
+    reg.route_event({
+        "type": "node.started", "seq": 100,
+        "payload": {"run_id": "r1", "node_id": "scout", "iteration": 1,
+                    "input_prompt": "", "system_prompt": ""},
+    })
+    reg.route_event({
+        "type": "agent.tool_call", "seq": 101,
+        "payload": {"run_id": "r1", "node_id": "scout", "iteration": 1,
+                    "tool_name": "bash", "tool_args": {"cmd": "ls"},
+                    "tool_call_id": "call_xyz"},
+    })
+    reg.route_event({
+        "type": "agent.tool_result", "seq": 102,
+        "payload": {"run_id": "r1", "node_id": "scout", "iteration": 1,
+                    "tool_name": "bash", "result": "ok",
+                    "tool_call_id": "call_xyz"},
+    })
+
+    writer = reg.get("r1", "scout", 1)
+    writer.flush()
+    data = json.loads(writer.path.read_text())
+    assert data["tool_calls"][0]["tool_call_id"] == "call_xyz"
+    assert data["tool_calls"][0]["tool_result"] == "ok"

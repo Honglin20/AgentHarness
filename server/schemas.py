@@ -15,12 +15,20 @@ class AgentDef(BaseModel):
     eval: bool = False
     result_type_name: str | None = None
     result_type_schema: dict[str, Any] | None = None
+    # per-agent executor backend；缺省 = "pydantic-ai"。
+    # 真相源是 workflow.json；POST body 的 agents 仅在 ad-hoc（无 workflow.json）
+    # 场景下作 fallback。scoped workflow 启动 run 时后端忽略此字段，从盘读。
+    executor: Literal["pydantic-ai", "claude-code"] = "pydantic-ai"
 
 
 class CreateWorkflowRequest(BaseModel):
-    """Request to create and start a workflow."""
+    """Request to create and start a workflow.
+
+    agents 字段仅在 ad-hoc 模式（无 workflow.json）下被消费；scoped workflow
+    启动 run 时后端从 workflow.json 读 agents 定义，忽略此字段。
+    """
     name: str
-    agents: list[AgentDef]
+    agents: list[AgentDef] | None = None
     workflow: str
     inputs: dict = Field(default_factory=dict)
     work_dir: str | None = None  # Working directory to execute in
@@ -64,6 +72,18 @@ class HealthResponse(BaseModel):
     status: str = "ok"
 
 
+class ToolResolutionEntry(BaseModel):
+    """How one declared tool name resolves for the active backend.
+
+    Mirrors harness.engine.tool_resolution.ToolResolution. Persisted in
+    agents_snapshot so the frontend ToolsBadge can render the backend
+    badge + tool mapping during REPLAY (not just live WS).
+    """
+    declared: str
+    resolved: str
+    source: str
+
+
 class AgentSnapshot(BaseModel):
     """Snapshot of an agent definition at run time."""
     name: str
@@ -77,6 +97,14 @@ class AgentSnapshot(BaseModel):
     eval: bool = False
     result_type_name: str | None = None
     result_type_schema: dict[str, Any] | None = None
+    # Executor info — added 2026-06-27 for replay-time UI transparency.
+    # All optional so old persisted snapshots (pre-this-change) still parse.
+    # `executor` is the legacy field name (only written when non-default);
+    # `backend` is the new canonical field (always written by current code).
+    # Frontend reads backend ?? executor to handle both shapes.
+    executor: str | None = None
+    backend: str | None = None
+    tools_resolved: list[ToolResolutionEntry] | None = None
 
 
 class RunDetail(BaseModel):
@@ -147,7 +175,7 @@ class BatchRunItem(BaseModel):
 class CreateBatchRequest(BaseModel):
     """Request to create a batch of workflow runs."""
     name: str
-    agents: list[AgentDef]
+    agents: list[AgentDef] | None = None
     workflow: str
     items: list[BatchRunItem]
     work_dir: str | None = None

@@ -47,6 +47,49 @@ export const WorkflowCompletedPayloadSchema = z.object({
 export const WorkflowErrorPayloadSchema = z.object({
   workflow_id: workflowId,
   error: z.string().optional(),
+  error_type: z.string().optional(),
+  executor: z.string().optional(),
+  phase: z.string().optional(),
+  stderr_tail: z.string().optional(),
+  exit_code: z.number().optional(),
+  executor_extra: z.record(z.string(), z.unknown()).optional(),
+  failed_node: z.string().optional(),
+  batch_id: z.string().optional(),
+}).passthrough();
+
+// P2-T1/T3: Executor-side structured failure. Mirrors ErrorEvent.to_payload.
+export const ExecutorErrorPayloadSchema = z.object({
+  workflow_id: workflowId,
+  node_id: nodeId,
+  agent_name: agentName,
+  executor: z.string(),
+  phase: z.string(),
+  error_type: z.string(),
+  error_message: z.string(),
+  stderr_tail: z.string().optional(),
+  exit_code: z.number().optional(),
+  timed_out: z.boolean(),
+  retry_attempt: z.number().optional(),
+  ts: z.number(),
+  extra: z.record(z.string(), z.unknown()).optional(),
+}).passthrough();
+
+// P2-T4: API retry visibility (normal priority).
+export const ApiRetryPayloadSchema = z.object({
+  node_id: nodeId,
+  agent_name: agentName,
+  retry_count: z.number().optional(),
+  max_retries: z.number().optional(),
+  wait_seconds: z.number().optional(),
+  error_message: z.string().optional(),
+}).passthrough();
+
+// P2-T4: Liveness status (normal priority).
+export const StatusUpdatePayloadSchema = z.object({
+  node_id: nodeId,
+  agent_name: agentName,
+  status: z.string(),
+  duration_ms: z.number().optional(),
 }).passthrough();
 
 // ── Node lifecycle ──────────────────────────────────────────
@@ -55,6 +98,15 @@ export const NodeStartedPayloadSchema = z.object({
   agent_name: agentName,
   attempt: z.number().optional(),
   model: z.string().optional(),
+  // 2026-06-26: backend + tools_resolved for UI transparency. Optional
+  // because older event replays don't carry them; .passthrough() also
+  // keeps them around even if we forget to update this schema.
+  backend: z.string().optional(),
+  tools_resolved: z.array(z.object({
+    declared: z.string(),
+    resolved: z.string(),
+    source: z.string(),
+  })).optional(),
 }).passthrough();
 
 export const NodeCompletedPayloadSchema = z.object({
@@ -93,6 +145,9 @@ export const AgentToolCallPayloadSchema = z.object({
   tool_name: toolName,
   agent_name: agentName.optional(),
   tool_args: z.record(z.string(), z.unknown()).optional(),
+  // Required: parallel same-name tool calls (e.g. multiple TodoTool updates
+  // in one model turn) can only be disambiguated by tool_call_id.
+  tool_call_id: z.string().min(1),
 }).passthrough();
 
 export const AgentToolResultPayloadSchema = z.object({
@@ -100,6 +155,7 @@ export const AgentToolResultPayloadSchema = z.object({
   tool_name: toolName,
   result: z.unknown().optional(),
   agent_name: agentName.optional(),
+  tool_call_id: z.string().min(1),
 }).passthrough();
 
 export const AgentToolOutputDeltaPayloadSchema = z.object({
@@ -226,6 +282,9 @@ export const eventPayloadSchemas: Partial<Record<EventType, z.ZodTypeAny>> = {
   "agent.tool_call": AgentToolCallPayloadSchema,
   "agent.tool_result": AgentToolResultPayloadSchema,
   "agent.tool_output_delta": AgentToolOutputDeltaPayloadSchema,
+  "agent.executor_error": ExecutorErrorPayloadSchema,
+  "agent.api_retry": ApiRetryPayloadSchema,
+  "agent.status_update": StatusUpdatePayloadSchema,
   "chat.question": ChatQuestionPayloadSchema,
   "chat.answer": ChatAnswerPayloadSchema,
   "chart.render": ChartRenderPayloadSchema,

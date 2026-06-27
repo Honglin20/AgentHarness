@@ -19,6 +19,8 @@ import { computeRunSummary } from "@/lib/summary/runSummary";
 import { getWorkflowManager } from "./WorkflowManager";
 import { getToolCallCounter } from "./workflowStores";
 import { routeEvent, resetAllStores } from "./routeEvent";
+import { chatHandlers } from "./routing/chatHandlers";
+import { setHydratedNodeTextCursor } from "./routing/dedup";
 import {
   handleTodoCreated,
   handleTodoUpdated,
@@ -211,7 +213,16 @@ interface PersistedRunData {
     }>;
   } | null;
   chart_groups: { groups: Record<string, any>; groupOrder: string[] } | null;
-  agents_snapshot?: Array<{ name: string; model: string | null; tools: string[] | null }>;
+  agents_snapshot?: Array<{
+    name: string;
+    model: string | null;
+    tools: string[] | null;
+    /** Executor name. Some backends omit when default ('pydantic-ai'). */
+    executor?: string;
+    /** v3.1 NEW — explicit backend + per-tool resolution. Absent on old runs. */
+    backend?: string;
+    tools_resolved?: Array<{ declared: string; resolved: string; source: string }>;
+  }>;
   workflow_name?: string;
   followup_sessions?: Record<string, { messages: Array<{ role: string; content: string; timestamp?: number }>; turn_count?: number }>;
   todo_steps?: Record<string, Array<{
@@ -237,10 +248,24 @@ export function loadRunFromPersistedData(
 
   // -- 1. workflowStore ----------------------------------------------------
 
-  const agentLookup = new Map<string, { model: string | null; tools: string[] | null }>();
+  // agentLookup carries declared tools + executor + resolved tools so the
+  // replay build can populate NodeState.backend / .toolsResolved — without
+  // these, the ToolsBadge in completed/replay workflows shows no badge and
+  // bare declared names (no "bash → Bash [Claude built-in]" mapping).
+  const agentLookup = new Map<string, {
+    model: string | null;
+    tools: string[] | null;
+    backend?: string;
+    toolsResolved?: { declared: string; resolved: string; source: string }[];
+  }>();
   if (run.agents_snapshot) {
     for (const a of run.agents_snapshot) {
-      agentLookup.set(a.name, { model: a.model ?? null, tools: a.tools ?? null });
+      agentLookup.set(a.name, {
+        model: a.model ?? null,
+        tools: a.tools ?? null,
+        backend: a.backend ?? a.executor,
+        toolsResolved: a.tools_resolved,
+      });
     }
   }
 
@@ -257,6 +282,9 @@ export function loadRunFromPersistedData(
         tokenUsage: t.token_usage ?? undefined,
         model: info?.model ?? undefined,
         tools: info?.tools?.map((n) => ({ name: n, description: "" })) ?? undefined,
+        // Persisted dispatch info — drives ToolsBadge during replay.
+        backend: info?.backend,
+        toolsResolved: info?.toolsResolved,
         costUsd: t.cost_usd ?? undefined,
         ttftMs: t.ttft_ms ?? undefined,
       };
@@ -295,6 +323,70 @@ export function loadRunFromPersistedData(
       run.conversation as ConversationMessageDTO[],
     );
     stores.conversation.setState({ messages });
+
+    // v3 (ADR: single-source-streaming-state D5): reverse-fill
+    // pendingQuestionId / pendingQuestionAgent from the last pending
+    // question in the hydrated messages. Without this, hydration loses
+    // the derived pointer even when the question message is present.
+    const lastPending = [...messages]
+      .reverse()
+      .find((m) => m.type === "question" && m.status === "pending");
+    if (lastPending) {
+      stores.conversation.setState({
+        pendingQuestionId: lastPending.questionId ?? null,
+        pendingQuestionAgent: lastPending.agentName ?? null,
+      });
+    }
+  }
+
+  // v3 (ADR D4): replay chat.question / chat.answer / chat.timeout events
+  // from the events sidecar through the same handlers WS uses. These events
+  // are in CRITICAL_EVENT_TYPES so they always land in +events.json. Without
+  // this replay, completed-run hydration misses ask_user prompts entirely
+  // (D4 in single-source-index-driven ADR removed conversation from run_record).
+  if (events && events.length > 0) {
+    // chat.timeout isn't in EventPayloadMap (TS-only gap — runtime emits it);
+    // cast to string so the filter compiles.
+    const chatEvents = events.filter(
+      (e) =>
+        (e.type as string) === "chat.question" ||
+        (e.type as string) === "chat.answer" ||
+        (e.type as string) === "chat.timeout",
+    );
+    if (chatEvents.length > 0) {
+      const ctx = {
+        mode: "replay" as const,
+        persistence: null,
+        counter: { next: () => `replay-${Math.random().toString(36).slice(2)}` },
+      };
+      for (const evt of chatEvents) {
+        const handler = chatHandlers.find(([t]) => t === (evt.type as string));
+        if (handler) {
+          try {
+            handler[1](stores, evt, ctx);
+          } catch {
+            // Best-effort — single bad event shouldn't break hydration.
+          }
+        }
+      }
+    }
+
+    // v3 (ADR D6): set per-node text cursor from events max seq so
+    // WS-replayed text/thinking/tool_output_delta events don't double-
+    // append. We approximate the cursor by taking max seq per node from
+    // the events array — actual sidecar last_seq isn't on RunRecord, but
+    // the events array covers everything that's been persisted for this run.
+    const nodeMaxSeq: Record<string, number> = {};
+    for (const evt of events) {
+      const seq = (evt as { seq?: number }).seq;
+      const nodeId = (evt as { payload?: { node_id?: string } }).payload?.node_id;
+      if (typeof seq === "number" && nodeId) {
+        nodeMaxSeq[nodeId] = Math.max(nodeMaxSeq[nodeId] ?? 0, seq);
+      }
+    }
+    for (const [nodeId, seq] of Object.entries(nodeMaxSeq)) {
+      setHydratedNodeTextCursor(workflowId, nodeId, seq);
+    }
   }
 
   // -- 4. outputStore -----------------------------------------------------

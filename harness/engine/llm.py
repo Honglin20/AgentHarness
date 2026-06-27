@@ -5,13 +5,14 @@ All settings read from env vars with explicit-arg overrides.
 
 from __future__ import annotations
 
-import dataclasses
 import os
 from typing import Any
 
 import httpx
+from openai import AsyncOpenAI
 from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.deepseek import DeepSeekProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.settings import ModelSettings
 
@@ -90,45 +91,32 @@ class LLMClient:
             client_kwargs["proxy"] = self._proxy
         self._http_client = httpx.AsyncClient(**client_kwargs)
 
-        # Build provider + model
-        provider_kwargs: dict[str, Any] = {
-            "http_client": self._http_client,
-        }
-        if self._api_key:
-            provider_kwargs["api_key"] = self._api_key
-        if self._api_url:
-            provider_kwargs["base_url"] = self._api_url
-
-        self._provider = OpenAIProvider(**provider_kwargs)
-
-        # DeepSeek V4 / reasoner don't support tool_choice=required.
-        # In pydantic_ai 1.x, OpenAIProvider.model_profile returned a dataclass
-        # we could dataclasses.replace() to flip openai_supports_tool_choice_required.
-        # In 2.0 it returns a plain dict and the field was removed, so that
-        # override can no longer be expressed the same way. Try the 1.x path;
-        # if the profile shape doesn't match (2.0), skip the override — deepseek
-        # simply won't be forced into tool_choice=required, which is safe.
-        model_kwargs: dict[str, Any] = {
-            "model_name": self._model_name,
-            "provider": self._provider,
-        }
+        # DeepSeek v4-*/reasoner need a provider profile that disables
+        # tool_choice=required (incompatible with thinking mode) and maps
+        # reasoning_content → thinking. DeepSeekProvider ships that profile
+        # upstream; OpenAIProvider doesn't, and our old dataclass-replace
+        # guard silently no-op'd under pydantic_ai 2.0 (ModelProfile became
+        # TypedDict). DeepSeekProvider.__init__ accepts no base_url, so for
+        # custom endpoints we inject a pre-built AsyncOpenAI client.
         if _is_deepseek(self._model_name, self._api_url):
-            try:
-                base_profile = self._provider.model_profile(self._model_name)
-                if (
-                    base_profile
-                    and dataclasses.is_dataclass(base_profile)
-                    and getattr(base_profile, "openai_supports_tool_choice_required", True)
-                ):
-                    model_kwargs["profile"] = dataclasses.replace(
-                        base_profile, openai_supports_tool_choice_required=False
-                    )
-            except Exception:
-                import sys
-                print("[llm] deepseek profile override skipped (pydantic_ai API mismatch)",
-                      file=sys.stderr)
+            ds_client = AsyncOpenAI(
+                base_url=self._api_url or "https://api.deepseek.com",
+                api_key=self._api_key or os.environ.get("DEEPSEEK_API_KEY", ""),
+                http_client=self._http_client,
+            )
+            self._provider = DeepSeekProvider(openai_client=ds_client)
+        else:
+            provider_kwargs: dict[str, Any] = {"http_client": self._http_client}
+            if self._api_key:
+                provider_kwargs["api_key"] = self._api_key
+            if self._api_url:
+                provider_kwargs["base_url"] = self._api_url
+            self._provider = OpenAIProvider(**provider_kwargs)
 
-        self._model = OpenAIChatModel(**model_kwargs)
+        self._model = OpenAIChatModel(
+            model_name=self._model_name,
+            provider=self._provider,
+        )
 
     async def aclose(self) -> None:
         """Close the underlying httpx client."""

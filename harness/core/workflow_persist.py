@@ -138,11 +138,21 @@ def list_saved_workflows(user_id: str | None = None) -> list[dict]:
                 agents = [Agent.from_dict(a) for a in data.get("agents", [])]
                 _emit(data["name"], agents, "private", f.parent, data)
 
-    # 3. Legacy workflows (workflows/ root — always included)
+    # 3. Legacy workflows (workflows/ root). Skip names already emitted in
+    # shared/private to avoid two same-name entries — frontend uses name as
+    # Map key, so duplicate emission causes the legacy entry (often stale)
+    # to silently override the shared one in UI state.
+    emitted_names = {r["name"] for r in result}
     for f in sorted(_WORKFLOWS_DIR.glob("*/workflow.json")):
         if f.parent.name == "_shared":
             continue
         data = json.loads(f.read_text())
+        if data.get("name") in emitted_names:
+            logger.debug(
+                "Skipping legacy %s — already emitted from shared/private",
+                data.get("name"),
+            )
+            continue
         agents = [Agent.from_dict(a) for a in data.get("agents", [])]
         _emit(data["name"], agents, "legacy", f.parent, data)
 

@@ -88,8 +88,8 @@ def test_iter_sidecar_to_messages_projects_tool_calls():
         "node_id": "scout",
         "output": {"summary": "done"},
         "tool_calls": [
-            {"tool_name": "bash", "tool_args": {"command": "ls"}, "tool_result": "out"},
-            {"tool_name": "TodoTool", "tool_args": {"op": "create"}, "tool_result": "ok"},
+            {"tool_name": "bash", "tool_args": {"command": "ls"}, "tool_result": "out", "tool_call_id": "call_1"},
+            {"tool_name": "TodoTool", "tool_args": {"op": "create"}, "tool_result": "ok", "tool_call_id": "call_2"},
         ],
     }
     messages = _iter_sidecar_to_messages(sidecar, "scout", 1)
@@ -100,6 +100,26 @@ def test_iter_sidecar_to_messages_projects_tool_calls():
     assert tool_messages[0]["toolArgs"] == {"command": "ls"}
     assert tool_messages[0]["toolResult"] == "out"
     assert tool_messages[0]["toolStatus"] == "done"
+    assert tool_messages[0]["toolCallId"] == "call_1"
+    assert tool_messages[1]["toolCallId"] == "call_2"
+
+
+def test_iter_sidecar_to_messages_legacy_missing_tool_call_id():
+    """Sidecars written before tool_call_id was introduced must project
+    toolCallId as empty string — no crash, no None leaking to the frontend."""
+    from server.routers.runs import _iter_sidecar_to_messages
+
+    sidecar = {
+        "iter": 1,
+        "node_id": "scout",
+        "tool_calls": [
+            {"tool_name": "bash", "tool_args": {}, "tool_result": "ok"},
+        ],
+    }
+    messages = _iter_sidecar_to_messages(sidecar, "scout", 1)
+    tool_messages = [m for m in messages if m["type"] == "tool_call"]
+    assert len(tool_messages) == 1
+    assert tool_messages[0]["toolCallId"] == ""
 
 
 def test_iter_sidecar_to_messages_handles_null_tool_result():

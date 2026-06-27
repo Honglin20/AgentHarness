@@ -20,6 +20,14 @@ export interface ConversationMessage {
   toolName?: string;
   toolArgs?: Record<string, unknown>;
   toolResult?: string;
+  /**
+   * Pydantic-ai ToolCallPart.tool_call_id. Present on tool_call messages so
+   * tool_result events can match by ID — parallel same-name calls (e.g.
+   * multiple TodoTool updates in one model turn) would otherwise have their
+   * args/result crossed. Undefined for non-tool_call messages and for legacy
+   * sidecars replayed before the field existed.
+   */
+  toolCallId?: string;
   status?: "streaming" | "done" | "error" | "interrupted" | "pending" | "answered" | "timeout";
   /** For tool_call messages: "running" while tool executes, "done" when result arrives */
   toolStatus?: "running" | "done";
@@ -132,9 +140,9 @@ export interface ConversationState {
   appendAgentThinking: (nodeId: string, text: string) => void;
   completeAgentMessage: (nodeId: string, agentName: string, durationMs?: number) => void;
   failAgentMessage: (nodeId: string, agentName: string, error: string, durationMs?: number) => void;
-  addToolCall: (nodeId: string, agentName: string, toolName: string, toolArgs: Record<string, unknown>) => void;
-  addToolResult: (nodeId: string, toolName: string, result: string) => void;
-  appendToolOutput: (nodeId: string, toolName: string, line: string, stream: string) => void;
+  addToolCall: (nodeId: string, agentName: string, toolName: string, toolArgs: Record<string, unknown>, toolCallId: string) => void;
+  addToolResult: (toolCallId: string, result: string) => void;
+  appendToolOutput: (toolCallId: string, line: string, stream: string) => void;
   addUserQuestion: (payload: AgentQuestionPayload) => void;
   answerUserQuestion: (questionId: string, answer: QuestionAnswer) => void;
   /**
@@ -371,7 +379,7 @@ export const useConversationStore = create<ConversationState>()((set) => ({
       return { messages };
     }),
 
-  addToolCall: (nodeId, agentName, toolName, toolArgs) =>
+  addToolCall: (nodeId, agentName, toolName, toolArgs, toolCallId) =>
     set((state) => {
       // Sync flush any pending RAF text for this nodeId
       const pending = _textBuf.get(nodeId);
@@ -412,6 +420,7 @@ export const useConversationStore = create<ConversationState>()((set) => ({
             content: "",
             toolName,
             toolArgs,
+            toolCallId,
             toolStatus: "running",
             timestamp: Date.now(),
           },
@@ -419,13 +428,12 @@ export const useConversationStore = create<ConversationState>()((set) => ({
       };
     }),
 
-  addToolResult: (nodeId, toolName, result) =>
+  addToolResult: (toolCallId, result) =>
     set((state) => {
       const idx = state.messages.findLastIndex(
         (m) =>
-          m.nodeId === nodeId &&
           m.type === "tool_call" &&
-          m.toolName === toolName &&
+          m.toolCallId === toolCallId &&
           m.toolResult === undefined
       );
       if (idx === -1) return state;
@@ -437,13 +445,12 @@ export const useConversationStore = create<ConversationState>()((set) => ({
       return { messages };
     }),
 
-  appendToolOutput: (nodeId, toolName, line, stream) =>
+  appendToolOutput: (toolCallId, line, stream) =>
     set((state) => {
       const idx = state.messages.findLastIndex(
         (m) =>
-          m.nodeId === nodeId &&
           m.type === "tool_call" &&
-          m.toolName === toolName &&
+          m.toolCallId === toolCallId &&
           m.toolResult === undefined
       );
       if (idx === -1) return state;
@@ -477,6 +484,10 @@ export const useConversationStore = create<ConversationState>()((set) => ({
           questionInputPlaceholder: payload.input_placeholder ?? null,
         },
       ],
+      // v3 (ADR D5): set pendingQuestionId so usePendingQuestion() returns
+      // the live question id (parity with scoped store fix).
+      pendingQuestionId: payload.question_id,
+      pendingQuestionAgent: payload.agent_name ?? null,
     })),
 
   answerUserQuestion: (questionId, answer) =>

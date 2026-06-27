@@ -24,6 +24,8 @@ from harness.cost import calculate_cost
 from harness.engine.schema_utils import ReviewDecision
 from harness.prompts.assembler import assemble_static_prompt
 from harness.engine.llm_executor import LLMExecutor
+from harness.engine.error_event import ExecutorError
+from harness.engine.executor_factory import make_executor
 from harness.engine.llm_retry import execute_with_retry
 from harness.engine.node_phases import (
     build_extension_context,
@@ -105,22 +107,34 @@ def make_node_func(
     upstream_names = dep_map[agent_def.name] or []
     _judge_targets = judge_targets or {}
 
-    # Build the static system prompt via the central assembler. The output-
-    # format schema section is appended only when result_type is set; see
-    # harness/prompts/assembler.py for the layered design and the rationale
-    # for the ``final_result`` tool-call wording (pydantic-ai 1.x behavior +
-    # 2026-06-17 adapter_generator incident). The schema-derivation fallback
-    # (lenient: log + use the bare agent body) is preserved here so a broken
-    # result_type never crashes node construction.
-    augmented_prompt = parsed.prompt
-    if result_type is not None:
-        try:
-            augmented_prompt = assemble_static_prompt(parsed.prompt, result_type)
-        except Exception:
-            logger.warning(
-                "Failed to inject result_type schema into prompt for %s",
-                agent_def.name, exc_info=True,
-            )
+    # Build the static system prompt via the central assembler. The assembler
+    # is invoked unconditionally — base working norms must be injected for
+    # every agent (including free-text agents with result_type=None), and
+    # the paradigm dispatch (P1-T2) ensures CLI backends get base_minimal.md
+    # + minimal output format instead of pydantic-ai's TodoTool/final_result
+    # contracts.
+    #
+    # Fail-loud policy: ValueError from the assembler signals a real config
+    # bug (unknown executor / paradigm) and MUST propagate — silently
+    # falling back to a bare body would mask the typo and leave the agent
+    # running under the wrong paradigm. Schema-derivation failures from
+    # strip_schema / model_json_schema (broken result_type definition) are
+    # caught and degraded: log + use bare agent body so a single broken
+    # result_type does not crash workflow construction.
+    try:
+        augmented_prompt = assemble_static_prompt(
+            parsed.prompt, result_type, executor=agent_def.executor,
+        )
+    except ValueError:
+        # Re-raise as-is — fail-loud for unknown executor / paradigm.
+        raise
+    except Exception:
+        logger.warning(
+            "Failed to assemble static prompt for %s (executor=%s); "
+            "falling back to bare agent body",
+            agent_def.name, agent_def.executor, exc_info=True,
+        )
+        augmented_prompt = parsed.prompt
 
     async def node_func(state: HarnessState) -> dict:
         start_time = time.time()
@@ -153,9 +167,45 @@ def make_node_func(
 
         # Emit node.started event (legacy WS path)
         if bus:
+            # Compute per-tool resolution + backend tag upfront so the UI
+            # can render "agent uses [claude-code], bash → Bash (Claude
+            # built-in)" immediately when the node starts. Logic lives in
+            # resolve_tools_for_backend (single source of truth) — same
+            # function the executor instance methods use.
+            from harness.engine.tool_resolution import resolve_tools_for_backend
+            backend = getattr(agent_def, "executor", "pydantic-ai")
+            tools_resolved = [
+                r.to_dict() for r in resolve_tools_for_backend(
+                    list(getattr(agent_def, "tools", None) or []),
+                    backend,
+                )
+            ]
+            # claude-code 路径下，ToolRegistry 的 tool_info 是 pydantic-ai 路径
+            # 的工具快照（含 TodoTool/sub_agent/bash/... 共 30+），不反映 claude
+            # 子进程实际暴露的工具。前端 AgentMessage.tsx 读 tools 字段显示数量，
+            # 会渲染 "31 tools" 误导。改为用 tools_resolved 重建 ToolBrief 列表，
+            # 让 emit 的 tools 与 claude 实际看到的工具一致。
+            if backend == "claude-code":
+                emit_tool_info = [
+                    {"name": r["resolved"], "description": r["source"]}
+                    for r in tools_resolved
+                ]
+            else:
+                emit_tool_info = tool_info
+            # Stash on builder so _save_incremental can persist into iter
+            # sidecar — WS event is ephemeral; replay/hydration reads from
+            # disk sidecar. Keyed by node_id (same across iters).
+            if not hasattr(builder_self, "_node_dispatch_info"):
+                builder_self._node_dispatch_info = {}
+            builder_self._node_dispatch_info[agent_def.name] = {
+                "backend": backend,
+                "tools_resolved": tools_resolved or None,
+            }
             safe_emit(bus, "node.started", build_node_started_payload(
                 builder_self.workflow_id, agent_def.name, agent_def.name,
-                model=model, tools=tool_info, iteration=current_invocation,
+                model=model, tools=emit_tool_info, iteration=current_invocation,
+                backend=backend,
+                tools_resolved=tools_resolved or None,
             ))
 
         # Check if any upstream dependency has failed — skip this node
@@ -220,6 +270,11 @@ def make_node_func(
             node_id=agent_def.name,
             token_aggregator=node_token_agg,
             iteration=current_invocation,
+            # ClaudeCodeExecutor 通过 deps.agent_md_content 拿 agent MD 作为
+            # claude -p 的 --append-system-prompt。pydantic-ai 路径不读这个
+            # 字段（它通过 augmented_prompt 直接构造 Agent）。AgentDeps 的
+            # extra="allow" 允许动态字段。
+            agent_md_content=augmented_prompt,
         )
 
         # Build the context (user message) — system prompt is already set via md_prompt
@@ -302,9 +357,10 @@ def make_node_func(
                 except ImportError:
                     return None  # intentional silent fallback — bash tool is optional
 
-            executor = LLMExecutor(
-                pydantic_agent,
-                deps,
+            executor = make_executor(
+                agent_def=agent_def,
+                pydantic_agent=pydantic_agent,
+                deps=deps,
                 event_bus=bus,
                 workflow_id=wid,
                 node_id=agent_def.name,
@@ -683,6 +739,40 @@ def make_node_func(
                 "input_prompt": locals().get("context", ""),
                 "system_prompt": augmented_prompt,
             }
+
+            # P2-T5: ExecutorError propagation contract.
+            #
+            # Executors (ClaudeCodeExecutor since P2-T3, future CliExecutorBase
+            # subclasses) catch their own phase-specific failures and emit
+            # ``agent.executor_error`` (critical) with the rich payload
+            # (stderr_tail / phase / executor / exit_code / retry_attempt /
+            # extra). Then they raise ExecutorError carrying the same
+            # ErrorEvent so this except clause can route without re-emitting.
+            #
+            # Emit-uniqueness invariant (ADR Decision 2):
+            #   - DO NOT re-emit agent.executor_error here.
+            #   - DO emit node.failed (node_factory owns node lifecycle) but
+            #     enrich its extra with executor-phase fields so the frontend
+            #     can render stderr_tail / phase alongside node-level context
+            #     (tool_calls_before_failure / io_data).
+            if isinstance(e, ExecutorError):
+                ev = e.error_event
+                # error_type from ErrorEvent is more specific than type(e).__name__
+                # (e.g. "ClaudeSubprocessExit" vs generic "ExecutorError").
+                error_type = ev.error_type or error_type
+                if ev.stderr_tail:
+                    extra["stderr_tail"] = ev.stderr_tail
+                if ev.phase:
+                    extra["executor_phase"] = ev.phase
+                if ev.executor:
+                    extra["executor"] = ev.executor
+                if ev.exit_code is not None:
+                    extra["exit_code"] = ev.exit_code
+                if ev.extra:
+                    # Merge executor-side extra (e.g. api_error_status) so
+                    # retry classification works off the node.failed payload
+                    # alone (some sinks only listen to node.failed).
+                    extra["executor_extra"] = dict(ev.extra)
 
             if bus:
                 safe_emit(bus, "node.failed", build_node_failed_payload(

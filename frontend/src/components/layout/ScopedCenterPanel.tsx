@@ -24,7 +24,7 @@ import { useViewStore, getActiveWorkflowName, isReplayView } from "@/stores/view
 import { useBatchStore } from "@/stores/batchStore";
 import { useWorkflowStore } from "@/stores/workflowStore";
 import { useAppViewStore } from "@/stores/appView";
-import { useWorkflowHydration } from "@/contexts/workflow-context";
+import { useWorkflowHydration, useScopedWorkflowStore } from "@/contexts/workflow-context";
 import { activateRun } from "@/lib/activateRun";
 import { ScopedConversationTab } from "@/components/conversation/ScopedConversationTab";
 import { OutlineMode } from "@/components/outline/OutlineMode";
@@ -128,6 +128,35 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
     }
     return descMap;
   }, [selectedTemplate]);
+
+  // Phase F.2: agent name → executor backend map（从 selectedTemplate.agents 提取）
+  // 缺省 = "pydantic-ai"（与后端 Agent.to_dict 行为一致：默认值不写盘）
+  const agentExecutors = useMemo(() => {
+    if (!selectedTemplate) return undefined;
+    const wf = selectedTemplate as any;
+    const map: Record<string, "pydantic-ai" | "claude-code"> = {};
+    for (const a of wf.agents) {
+      if (a.executor) map[a.name] = a.executor;
+    }
+    // 全部默认时不返回 map（DAGPreview 拿到 undefined → 节点不显示 badge 颜色差异）
+    return Object.keys(map).length > 0 ? map : undefined;
+  }, [selectedTemplate]);
+
+  // Phase F.2: 切换成功后刷新 selectedTemplate（让 badge 立即更新）
+  // 关键：用 scoped store 的 setSelectedTemplate 写新对象引用，触发重渲染
+  // （直接 mutate 旧 selectedTemplate 不会让 zustand 感知变化）
+  const setSelectedTemplate = useScopedWorkflowStore((s) => s.setSelectedTemplate);
+  const refreshSelectedTemplate = useCallback(async (agentName: string, next: "pydantic-ai" | "claude-code") => {
+    if (!selectedTemplate) return;
+    const wf = selectedTemplate as any;
+    if (!wf.agents) return;
+    const newAgents = wf.agents.map((a: any) =>
+      a.name === agentName
+        ? (next === "pydantic-ai" ? { ...a, executor: undefined } : { ...a, executor: next })
+        : a,
+    );
+    setSelectedTemplate({ ...wf, agents: newAgents });
+  }, [selectedTemplate, setSelectedTemplate]);
 
   const { sendAnswer, sendStopAndRegenerate, sendGuidance, sendFollowup } = useWSMethods();
 
@@ -273,6 +302,11 @@ export function ScopedCenterPanel({ activeBenchmark, isReplay: isReplayProp }: P
                   dag={dag}
                   agentDescriptions={agentDescriptions}
                   onEditAgent={(name) => setEditAgentName(name)}
+                  workflowName={effectiveWorkflowName}
+                  agentExecutors={agentExecutors}
+                  executorSwitchDisabled={false}
+                  executorDisabledReason={undefined}
+                  onExecutorChanged={refreshSelectedTemplate}
                 />
               </div>
               <div className="shrink-0 border-t border-app-border px-4 py-2 text-center">

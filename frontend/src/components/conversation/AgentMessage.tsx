@@ -3,9 +3,11 @@
 import { useState, useRef, useEffect } from "react";
 import { ChevronRight, FileInput, FileOutput, Coins, Wrench } from "lucide-react";
 import type { ConversationMessage } from "@/stores/conversationStore";
-import type { ToolBrief } from "@/types/events";
+import type { ToolBrief, ToolResolution } from "@/types/events";
 
 import { formatDuration } from "@/components/output/status-config";
+import { ExecutorErrorBanner } from "./ExecutorErrorBanner";
+import { ApiRetryBadge, StatusBadge } from "./LiveStatusBadges";
 import { MarkdownText } from "./MarkdownText";
 import {
   Sheet,
@@ -64,7 +66,15 @@ function formatOutputAsMd(output: unknown): string {
 // ToolsBadge
 // ---------------------------------------------------------------------------
 
-function ToolsBadge({ tools }: { tools: ToolBrief[] }) {
+function ToolsBadge({
+  tools,
+  backend,
+  toolsResolved,
+}: {
+  tools: ToolBrief[];
+  backend?: string;
+  toolsResolved?: ToolResolution[];
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -84,6 +94,14 @@ function ToolsBadge({ tools }: { tools: ToolBrief[] }) {
     };
   }, [open]);
 
+  // Build a lookup of resolved-tool info keyed by declared name. The dropdown
+  // iterates ToolBrief[] (declared) and joins with resolved info when present.
+  // toolsResolved absent (old replay) → falls back to bare declared rendering.
+  const resolvedByDeclared = new Map<string, ToolResolution>();
+  if (toolsResolved) {
+    for (const r of toolsResolved) resolvedByDeclared.set(r.declared, r);
+  }
+
   return (
     <div className="relative" ref={ref}>
       <button
@@ -93,21 +111,48 @@ function ToolsBadge({ tools }: { tools: ToolBrief[] }) {
       >
         <Wrench className="h-3 w-3" />
         {tools.length > 0 ? `${tools.length} tool${tools.length > 1 ? "s" : ""}` : "no tools"}
+        {backend && backend !== "pydantic-ai" && (
+          <span className="ml-1 rounded bg-violet-500/15 px-1 py-px font-mono text-[10px] text-violet-500">
+            {backend}
+          </span>
+        )}
       </button>
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-1 w-72 rounded-lg border border-app-border bg-background shadow-lg">
-          <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b border-app-border">
-            Available Tools
+        <div className="absolute left-0 top-full z-50 mt-1 w-80 rounded-lg border border-app-border bg-background shadow-lg">
+          <div className="flex items-center justify-between border-b border-app-border px-3 py-2">
+            <span className="text-xs font-medium text-muted-foreground">Available Tools</span>
+            {backend && (
+              <span className="rounded bg-violet-500/15 px-1.5 py-px font-mono text-[10px] text-violet-500">
+                {backend}
+              </span>
+            )}
           </div>
-          <div className="max-h-64 overflow-y-auto p-1">
-            {tools.map((t) => (
-              <div key={t.name} className="flex flex-col gap-0.5 rounded px-2 py-1.5 hover:bg-muted/50">
-                <span className="font-mono text-xs font-medium text-app-text-primary">{t.name}</span>
-                {t.description && (
-                  <span className="text-xs text-muted-foreground leading-snug">{t.description}</span>
-                )}
-              </div>
-            ))}
+          <div className="max-h-72 overflow-y-auto p-1">
+            {tools.map((t) => {
+              const resolved = resolvedByDeclared.get(t.name);
+              const isRemapped = resolved && resolved.resolved !== t.name;
+              return (
+                <div key={t.name} className="flex flex-col gap-0.5 rounded px-2 py-1.5 hover:bg-muted/50">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-mono text-xs font-medium text-app-text-primary">{t.name}</span>
+                    {resolved && isRemapped && (
+                      <>
+                        <span className="text-muted-foreground">→</span>
+                        <span className="font-mono text-xs text-violet-500">{resolved.resolved}</span>
+                      </>
+                    )}
+                    {resolved && (
+                      <span className="ml-auto shrink-0 rounded bg-muted px-1.5 py-px text-[10px] text-muted-foreground">
+                        {resolved.source}
+                      </span>
+                    )}
+                  </div>
+                  {t.description && (
+                    <span className="text-xs text-muted-foreground leading-snug">{t.description}</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -166,7 +211,14 @@ export type AgentNodeGetAgentIO = (nodeId: string) =>
   | { inputPrompt?: string; outputResult?: unknown; systemPrompt?: string }
   | undefined;
 export type AgentNodeGetNodeState = (nodeId: string) =>
-  | { tokenUsage?: { input: number; output: number; total: number }; tools?: ToolBrief[]; model?: string }
+  | {
+      tokenUsage?: { input: number; output: number; total: number };
+      tools?: ToolBrief[];
+      model?: string;
+      // 2026-06-26: surfaced for UI transparency (backend badge + tool resolution).
+      backend?: string;
+      toolsResolved?: ToolResolution[];
+    }
   | undefined;
 
 interface AgentNodeHeaderProps {
@@ -267,7 +319,11 @@ export function AgentNodeHeader({
           </>
         )}
         {tools != null && tools.length > 0 && (
-          <ToolsBadge tools={tools} />
+          <ToolsBadge
+            tools={tools}
+            backend={nodeState?.backend}
+            toolsResolved={nodeState?.toolsResolved}
+          />
         )}
         {!isStreaming && hasMore && onToggleCollapse && (
           <button
@@ -355,8 +411,13 @@ interface AgentMessageProps {
     tokenUsage?: { input: number; output: number; total: number };
     tools?: ToolBrief[];
     model?: string;
+    backend?: string;
+    toolsResolved?: ToolResolution[];
     retryAttempts?: import("@/stores/workflowStore").RetryAttempt[];
     classifiedFailure?: import("@/stores/workflowStore").ClassifiedFailure;
+    executorError?: import("@/types/events").ExecutorErrorPayload;
+    lastApiRetry?: import("@/types/events").ApiRetryPayload;
+    lastStatus?: import("@/types/events").StatusUpdatePayload;
   } | undefined;
 }
 
@@ -368,6 +429,10 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
   const nodeState = nodeId ? getNodeState?.(nodeId) : undefined;
   const retryAttempts = nodeState?.retryAttempts ?? [];
   const classifiedFailure = nodeState?.classifiedFailure;
+  // P2-T8/T9: structured executor error + live status indicators
+  const executorError = nodeState?.executorError;
+  const lastApiRetry = nodeState?.lastApiRetry;
+  const lastStatus = nodeState?.lastStatus;
 
   return (
     <div className="flex min-w-0 flex-col gap-1 py-1">
@@ -413,6 +478,16 @@ export function AgentMessage({ message, collapsed, onToggleCollapse, sectionItem
           </p>
         </div>
       )}
+      {/* P2-T9: structured executor failure (stderr_tail / phase / exit_code).
+          Shown alongside classifiedFailure — they answer different questions:
+          classifiedFailure = "did retries run out + why"; executorError =
+          "what specifically broke on this attempt (stderr / exit code)". */}
+      {executorError && <ExecutorErrorBanner payload={executorError} />}
+      {/* P2-T9: live status indicators. ApiRetryBadge surfaces silent retries
+          (rate limit / 5xx) so users don't see "stuck". StatusBadge surfaces
+          claude liveness during long gaps between deltas. */}
+      {lastApiRetry && <ApiRetryBadge payload={lastApiRetry} />}
+      {lastStatus && isStreaming && <StatusBadge payload={lastStatus} />}
       {status === "error" && !text ? (
         <p className="text-sm text-red-500">An error occurred</p>
       ) : showCollapsed ? (

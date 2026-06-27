@@ -108,6 +108,38 @@ def test_assemble_option_without_value_falls_back_to_label():
     assert out == "Yes"
 
 
+def test_assemble_label_sent_as_value_is_recovered():
+    """Frontend may send the option LABEL in selected[] instead of the value.
+
+    Reproduction: simple-nas run e961c6be had setup loop-ask the same question
+    three times. Options were label="方案C: 软链方式" value="option_c_symlink";
+    frontend sent {selected: ["方案C: 软链方式"]}; assemble_answer discarded the
+    entry because the label is not in valid_values, returned "" — agent saw an
+    empty answer and re-asked. A label-as-value payload must be recovered.
+    """
+    opts = _opts(
+        ("方案A: 覆盖model.py", "option_a_overwrite"),
+        ("方案B: 加 --model-path flag", "option_b_flag"),
+        ("方案C: 软链方式", "option_c_symlink"),
+    )
+    out = assemble_answer(
+        {"selected": ["方案C: 软链方式"], "custom_input": ""},
+        opts, False, True,
+    )
+    assert out == "方案C: 软链方式"
+
+
+def test_assemble_label_sent_as_value_multi_select():
+    """Same defect as the single-select case, but multi-select — every label
+    sent as a value must be recovered, not just the first."""
+    opts = _opts(("A", "a"), ("B", "b"), ("C", "c"))
+    out = assemble_answer(
+        {"selected": ["A", "C"], "custom_input": ""},
+        opts, True, True,
+    )
+    assert out == "A, C"
+
+
 # ---------- factory contract ----------
 
 def test_factory_name_and_description():

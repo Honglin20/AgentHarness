@@ -27,13 +27,6 @@ export function useWorkflowLaunch(
   return useCallback(
     async (template: unknown, task: string) => {
       const t = template as Record<string, unknown>;
-      const agents = (t.agents as Array<Record<string, unknown>>).map((a) => ({
-        name: a.name,
-        after: a.after,
-        ...(a.on_pass != null ? { on_pass: a.on_pass } : {}),
-        ...(a.on_fail != null ? { on_fail: a.on_fail } : {}),
-        ...(a.eval ? { eval: true } : {}),
-      }));
 
       // Reset scoped stores (safe calls — actions may be empty object in edge cases)
       outputActions.reset?.();
@@ -42,13 +35,14 @@ export function useWorkflowLaunch(
       useViewStore.getState().showLive();
 
       try {
+        // scoped workflow：后端从 workflow.json 读 agents 定义（含 executor），
+        // POST body 不再带 agents 字段。详见 server/_helpers.py。
         const r = await fetchWithAuth("/api/workflows", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             name: t.name,
             workflow: t.name,
-            agents,
             inputs: { task },
             work_dir: useSettingsStore.getState().defaultWorkDir.trim() || undefined,
             request_limit: useSettingsStore.getState().requestLimit,

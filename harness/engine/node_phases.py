@@ -55,6 +55,8 @@ def build_node_started_payload(
     tools: Any = None,
     attempt: int = 1,
     iteration: int = 1,
+    backend: str | None = None,
+    tools_resolved: list[dict] | None = None,
 ) -> dict:
     """Build the payload dict for a ``node.started`` event.
 
@@ -64,6 +66,17 @@ def build_node_started_payload(
     Frontend reads it to populate ``currentIterationByNode`` cache and stamp
     subsequent messages / todo steps. Defaults to 1 for backward compat with
     callers that haven't been updated.
+
+    Tool-resolution fields (added 2026-06-26 for frontend visibility):
+
+      - ``backend``: executor name (``"claude-code"`` / ``"pydantic-ai"`` /
+        future ``"opencode"`` ...). Surfaces next to agent name in UI.
+      - ``tools_resolved``: per-tool resolution info from
+        ``BaseExecutor.resolve_tools()``. Each entry: ``{declared, resolved,
+        source}``. Lets UI show ``bash → Bash (Claude built-in)`` etc.
+
+    Both are optional (omitted when caller doesn't pass them) — old event
+    consumers ignore unknown fields, so the change is fully additive.
     """
     payload: dict[str, Any] = {
         "workflow_id": workflow_id,
@@ -76,6 +89,10 @@ def build_node_started_payload(
     }
     if tools is not None:
         payload["tools"] = tools
+    if backend is not None:
+        payload["backend"] = backend
+    if tools_resolved:
+        payload["tools_resolved"] = tools_resolved
     return payload
 
 

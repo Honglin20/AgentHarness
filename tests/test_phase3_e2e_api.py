@@ -360,7 +360,10 @@ def test_node_completed_transitions_sidecar_to_completed(nas_runs_dir: Path):
 
     final = json.loads((runs_dir / f"{RUN_ID}+iters+scout+5.json").read_text())
     assert final["status"] == "completed"
-    assert final["streaming_text"] == ""  # cleared per D7
+    # v3 (ADR: single-source-streaming-state D2): streaming_text is NO LONGER
+    # cleared on finalize — preserved as the agent's natural-language stream
+    # so hydration can reverse-fill ConversationMessage on refresh.
+    assert final["streaming_text"] == "streaming before finalize"
     assert final["output_result"] == {"summary": "scout iter 5 done"}
     assert final["last_seq"] == 310
     assert final["ended_at"] is not None

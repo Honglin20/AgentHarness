@@ -1,0 +1,12 @@
+{
+  "name": "demo",
+  "agents": [
+    {
+      "name": "a",
+      "after": null,
+      "tools": null,
+      "model": null,
+      "retries": 3
+    }
+  ]
+}
