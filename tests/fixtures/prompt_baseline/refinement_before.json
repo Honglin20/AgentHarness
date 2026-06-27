@@ -44,5 +44,5 @@
   "task4_base_md_has_tool_selection_dup": false,
   "task5_runtime_has_iteration_block": false,
   "task6_deps_has_reminders_field": false,
-  "assembled_prompt_total_chars": 2314
+  "assembled_prompt_total_chars": 2043
 }

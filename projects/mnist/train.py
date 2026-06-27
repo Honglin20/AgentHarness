@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 import torch
+from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.datasets import load_digits
 from sklearn.model_selection import train_test_split
@@ -18,6 +19,40 @@ from sklearn.preprocessing import StandardScaler
 
 sys.path.insert(0, str(Path(__file__).parent))
 from model import ConfigurableMLP, count_parameters
+
+
+def _build_optimizer(name: str, params, lr: float, momentum: float, weight_decay: float):
+    name = name.lower()
+    if name == "adam":
+        return torch.optim.Adam(params, lr=lr, weight_decay=weight_decay)
+    elif name == "sgd":
+        return torch.optim.SGD(params, lr=lr, momentum=momentum, weight_decay=weight_decay)
+    elif name == "adamw":
+        return torch.optim.AdamW(params, lr=lr, weight_decay=weight_decay)
+    elif name == "rmsprop":
+        return torch.optim.RMSprop(params, lr=lr, momentum=momentum, weight_decay=weight_decay)
+    else:
+        raise ValueError(f"Unknown optimizer: {name}")
+
+
+def _build_scheduler(name: str, optimizer, epochs: int, steps_per_epoch: int):
+    name = name.lower()
+    if name == "none" or name == "":
+        return None
+    elif name == "steplr":
+        return torch.optim.lr_scheduler.StepLR(optimizer, step_size=max(1, epochs // 2), gamma=0.1)
+    elif name == "cosine":
+        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    elif name == "onecycle":
+        return torch.optim.lr_scheduler.OneCycleLR(
+            optimizer, max_lr=0.01, total_steps=epochs * steps_per_epoch
+        )
+    elif name == "plateau":
+        return torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", factor=0.5, patience=1
+        )
+    else:
+        raise ValueError(f"Unknown scheduler: {name}")
 
 
 def main():
@@ -33,6 +68,12 @@ def main():
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--optimizer", default="adam",
+                   choices=["adam", "sgd", "adamw", "rmsprop"])
+    p.add_argument("--scheduler", default="none",
+                   choices=["none", "steplr", "cosine", "onecycle", "plateau"])
+    p.add_argument("--momentum", type=float, default=0.9)
+    p.add_argument("--weight-decay", type=float, default=0.0)
     p.add_argument("--out", default="checkpoint.pt")
     p.add_argument("--metrics-out", default="train_metrics.json")
     args = p.parse_args()
@@ -65,7 +106,9 @@ def main():
         use_batchnorm=args.use_batchnorm,
     )
 
-    opt = torch.optim.Adam(model.parameters(), lr=args.lr)
+    opt = _build_optimizer(args.optimizer, model.parameters(), args.lr,
+                           args.momentum, args.weight_decay)
+    sched = _build_scheduler(args.scheduler, opt, args.epochs, len(train_loader))
     loss_fn = torch.nn.CrossEntropyLoss()
 
     train_losses = []
@@ -80,7 +123,22 @@ def main():
             loss.backward()
             opt.step()
             epoch_loss += loss.item()
-        train_losses.append(epoch_loss / len(train_loader))
+
+        # Step epoch-based schedulers
+        if sched is not None and isinstance(sched, (
+            torch.optim.lr_scheduler.StepLR,
+            torch.optim.lr_scheduler.CosineAnnealingLR,
+            torch.optim.lr_scheduler.OneCycleLR,
+        )):
+            sched.step()
+
+        # Plateau scheduler needs a metric
+        if isinstance(sched, torch.optim.lr_scheduler.ReduceLROnPlateau):
+            sched.step(epoch_loss / len(train_loader))
+
+        avg_loss = epoch_loss / len(train_loader)
+        train_losses.append(avg_loss)
+
     duration = time.perf_counter() - t0
 
     # Eval

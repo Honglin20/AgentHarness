@@ -374,20 +374,27 @@ class WorkflowRunner:
                 _todo_steps = dict(workflow._builder.todo_states) if workflow._builder else {}
                 data = repo.get(workflow_id)
 
-                if event_bus:
-                    conv_collector = ConversationCollector(event_bus)
-                    conv_collector.collect_from_buffer()
-                    conversation = conv_collector.get_messages()
-                    events = list(event_bus.buffer)
+                # Conversation: prefer sidecar rebuild (complete) over Bus
+                # buffer projection (FIFO-lossy on long runs). Fallback to
+                # collector only when no sidecars exist (legacy / setup-only).
+                from harness.persistence.conversation_rebuild import rebuild_conversation_from_sidecars
+                conversation = rebuild_conversation_from_sidecars(workflow_id, _agent_io)
+                if not conversation:
+                    if event_bus:
+                        conv_collector = ConversationCollector(event_bus)
+                        conv_collector.collect_from_buffer()
+                        conversation = conv_collector.get_messages()
+                    else:
+                        from harness.extensions.collectors import build_conversation as _build_conv
+                        conversation = _build_conv(_agent_io)
 
+                events = list(event_bus.buffer) if event_bus else []
+                if event_bus:
                     chart_collector = ChartCollector(event_bus)
                     chart_groups = chart_collector.get_chart_groups()
                     if not chart_groups.get("groupOrder"):
                         chart_groups = None
                 else:
-                    from harness.extensions.collectors import build_conversation as _build_conv
-                    conversation = _build_conv(_agent_io)
-                    events = []
                     chart_groups = None
 
                 get_run_store().save(
@@ -470,20 +477,27 @@ class WorkflowRunner:
                 _todo_steps = dict(workflow._builder.todo_states) if workflow._builder else {}
                 data = repo.get(workflow_id)
 
-                if event_bus:
-                    conv_collector = ConversationCollector(event_bus)
-                    conv_collector.collect_from_buffer()
-                    conversation = conv_collector.get_messages()
-                    events = list(event_bus.buffer)
+                # Conversation: prefer sidecar rebuild (complete) over Bus
+                # buffer projection (FIFO-lossy on long runs). Fallback to
+                # collector only when no sidecars exist (legacy / setup-only).
+                from harness.persistence.conversation_rebuild import rebuild_conversation_from_sidecars
+                conversation = rebuild_conversation_from_sidecars(workflow_id, _agent_io)
+                if not conversation:
+                    if event_bus:
+                        conv_collector = ConversationCollector(event_bus)
+                        conv_collector.collect_from_buffer()
+                        conversation = conv_collector.get_messages()
+                    else:
+                        from harness.extensions.collectors import build_conversation as _build_conv
+                        conversation = _build_conv(_agent_io)
 
+                events = list(event_bus.buffer) if event_bus else []
+                if event_bus:
                     chart_collector = ChartCollector(event_bus)
                     chart_groups = chart_collector.get_chart_groups()
                     if not chart_groups.get("groupOrder"):
                         chart_groups = None
                 else:
-                    from harness.extensions.collectors import build_conversation as _build_conv
-                    conversation = _build_conv(_agent_io)
-                    events = []
                     chart_groups = None
 
                 get_run_store().save(

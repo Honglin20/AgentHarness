@@ -26,6 +26,6 @@
     "filename_pattern": "<vid>/model.py",
     "how_entry_loads_it": "Overwrite projects/mnist/model.py with variant file before training run. Entry hardcodes 'from model import ConfigurableMLP', so variant file must export class ConfigurableMLP(nn.Module)."
   },
-  "directions": ["structural", "business", "hyperparam"],
+  "directions": ["structural", "hyperparam", "lr", "compute"],
   "wallclock_budget_sec": 36000
 }

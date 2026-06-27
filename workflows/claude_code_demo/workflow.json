@@ -1,0 +1,14 @@
+{
+  "name": "claude_code_demo",
+  "agents": [
+    {
+      "name": "greeter",
+      "after": [],
+      "tools": null,
+      "model": null,
+      "retries": 3,
+      "executor": "claude-code"
+    }
+  ],
+  "max_iterations": 3
+}

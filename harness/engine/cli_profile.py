@@ -36,6 +36,12 @@ PromptParadigm = Literal["pydantic-ai", "minimal"]
 PromptChannel = Literal["stdin", "argv"]
 
 
+#: Output stream format — controls how the executor parses stdout lines.
+#: ``"json"`` = stream-json (one JSON object per line, claude / codex / opencode).
+#: ``"text"`` = plain text lines accumulated as-is (minimal wrappers like ``ccr``).
+StreamFormat = Literal["json", "text"]
+
+
 @dataclass
 class CliSpawnConfig:
     """Generic spawn config produced by CliExecutorBase + consumed by run_cli.
@@ -120,6 +126,7 @@ class CliProfile:
     translator: Translator
     result_extractor: ResultExtractor
     default_timeout_s: float | None = None
+    stream_format: StreamFormat = "json"
 
     def resolve_cli_path(self) -> str:
         """Return the configured cli_path: env override > default.

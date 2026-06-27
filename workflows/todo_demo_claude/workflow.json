@@ -1,0 +1,13 @@
+{
+  "name": "todo_demo_claude",
+  "agents": [
+    {
+      "name": "planner_claude",
+      "after": [],
+      "executor": "claude-code",
+      "tools": [],
+      "model": null,
+      "retries": 2
+    }
+  ]
+}

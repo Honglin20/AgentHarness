@@ -809,7 +809,23 @@ class ClaudeCodeExecutor:
         )
 
     async def _handle_stdout_line(self, line: str, ctx: TranslateContext) -> None:
-        """每行 stdout: json parse → translate → emit + 抽取 usage/result/tool_calls。"""
+        """每行 stdout: json parse → translate → emit + 抽取 usage/result/tool_calls。
+
+        stream_format="text" 时跳过 JSON parse，直接累积文本 + emit text_delta。
+        """
+        if self._profile.stream_format == "text":
+            if self._final_result_text is None:
+                self._final_result_text = line
+            else:
+                self._final_result_text += "\n" + line
+            self._emit(TranslatedEvent(
+                type="agent.text_delta",
+                payload={"node_id": ctx.node_id, "agent_name": ctx.agent_name,
+                         "text": line, "partial": True},
+            ))
+            return
+
+        # JSON mode: existing behavior
         try:
             raw = json.loads(line)
         except json.JSONDecodeError:

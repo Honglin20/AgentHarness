@@ -1,0 +1,12 @@
+{
+  "name": "todo_demo",
+  "agents": [
+    {
+      "name": "planner",
+      "after": [],
+      "tools": [],
+      "model": null,
+      "retries": 2
+    }
+  ]
+}
