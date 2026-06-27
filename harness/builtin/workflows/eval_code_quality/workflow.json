@@ -1,0 +1,24 @@
+{
+  "name": "eval_code_quality",
+  "agents": [
+    {
+      "name": "coder",
+      "after": [],
+      "tools": [
+        "bash"
+      ],
+      "model": null,
+      "retries": 3,
+      "eval": true
+    },
+    {
+      "name": "reviewer",
+      "after": [
+        "coder"
+      ],
+      "tools": null,
+      "model": null,
+      "retries": 3
+    }
+  ]
+}

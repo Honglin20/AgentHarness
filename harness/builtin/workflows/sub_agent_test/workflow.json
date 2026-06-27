@@ -1,0 +1,12 @@
+{
+  "name": "sub_agent_test",
+  "agents": [
+    {
+      "name": "delegator",
+      "after": [],
+      "tools": ["sub_agent", "bash"],
+      "model": null,
+      "retries": 2
+    }
+  ]
+}

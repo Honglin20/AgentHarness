@@ -1,0 +1,36 @@
+{
+  "name": "eval_demo",
+  "agents": [
+    {
+      "name": "researcher",
+      "after": [],
+      "tools": [
+        "bash",
+        "web_search"
+      ],
+      "model": null,
+      "retries": 3
+    },
+    {
+      "name": "writer",
+      "after": [
+        "_judge_researcher"
+      ],
+      "tools": null,
+      "model": null,
+      "retries": 3
+    },
+    {
+      "name": "_judge_researcher",
+      "after": [
+        "researcher"
+      ],
+      "tools": null,
+      "model": null,
+      "retries": 3,
+      "on_pass": "writer",
+      "on_fail": "researcher",
+      "eval_target": "researcher"
+    }
+  ]
+}

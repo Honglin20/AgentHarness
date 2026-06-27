@@ -1,0 +1,47 @@
+{
+  "name": "deep_analysis",
+  "agents": [
+    {
+      "name": "researcher",
+      "after": [],
+      "tools": ["bash"],
+      "model": null,
+      "retries": 2
+    },
+    {
+      "name": "data_collector",
+      "after": [],
+      "tools": ["bash"],
+      "model": null,
+      "retries": 2
+    },
+    {
+      "name": "analyst",
+      "after": ["researcher", "data_collector"],
+      "tools": null,
+      "model": null,
+      "retries": 3
+    },
+    {
+      "name": "critic",
+      "after": ["analyst"],
+      "tools": null,
+      "model": null,
+      "retries": 2
+    },
+    {
+      "name": "writer",
+      "after": ["critic"],
+      "tools": ["bash"],
+      "model": null,
+      "retries": 2
+    },
+    {
+      "name": "editor",
+      "after": ["writer"],
+      "tools": null,
+      "model": null,
+      "retries": 2
+    }
+  ]
+}

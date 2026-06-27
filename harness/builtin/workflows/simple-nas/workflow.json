@@ -1,0 +1,830 @@
+{
+  "name": "simple-nas",
+  "agents": [
+    {
+      "name": "setup",
+      "after": [],
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "read_text_file",
+        "ask_user"
+      ],
+      "model": null,
+      "retries": 2,
+      "result_type_name": "SetupResult",
+      "result_type_schema": {
+        "description": "setup output. Confirms necessary elements to run NAS, not a hardcoded interface. Includes user-selected active_directions (subset of all 4 directions).",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "setup_path": {
+            "description": "<session_dir>/setup.json (C-SETUP contract)",
+            "title": "Setup Path",
+            "type": "string"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "entry": {
+            "description": "Training entry file",
+            "title": "Entry",
+            "type": "string"
+          },
+          "baseline_model_file": {
+            "title": "Baseline Model File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "setup_path",
+          "ready",
+          "entry",
+          "baseline_model_file"
+        ],
+        "title": "SetupResult",
+        "type": "object"
+      },
+      "executor": "claude-code"
+    },
+    {
+      "name": "baseline",
+      "after": [
+        "setup"
+      ],
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "read_text_file"
+      ],
+      "model": null,
+      "retries": 2,
+      "result_type_name": "BaselineResult",
+      "result_type_schema": {
+        "description": "baseline output. Runs original training once, freezes baseline + understanding, writes v0 root.",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "baseline_path": {
+            "description": "<session_dir>/baseline.json (C-BASELINE)",
+            "title": "Baseline Path",
+            "type": "string"
+          },
+          "understanding_path": {
+            "description": "<session_dir>/baseline_understanding.md",
+            "title": "Understanding Path",
+            "type": "string"
+          },
+          "tree_path": {
+            "description": "<session_dir>/tree.json (v0 root written)",
+            "title": "Tree Path",
+            "type": "string"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "v0_metrics": {
+            "description": "Baseline metrics from real training",
+            "title": "V0 Metrics",
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "summary",
+          "baseline_path",
+          "understanding_path",
+          "tree_path",
+          "ok"
+        ],
+        "title": "BaselineResult",
+        "type": "object"
+      },
+      "executor": "claude-code"
+    },
+    {
+      "name": "selector",
+      "after": [
+        "baseline"
+      ],
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "read_text_file"
+      ],
+      "model": null,
+      "retries": 2,
+      "result_type_name": "SelectorResult",
+      "result_type_schema": {
+        "description": "selector output. Picks parent (greedy best promising) AND declares active_directions (pass-through from setup.json, NOT a per-iter single assignment).",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "iter_num": {
+            "title": "Iter Num",
+            "type": "integer"
+          },
+          "parent_id": {
+            "title": "Parent Id",
+            "type": "string"
+          },
+          "active_directions": {
+            "description": "Subset of [structural, hyperparam, lr, compute] that the user picked at setup; passed through unchanged every iter",
+            "items": {
+              "type": "string"
+            },
+            "title": "Active Directions",
+            "type": "array"
+          },
+          "selection_path": {
+            "description": "<session_dir>/iter_<N>/selection.json (necessary info for all mutators)",
+            "title": "Selection Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "iter_num",
+          "parent_id",
+          "active_directions",
+          "selection_path"
+        ],
+        "title": "SelectorResult",
+        "type": "object"
+      },
+      "executor": "claude-code"
+    },
+    {
+      "name": "mutator_structural",
+      "after": [
+        "selector"
+      ],
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "read_text_file",
+        "sub_agent"
+      ],
+      "model": null,
+      "retries": 2,
+      "result_type_name": "MutatorStructuralResult",
+      "result_type_schema": {
+        "description": "mutator_structural output. Guard: if 'structural' not in active_directions, return skipped=true with null fields, no variant dir created. Otherwise: replace core operators/blocks (no lazy compression). May issue K sub_agents in parallel for same-direction sub-strategies.",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "vid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Variant ID (e.g. 'v3'); null when skipped"
+          },
+          "iter_num": {
+            "title": "Iter Num",
+            "type": "integer"
+          },
+          "parent_id": {
+            "title": "Parent Id",
+            "type": "string"
+          },
+          "direction": {
+            "description": "Always 'structural' (set even when skipped — guards the audit trail)",
+            "title": "Direction",
+            "type": "string"
+          },
+          "model_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "<variant_dir>/model.py; null when skipped"
+          },
+          "status_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "<variant_dir>/status.json; null when skipped"
+          },
+          "metrics": {
+            "description": "Real metrics from metrics.json; empty {} when skipped or failed",
+            "title": "Metrics",
+            "type": "object",
+            "additionalProperties": true
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "ok": {
+            "description": "True iff status.json ok=true (file evidence); false when skipped or training failed",
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "skipped": {
+            "description": "True iff 'structural' not in active_directions (guard short-circuit)",
+            "title": "Skipped",
+            "type": "boolean"
+          },
+          "variant_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "<session_dir>/variants/<vid>; null when skipped"
+          }
+        },
+        "required": [
+          "summary",
+          "vid",
+          "iter_num",
+          "parent_id",
+          "direction",
+          "status_path",
+          "ok",
+          "skipped",
+          "variant_dir"
+        ],
+        "title": "MutatorStructuralResult",
+        "type": "object"
+      },
+      "executor": "claude-code"
+    },
+    {
+      "name": "mutator_hyperparam",
+      "after": [
+        "selector"
+      ],
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "read_text_file",
+        "sub_agent"
+      ],
+      "model": null,
+      "retries": 2,
+      "result_type_name": "MutatorHyperparamResult",
+      "result_type_schema": {
+        "description": "mutator_hyperparam output. Guard: if 'hyperparam' not in active_directions, return skipped=true. Otherwise: do NOT touch model.py (copy parent's); vary batch_size / optimizer_type / scheduler / epochs. May issue K sub_agents in parallel.",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "vid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Variant ID; null when skipped"
+          },
+          "iter_num": {
+            "title": "Iter Num",
+            "type": "integer"
+          },
+          "parent_id": {
+            "title": "Parent Id",
+            "type": "string"
+          },
+          "direction": {
+            "description": "Always 'hyperparam' (set even when skipped)",
+            "title": "Direction",
+            "type": "string"
+          },
+          "model_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Copy of parent model; null when skipped"
+          },
+          "status_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "<variant_dir>/status.json; null when skipped"
+          },
+          "metrics": {
+            "description": "Real metrics; empty {} when skipped or failed",
+            "title": "Metrics",
+            "type": "object",
+            "additionalProperties": true
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "ok": {
+            "description": "True iff status.json ok=true; false when skipped or training failed",
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "skipped": {
+            "description": "True iff 'hyperparam' not in active_directions",
+            "title": "Skipped",
+            "type": "boolean"
+          },
+          "variant_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "<session_dir>/variants/<vid>; null when skipped"
+          }
+        },
+        "required": [
+          "summary",
+          "vid",
+          "iter_num",
+          "parent_id",
+          "direction",
+          "status_path",
+          "ok",
+          "skipped",
+          "variant_dir"
+        ],
+        "title": "MutatorHyperparamResult",
+        "type": "object"
+      },
+      "executor": "claude-code"
+    },
+    {
+      "name": "mutator_lr",
+      "after": [
+        "selector"
+      ],
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "read_text_file",
+        "sub_agent"
+      ],
+      "model": null,
+      "retries": 2,
+      "result_type_name": "MutatorLrResult",
+      "result_type_schema": {
+        "description": "mutator_lr output. Guard: if 'lr' not in active_directions, return skipped=true. Otherwise: focus on lr / lr_scheduler / warmup_steps / weight_decay. May issue K sub_agents in parallel.",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "vid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Variant ID; null when skipped"
+          },
+          "iter_num": {
+            "title": "Iter Num",
+            "type": "integer"
+          },
+          "parent_id": {
+            "title": "Parent Id",
+            "type": "string"
+          },
+          "direction": {
+            "description": "Always 'lr' (set even when skipped)",
+            "title": "Direction",
+            "type": "string"
+          },
+          "model_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Copy of parent model; null when skipped"
+          },
+          "status_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "<variant_dir>/status.json; null when skipped"
+          },
+          "metrics": {
+            "description": "Real metrics; empty {} when skipped or failed",
+            "title": "Metrics",
+            "type": "object",
+            "additionalProperties": true
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "ok": {
+            "description": "True iff status.json ok=true; false when skipped or training failed",
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "skipped": {
+            "description": "True iff 'lr' not in active_directions",
+            "title": "Skipped",
+            "type": "boolean"
+          },
+          "variant_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "<session_dir>/variants/<vid>; null when skipped"
+          }
+        },
+        "required": [
+          "summary",
+          "vid",
+          "iter_num",
+          "parent_id",
+          "direction",
+          "status_path",
+          "ok",
+          "skipped",
+          "variant_dir"
+        ],
+        "title": "MutatorLrResult",
+        "type": "object"
+      },
+      "executor": "claude-code"
+    },
+    {
+      "name": "mutator_compute",
+      "after": [
+        "selector"
+      ],
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "read_text_file",
+        "sub_agent"
+      ],
+      "model": null,
+      "retries": 2,
+      "result_type_name": "MutatorComputeResult",
+      "result_type_schema": {
+        "description": "mutator_compute output. Guard: if 'compute' not in active_directions, return skipped=true. Otherwise: modify compute logic — loss in forward / data augmentation / mixup / label smoothing. May issue K sub_agents in parallel.",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "vid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Variant ID; null when skipped"
+          },
+          "iter_num": {
+            "title": "Iter Num",
+            "type": "integer"
+          },
+          "parent_id": {
+            "title": "Parent Id",
+            "type": "string"
+          },
+          "direction": {
+            "description": "Always 'compute' (set even when skipped)",
+            "title": "Direction",
+            "type": "string"
+          },
+          "model_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Variant model with new compute logic; null when skipped"
+          },
+          "status_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "<variant_dir>/status.json; null when skipped"
+          },
+          "metrics": {
+            "description": "Real metrics; empty {} when skipped or failed",
+            "title": "Metrics",
+            "type": "object",
+            "additionalProperties": true
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "ok": {
+            "description": "True iff status.json ok=true; false when skipped or training failed",
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "skipped": {
+            "description": "True iff 'compute' not in active_directions",
+            "title": "Skipped",
+            "type": "boolean"
+          },
+          "variant_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "<session_dir>/variants/<vid>; null when skipped"
+          }
+        },
+        "required": [
+          "summary",
+          "vid",
+          "iter_num",
+          "parent_id",
+          "direction",
+          "status_path",
+          "ok",
+          "skipped",
+          "variant_dir"
+        ],
+        "title": "MutatorComputeResult",
+        "type": "object"
+      },
+      "executor": "claude-code"
+    },
+    {
+      "name": "analyzer",
+      "after": [
+        "mutator_structural",
+        "mutator_hyperparam",
+        "mutator_lr",
+        "mutator_compute"
+      ],
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "read_text_file"
+      ],
+      "model": null,
+      "retries": 2,
+      "on_pass": "reporter",
+      "on_fail": "selector",
+      "result_type_name": "AnalyzerResult",
+      "result_type_schema": {
+        "description": "analyzer output. Fan-in: receives 4 mutator outputs, filters skipped=true, evaluates remaining active results serially (updates tree.json). Decision: any target_met → pass; all over_budget → pass; otherwise → fail (cycle).",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "iter_num": {
+            "title": "Iter Num",
+            "type": "integer"
+          },
+          "vid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Representative variant ID this iter (best promising among active); null if all skipped or all failed"
+          },
+          "evaluated_directions": {
+            "description": "Directions actually evaluated this iter (active mutators only, skipped excluded)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Evaluated Directions",
+            "type": "array"
+          },
+          "promising": {
+            "title": "Promising",
+            "type": "boolean"
+          },
+          "target_met": {
+            "description": "True iff ANY active direction hit target this iter",
+            "title": "Target Met",
+            "type": "boolean"
+          },
+          "over_budget": {
+            "description": "True iff wallclock budget exhausted (forces terminate regardless of convergence)",
+            "title": "Over Budget",
+            "type": "boolean"
+          },
+          "decision": {
+            "enum": [
+              "pass",
+              "fail"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "next_best_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Best Id"
+          }
+        },
+        "required": [
+          "summary",
+          "iter_num",
+          "vid",
+          "evaluated_directions",
+          "promising",
+          "target_met",
+          "over_budget",
+          "decision",
+          "reason"
+        ],
+        "title": "AnalyzerResult",
+        "type": "object"
+      },
+      "executor": "claude-code"
+    },
+    {
+      "name": "reporter",
+      "after": null,
+      "tools": [
+        "bash",
+        "grep",
+        "glob",
+        "read_text_file",
+        "render_chart"
+      ],
+      "model": null,
+      "retries": 2,
+      "result_type_name": "ReporterResult",
+      "result_type_schema": {
+        "description": "reporter output. Reached only via analyzer decision=pass (target-met or over-budget).",
+        "properties": {
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "达标成功",
+              "部分成功",
+              "未达标收尾"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "recommended_vid": {
+            "title": "Recommended Vid",
+            "type": "string"
+          },
+          "target_met": {
+            "title": "Target Met",
+            "type": "boolean"
+          },
+          "report_path": {
+            "title": "Report Path",
+            "type": "string"
+          },
+          "total_iters": {
+            "title": "Total Iters",
+            "type": "integer"
+          },
+          "total_variants": {
+            "title": "Total Variants",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "summary",
+          "outcome",
+          "recommended_vid",
+          "target_met",
+          "report_path",
+          "total_iters",
+          "total_variants"
+        ],
+        "title": "ReporterResult",
+        "type": "object"
+      },
+      "executor": "claude-code"
+    }
+  ],
+  "max_iterations": 1000
+}
