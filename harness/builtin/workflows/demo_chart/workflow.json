@@ -1,0 +1,12 @@
+{
+  "name": "demo_chart",
+  "agents": [
+    {
+      "name": "analyst",
+      "after": [],
+      "tools": ["render_chart"],
+      "model": null,
+      "retries": 3
+    }
+  ]
+}

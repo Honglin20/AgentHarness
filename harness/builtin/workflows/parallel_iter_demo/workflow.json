@@ -1,0 +1,108 @@
+{
+  "name": "parallel_iter_demo",
+  "agents": [
+    {
+      "name": "decomposer",
+      "after": [],
+      "tools": ["bash"],
+      "model": null,
+      "retries": 2
+    },
+    {
+      "name": "scout_a",
+      "after": ["decomposer"],
+      "tools": ["bash"],
+      "model": null,
+      "retries": 2
+    },
+    {
+      "name": "scout_b",
+      "after": ["decomposer"],
+      "tools": ["bash"],
+      "model": null,
+      "retries": 2
+    },
+    {
+      "name": "aggregator",
+      "after": ["scout_a", "scout_b"],
+      "tools": ["bash"],
+      "model": null,
+      "retries": 2
+    },
+    {
+      "name": "selector",
+      "after": ["aggregator"],
+      "tools": ["bash"],
+      "model": null,
+      "retries": 2
+    },
+    {
+      "name": "generator",
+      "after": ["selector"],
+      "tools": ["sub_agent", "bash"],
+      "model": null,
+      "retries": 2
+    },
+    {
+      "name": "judger",
+      "after": ["generator"],
+      "tools": ["bash"],
+      "model": null,
+      "retries": 2
+    },
+    {
+      "name": "analyzer",
+      "after": ["judger"],
+      "tools": ["bash"],
+      "model": null,
+      "retries": 2
+    },
+    {
+      "name": "validator",
+      "after": ["analyzer"],
+      "tools": ["bash"],
+      "model": null,
+      "retries": 2,
+      "on_pass": "reporter",
+      "on_fail": "selector",
+      "result_type_name": "ValidatorResult",
+      "result_type_schema": {
+        "title": "ValidatorResult",
+        "description": "validator agent output. Pure decision (pass/fail); framework routes accordingly. iter_num<2 强制 fail 以保证至少迭代 2 轮。",
+        "type": "object",
+        "properties": {
+          "decision": {
+            "title": "Decision",
+            "type": "string",
+            "enum": ["pass", "fail"]
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "target_met": {
+            "title": "Target Met",
+            "type": "boolean"
+          },
+          "iter_num": {
+            "title": "Iter Num",
+            "type": "integer"
+          }
+        },
+        "required": ["decision", "reason", "summary", "target_met", "iter_num"]
+      }
+    },
+    {
+      "name": "reporter",
+      "after": null,
+      "tools": ["bash"],
+      "model": null,
+      "retries": 2
+    }
+  ],
+  "max_iterations": 3
+}

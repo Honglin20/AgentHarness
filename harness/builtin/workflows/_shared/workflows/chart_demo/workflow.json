@@ -1,0 +1,14 @@
+{
+  "name": "chart_demo",
+  "agents": [
+    {
+      "name": "runner",
+      "after": [],
+      "tools": [
+        "bash"
+      ],
+      "model": null,
+      "retries": 3
+    }
+  ]
+}

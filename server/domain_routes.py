@@ -41,6 +41,11 @@ async def get_tutorial(domain_id: str, tutorial_id: str, request: Request) -> di
         wf_path = Path(_WORKFLOWS_DIR) / wf_stem / "workflow.json"
         if not wf_path.exists():
             wf_path = Path(_WORKFLOWS_DIR) / wf_name / "workflow.json"
+        # Builtin fallback — tutorials resolve even when project_root has no
+        # matching workflow/ (e.g. pip install in a foreign directory).
+        if not wf_path.exists():
+            from harness.registry import get_registry
+            wf_path = get_registry().builtin_dir / "workflows" / wf_stem / "workflow.json"
         if wf_path.exists():
             wf_data = json.loads(wf_path.read_text(encoding="utf-8"))
             # workflow.json may not have a dag field — compute from agent deps

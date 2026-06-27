@@ -1,0 +1,35 @@
+{
+  "name": "eval_code_quality",
+  "agents": [
+    {
+      "name": "coder",
+      "after": [],
+      "tools": [
+        "bash"
+      ],
+      "model": null,
+      "retries": 3
+    },
+    {
+      "name": "reviewer",
+      "after": [
+        "_judge_coder"
+      ],
+      "tools": null,
+      "model": null,
+      "retries": 3
+    },
+    {
+      "name": "_judge_coder",
+      "after": [
+        "coder"
+      ],
+      "tools": null,
+      "model": null,
+      "retries": 3,
+      "on_pass": "reviewer",
+      "on_fail": "coder",
+      "eval_target": "coder"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "name": "coder_review_loop",
+  "agents": [
+    {
+      "name": "coder",
+      "after": [],
+      "tools": [
+        "bash"
+      ],
+      "model": null,
+      "retries": 3
+    },
+    {
+      "name": "reviewer_agent",
+      "after": [
+        "coder"
+      ],
+      "tools": [
+        "sub_agent"
+      ],
+      "model": null,
+      "retries": 3
+    }
+  ]
+}
