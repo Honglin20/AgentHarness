@@ -123,6 +123,7 @@ def _save_incremental(
                 duration_ms=duration_ms,
                 status=status,
                 streaming_state=streaming_state,
+                dispatch_info=(builder._node_dispatch_info or {}).get(node_id),
             )
             # R3 (ADR §R3): route sidecar write through save_iter_sidecar_safe —
             # atomic + verify + retry + log loud + don't raise. Index update
@@ -354,6 +355,7 @@ def _build_iter_data(
     duration_ms: int | None,
     status: str,
     streaming_state: dict | None = None,
+    dispatch_info: dict | None = None,
 ) -> dict:
     """Construct the per-iter sidecar payload from builder state.
 
@@ -371,6 +373,11 @@ def _build_iter_data(
             ``schema_version`` / ``streaming_text`` / ``thinking`` /
             ``tool_streaming_outputs`` / ``last_seq`` / ``output_result`` /
             ``error``. When None (legacy callers / tests), output stays v2.
+        dispatch_info: v3.1 NEW. ``builder._node_dispatch_info[node_id]`` —
+            carries ``backend`` (executor name) + ``tools_resolved`` (list
+            of {declared, resolved, source}). Persisted so the frontend
+            can render the backend badge + tool mapping during REPLAY
+            (not just live WS). None on old in-flight runs.
 
     Returns:
         Dict shaped per ``schemas/iter_sidecar.v3.schema.json`` when
@@ -429,6 +436,14 @@ def _build_iter_data(
         # output_result is the v3 canonical name; output remains as legacy alias.
         data["output_result"] = output_result
         data["error"] = None
+
+    # Dispatch info (backend + tools_resolved). Persisted so frontend can
+    # render the backend badge + tool mapping during REPLAY, not just live.
+    # None on old in-flight runs built before this field was added — UI
+    # degrades gracefully (no badge shown, just declared tool names).
+    if dispatch_info is not None:
+        data["backend"] = dispatch_info.get("backend")
+        data["tools_resolved"] = dispatch_info.get("tools_resolved")
 
     return data
 

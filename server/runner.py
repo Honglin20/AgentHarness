@@ -85,10 +85,21 @@ def _build_agents_snapshot(workflow) -> list[dict]:
             "on_fail": agent_def.on_fail,
             "eval": agent_def.eval if eval_target is None else True,
         }
-        # executor 仅在非默认值时写（与 Agent.to_dict 行为一致），保证旧 snapshot
-        # 自动兼容；reconstruct 时 Agent.from_dict 缺省读 DEFAULT_EXECUTOR。
-        if getattr(agent_def, "executor", "pydantic-ai") != "pydantic-ai":
-            snap["executor"] = agent_def.executor
+        # executor + dispatch info (backend / tools_resolved). Always emit
+        # backend + tools_resolved so the replay path can render the badge
+        # even for old runs (computed deterministically from agent_def —
+        # no need to wait for iter sidecar). executor field stays opt-in
+        # (only non-default) for back-compat with Agent.from_dict readers.
+        backend = getattr(agent_def, "executor", "pydantic-ai")
+        if backend != "pydantic-ai":
+            snap["executor"] = backend
+        from harness.engine.tool_resolution import resolve_tools_for_backend
+        snap["backend"] = backend
+        snap["tools_resolved"] = [
+            r.to_dict() for r in resolve_tools_for_backend(
+                list(agent_def.tools or []), backend,
+            )
+        ]
         if agent_def.result_type is not None:
             from harness.schema_utils import result_type_to_schema
 

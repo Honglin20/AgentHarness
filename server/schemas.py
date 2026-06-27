@@ -72,6 +72,18 @@ class HealthResponse(BaseModel):
     status: str = "ok"
 
 
+class ToolResolutionEntry(BaseModel):
+    """How one declared tool name resolves for the active backend.
+
+    Mirrors harness.engine.tool_resolution.ToolResolution. Persisted in
+    agents_snapshot so the frontend ToolsBadge can render the backend
+    badge + tool mapping during REPLAY (not just live WS).
+    """
+    declared: str
+    resolved: str
+    source: str
+
+
 class AgentSnapshot(BaseModel):
     """Snapshot of an agent definition at run time."""
     name: str
@@ -85,6 +97,14 @@ class AgentSnapshot(BaseModel):
     eval: bool = False
     result_type_name: str | None = None
     result_type_schema: dict[str, Any] | None = None
+    # Executor info — added 2026-06-27 for replay-time UI transparency.
+    # All optional so old persisted snapshots (pre-this-change) still parse.
+    # `executor` is the legacy field name (only written when non-default);
+    # `backend` is the new canonical field (always written by current code).
+    # Frontend reads backend ?? executor to handle both shapes.
+    executor: str | None = None
+    backend: str | None = None
+    tools_resolved: list[ToolResolutionEntry] | None = None
 
 
 class RunDetail(BaseModel):

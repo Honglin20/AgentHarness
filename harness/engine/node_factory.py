@@ -192,6 +192,15 @@ def make_node_func(
                 ]
             else:
                 emit_tool_info = tool_info
+            # Stash on builder so _save_incremental can persist into iter
+            # sidecar — WS event is ephemeral; replay/hydration reads from
+            # disk sidecar. Keyed by node_id (same across iters).
+            if not hasattr(builder_self, "_node_dispatch_info"):
+                builder_self._node_dispatch_info = {}
+            builder_self._node_dispatch_info[agent_def.name] = {
+                "backend": backend,
+                "tools_resolved": tools_resolved or None,
+            }
             safe_emit(bus, "node.started", build_node_started_payload(
                 builder_self.workflow_id, agent_def.name, agent_def.name,
                 model=model, tools=emit_tool_info, iteration=current_invocation,

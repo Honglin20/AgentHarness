@@ -213,7 +213,16 @@ interface PersistedRunData {
     }>;
   } | null;
   chart_groups: { groups: Record<string, any>; groupOrder: string[] } | null;
-  agents_snapshot?: Array<{ name: string; model: string | null; tools: string[] | null }>;
+  agents_snapshot?: Array<{
+    name: string;
+    model: string | null;
+    tools: string[] | null;
+    /** Executor name. Some backends omit when default ('pydantic-ai'). */
+    executor?: string;
+    /** v3.1 NEW — explicit backend + per-tool resolution. Absent on old runs. */
+    backend?: string;
+    tools_resolved?: Array<{ declared: string; resolved: string; source: string }>;
+  }>;
   workflow_name?: string;
   followup_sessions?: Record<string, { messages: Array<{ role: string; content: string; timestamp?: number }>; turn_count?: number }>;
   todo_steps?: Record<string, Array<{
@@ -239,10 +248,24 @@ export function loadRunFromPersistedData(
 
   // -- 1. workflowStore ----------------------------------------------------
 
-  const agentLookup = new Map<string, { model: string | null; tools: string[] | null }>();
+  // agentLookup carries declared tools + executor + resolved tools so the
+  // replay build can populate NodeState.backend / .toolsResolved — without
+  // these, the ToolsBadge in completed/replay workflows shows no badge and
+  // bare declared names (no "bash → Bash [Claude built-in]" mapping).
+  const agentLookup = new Map<string, {
+    model: string | null;
+    tools: string[] | null;
+    backend?: string;
+    toolsResolved?: { declared: string; resolved: string; source: string }[];
+  }>();
   if (run.agents_snapshot) {
     for (const a of run.agents_snapshot) {
-      agentLookup.set(a.name, { model: a.model ?? null, tools: a.tools ?? null });
+      agentLookup.set(a.name, {
+        model: a.model ?? null,
+        tools: a.tools ?? null,
+        backend: a.backend ?? a.executor,
+        toolsResolved: a.tools_resolved,
+      });
     }
   }
 
@@ -259,6 +282,9 @@ export function loadRunFromPersistedData(
         tokenUsage: t.token_usage ?? undefined,
         model: info?.model ?? undefined,
         tools: info?.tools?.map((n) => ({ name: n, description: "" })) ?? undefined,
+        // Persisted dispatch info — drives ToolsBadge during replay.
+        backend: info?.backend,
+        toolsResolved: info?.toolsResolved,
         costUsd: t.cost_usd ?? undefined,
         ttftMs: t.ttft_ms ?? undefined,
       };
