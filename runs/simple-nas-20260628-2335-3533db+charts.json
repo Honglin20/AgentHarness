@@ -1,0 +1,1470 @@
+{
+  "groups": {
+    "pareto_frontier": {
+      "label": "pareto_frontier",
+      "collapsed": false,
+      "category": null,
+      "charts": {
+        "Pareto Frontier — psnr vs Latency (baseline + frontier + variants)": {
+          "chart_type": "pareto",
+          "data": [
+            {
+              "vid": "v0",
+              "direction": "baseline",
+              "point_type": "variant",
+              "psnr": 24.9,
+              "latency_ms": 1.3468,
+              "params": 181865
+            },
+            {
+              "vid": "structural_0",
+              "direction": "structural",
+              "point_type": "variant",
+              "psnr": 27.0,
+              "latency_ms": 1.4,
+              "params": 167887
+            },
+            {
+              "vid": "hyperparam_0",
+              "direction": "hyperparam",
+              "point_type": "variant",
+              "psnr": 21.79,
+              "latency_ms": 1.3468,
+              "params": 181865
+            },
+            {
+              "vid": "sota_0",
+              "direction": "sota",
+              "point_type": "variant",
+              "psnr": 36.4,
+              "latency_ms": 9.9992,
+              "params": 187265
+            },
+            {
+              "vid": "structural_1",
+              "direction": "structural",
+              "point_type": "variant",
+              "psnr": 29.28,
+              "latency_ms": 0.415,
+              "params": 105236
+            },
+            {
+              "vid": "hyperparam_1",
+              "direction": "hyperparam",
+              "point_type": "variant",
+              "psnr": 28.59,
+              "latency_ms": 0.76,
+              "params": 167887
+            },
+            {
+              "vid": "sota_1",
+              "direction": "sota",
+              "point_type": "variant",
+              "psnr": 22.84,
+              "latency_ms": 19.79,
+              "params": 163228
+            },
+            {
+              "vid": "structural_2",
+              "direction": "structural",
+              "point_type": "variant",
+              "psnr": 26.91,
+              "latency_ms": 0.807,
+              "params": 23191
+            },
+            {
+              "vid": "hyperparam_2",
+              "direction": "hyperparam",
+              "point_type": "variant",
+              "psnr": 31.16,
+              "latency_ms": 0.519,
+              "params": 105236
+            },
+            {
+              "vid": "sota_2",
+              "direction": "sota",
+              "point_type": "variant",
+              "psnr": 22.91,
+              "latency_ms": 1.0804,
+              "params": 242183
+            },
+            {
+              "vid": "structural_3",
+              "direction": "structural",
+              "point_type": "variant",
+              "psnr": 28.82,
+              "latency_ms": 0.5279,
+              "params": 103926
+            },
+            {
+              "vid": "hyperparam_3",
+              "direction": "hyperparam",
+              "point_type": "variant",
+              "psnr": 30.27,
+              "latency_ms": 0.4891,
+              "params": 105236
+            },
+            {
+              "vid": "sota_3",
+              "direction": "sota",
+              "point_type": "variant",
+              "psnr": 29.45,
+              "latency_ms": 0.553,
+              "params": 61859
+            },
+            {
+              "vid": "structural_4",
+              "direction": "structural",
+              "point_type": "variant",
+              "psnr": 29.15,
+              "latency_ms": 0.475,
+              "params": 109060
+            },
+            {
+              "vid": "hyperparam_4",
+              "direction": "hyperparam",
+              "point_type": "variant",
+              "psnr": 31.16,
+              "latency_ms": 0.4826,
+              "params": 105236
+            },
+            {
+              "vid": "sota_4",
+              "direction": "sota",
+              "point_type": "variant",
+              "psnr": 28.68,
+              "latency_ms": 0.598,
+              "params": 49802
+            },
+            {
+              "vid": "structural_5",
+              "direction": "structural",
+              "point_type": "variant",
+              "psnr": 31.35,
+              "latency_ms": 0.5114,
+              "params": 100100
+            },
+            {
+              "vid": "hyperparam_5",
+              "direction": "hyperparam",
+              "point_type": "variant",
+              "psnr": 31.15,
+              "latency_ms": 0.464,
+              "params": 105236
+            },
+            {
+              "vid": "sota_5",
+              "direction": "sota",
+              "point_type": "variant",
+              "psnr": 31.04,
+              "latency_ms": 0.711,
+              "params": 109396
+            },
+            {
+              "vid": "structural_6",
+              "direction": "structural",
+              "point_type": "variant",
+              "psnr": 29.16,
+              "latency_ms": 0.4936,
+              "params": 98256
+            },
+            {
+              "vid": "hyperparam_6",
+              "direction": "hyperparam",
+              "point_type": "variant",
+              "psnr": 31.2,
+              "latency_ms": 0.5209,
+              "params": 105236
+            },
+            {
+              "vid": "sota_6",
+              "direction": "sota",
+              "point_type": "variant",
+              "psnr": 30.79,
+              "latency_ms": 0.564,
+              "params": 54490
+            },
+            {
+              "vid": "structural_7",
+              "direction": "structural",
+              "point_type": "variant",
+              "psnr": 29.61,
+              "latency_ms": 0.564,
+              "params": 97220
+            },
+            {
+              "vid": "hyperparam_7",
+              "direction": "hyperparam",
+              "point_type": "variant",
+              "psnr": 31.45,
+              "latency_ms": 0.449,
+              "params": 105236
+            },
+            {
+              "vid": "sota_7",
+              "direction": "sota",
+              "point_type": "variant",
+              "psnr": 29.78,
+              "latency_ms": 1.6032,
+              "params": 85454
+            },
+            {
+              "vid": "structural_8",
+              "direction": "structural",
+              "point_type": "variant",
+              "psnr": 29.25,
+              "latency_ms": 0.486,
+              "params": 98368
+            },
+            {
+              "vid": "hyperparam_8c",
+              "direction": "hyperparam",
+              "point_type": "variant",
+              "psnr": 32.23,
+              "latency_ms": 0.5045,
+              "params": 105236
+            },
+            {
+              "vid": "sota_8",
+              "direction": "sota",
+              "point_type": "variant",
+              "psnr": 30.42,
+              "latency_ms": 0.4075,
+              "params": 47232
+            },
+            {
+              "vid": "structural_9",
+              "direction": "structural",
+              "point_type": "variant",
+              "psnr": 27.23,
+              "latency_ms": 0.4701,
+              "params": 47489
+            },
+            {
+              "vid": "hyperparam_9",
+              "direction": "hyperparam",
+              "point_type": "variant",
+              "psnr": 31.36,
+              "latency_ms": 0.454,
+              "params": 47232
+            },
+            {
+              "vid": "sota_9",
+              "direction": "sota",
+              "point_type": "variant",
+              "psnr": 29.55,
+              "latency_ms": 0.4267,
+              "params": 69036
+            },
+            {
+              "vid": "structural_10",
+              "direction": "structural",
+              "point_type": "variant",
+              "psnr": 31.84,
+              "latency_ms": 0.4447,
+              "params": 47244
+            },
+            {
+              "vid": "hyperparam_10",
+              "direction": "hyperparam",
+              "point_type": "variant",
+              "psnr": 27.08,
+              "latency_ms": 0.4289,
+              "params": 47232
+            },
+            {
+              "vid": "sota_10",
+              "direction": "sota",
+              "point_type": "variant",
+              "psnr": 29.7,
+              "latency_ms": 0.4478,
+              "params": 29460
+            },
+            {
+              "vid": "v0 (baseline)",
+              "direction": "baseline",
+              "point_type": "baseline",
+              "psnr": 24.9,
+              "latency_ms": 1.3468,
+              "params": 181865
+            }
+          ],
+          "columns": [
+            "vid",
+            "direction",
+            "point_type",
+            "psnr",
+            "latency_ms",
+            "params"
+          ],
+          "x": "latency_ms",
+          "y": "psnr",
+          "label": "pareto_frontier",
+          "title": "Pareto Frontier — psnr vs Latency (baseline + frontier + variants)",
+          "hue": "point_type",
+          "pareto_direction": "max",
+          "pareto_x_direction": "min",
+          "pareto_y_direction": "max"
+        }
+      },
+      "table": null
+    },
+    "latency_bubble": {
+      "label": "latency_bubble",
+      "collapsed": false,
+      "category": null,
+      "charts": {
+        "Latency vs psnr (bubble size = parameters)": {
+          "chart_type": "bubble",
+          "data": [
+            {
+              "vid": "v0",
+              "direction": "baseline",
+              "psnr": 24.9,
+              "latency_ms": 1.3468,
+              "params": 181865
+            },
+            {
+              "vid": "structural_0",
+              "direction": "structural",
+              "psnr": 27.0,
+              "latency_ms": 1.4,
+              "params": 167887
+            },
+            {
+              "vid": "hyperparam_0",
+              "direction": "hyperparam",
+              "psnr": 21.79,
+              "latency_ms": 1.3468,
+              "params": 181865
+            },
+            {
+              "vid": "sota_0",
+              "direction": "sota",
+              "psnr": 36.4,
+              "latency_ms": 9.9992,
+              "params": 187265
+            },
+            {
+              "vid": "structural_1",
+              "direction": "structural",
+              "psnr": 29.28,
+              "latency_ms": 0.415,
+              "params": 105236
+            },
+            {
+              "vid": "hyperparam_1",
+              "direction": "hyperparam",
+              "psnr": 28.59,
+              "latency_ms": 0.76,
+              "params": 167887
+            },
+            {
+              "vid": "sota_1",
+              "direction": "sota",
+              "psnr": 22.84,
+              "latency_ms": 19.79,
+              "params": 163228
+            },
+            {
+              "vid": "structural_2",
+              "direction": "structural",
+              "psnr": 26.91,
+              "latency_ms": 0.807,
+              "params": 23191
+            },
+            {
+              "vid": "hyperparam_2",
+              "direction": "hyperparam",
+              "psnr": 31.16,
+              "latency_ms": 0.519,
+              "params": 105236
+            },
+            {
+              "vid": "sota_2",
+              "direction": "sota",
+              "psnr": 22.91,
+              "latency_ms": 1.0804,
+              "params": 242183
+            },
+            {
+              "vid": "structural_3",
+              "direction": "structural",
+              "psnr": 28.82,
+              "latency_ms": 0.5279,
+              "params": 103926
+            },
+            {
+              "vid": "hyperparam_3",
+              "direction": "hyperparam",
+              "psnr": 30.27,
+              "latency_ms": 0.4891,
+              "params": 105236
+            },
+            {
+              "vid": "sota_3",
+              "direction": "sota",
+              "psnr": 29.45,
+              "latency_ms": 0.553,
+              "params": 61859
+            },
+            {
+              "vid": "structural_4",
+              "direction": "structural",
+              "psnr": 29.15,
+              "latency_ms": 0.475,
+              "params": 109060
+            },
+            {
+              "vid": "hyperparam_4",
+              "direction": "hyperparam",
+              "psnr": 31.16,
+              "latency_ms": 0.4826,
+              "params": 105236
+            },
+            {
+              "vid": "sota_4",
+              "direction": "sota",
+              "psnr": 28.68,
+              "latency_ms": 0.598,
+              "params": 49802
+            },
+            {
+              "vid": "structural_5",
+              "direction": "structural",
+              "psnr": 31.35,
+              "latency_ms": 0.5114,
+              "params": 100100
+            },
+            {
+              "vid": "hyperparam_5",
+              "direction": "hyperparam",
+              "psnr": 31.15,
+              "latency_ms": 0.464,
+              "params": 105236
+            },
+            {
+              "vid": "sota_5",
+              "direction": "sota",
+              "psnr": 31.04,
+              "latency_ms": 0.711,
+              "params": 109396
+            },
+            {
+              "vid": "structural_6",
+              "direction": "structural",
+              "psnr": 29.16,
+              "latency_ms": 0.4936,
+              "params": 98256
+            },
+            {
+              "vid": "hyperparam_6",
+              "direction": "hyperparam",
+              "psnr": 31.2,
+              "latency_ms": 0.5209,
+              "params": 105236
+            },
+            {
+              "vid": "sota_6",
+              "direction": "sota",
+              "psnr": 30.79,
+              "latency_ms": 0.564,
+              "params": 54490
+            },
+            {
+              "vid": "structural_7",
+              "direction": "structural",
+              "psnr": 29.61,
+              "latency_ms": 0.564,
+              "params": 97220
+            },
+            {
+              "vid": "hyperparam_7",
+              "direction": "hyperparam",
+              "psnr": 31.45,
+              "latency_ms": 0.449,
+              "params": 105236
+            },
+            {
+              "vid": "sota_7",
+              "direction": "sota",
+              "psnr": 29.78,
+              "latency_ms": 1.6032,
+              "params": 85454
+            },
+            {
+              "vid": "structural_8",
+              "direction": "structural",
+              "psnr": 29.25,
+              "latency_ms": 0.486,
+              "params": 98368
+            },
+            {
+              "vid": "hyperparam_8c",
+              "direction": "hyperparam",
+              "psnr": 32.23,
+              "latency_ms": 0.5045,
+              "params": 105236
+            },
+            {
+              "vid": "sota_8",
+              "direction": "sota",
+              "psnr": 30.42,
+              "latency_ms": 0.4075,
+              "params": 47232
+            },
+            {
+              "vid": "structural_9",
+              "direction": "structural",
+              "psnr": 27.23,
+              "latency_ms": 0.4701,
+              "params": 47489
+            },
+            {
+              "vid": "hyperparam_9",
+              "direction": "hyperparam",
+              "psnr": 31.36,
+              "latency_ms": 0.454,
+              "params": 47232
+            },
+            {
+              "vid": "sota_9",
+              "direction": "sota",
+              "psnr": 29.55,
+              "latency_ms": 0.4267,
+              "params": 69036
+            },
+            {
+              "vid": "structural_10",
+              "direction": "structural",
+              "psnr": 31.84,
+              "latency_ms": 0.4447,
+              "params": 47244
+            },
+            {
+              "vid": "hyperparam_10",
+              "direction": "hyperparam",
+              "psnr": 27.08,
+              "latency_ms": 0.4289,
+              "params": 47232
+            },
+            {
+              "vid": "sota_10",
+              "direction": "sota",
+              "psnr": 29.7,
+              "latency_ms": 0.4478,
+              "params": 29460
+            },
+            {
+              "vid": "v0 (baseline)",
+              "direction": "baseline",
+              "psnr": 24.9,
+              "latency_ms": 1.3468,
+              "params": 181865
+            }
+          ],
+          "columns": [
+            "vid",
+            "direction",
+            "psnr",
+            "latency_ms",
+            "params"
+          ],
+          "x": "latency_ms",
+          "y": "psnr",
+          "label": "latency_bubble",
+          "title": "Latency vs psnr (bubble size = parameters)",
+          "hue": "direction",
+          "size": "params"
+        }
+      },
+      "table": null
+    },
+    "all_variants_table": {
+      "label": "all_variants_table",
+      "collapsed": false,
+      "category": null,
+      "charts": {
+        "All Variants — 35 total (sorted by psnr)": {
+          "chart_type": "table",
+          "data": [
+            {
+              "vid": "sota_0",
+              "change_summary": "Changes: SOTA Variant iter 0 — UNet Architecture",
+              "direction": "sota",
+              "parent": "v0",
+              "psnr": 36.4,
+              "latency_ms": 9.9992,
+              "params": 187265,
+              "status": "done",
+              "description": "## What Changed\n### Architecture: Plain CNN Encoder-Decoder → UNet (Encoder-Decoder + Skip Connections)\n**Old (baseline v0):**\n- Encoder: 5× Conv2D (5×5, stride 1 or 2), no skip connections\n- Decoder: 5× ConvTranspose2D (5×5, stride 1 or 2)\n- Power normalization at encoder output\n- Channel layer between encoder and decoder\n**New (UNet):**\n- Encoder: 6 conv blocks (3×3) at 3 spatial scales (32→16→8)\n- conv1 (3→20, stride 1) → down1 (20→40, stride 2) → conv2 (40→40) → down2 (40→80, stride 2) → con"
+            },
+            {
+              "vid": "hyperparam_8c",
+              "change_summary": "Hyperparam Variant: CosineAnnealing with higher lr + extended warmup",
+              "direction": "hyperparam",
+              "parent": "structural_1",
+              "psnr": 32.23,
+              "latency_ms": 0.5045,
+              "params": 105236,
+              "status": "done",
+              "description": "This variant tests **CosineAnnealing** learning rate scheduler with:\n- **lr**: 8.0e-4 (between 5e-4 and 1e-3 — a moderate-to-high learning rate)\n- **warmup_steps**: 150 (extended warmup to stabilize training before cosine decay kicks in)\n- **optimizer**: Adam (with momentum=0.9, weight_decay=1e-5)\n- **batch_size**: 16, **epochs**: 5\nThe idea is that a higher learning rate paired with a longer warmup and cosine annealing may allow the model to converge faster and avoid getting stuck in sharp mini"
+            },
+            {
+              "vid": "structural_10",
+              "change_summary": "structural_10 — Global Residual Skip on Lightweight UNet (sota_8)",
+              "direction": "structural",
+              "parent": "sota_8",
+              "psnr": 31.84,
+              "latency_ms": 0.4447,
+              "params": 47244,
+              "status": "done",
+              "description": "**Core change**: Added a global residual connection from encoder input to decoder\noutput via a 1×1 conv projection (3→3 channels, 12 params).\n**Rationale**:\n1. sota_8 (0.4075ms, 30.42dB) is only 3.5μs from the latency target — any\nstructural addition must have near-zero latency impact.\n2. A global input→output skip gives the decoder direct access to the original\nimage signal, helping recover fine details lost in bottleneck compression.\n3. The 1×1 conv adds only 12 parameters (~0.03% of model) wi"
+            },
+            {
+              "vid": "hyperparam_7",
+              "change_summary": "Hyperparameter Changes — Adam + batch=16 + lr=5e-4",
+              "direction": "hyperparam",
+              "parent": "structural_1",
+              "psnr": 31.45,
+              "latency_ms": 0.449,
+              "params": 105236,
+              "status": "done",
+              "description": "| Parameter | Structural 1 (Parent) | Hyperparam 7b (Ours) | Rationale |\n|-----------|----------------------|---------------------|-----------|\n| optimizer | SGD | Adam | Adam provides adaptive per-parameter learning rates, often more stable and faster convergence for vision tasks. |\n| batch_size | 32 | 16 | Halving batch size doubles gradient updates per epoch, allowing more frequent weight updates and better generalization. |\n| lr | 1e-3 | 5e-4 | Moderate reduction to compensate for Adam's ada"
+            },
+            {
+              "vid": "hyperparam_9",
+              "change_summary": "hyperparam_9: Apply best-ever hyperparams to sota_8 (Lightweight UNet)",
+              "direction": "hyperparam",
+              "parent": "sota_8",
+              "psnr": 31.36,
+              "latency_ms": 0.454,
+              "params": 47232,
+              "status": "done",
+              "description": "## Parent: sota_8\n- Lightweight UNet (3-level, channels 8→16→32, 47K params)\n- PSNR=30.42, latency=0.4075ms (only 3.5μs from target 0.404ms!)\n- Built on structural_1 backbone + UNet architecture with channel reduction\n## What changed (hyperparams)\n- **lr**: 1e-3 → 8e-4 (proven best by hyperparam_8c, which achieved PSNR=32.23 on structural_1 parent)\n- **batch_size**: 64 (initial) → 16 (proven best for 5-epoch training)\n- **optimizer**: adam → adam (unchanged, Adam confirmed best in 6+ trials)\n- *"
+            },
+            {
+              "vid": "structural_5",
+              "change_summary": "structural_5 — Gentle decoder channel reduction",
+              "direction": "structural",
+              "parent": "structural_1",
+              "psnr": 31.35,
+              "latency_ms": 0.5114,
+              "params": 100100,
+              "status": "done",
+              "description": "**Change**: Decoder intermediate channels reduced 32→28 (conv1/conv2/conv3). Decoder conv4 input adjusted from 48ch→44ch (28+16 skip). All other structural_1 elements unchanged.\n**Why**: structural_1 (PSNR=29.28, latency=0.415ms) is only 11µs from the 0.404ms target. Previous structural variants (DSConv, ECA, wider encoder) all regressed. The safest path is gentle decoder FLOP reduction (~12.5% in conv1-3) to shave the last microseconds without degrading PSNR. Encoder capacity (3 res_blocks, SE "
+            },
+            {
+              "vid": "hyperparam_6",
+              "change_summary": "hyperparam_6 — OneCycleLR scheduler + proven best config",
+              "direction": "hyperparam",
+              "parent": "structural_1",
+              "psnr": 31.2,
+              "latency_ms": 0.5209,
+              "params": 105236,
+              "status": "done",
+              "description": "## Changes from parent (structural_1)\n### Model\n- **Unchanged** — identical copy of structural_1/model.py\n### Hyperparams\n| Param | Parent (init) | hyperparam_6 | Rationale |\n|-------|--------------|--------------|-----------|\n| lr | 1e-3 | **1e-3** | Proven optimal across 5 iterations (31.15-31.16dB) |\n| batch_size | 64 | **32** | Proven optimal — batch=32 gives better gradient estimates |\n| optimizer | adam | **adam** | Best for this architecture — SGD and AdamW trailed |\n| lr_scheduler | step"
+            },
+            {
+              "vid": "hyperparam_2",
+              "change_summary": "Hyperparam Mutation — iter 2",
+              "direction": "hyperparam",
+              "parent": "structural_1",
+              "psnr": 31.16,
+              "latency_ms": 0.519,
+              "params": 105236,
+              "status": "done",
+              "description": "## Parent\nstructural_1 (psnr=29.28, lat=0.415ms, params=105K) — U-Net skip connections + 3×3 convs\n## What changed (vs init_hyperparams from setup.json)\n| Hyperparam | init (baseline) | iter 1 success | This variant | Rationale |\n|---|---|---|---|---|\n| lr | 1e-3 | 1e-3 | 1e-3 | Proven effective (iter 1: psnr=28.59). Keeping high LR for fast 5-epoch convergence. |\n| batch_size | 64 | 32 | 32 | Smaller batch = more updates/epoch = better convergence in limited epochs. Proven effective. |\n| weight"
+            },
+            {
+              "vid": "hyperparam_4",
+              "change_summary": "hyperparam_4 — SGD with momentum",
+              "direction": "hyperparam",
+              "parent": "structural_1",
+              "psnr": 31.16,
+              "latency_ms": 0.4826,
+              "params": 105236,
+              "status": "done",
+              "description": "## What changed\nParent: structural_1 (psnr=29.28, latency=0.415ms, params=105K)\n### Hyperparameter changes (vs init_hyperparams in setup.json)\n| Param | Parent (init) | hyperparam_4 |\n|-------|--------------|--------------|\n| optimizer | adam | **sgd** |\n| momentum | N/A | **0.9** |\n| batch_size | 64 | **32** |\n| lr | 0.001 | 0.001 |\n| lr_scheduler | steplr | steplr |\n| weight_decay | 5e-4 | **1e-4** |\n| warmup_steps | 0 | 0 |\n| epochs | 5 | 5 (fixed) |\n### Why\n**Rationale**: Previous hyperparam"
+            },
+            {
+              "vid": "hyperparam_5",
+              "change_summary": "Hyperparam Variant C: ReduceLROnPlateau scheduler",
+              "direction": "hyperparam",
+              "parent": "structural_1",
+              "psnr": 31.15,
+              "latency_ms": 0.464,
+              "params": 105236,
+              "status": "done",
+              "description": "## What changed\n- scheduler: StepLR → ReduceLROnPlateau (never tried)\n- weight_decay: 5e-4 → 0 (confirmed best in hyperparam_4)\n- batch_size: 64 → 32 (confirmed best)\n## Rationale\nReduceLROnPlateau monitors validation loss and reduces LR when progress stalls.\nFor 5-epoch training, this could be more adaptive than StepLR's fixed schedule.\nIt might find a better final LR for the last epoch.\nPrevious best: Adam+StepLR+batch=32+wd=0 → psnr=31.16"
+            },
+            {
+              "vid": "sota_5",
+              "change_summary": "Changes — sota_5 (Linear Attention at Bottleneck)",
+              "direction": "sota",
+              "parent": "structural_1",
+              "psnr": 31.04,
+              "latency_ms": 0.711,
+              "params": 109396,
+              "status": "done",
+              "description": "## What changed\nAdded Performer-style Linear Attention (ELU+1 feature map) at the encoder bottleneck of structural_1.\n## Architecture diff vs structural_1 (parent)\n- **NEW**: `_LinearAttention` module (dim=32, heads=4) between res_blocks and conv5\n- **NEW**: `LayerNorm` for per-position normalization before attention\n- **NEW**: Residual connection around attention block\n- Everything else: identical to structural_1 (3×3 convs, residual blocks, SE attention,\nU-Net skip connections, bilinear upsamp"
+            },
+            {
+              "vid": "sota_6",
+              "change_summary": "Changes from parent (structural_1)",
+              "direction": "sota",
+              "parent": "structural_1",
+              "psnr": 30.79,
+              "latency_ms": 0.564,
+              "params": 54490,
+              "status": "done",
+              "description": "## Architecture change: ResNet Bottleneck Enhancement\n### What changed\n1. **`_ResidualBlock` → `_BottleneckBlock`**:\n- Old: two 3x3 convs with identity skip (params: 2×3×3×C×C = 18C²)\n- New: 1x1 reduce → 3x3 → 1x1 expand with identity skip (params: 1×1×C×C/4 + 3×3×C/4×C/4 + 1×1×C/4×C ≈ 1.125C²)\n- ~16x fewer params per block, allowing more depth\n2. **More blocks**: 3 → 4 bottleneck blocks in encoder (deeper but each cheaper)\n3. **No other changes**: U-Net skip connection, SE attention, bilinear u"
+            },
+            {
+              "vid": "sota_8",
+              "change_summary": "SOTA Variant sota_8 — Lightweight UNet",
+              "direction": "sota",
+              "parent": "structural_1",
+              "psnr": 30.42,
+              "latency_ms": 0.4075,
+              "params": 47232,
+              "status": "done",
+              "description": "## What changed\nReplaced the parent's 2-level encoder-decoder (with 1 skip connection) with a\n**full 3-level Lightweight UNet** architecture inspired by the iter 0 UNet\n(sota_0: psnr=36.4dB) but with heavily reduced channels for latency control.\n### Architecture comparison\n| Component | Parent (structural_1) | This variant (sota_8) |\n|-----------|----------------------|----------------------|\n| Encoder levels | 2 levels (16→32ch) | 3 levels (8→16→32ch) |\n| Skip connections | 1 skip (level 1→deco"
+            },
+            {
+              "vid": "hyperparam_3",
+              "change_summary": "hyperparam_3 — AdamW + CosineAnnealing on structural_1",
+              "direction": "hyperparam",
+              "parent": "structural_1",
+              "psnr": 30.27,
+              "latency_ms": 0.4891,
+              "params": 105236,
+              "status": "done",
+              "description": "## What changed (vs hyperparam_2 best config: Adam + StepLR + wd=1e-4 → PSNR=31.16)\n| Hyperparam | hyperparam_2 (best) | hyperparam_3 (this) |\n|---|---|---|\n| optimizer | Adam | **AdamW** |\n| lr | 1e-3 | 1e-3 (same) |\n| batch_size | 32 | 32 (same) |\n| lr_scheduler | StepLR (step=640, γ=0.1) | **CosineAnnealing** |\n| warmup_steps | 0 | 0 (same) |\n| weight_decay | 1e-4 | 1e-4 (same) |\n| epochs | 5 | 5 (same — fixed) |\n## Rationale\n1. **AdamW → Adam**: AdamW decouples weight decay from gradient upd"
+            },
+            {
+              "vid": "sota_7",
+              "change_summary": "Changes: sota_7 — Mamba/SSM Encoder",
+              "direction": "sota",
+              "parent": "structural_1",
+              "psnr": 29.78,
+              "latency_ms": 1.6032,
+              "params": 85454,
+              "status": "done",
+              "description": "## What Changed\n- Replaced `_ResidualBlock × 3` in encoder → `_MambaBlock × 3`\n- Added new `_MambaBlock` class implementing SSM-based sequence processing\n## Architecture Flow\n```\nconv1(3→16, /2) → conv2(16→32, /2) → mamba1 → mamba2 → mamba3 → conv5(32→2c) → norm → SE\n↓\nDecoder (unchanged)\n```\n## Mamba/SSM Design\nEach `_MambaBlock(dim=32, d_state=8, expand=2)`:\n1. **LayerNorm** on sequence (B, L=64, C=32)\n2. **Linear expansion**: C=32 → inner=64, split into x1 (→SSM) and x2 (→gate)\n3. **Depthwise"
+            },
+            {
+              "vid": "sota_10",
+              "change_summary": "Changes from sota_8 to sota_10",
+              "direction": "sota",
+              "parent": "sota_8",
+              "psnr": 29.7,
+              "latency_ms": 0.4478,
+              "params": 29460,
+              "status": "done",
+              "description": "## What changed\nUNet architecture — narrowed channels across all encoder/decoder levels:\n- Encoder: 3→**6**→**12**→**24** (was 3→8→16→32)\n- Decoder: adjusted from 2c→16→32→16→3 → 2c→**12**→**24**→**12**→3\n- All decoder hidden channels scaled down proportionally\n## What was kept\n- ✅ 3-level UNet encoder-decoder with skip connections\n- ✅ Bilinear upsampling + conv (no transposed convs)\n- ✅ PReLU activation\n- ✅ SE channel attention at bottleneck\n- ✅ Power normalization layer\n- ✅ Channel layer (AWGN"
+            },
+            {
+              "vid": "structural_7",
+              "change_summary": "structural_7 changes",
+              "direction": "structural",
+              "parent": "structural_1",
+              "psnr": 29.61,
+              "latency_ms": 0.564,
+              "params": 97220,
+              "status": "done",
+              "description": "1. **Decoder channel reduction 32→26**: Decoder conv1/conv2/conv3 channels reduced from 32 to 26 (18.75% reduction). conv4 input channels reduced from 48→42 (26+16). This directly reduces decoder computation while preserving encoder quality.\n2. **1×1 projection conv for residual matching**: Added lightweight 1×1 conv (858 params, 32→26 channels) to project the decoder residual identity to matching channel count. Fixes shape mismatch when decoder channels differ from bottleneck channels.\n3. **All"
+            },
+            {
+              "vid": "sota_9",
+              "change_summary": "Changes: sota_9 — UNet with Wider Channels (10→20→40)",
+              "direction": "sota",
+              "parent": "sota_8",
+              "psnr": 29.55,
+              "latency_ms": 0.4267,
+              "params": 69036,
+              "status": "done",
+              "description": "## What Changed vs Parent (sota_8: 8→16→32)\n### Encoder\n| Component | sota_8 (parent) | sota_9 (this) | Change |\n|-----------|-----------------|---------------|--------|\n| conv1 | 3→8, s2 | 3→10, s2 | +25% width |\n| conv2 | 8→16, s2 | 10→20, s2 | +25% width |\n| conv3 | 16→32, s1 | 20→40, s1 | +25% width |\n| res_block | 32ch (3×3×2) | 40ch (3×3×2) | +25% width |\n| conv5 | 32→2c, s1 | 40→2c, s1 | wider input |\n### Decoder\n| Component | sota_8 (parent) | sota_9 (this) | Change |\n|-----------|------"
+            },
+            {
+              "vid": "sota_3",
+              "change_summary": "Changes from structural_1 (parent) to sota_3",
+              "direction": "sota",
+              "parent": "structural_1",
+              "psnr": 29.45,
+              "latency_ms": 0.553,
+              "params": 61859,
+              "status": "done",
+              "description": "## What changed\n### Encoder: CNN → MobileNetV2 Inverted Residuals\n**Before (structural_1):**\n```\nconv1 (3→16, 3×3 s2) → conv2 (16→32, 3×3 s2) → res_block1 → res_block2 → res_block3 → conv5 (32→2c) → norm → SE\n```\n**After (sota_3):**\n```\nconv1 (3→16, 3×3 s2) → mb_block1 (16→32, s2, expand=3) → mb_block2 (32→32, s1, expand=3) → mb_block3 (32→32, s1, expand=3) → conv5 (32→2c) → norm → SE\n```\n### MobileNetV2 InvertedResidual block\nEach block = `Conv2d 1×1 (expand)` → `Depthwise Conv2d 3×3` → `Conv2d"
+            },
+            {
+              "vid": "structural_1",
+              "change_summary": "structural_1 changes",
+              "direction": "structural",
+              "parent": "structural_0",
+              "psnr": 29.28,
+              "latency_ms": 0.415,
+              "params": 105236,
+              "status": "done",
+              "description": "1. **U-Net skip connection**: encoder conv1 output (16ch, 16×16) concatenated to decoder after bilinear upsampling — gives decoder direct access to low-level spatial detail, the key improvement that made sota_0 (UNet) achieve +11.5dB PSNR.\n2. **Replaced all 5×5 transposed convs** with bilinear upsampling + 3×3 convs — transposed convs are 2-4× slower, bilinear upsampling is near-free. Also eliminates checkerboard artifacts.\n3. **Added 3rd residual block** (res_block3) in encoder for more depth a"
+            },
+            {
+              "vid": "structural_8",
+              "change_summary": "structural_8 — Balanced capacity redistribution",
+              "direction": "structural",
+              "parent": "structural_1",
+              "psnr": 29.25,
+              "latency_ms": 0.486,
+              "params": 98368,
+              "status": "done",
+              "description": "**Changes from structural_1 (parent, PSNR=29.28, latency=0.415ms, params=105K):**\n1. **Decoder channels 32→28 + 1×1 residual projection** — structural_5 proved this achieves +2.07dB PSNR (31.35dB) by reducing decoder redundancy while adding a projection for channel-aligned residual. Latency increased 23% in structural_5 (0.415→0.511ms).\n2. **Encoder conv1 16→14** — balanced capacity redistribution to offset the decoder projection's latency impact. Reduces first-layer FLOPs (~12.5%) while keeping"
+            },
+            {
+              "vid": "structural_6",
+              "change_summary": "structural_6 changes",
+              "direction": "structural",
+              "parent": "structural_1",
+              "psnr": 29.16,
+              "latency_ms": 0.4936,
+              "params": 98256,
+              "status": "done",
+              "description": "## What changed\n1. **Encoder conv1 channels: 3→16→14** — reduced first-layer width, smaller skip features (14ch instead of 16ch)\n2. **Decoder conv1-3 channels: 32→28** — internal decoder capacity reduction (proven by structural_5)\n3. **Decoder residual removed** — structural_5's 1×1 projection added latency (+23%), so removed entirely\n4. **conv4 input channels adjusted: 48→42** (28 decoder + 14 skip instead of 32+16)\n## Why\nParent structural_1 (PSNR=29.28, latency=0.415ms) is closest to 0.404ms "
+            },
+            {
+              "vid": "structural_4",
+              "change_summary": "structural_4",
+              "direction": "structural",
+              "parent": "structural_1",
+              "psnr": 29.15,
+              "latency_ms": 0.475,
+              "params": 109060,
+              "status": "done",
+              "description": "## Changes from structural_1 (parent, PSNR=29.28, lat=0.415ms, params=105K)\n- **Encoder conv1**: 3→16 → 3→20 (wider input stage, +108 params)\n- **Decoder conv4**: adjusted from 48→16 to 52→20 (matches wider skip connection from conv1)\n- **Decoder conv5**: adjusted from 16→3 to 20→3 (wider features before output)\n- **Encoder conv2**: adjusted from 16→32 to 20→32 (+1,152 params)\nAll other elements preserved: U-Net skip connection, bilinear upsample+3×3 conv decoder,\n3 encoder residual blocks, SE a"
+            },
+            {
+              "vid": "structural_3",
+              "change_summary": "structural_3 — ECA attention + compressed skip + decoder ECA",
+              "direction": "structural",
+              "parent": "structural_1",
+              "psnr": 28.82,
+              "latency_ms": 0.5279,
+              "params": 103926,
+              "status": "done",
+              "description": "Changes from structural_1 (parent, PSNR=29.28, lat=0.415ms, params=105K):\n1. **SEBlock → ECABlock** at encoder bottleneck: two FC layers replaced by a 1D conv (k=3 for 2c=32). ~64 fewer params, O(C) vs O(C²/8) complexity.\n2. **Compressed U-Net skip**: Added 1×1 conv (16→8chn) to compress skip features before decoder concatenation. conv4 input 48→40chn, reducing decoder computation ~17%.\n3. **Decoder ECA**: Added lightweight ECA after decoder conv3 residual connection for better feature refinemen"
+            },
+            {
+              "vid": "sota_4",
+              "change_summary": "Changes in sota_4 (Swin Transformer Encoder)",
+              "direction": "sota",
+              "parent": "structural_1",
+              "psnr": 28.68,
+              "latency_ms": 0.598,
+              "params": 49802,
+              "status": "done",
+              "description": "## What Changed\n1. **Encoder**: Replaced CNN residual blocks + conv5 with Swin Transformer blocks\n- Keep conv1 (3→16, 3×3 stride 2) for U-Net skip features (unchanged)\n- Keep conv2 (16→32, 3×3 stride 2) for downsampling to 8×8 (unchanged)\n- Removed: res_block1, res_block2, res_block3 (3 residual blocks, 32ch)\n- Added: _SwinBasicLayer with 2 Swin blocks (window_size=4, num_heads=4)\n- Added: LayerNorm after Swin\n- Changed: conv5 from 3×3 to 1×1 (pointwise, since features are already processed)\n- A"
+            },
+            {
+              "vid": "hyperparam_1",
+              "change_summary": "hyperparam_1 — Hyperparameter Mutation",
+              "direction": "hyperparam",
+              "parent": "structural_0",
+              "psnr": 28.59,
+              "latency_ms": 0.76,
+              "params": 167887,
+              "status": "done",
+              "description": "## Changes from parent (structural_0 / baseline init_hyperparams)\n| Hyperparam | Baseline | hyperparam_0 (iter 0) | hyperparam_1 (iter 1, this) |\n|------------|----------|----------------------|---------------------------|\n| lr         | 1e-3     | 3e-4 ❌ (failed)     | **1e-3** (kept)           |\n| batch_size | 64       | 128 ❌               | **32** (halved)            |\n| epochs     | 5        | 5                    | 5 (fixed)                 |\n| optimizer  | Adam     | AdamW (not supported)"
+            },
+            {
+              "vid": "structural_9",
+              "change_summary": "structural_9: Changes from parent sota_8",
+              "direction": "structural",
+              "parent": "sota_8",
+              "psnr": 27.23,
+              "latency_ms": 0.4701,
+              "params": 47489,
+              "status": "done",
+              "description": "## 1. ECA at decoder output before final conv\n**What**: Added Efficient Channel Attention (_ECABlock) after upsample and before the final conv layer in the decoder.\n**Why**: ECA is lighter than SE — uses a 1D conv (k=3, adaptive) + sigmoid instead of FC layers. Provides channel recalibration at the decoder output where fine spatial detail reconstruction matters most. Near-zero latency overhead.\n## 2. Feature-level residual within decoder level 3\n**What**: Added a 1×1 conv projection from conv_d3"
+            },
+            {
+              "vid": "hyperparam_10",
+              "change_summary": "hyperparam_10 — Hyperparam mutation on sota_8 (Lightweight UNet)",
+              "direction": "hyperparam",
+              "parent": "sota_8",
+              "psnr": 27.08,
+              "latency_ms": 0.4289,
+              "params": 47232,
+              "status": "done",
+              "description": "## Parent: sota_8\n- psnr=30.42, latency=0.4075ms (仅差3.5μs达目标), params=47K\n- Lightweight UNet (3-level, channels 8→16→32)\n## Hyperparams (vs parent's assumed defaults)\n| Parameter         | sota_8 (assumed) | hyperparam_10 | Rationale |\n|-------------------|-----------------|---------------|-----------|\n| optimizer         | adam (default)  | adam          | Adam consistently best across all prior runs (SGD failed in iter 4, AdamW underperformed) |\n| lr                | 1e-3            | **5e-4**"
+            },
+            {
+              "vid": "structural_0",
+              "change_summary": "Structural Changes v0.3",
+              "direction": "structural",
+              "parent": "v0",
+              "psnr": 27.0,
+              "latency_ms": 1.4,
+              "params": 167887,
+              "status": "done",
+              "description": "## What changed (vs baseline v0)\n1. **Encoder conv3 & conv4 → 3×3 residual blocks**: Replaced two 5×5 plain convs with two 3×3+3×3 residual blocks. Same receptive field, ~28% fewer weights per block, better gradient flow via skip connections.\n2. **SE block at bottleneck**: Added Squeeze-and-Excitation channel attention after normalization (reduction=8). Only ~292 extra parameters but provides adaptive channel recalibration.\n3. **Decoder residual connection**: Added skip connection from encoder b"
+            },
+            {
+              "vid": "structural_2",
+              "change_summary": "structural_2 Changes",
+              "direction": "structural",
+              "parent": "structural_1",
+              "psnr": 26.91,
+              "latency_ms": 0.807,
+              "params": 23191,
+              "status": "done",
+              "description": "## What changed\n1. **Kernel operator replacement**: All regular 3×3 convolutions → Depthwise Separable (DSConv2d: depthwise 3×3 + pointwise 1×1 + PReLU each). Saves ~7× params and ~8× FLOPs per conv layer while maintaining representational power.\n2. **Channel dimension increase**: conv1 3→20 (was 3→16, +25%), conv2 20→40 (was 16→32, +25%), res_blocks 40ch (was 32ch, +25%) — wider front-end captures more spatial detail before aggressive stride-2 pooling.\n3. **Attention module swap**: SE (Squeeze-"
+            },
+            {
+              "vid": "v0",
+              "change_summary": "v0",
+              "direction": "baseline",
+              "parent": "-",
+              "psnr": 24.9,
+              "latency_ms": 1.3468,
+              "params": 181865,
+              "status": "done",
+              "description": ""
+            },
+            {
+              "vid": "v0 (baseline)",
+              "change_summary": "Baseline (original model)",
+              "direction": "baseline",
+              "parent": "-",
+              "psnr": 24.9,
+              "latency_ms": 1.3468,
+              "params": 181865,
+              "status": "done",
+              "description": "Original unmodified model"
+            },
+            {
+              "vid": "sota_2",
+              "change_summary": "Changes: ViT Encoder + CNN Decoder",
+              "direction": "sota",
+              "parent": "structural_1",
+              "psnr": 22.91,
+              "latency_ms": 1.0804,
+              "params": 242183,
+              "status": "done",
+              "description": "## What Changed\n### Encoder: CNN → ViT (Vision Transformer)\n- **Removed**: All CNN encoder layers (conv1-2, residual blocks, conv5)\n- **Added**: ViTEncoder with:\n- Patch embedding: Conv2d(3→64, kernel=4, stride=4) → 8×8 patch grid (64 patches)\n- Learnable position embedding (1×64×64)\n- 4× Transformer blocks (LayerNorm + MultiHeadAttention 4-head + MLP 64→256→64)\n- Output projection: embed_dim(64) → bottleneck(2*c=32)\n- Power normalization kept from parent\n### Decoder: CNN (adapted from parent)\n-"
+            },
+            {
+              "vid": "sota_1",
+              "change_summary": "Changes: SOTA Variant iter 1 — DenseNet Architecture",
+              "direction": "sota",
+              "parent": "structural_0",
+              "psnr": 22.84,
+              "latency_ms": 19.79,
+              "params": 163228,
+              "status": "done",
+              "description": "## What Changed\n### Architecture: Residual-enhanced CNN Encoder-Decoder → DenseNet-style Dense Connectivity\n**Old (structural_0 parent):**\n- Encoder: CNN with 2 residual blocks (3×3 convs) at conv3/conv4 stage, SE attention at bottleneck\n- Decoder: 5× ConvTranspose2D (5×5), with a skip from encoder bottleneck\n- Power normalization at encoder output\n**New (DenseNet):**\n- Encoder:\n- Initial 5×5 conv (3→32, stride 2)\n- DenseBlock1: 4 dense layers, growth_rate=12 (32→80 channels)\n- Transition1: 1×1 "
+            },
+            {
+              "vid": "hyperparam_0",
+              "change_summary": "Hyperparam Mutation — iter 0",
+              "direction": "hyperparam",
+              "parent": "v0",
+              "psnr": 21.79,
+              "latency_ms": 1.3468,
+              "params": 181865,
+              "status": "done",
+              "description": "## Changes from parent (v0 baseline)\n| Parameter | Parent (v0) | Ours (hyperparam_0) | Rationale |\n|-----------|-------------|---------------------|-----------|\n| lr | 0.001 | 0.0003 | Lower learning rate for more stable convergence; 1 order of magnitude below parent |\n| batch_size | 64 | 128 | Larger batch for smoother gradient estimates, better GPU utilization |\n| epochs | 5 | 5 | Fixed per setup.json; unchanged |\n| optimizer | adam | adamw | AdamW decouples weight decay from gradient updates,"
+            }
+          ],
+          "columns": [
+            "vid",
+            "change_summary",
+            "direction",
+            "parent",
+            "psnr",
+            "latency_ms",
+            "params",
+            "status",
+            "description"
+          ],
+          "x": null,
+          "y": null,
+          "label": "all_variants",
+          "title": "All Variants — 35 total (sorted by psnr)",
+          "hue": null
+        }
+      },
+      "table": {
+        "columns": [
+          "vid",
+          "change_summary",
+          "direction",
+          "parent",
+          "psnr",
+          "latency_ms",
+          "params",
+          "status",
+          "description"
+        ],
+        "rows": [
+          {
+            "vid": "sota_0",
+            "change_summary": "Changes: SOTA Variant iter 0 — UNet Architecture",
+            "direction": "sota",
+            "parent": "v0",
+            "psnr": 36.4,
+            "latency_ms": 9.9992,
+            "params": 187265,
+            "status": "done",
+            "description": "## What Changed\n### Architecture: Plain CNN Encoder-Decoder → UNet (Encoder-Decoder + Skip Connections)\n**Old (baseline v0):**\n- Encoder: 5× Conv2D (5×5, stride 1 or 2), no skip connections\n- Decoder: 5× ConvTranspose2D (5×5, stride 1 or 2)\n- Power normalization at encoder output\n- Channel layer between encoder and decoder\n**New (UNet):**\n- Encoder: 6 conv blocks (3×3) at 3 spatial scales (32→16→8)\n- conv1 (3→20, stride 1) → down1 (20→40, stride 2) → conv2 (40→40) → down2 (40→80, stride 2) → con"
+          },
+          {
+            "vid": "hyperparam_8c",
+            "change_summary": "Hyperparam Variant: CosineAnnealing with higher lr + extended warmup",
+            "direction": "hyperparam",
+            "parent": "structural_1",
+            "psnr": 32.23,
+            "latency_ms": 0.5045,
+            "params": 105236,
+            "status": "done",
+            "description": "This variant tests **CosineAnnealing** learning rate scheduler with:\n- **lr**: 8.0e-4 (between 5e-4 and 1e-3 — a moderate-to-high learning rate)\n- **warmup_steps**: 150 (extended warmup to stabilize training before cosine decay kicks in)\n- **optimizer**: Adam (with momentum=0.9, weight_decay=1e-5)\n- **batch_size**: 16, **epochs**: 5\nThe idea is that a higher learning rate paired with a longer warmup and cosine annealing may allow the model to converge faster and avoid getting stuck in sharp mini"
+          },
+          {
+            "vid": "structural_10",
+            "change_summary": "structural_10 — Global Residual Skip on Lightweight UNet (sota_8)",
+            "direction": "structural",
+            "parent": "sota_8",
+            "psnr": 31.84,
+            "latency_ms": 0.4447,
+            "params": 47244,
+            "status": "done",
+            "description": "**Core change**: Added a global residual connection from encoder input to decoder\noutput via a 1×1 conv projection (3→3 channels, 12 params).\n**Rationale**:\n1. sota_8 (0.4075ms, 30.42dB) is only 3.5μs from the latency target — any\nstructural addition must have near-zero latency impact.\n2. A global input→output skip gives the decoder direct access to the original\nimage signal, helping recover fine details lost in bottleneck compression.\n3. The 1×1 conv adds only 12 parameters (~0.03% of model) wi"
+          },
+          {
+            "vid": "hyperparam_7",
+            "change_summary": "Hyperparameter Changes — Adam + batch=16 + lr=5e-4",
+            "direction": "hyperparam",
+            "parent": "structural_1",
+            "psnr": 31.45,
+            "latency_ms": 0.449,
+            "params": 105236,
+            "status": "done",
+            "description": "| Parameter | Structural 1 (Parent) | Hyperparam 7b (Ours) | Rationale |\n|-----------|----------------------|---------------------|-----------|\n| optimizer | SGD | Adam | Adam provides adaptive per-parameter learning rates, often more stable and faster convergence for vision tasks. |\n| batch_size | 32 | 16 | Halving batch size doubles gradient updates per epoch, allowing more frequent weight updates and better generalization. |\n| lr | 1e-3 | 5e-4 | Moderate reduction to compensate for Adam's ada"
+          },
+          {
+            "vid": "hyperparam_9",
+            "change_summary": "hyperparam_9: Apply best-ever hyperparams to sota_8 (Lightweight UNet)",
+            "direction": "hyperparam",
+            "parent": "sota_8",
+            "psnr": 31.36,
+            "latency_ms": 0.454,
+            "params": 47232,
+            "status": "done",
+            "description": "## Parent: sota_8\n- Lightweight UNet (3-level, channels 8→16→32, 47K params)\n- PSNR=30.42, latency=0.4075ms (only 3.5μs from target 0.404ms!)\n- Built on structural_1 backbone + UNet architecture with channel reduction\n## What changed (hyperparams)\n- **lr**: 1e-3 → 8e-4 (proven best by hyperparam_8c, which achieved PSNR=32.23 on structural_1 parent)\n- **batch_size**: 64 (initial) → 16 (proven best for 5-epoch training)\n- **optimizer**: adam → adam (unchanged, Adam confirmed best in 6+ trials)\n- *"
+          },
+          {
+            "vid": "structural_5",
+            "change_summary": "structural_5 — Gentle decoder channel reduction",
+            "direction": "structural",
+            "parent": "structural_1",
+            "psnr": 31.35,
+            "latency_ms": 0.5114,
+            "params": 100100,
+            "status": "done",
+            "description": "**Change**: Decoder intermediate channels reduced 32→28 (conv1/conv2/conv3). Decoder conv4 input adjusted from 48ch→44ch (28+16 skip). All other structural_1 elements unchanged.\n**Why**: structural_1 (PSNR=29.28, latency=0.415ms) is only 11µs from the 0.404ms target. Previous structural variants (DSConv, ECA, wider encoder) all regressed. The safest path is gentle decoder FLOP reduction (~12.5% in conv1-3) to shave the last microseconds without degrading PSNR. Encoder capacity (3 res_blocks, SE "
+          },
+          {
+            "vid": "hyperparam_6",
+            "change_summary": "hyperparam_6 — OneCycleLR scheduler + proven best config",
+            "direction": "hyperparam",
+            "parent": "structural_1",
+            "psnr": 31.2,
+            "latency_ms": 0.5209,
+            "params": 105236,
+            "status": "done",
+            "description": "## Changes from parent (structural_1)\n### Model\n- **Unchanged** — identical copy of structural_1/model.py\n### Hyperparams\n| Param | Parent (init) | hyperparam_6 | Rationale |\n|-------|--------------|--------------|-----------|\n| lr | 1e-3 | **1e-3** | Proven optimal across 5 iterations (31.15-31.16dB) |\n| batch_size | 64 | **32** | Proven optimal — batch=32 gives better gradient estimates |\n| optimizer | adam | **adam** | Best for this architecture — SGD and AdamW trailed |\n| lr_scheduler | step"
+          },
+          {
+            "vid": "hyperparam_2",
+            "change_summary": "Hyperparam Mutation — iter 2",
+            "direction": "hyperparam",
+            "parent": "structural_1",
+            "psnr": 31.16,
+            "latency_ms": 0.519,
+            "params": 105236,
+            "status": "done",
+            "description": "## Parent\nstructural_1 (psnr=29.28, lat=0.415ms, params=105K) — U-Net skip connections + 3×3 convs\n## What changed (vs init_hyperparams from setup.json)\n| Hyperparam | init (baseline) | iter 1 success | This variant | Rationale |\n|---|---|---|---|---|\n| lr | 1e-3 | 1e-3 | 1e-3 | Proven effective (iter 1: psnr=28.59). Keeping high LR for fast 5-epoch convergence. |\n| batch_size | 64 | 32 | 32 | Smaller batch = more updates/epoch = better convergence in limited epochs. Proven effective. |\n| weight"
+          },
+          {
+            "vid": "hyperparam_4",
+            "change_summary": "hyperparam_4 — SGD with momentum",
+            "direction": "hyperparam",
+            "parent": "structural_1",
+            "psnr": 31.16,
+            "latency_ms": 0.4826,
+            "params": 105236,
+            "status": "done",
+            "description": "## What changed\nParent: structural_1 (psnr=29.28, latency=0.415ms, params=105K)\n### Hyperparameter changes (vs init_hyperparams in setup.json)\n| Param | Parent (init) | hyperparam_4 |\n|-------|--------------|--------------|\n| optimizer | adam | **sgd** |\n| momentum | N/A | **0.9** |\n| batch_size | 64 | **32** |\n| lr | 0.001 | 0.001 |\n| lr_scheduler | steplr | steplr |\n| weight_decay | 5e-4 | **1e-4** |\n| warmup_steps | 0 | 0 |\n| epochs | 5 | 5 (fixed) |\n### Why\n**Rationale**: Previous hyperparam"
+          },
+          {
+            "vid": "hyperparam_5",
+            "change_summary": "Hyperparam Variant C: ReduceLROnPlateau scheduler",
+            "direction": "hyperparam",
+            "parent": "structural_1",
+            "psnr": 31.15,
+            "latency_ms": 0.464,
+            "params": 105236,
+            "status": "done",
+            "description": "## What changed\n- scheduler: StepLR → ReduceLROnPlateau (never tried)\n- weight_decay: 5e-4 → 0 (confirmed best in hyperparam_4)\n- batch_size: 64 → 32 (confirmed best)\n## Rationale\nReduceLROnPlateau monitors validation loss and reduces LR when progress stalls.\nFor 5-epoch training, this could be more adaptive than StepLR's fixed schedule.\nIt might find a better final LR for the last epoch.\nPrevious best: Adam+StepLR+batch=32+wd=0 → psnr=31.16"
+          },
+          {
+            "vid": "sota_5",
+            "change_summary": "Changes — sota_5 (Linear Attention at Bottleneck)",
+            "direction": "sota",
+            "parent": "structural_1",
+            "psnr": 31.04,
+            "latency_ms": 0.711,
+            "params": 109396,
+            "status": "done",
+            "description": "## What changed\nAdded Performer-style Linear Attention (ELU+1 feature map) at the encoder bottleneck of structural_1.\n## Architecture diff vs structural_1 (parent)\n- **NEW**: `_LinearAttention` module (dim=32, heads=4) between res_blocks and conv5\n- **NEW**: `LayerNorm` for per-position normalization before attention\n- **NEW**: Residual connection around attention block\n- Everything else: identical to structural_1 (3×3 convs, residual blocks, SE attention,\nU-Net skip connections, bilinear upsamp"
+          },
+          {
+            "vid": "sota_6",
+            "change_summary": "Changes from parent (structural_1)",
+            "direction": "sota",
+            "parent": "structural_1",
+            "psnr": 30.79,
+            "latency_ms": 0.564,
+            "params": 54490,
+            "status": "done",
+            "description": "## Architecture change: ResNet Bottleneck Enhancement\n### What changed\n1. **`_ResidualBlock` → `_BottleneckBlock`**:\n- Old: two 3x3 convs with identity skip (params: 2×3×3×C×C = 18C²)\n- New: 1x1 reduce → 3x3 → 1x1 expand with identity skip (params: 1×1×C×C/4 + 3×3×C/4×C/4 + 1×1×C/4×C ≈ 1.125C²)\n- ~16x fewer params per block, allowing more depth\n2. **More blocks**: 3 → 4 bottleneck blocks in encoder (deeper but each cheaper)\n3. **No other changes**: U-Net skip connection, SE attention, bilinear u"
+          },
+          {
+            "vid": "sota_8",
+            "change_summary": "SOTA Variant sota_8 — Lightweight UNet",
+            "direction": "sota",
+            "parent": "structural_1",
+            "psnr": 30.42,
+            "latency_ms": 0.4075,
+            "params": 47232,
+            "status": "done",
+            "description": "## What changed\nReplaced the parent's 2-level encoder-decoder (with 1 skip connection) with a\n**full 3-level Lightweight UNet** architecture inspired by the iter 0 UNet\n(sota_0: psnr=36.4dB) but with heavily reduced channels for latency control.\n### Architecture comparison\n| Component | Parent (structural_1) | This variant (sota_8) |\n|-----------|----------------------|----------------------|\n| Encoder levels | 2 levels (16→32ch) | 3 levels (8→16→32ch) |\n| Skip connections | 1 skip (level 1→deco"
+          },
+          {
+            "vid": "hyperparam_3",
+            "change_summary": "hyperparam_3 — AdamW + CosineAnnealing on structural_1",
+            "direction": "hyperparam",
+            "parent": "structural_1",
+            "psnr": 30.27,
+            "latency_ms": 0.4891,
+            "params": 105236,
+            "status": "done",
+            "description": "## What changed (vs hyperparam_2 best config: Adam + StepLR + wd=1e-4 → PSNR=31.16)\n| Hyperparam | hyperparam_2 (best) | hyperparam_3 (this) |\n|---|---|---|\n| optimizer | Adam | **AdamW** |\n| lr | 1e-3 | 1e-3 (same) |\n| batch_size | 32 | 32 (same) |\n| lr_scheduler | StepLR (step=640, γ=0.1) | **CosineAnnealing** |\n| warmup_steps | 0 | 0 (same) |\n| weight_decay | 1e-4 | 1e-4 (same) |\n| epochs | 5 | 5 (same — fixed) |\n## Rationale\n1. **AdamW → Adam**: AdamW decouples weight decay from gradient upd"
+          },
+          {
+            "vid": "sota_7",
+            "change_summary": "Changes: sota_7 — Mamba/SSM Encoder",
+            "direction": "sota",
+            "parent": "structural_1",
+            "psnr": 29.78,
+            "latency_ms": 1.6032,
+            "params": 85454,
+            "status": "done",
+            "description": "## What Changed\n- Replaced `_ResidualBlock × 3` in encoder → `_MambaBlock × 3`\n- Added new `_MambaBlock` class implementing SSM-based sequence processing\n## Architecture Flow\n```\nconv1(3→16, /2) → conv2(16→32, /2) → mamba1 → mamba2 → mamba3 → conv5(32→2c) → norm → SE\n↓\nDecoder (unchanged)\n```\n## Mamba/SSM Design\nEach `_MambaBlock(dim=32, d_state=8, expand=2)`:\n1. **LayerNorm** on sequence (B, L=64, C=32)\n2. **Linear expansion**: C=32 → inner=64, split into x1 (→SSM) and x2 (→gate)\n3. **Depthwise"
+          },
+          {
+            "vid": "sota_10",
+            "change_summary": "Changes from sota_8 to sota_10",
+            "direction": "sota",
+            "parent": "sota_8",
+            "psnr": 29.7,
+            "latency_ms": 0.4478,
+            "params": 29460,
+            "status": "done",
+            "description": "## What changed\nUNet architecture — narrowed channels across all encoder/decoder levels:\n- Encoder: 3→**6**→**12**→**24** (was 3→8→16→32)\n- Decoder: adjusted from 2c→16→32→16→3 → 2c→**12**→**24**→**12**→3\n- All decoder hidden channels scaled down proportionally\n## What was kept\n- ✅ 3-level UNet encoder-decoder with skip connections\n- ✅ Bilinear upsampling + conv (no transposed convs)\n- ✅ PReLU activation\n- ✅ SE channel attention at bottleneck\n- ✅ Power normalization layer\n- ✅ Channel layer (AWGN"
+          },
+          {
+            "vid": "structural_7",
+            "change_summary": "structural_7 changes",
+            "direction": "structural",
+            "parent": "structural_1",
+            "psnr": 29.61,
+            "latency_ms": 0.564,
+            "params": 97220,
+            "status": "done",
+            "description": "1. **Decoder channel reduction 32→26**: Decoder conv1/conv2/conv3 channels reduced from 32 to 26 (18.75% reduction). conv4 input channels reduced from 48→42 (26+16). This directly reduces decoder computation while preserving encoder quality.\n2. **1×1 projection conv for residual matching**: Added lightweight 1×1 conv (858 params, 32→26 channels) to project the decoder residual identity to matching channel count. Fixes shape mismatch when decoder channels differ from bottleneck channels.\n3. **All"
+          },
+          {
+            "vid": "sota_9",
+            "change_summary": "Changes: sota_9 — UNet with Wider Channels (10→20→40)",
+            "direction": "sota",
+            "parent": "sota_8",
+            "psnr": 29.55,
+            "latency_ms": 0.4267,
+            "params": 69036,
+            "status": "done",
+            "description": "## What Changed vs Parent (sota_8: 8→16→32)\n### Encoder\n| Component | sota_8 (parent) | sota_9 (this) | Change |\n|-----------|-----------------|---------------|--------|\n| conv1 | 3→8, s2 | 3→10, s2 | +25% width |\n| conv2 | 8→16, s2 | 10→20, s2 | +25% width |\n| conv3 | 16→32, s1 | 20→40, s1 | +25% width |\n| res_block | 32ch (3×3×2) | 40ch (3×3×2) | +25% width |\n| conv5 | 32→2c, s1 | 40→2c, s1 | wider input |\n### Decoder\n| Component | sota_8 (parent) | sota_9 (this) | Change |\n|-----------|------"
+          },
+          {
+            "vid": "sota_3",
+            "change_summary": "Changes from structural_1 (parent) to sota_3",
+            "direction": "sota",
+            "parent": "structural_1",
+            "psnr": 29.45,
+            "latency_ms": 0.553,
+            "params": 61859,
+            "status": "done",
+            "description": "## What changed\n### Encoder: CNN → MobileNetV2 Inverted Residuals\n**Before (structural_1):**\n```\nconv1 (3→16, 3×3 s2) → conv2 (16→32, 3×3 s2) → res_block1 → res_block2 → res_block3 → conv5 (32→2c) → norm → SE\n```\n**After (sota_3):**\n```\nconv1 (3→16, 3×3 s2) → mb_block1 (16→32, s2, expand=3) → mb_block2 (32→32, s1, expand=3) → mb_block3 (32→32, s1, expand=3) → conv5 (32→2c) → norm → SE\n```\n### MobileNetV2 InvertedResidual block\nEach block = `Conv2d 1×1 (expand)` → `Depthwise Conv2d 3×3` → `Conv2d"
+          },
+          {
+            "vid": "structural_1",
+            "change_summary": "structural_1 changes",
+            "direction": "structural",
+            "parent": "structural_0",
+            "psnr": 29.28,
+            "latency_ms": 0.415,
+            "params": 105236,
+            "status": "done",
+            "description": "1. **U-Net skip connection**: encoder conv1 output (16ch, 16×16) concatenated to decoder after bilinear upsampling — gives decoder direct access to low-level spatial detail, the key improvement that made sota_0 (UNet) achieve +11.5dB PSNR.\n2. **Replaced all 5×5 transposed convs** with bilinear upsampling + 3×3 convs — transposed convs are 2-4× slower, bilinear upsampling is near-free. Also eliminates checkerboard artifacts.\n3. **Added 3rd residual block** (res_block3) in encoder for more depth a"
+          },
+          {
+            "vid": "structural_8",
+            "change_summary": "structural_8 — Balanced capacity redistribution",
+            "direction": "structural",
+            "parent": "structural_1",
+            "psnr": 29.25,
+            "latency_ms": 0.486,
+            "params": 98368,
+            "status": "done",
+            "description": "**Changes from structural_1 (parent, PSNR=29.28, latency=0.415ms, params=105K):**\n1. **Decoder channels 32→28 + 1×1 residual projection** — structural_5 proved this achieves +2.07dB PSNR (31.35dB) by reducing decoder redundancy while adding a projection for channel-aligned residual. Latency increased 23% in structural_5 (0.415→0.511ms).\n2. **Encoder conv1 16→14** — balanced capacity redistribution to offset the decoder projection's latency impact. Reduces first-layer FLOPs (~12.5%) while keeping"
+          },
+          {
+            "vid": "structural_6",
+            "change_summary": "structural_6 changes",
+            "direction": "structural",
+            "parent": "structural_1",
+            "psnr": 29.16,
+            "latency_ms": 0.4936,
+            "params": 98256,
+            "status": "done",
+            "description": "## What changed\n1. **Encoder conv1 channels: 3→16→14** — reduced first-layer width, smaller skip features (14ch instead of 16ch)\n2. **Decoder conv1-3 channels: 32→28** — internal decoder capacity reduction (proven by structural_5)\n3. **Decoder residual removed** — structural_5's 1×1 projection added latency (+23%), so removed entirely\n4. **conv4 input channels adjusted: 48→42** (28 decoder + 14 skip instead of 32+16)\n## Why\nParent structural_1 (PSNR=29.28, latency=0.415ms) is closest to 0.404ms "
+          },
+          {
+            "vid": "structural_4",
+            "change_summary": "structural_4",
+            "direction": "structural",
+            "parent": "structural_1",
+            "psnr": 29.15,
+            "latency_ms": 0.475,
+            "params": 109060,
+            "status": "done",
+            "description": "## Changes from structural_1 (parent, PSNR=29.28, lat=0.415ms, params=105K)\n- **Encoder conv1**: 3→16 → 3→20 (wider input stage, +108 params)\n- **Decoder conv4**: adjusted from 48→16 to 52→20 (matches wider skip connection from conv1)\n- **Decoder conv5**: adjusted from 16→3 to 20→3 (wider features before output)\n- **Encoder conv2**: adjusted from 16→32 to 20→32 (+1,152 params)\nAll other elements preserved: U-Net skip connection, bilinear upsample+3×3 conv decoder,\n3 encoder residual blocks, SE a"
+          },
+          {
+            "vid": "structural_3",
+            "change_summary": "structural_3 — ECA attention + compressed skip + decoder ECA",
+            "direction": "structural",
+            "parent": "structural_1",
+            "psnr": 28.82,
+            "latency_ms": 0.5279,
+            "params": 103926,
+            "status": "done",
+            "description": "Changes from structural_1 (parent, PSNR=29.28, lat=0.415ms, params=105K):\n1. **SEBlock → ECABlock** at encoder bottleneck: two FC layers replaced by a 1D conv (k=3 for 2c=32). ~64 fewer params, O(C) vs O(C²/8) complexity.\n2. **Compressed U-Net skip**: Added 1×1 conv (16→8chn) to compress skip features before decoder concatenation. conv4 input 48→40chn, reducing decoder computation ~17%.\n3. **Decoder ECA**: Added lightweight ECA after decoder conv3 residual connection for better feature refinemen"
+          },
+          {
+            "vid": "sota_4",
+            "change_summary": "Changes in sota_4 (Swin Transformer Encoder)",
+            "direction": "sota",
+            "parent": "structural_1",
+            "psnr": 28.68,
+            "latency_ms": 0.598,
+            "params": 49802,
+            "status": "done",
+            "description": "## What Changed\n1. **Encoder**: Replaced CNN residual blocks + conv5 with Swin Transformer blocks\n- Keep conv1 (3→16, 3×3 stride 2) for U-Net skip features (unchanged)\n- Keep conv2 (16→32, 3×3 stride 2) for downsampling to 8×8 (unchanged)\n- Removed: res_block1, res_block2, res_block3 (3 residual blocks, 32ch)\n- Added: _SwinBasicLayer with 2 Swin blocks (window_size=4, num_heads=4)\n- Added: LayerNorm after Swin\n- Changed: conv5 from 3×3 to 1×1 (pointwise, since features are already processed)\n- A"
+          },
+          {
+            "vid": "hyperparam_1",
+            "change_summary": "hyperparam_1 — Hyperparameter Mutation",
+            "direction": "hyperparam",
+            "parent": "structural_0",
+            "psnr": 28.59,
+            "latency_ms": 0.76,
+            "params": 167887,
+            "status": "done",
+            "description": "## Changes from parent (structural_0 / baseline init_hyperparams)\n| Hyperparam | Baseline | hyperparam_0 (iter 0) | hyperparam_1 (iter 1, this) |\n|------------|----------|----------------------|---------------------------|\n| lr         | 1e-3     | 3e-4 ❌ (failed)     | **1e-3** (kept)           |\n| batch_size | 64       | 128 ❌               | **32** (halved)            |\n| epochs     | 5        | 5                    | 5 (fixed)                 |\n| optimizer  | Adam     | AdamW (not supported)"
+          },
+          {
+            "vid": "structural_9",
+            "change_summary": "structural_9: Changes from parent sota_8",
+            "direction": "structural",
+            "parent": "sota_8",
+            "psnr": 27.23,
+            "latency_ms": 0.4701,
+            "params": 47489,
+            "status": "done",
+            "description": "## 1. ECA at decoder output before final conv\n**What**: Added Efficient Channel Attention (_ECABlock) after upsample and before the final conv layer in the decoder.\n**Why**: ECA is lighter than SE — uses a 1D conv (k=3, adaptive) + sigmoid instead of FC layers. Provides channel recalibration at the decoder output where fine spatial detail reconstruction matters most. Near-zero latency overhead.\n## 2. Feature-level residual within decoder level 3\n**What**: Added a 1×1 conv projection from conv_d3"
+          },
+          {
+            "vid": "hyperparam_10",
+            "change_summary": "hyperparam_10 — Hyperparam mutation on sota_8 (Lightweight UNet)",
+            "direction": "hyperparam",
+            "parent": "sota_8",
+            "psnr": 27.08,
+            "latency_ms": 0.4289,
+            "params": 47232,
+            "status": "done",
+            "description": "## Parent: sota_8\n- psnr=30.42, latency=0.4075ms (仅差3.5μs达目标), params=47K\n- Lightweight UNet (3-level, channels 8→16→32)\n## Hyperparams (vs parent's assumed defaults)\n| Parameter         | sota_8 (assumed) | hyperparam_10 | Rationale |\n|-------------------|-----------------|---------------|-----------|\n| optimizer         | adam (default)  | adam          | Adam consistently best across all prior runs (SGD failed in iter 4, AdamW underperformed) |\n| lr                | 1e-3            | **5e-4**"
+          },
+          {
+            "vid": "structural_0",
+            "change_summary": "Structural Changes v0.3",
+            "direction": "structural",
+            "parent": "v0",
+            "psnr": 27.0,
+            "latency_ms": 1.4,
+            "params": 167887,
+            "status": "done",
+            "description": "## What changed (vs baseline v0)\n1. **Encoder conv3 & conv4 → 3×3 residual blocks**: Replaced two 5×5 plain convs with two 3×3+3×3 residual blocks. Same receptive field, ~28% fewer weights per block, better gradient flow via skip connections.\n2. **SE block at bottleneck**: Added Squeeze-and-Excitation channel attention after normalization (reduction=8). Only ~292 extra parameters but provides adaptive channel recalibration.\n3. **Decoder residual connection**: Added skip connection from encoder b"
+          },
+          {
+            "vid": "structural_2",
+            "change_summary": "structural_2 Changes",
+            "direction": "structural",
+            "parent": "structural_1",
+            "psnr": 26.91,
+            "latency_ms": 0.807,
+            "params": 23191,
+            "status": "done",
+            "description": "## What changed\n1. **Kernel operator replacement**: All regular 3×3 convolutions → Depthwise Separable (DSConv2d: depthwise 3×3 + pointwise 1×1 + PReLU each). Saves ~7× params and ~8× FLOPs per conv layer while maintaining representational power.\n2. **Channel dimension increase**: conv1 3→20 (was 3→16, +25%), conv2 20→40 (was 16→32, +25%), res_blocks 40ch (was 32ch, +25%) — wider front-end captures more spatial detail before aggressive stride-2 pooling.\n3. **Attention module swap**: SE (Squeeze-"
+          },
+          {
+            "vid": "v0",
+            "change_summary": "v0",
+            "direction": "baseline",
+            "parent": "-",
+            "psnr": 24.9,
+            "latency_ms": 1.3468,
+            "params": 181865,
+            "status": "done",
+            "description": ""
+          },
+          {
+            "vid": "v0 (baseline)",
+            "change_summary": "Baseline (original model)",
+            "direction": "baseline",
+            "parent": "-",
+            "psnr": 24.9,
+            "latency_ms": 1.3468,
+            "params": 181865,
+            "status": "done",
+            "description": "Original unmodified model"
+          },
+          {
+            "vid": "sota_2",
+            "change_summary": "Changes: ViT Encoder + CNN Decoder",
+            "direction": "sota",
+            "parent": "structural_1",
+            "psnr": 22.91,
+            "latency_ms": 1.0804,
+            "params": 242183,
+            "status": "done",
+            "description": "## What Changed\n### Encoder: CNN → ViT (Vision Transformer)\n- **Removed**: All CNN encoder layers (conv1-2, residual blocks, conv5)\n- **Added**: ViTEncoder with:\n- Patch embedding: Conv2d(3→64, kernel=4, stride=4) → 8×8 patch grid (64 patches)\n- Learnable position embedding (1×64×64)\n- 4× Transformer blocks (LayerNorm + MultiHeadAttention 4-head + MLP 64→256→64)\n- Output projection: embed_dim(64) → bottleneck(2*c=32)\n- Power normalization kept from parent\n### Decoder: CNN (adapted from parent)\n-"
+          },
+          {
+            "vid": "sota_1",
+            "change_summary": "Changes: SOTA Variant iter 1 — DenseNet Architecture",
+            "direction": "sota",
+            "parent": "structural_0",
+            "psnr": 22.84,
+            "latency_ms": 19.79,
+            "params": 163228,
+            "status": "done",
+            "description": "## What Changed\n### Architecture: Residual-enhanced CNN Encoder-Decoder → DenseNet-style Dense Connectivity\n**Old (structural_0 parent):**\n- Encoder: CNN with 2 residual blocks (3×3 convs) at conv3/conv4 stage, SE attention at bottleneck\n- Decoder: 5× ConvTranspose2D (5×5), with a skip from encoder bottleneck\n- Power normalization at encoder output\n**New (DenseNet):**\n- Encoder:\n- Initial 5×5 conv (3→32, stride 2)\n- DenseBlock1: 4 dense layers, growth_rate=12 (32→80 channels)\n- Transition1: 1×1 "
+          },
+          {
+            "vid": "hyperparam_0",
+            "change_summary": "Hyperparam Mutation — iter 0",
+            "direction": "hyperparam",
+            "parent": "v0",
+            "psnr": 21.79,
+            "latency_ms": 1.3468,
+            "params": 181865,
+            "status": "done",
+            "description": "## Changes from parent (v0 baseline)\n| Parameter | Parent (v0) | Ours (hyperparam_0) | Rationale |\n|-----------|-------------|---------------------|-----------|\n| lr | 0.001 | 0.0003 | Lower learning rate for more stable convergence; 1 order of magnitude below parent |\n| batch_size | 64 | 128 | Larger batch for smoother gradient estimates, better GPU utilization |\n| epochs | 5 | 5 | Fixed per setup.json; unchanged |\n| optimizer | adam | adamw | AdamW decouples weight decay from gradient updates,"
+          }
+        ]
+      }
+    },
+    "fitness_optimal": {
+      "label": "fitness_optimal",
+      "collapsed": false,
+      "category": null,
+      "charts": {
+        "Fitness Progression — Best psnr per Iteration": {
+          "chart_type": "optimal_line",
+          "data": [
+            {
+              "iter": 0,
+              "fitness": 36.4
+            },
+            {
+              "iter": 1,
+              "fitness": 29.28
+            },
+            {
+              "iter": 2,
+              "fitness": 31.16
+            },
+            {
+              "iter": 3,
+              "fitness": 30.27
+            },
+            {
+              "iter": 4,
+              "fitness": 31.16
+            },
+            {
+              "iter": 5,
+              "fitness": 31.35
+            },
+            {
+              "iter": 6,
+              "fitness": 31.2
+            },
+            {
+              "iter": 7,
+              "fitness": 31.45
+            },
+            {
+              "iter": 8,
+              "fitness": 30.42
+            },
+            {
+              "iter": 9,
+              "fitness": 31.36
+            },
+            {
+              "iter": 10,
+              "fitness": 31.84
+            }
+          ],
+          "columns": [
+            "iter",
+            "fitness"
+          ],
+          "x": "iter",
+          "y": "fitness",
+          "label": "fitness_optimal",
+          "title": "Fitness Progression — Best psnr per Iteration",
+          "hue": null,
+          "optimal_line": "max"
+        }
+      },
+      "table": null
+    }
+  },
+  "groupOrder": [
+    "all_variants_table",
+    "fitness_optimal",
+    "latency_bubble",
+    "pareto_frontier"
+  ]
+}

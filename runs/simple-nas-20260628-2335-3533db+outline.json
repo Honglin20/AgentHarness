@@ -1,0 +1,1553 @@
+[
+  {
+    "key": "setup__iter1",
+    "node_id": "setup",
+    "iteration": 1,
+    "is_latest_iter": true,
+    "iter_count": 1,
+    "name": "setup",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 61795
+    },
+    "badges": [
+      {
+        "kind": "tokens",
+        "text": "266.1k",
+        "title": "260487 in / 5647 out"
+      }
+    ],
+    "order": 0
+  },
+  {
+    "key": "baseline__iter1",
+    "node_id": "baseline",
+    "iteration": 1,
+    "is_latest_iter": true,
+    "iter_count": 1,
+    "name": "baseline",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 491456
+    },
+    "badges": [
+      {
+        "kind": "tokens",
+        "text": "1062.4k",
+        "title": "1041147 in / 21264 out"
+      }
+    ],
+    "order": 1
+  },
+  {
+    "key": "selector__iter1",
+    "node_id": "selector",
+    "iteration": 1,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "selector",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 36129
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "130.5k",
+        "title": "126295 in / 4166 out"
+      }
+    ],
+    "order": 2
+  },
+  {
+    "key": "mutator_hyperparam__iter1",
+    "node_id": "mutator_hyperparam",
+    "iteration": 1,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_hyperparam",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 335810
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1107.5k",
+        "title": "1087153 in / 20354 out"
+      }
+    ],
+    "order": 3
+  },
+  {
+    "key": "mutator_sota__iter1",
+    "node_id": "mutator_sota",
+    "iteration": 1,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_sota",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 324165
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1461.6k",
+        "title": "1442392 in / 19178 out"
+      }
+    ],
+    "order": 4
+  },
+  {
+    "key": "mutator_structural__iter1",
+    "node_id": "mutator_structural",
+    "iteration": 1,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_structural",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 310653
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1307.8k",
+        "title": "1286637 in / 21121 out"
+      }
+    ],
+    "order": 5
+  },
+  {
+    "key": "analyzer__iter1",
+    "node_id": "analyzer",
+    "iteration": 1,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "analyzer",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 67698
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "182.9k",
+        "title": "175736 in / 7170 out"
+      }
+    ],
+    "order": 6
+  },
+  {
+    "key": "selector__iter2",
+    "node_id": "selector",
+    "iteration": 2,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "selector",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 36129
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "130.5k",
+        "title": "126295 in / 4166 out"
+      }
+    ],
+    "order": 7
+  },
+  {
+    "key": "mutator_hyperparam__iter2",
+    "node_id": "mutator_hyperparam",
+    "iteration": 2,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_hyperparam",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 335810
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1107.5k",
+        "title": "1087153 in / 20354 out"
+      }
+    ],
+    "order": 8
+  },
+  {
+    "key": "mutator_sota__iter2",
+    "node_id": "mutator_sota",
+    "iteration": 2,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_sota",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 324165
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1461.6k",
+        "title": "1442392 in / 19178 out"
+      }
+    ],
+    "order": 9
+  },
+  {
+    "key": "mutator_structural__iter2",
+    "node_id": "mutator_structural",
+    "iteration": 2,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_structural",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 310653
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1307.8k",
+        "title": "1286637 in / 21121 out"
+      }
+    ],
+    "order": 10
+  },
+  {
+    "key": "analyzer__iter2",
+    "node_id": "analyzer",
+    "iteration": 2,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "analyzer",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 67698
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "182.9k",
+        "title": "175736 in / 7170 out"
+      }
+    ],
+    "order": 11
+  },
+  {
+    "key": "selector__iter3",
+    "node_id": "selector",
+    "iteration": 3,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "selector",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 36129
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "130.5k",
+        "title": "126295 in / 4166 out"
+      }
+    ],
+    "order": 12
+  },
+  {
+    "key": "mutator_hyperparam__iter3",
+    "node_id": "mutator_hyperparam",
+    "iteration": 3,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_hyperparam",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 335810
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1107.5k",
+        "title": "1087153 in / 20354 out"
+      }
+    ],
+    "order": 13
+  },
+  {
+    "key": "mutator_sota__iter3",
+    "node_id": "mutator_sota",
+    "iteration": 3,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_sota",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 324165
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1461.6k",
+        "title": "1442392 in / 19178 out"
+      }
+    ],
+    "order": 14
+  },
+  {
+    "key": "mutator_structural__iter3",
+    "node_id": "mutator_structural",
+    "iteration": 3,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_structural",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 310653
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1307.8k",
+        "title": "1286637 in / 21121 out"
+      }
+    ],
+    "order": 15
+  },
+  {
+    "key": "analyzer__iter3",
+    "node_id": "analyzer",
+    "iteration": 3,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "analyzer",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 67698
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "182.9k",
+        "title": "175736 in / 7170 out"
+      }
+    ],
+    "order": 16
+  },
+  {
+    "key": "selector__iter4",
+    "node_id": "selector",
+    "iteration": 4,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "selector",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 36129
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "130.5k",
+        "title": "126295 in / 4166 out"
+      }
+    ],
+    "order": 17
+  },
+  {
+    "key": "mutator_hyperparam__iter4",
+    "node_id": "mutator_hyperparam",
+    "iteration": 4,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_hyperparam",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 335810
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1107.5k",
+        "title": "1087153 in / 20354 out"
+      }
+    ],
+    "order": 18
+  },
+  {
+    "key": "mutator_sota__iter4",
+    "node_id": "mutator_sota",
+    "iteration": 4,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_sota",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 324165
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1461.6k",
+        "title": "1442392 in / 19178 out"
+      }
+    ],
+    "order": 19
+  },
+  {
+    "key": "mutator_structural__iter4",
+    "node_id": "mutator_structural",
+    "iteration": 4,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_structural",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 310653
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1307.8k",
+        "title": "1286637 in / 21121 out"
+      }
+    ],
+    "order": 20
+  },
+  {
+    "key": "analyzer__iter4",
+    "node_id": "analyzer",
+    "iteration": 4,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "analyzer",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 67698
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "182.9k",
+        "title": "175736 in / 7170 out"
+      }
+    ],
+    "order": 21
+  },
+  {
+    "key": "selector__iter5",
+    "node_id": "selector",
+    "iteration": 5,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "selector",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 36129
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "130.5k",
+        "title": "126295 in / 4166 out"
+      }
+    ],
+    "order": 22
+  },
+  {
+    "key": "mutator_hyperparam__iter5",
+    "node_id": "mutator_hyperparam",
+    "iteration": 5,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_hyperparam",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 335810
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1107.5k",
+        "title": "1087153 in / 20354 out"
+      }
+    ],
+    "order": 23
+  },
+  {
+    "key": "mutator_sota__iter5",
+    "node_id": "mutator_sota",
+    "iteration": 5,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_sota",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 324165
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1461.6k",
+        "title": "1442392 in / 19178 out"
+      }
+    ],
+    "order": 24
+  },
+  {
+    "key": "mutator_structural__iter5",
+    "node_id": "mutator_structural",
+    "iteration": 5,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_structural",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 310653
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1307.8k",
+        "title": "1286637 in / 21121 out"
+      }
+    ],
+    "order": 25
+  },
+  {
+    "key": "analyzer__iter5",
+    "node_id": "analyzer",
+    "iteration": 5,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "analyzer",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 67698
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "182.9k",
+        "title": "175736 in / 7170 out"
+      }
+    ],
+    "order": 26
+  },
+  {
+    "key": "selector__iter6",
+    "node_id": "selector",
+    "iteration": 6,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "selector",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 36129
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "130.5k",
+        "title": "126295 in / 4166 out"
+      }
+    ],
+    "order": 27
+  },
+  {
+    "key": "mutator_hyperparam__iter6",
+    "node_id": "mutator_hyperparam",
+    "iteration": 6,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_hyperparam",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 335810
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1107.5k",
+        "title": "1087153 in / 20354 out"
+      }
+    ],
+    "order": 28
+  },
+  {
+    "key": "mutator_sota__iter6",
+    "node_id": "mutator_sota",
+    "iteration": 6,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_sota",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 324165
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1461.6k",
+        "title": "1442392 in / 19178 out"
+      }
+    ],
+    "order": 29
+  },
+  {
+    "key": "mutator_structural__iter6",
+    "node_id": "mutator_structural",
+    "iteration": 6,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_structural",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 310653
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1307.8k",
+        "title": "1286637 in / 21121 out"
+      }
+    ],
+    "order": 30
+  },
+  {
+    "key": "analyzer__iter6",
+    "node_id": "analyzer",
+    "iteration": 6,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "analyzer",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 67698
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "182.9k",
+        "title": "175736 in / 7170 out"
+      }
+    ],
+    "order": 31
+  },
+  {
+    "key": "selector__iter7",
+    "node_id": "selector",
+    "iteration": 7,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "selector",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 36129
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "130.5k",
+        "title": "126295 in / 4166 out"
+      }
+    ],
+    "order": 32
+  },
+  {
+    "key": "mutator_hyperparam__iter7",
+    "node_id": "mutator_hyperparam",
+    "iteration": 7,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_hyperparam",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 335810
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1107.5k",
+        "title": "1087153 in / 20354 out"
+      }
+    ],
+    "order": 33
+  },
+  {
+    "key": "mutator_sota__iter7",
+    "node_id": "mutator_sota",
+    "iteration": 7,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_sota",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 324165
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1461.6k",
+        "title": "1442392 in / 19178 out"
+      }
+    ],
+    "order": 34
+  },
+  {
+    "key": "mutator_structural__iter7",
+    "node_id": "mutator_structural",
+    "iteration": 7,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_structural",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 310653
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1307.8k",
+        "title": "1286637 in / 21121 out"
+      }
+    ],
+    "order": 35
+  },
+  {
+    "key": "analyzer__iter7",
+    "node_id": "analyzer",
+    "iteration": 7,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "analyzer",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 67698
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "182.9k",
+        "title": "175736 in / 7170 out"
+      }
+    ],
+    "order": 36
+  },
+  {
+    "key": "selector__iter8",
+    "node_id": "selector",
+    "iteration": 8,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "selector",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 36129
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "130.5k",
+        "title": "126295 in / 4166 out"
+      }
+    ],
+    "order": 37
+  },
+  {
+    "key": "mutator_hyperparam__iter8",
+    "node_id": "mutator_hyperparam",
+    "iteration": 8,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_hyperparam",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 335810
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1107.5k",
+        "title": "1087153 in / 20354 out"
+      }
+    ],
+    "order": 38
+  },
+  {
+    "key": "mutator_sota__iter8",
+    "node_id": "mutator_sota",
+    "iteration": 8,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_sota",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 324165
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1461.6k",
+        "title": "1442392 in / 19178 out"
+      }
+    ],
+    "order": 39
+  },
+  {
+    "key": "mutator_structural__iter8",
+    "node_id": "mutator_structural",
+    "iteration": 8,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_structural",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 310653
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1307.8k",
+        "title": "1286637 in / 21121 out"
+      }
+    ],
+    "order": 40
+  },
+  {
+    "key": "analyzer__iter8",
+    "node_id": "analyzer",
+    "iteration": 8,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "analyzer",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 67698
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "182.9k",
+        "title": "175736 in / 7170 out"
+      }
+    ],
+    "order": 41
+  },
+  {
+    "key": "selector__iter9",
+    "node_id": "selector",
+    "iteration": 9,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "selector",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 36129
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "130.5k",
+        "title": "126295 in / 4166 out"
+      }
+    ],
+    "order": 42
+  },
+  {
+    "key": "mutator_hyperparam__iter9",
+    "node_id": "mutator_hyperparam",
+    "iteration": 9,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_hyperparam",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 335810
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1107.5k",
+        "title": "1087153 in / 20354 out"
+      }
+    ],
+    "order": 43
+  },
+  {
+    "key": "mutator_sota__iter9",
+    "node_id": "mutator_sota",
+    "iteration": 9,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_sota",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 324165
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1461.6k",
+        "title": "1442392 in / 19178 out"
+      }
+    ],
+    "order": 44
+  },
+  {
+    "key": "mutator_structural__iter9",
+    "node_id": "mutator_structural",
+    "iteration": 9,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_structural",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 310653
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1307.8k",
+        "title": "1286637 in / 21121 out"
+      }
+    ],
+    "order": 45
+  },
+  {
+    "key": "analyzer__iter9",
+    "node_id": "analyzer",
+    "iteration": 9,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "analyzer",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 67698
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "182.9k",
+        "title": "175736 in / 7170 out"
+      }
+    ],
+    "order": 46
+  },
+  {
+    "key": "selector__iter10",
+    "node_id": "selector",
+    "iteration": 10,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "selector",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 36129
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "130.5k",
+        "title": "126295 in / 4166 out"
+      }
+    ],
+    "order": 47
+  },
+  {
+    "key": "mutator_hyperparam__iter10",
+    "node_id": "mutator_hyperparam",
+    "iteration": 10,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_hyperparam",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 335810
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1107.5k",
+        "title": "1087153 in / 20354 out"
+      }
+    ],
+    "order": 48
+  },
+  {
+    "key": "mutator_sota__iter10",
+    "node_id": "mutator_sota",
+    "iteration": 10,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_sota",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 324165
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1461.6k",
+        "title": "1442392 in / 19178 out"
+      }
+    ],
+    "order": 49
+  },
+  {
+    "key": "mutator_structural__iter10",
+    "node_id": "mutator_structural",
+    "iteration": 10,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "mutator_structural",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 310653
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1307.8k",
+        "title": "1286637 in / 21121 out"
+      }
+    ],
+    "order": 50
+  },
+  {
+    "key": "analyzer__iter10",
+    "node_id": "analyzer",
+    "iteration": 10,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "analyzer",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 67698
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "182.9k",
+        "title": "175736 in / 7170 out"
+      }
+    ],
+    "order": 51
+  },
+  {
+    "key": "selector__iter11",
+    "node_id": "selector",
+    "iteration": 11,
+    "is_latest_iter": true,
+    "iter_count": 11,
+    "name": "selector",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 36129
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "130.5k",
+        "title": "126295 in / 4166 out"
+      }
+    ],
+    "order": 52
+  },
+  {
+    "key": "mutator_hyperparam__iter11",
+    "node_id": "mutator_hyperparam",
+    "iteration": 11,
+    "is_latest_iter": true,
+    "iter_count": 11,
+    "name": "mutator_hyperparam",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 335810
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1107.5k",
+        "title": "1087153 in / 20354 out"
+      }
+    ],
+    "order": 53
+  },
+  {
+    "key": "mutator_sota__iter11",
+    "node_id": "mutator_sota",
+    "iteration": 11,
+    "is_latest_iter": true,
+    "iter_count": 11,
+    "name": "mutator_sota",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 324165
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1461.6k",
+        "title": "1442392 in / 19178 out"
+      }
+    ],
+    "order": 54
+  },
+  {
+    "key": "mutator_structural__iter11",
+    "node_id": "mutator_structural",
+    "iteration": 11,
+    "is_latest_iter": true,
+    "iter_count": 11,
+    "name": "mutator_structural",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 310653
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "1307.8k",
+        "title": "1286637 in / 21121 out"
+      }
+    ],
+    "order": 55
+  },
+  {
+    "key": "analyzer__iter11",
+    "node_id": "analyzer",
+    "iteration": 11,
+    "is_latest_iter": true,
+    "iter_count": 11,
+    "name": "analyzer",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 67698
+    },
+    "badges": [
+      {
+        "kind": "iteration",
+        "text": "#11",
+        "title": "Iteration 11 of 11"
+      },
+      {
+        "kind": "tokens",
+        "text": "182.9k",
+        "title": "175736 in / 7170 out"
+      }
+    ],
+    "order": 56
+  },
+  {
+    "key": "reporter__iter1",
+    "node_id": "reporter",
+    "iteration": null,
+    "is_latest_iter": false,
+    "iter_count": 11,
+    "name": "reporter",
+    "first_ts": 0,
+    "status": "completed",
+    "activity": {
+      "kind": "completed",
+      "durationMs": 48172
+    },
+    "badges": [
+      {
+        "kind": "tokens",
+        "text": "201.6k",
+        "title": "197489 in / 4151 out"
+      }
+    ],
+    "order": 57
+  }
+]
