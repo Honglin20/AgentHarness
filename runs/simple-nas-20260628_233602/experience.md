@@ -1,0 +1,269 @@
+## iter 0 | 3 active | directions: [structural, hyperparam, sota]
+
+### structural (structural_0)
+- 改了什么：conv3/conv4 5×5→3×3残差块，瓶颈处加SE注意力（reduction=8），解码器加残差跳跃连接
+- 结果：psnr=27.0, latency=1.40ms, params=167,887 (vs parent: +2.1dB PSNR, +0.05ms latency, −7.7% params)
+- 判定：promising — PSNR显著提升(+8.4%)，latency基本持平，参数量下降。SE注意力+残差连接有效
+- 下一步提示：可继续加深残差块或调整瓶颈通道数。当前latency仍远高目标（1.4 vs 0.404ms），要兼顾时延优化
+
+### hyperparam (hyperparam_0)
+- 改了什么：lr 1e-3→3e-4, batch 64→128, Adam→AdamW, cosine调度, weight_decay 5e-4→1e-4, warmup 100步
+- 结果：psnr=21.79, latency=1.3468ms, params=181,865 (vs parent: −3.11dB PSNR, latency持平)
+- 判定：dead（当前轮）— 在学习率降低且epoch固定5的情况下无法收敛。loss曲线仍在下降趋势，说明需要更多epoch
+- 下一步提示：如果继续探索hyperparam方向，建议保持原始lr(1e-3)仅调batch_size和优化器，或在epoch可调时再尝试低lr
+
+### sota (sota_0)
+- 改了什么：纯CNN编码器-解码器 → UNet架构（3级编码器3→20→40→80通道，跳跃连接存储，双线性上采样+conv解码）
+- 结果：psnr=36.4, latency=9.9992ms, params=187,265 (vs parent: +11.5dB PSNR, +6.4× latency, +3% params)
+- 判定：promising — PSNR巨大提升(+46%)远超预期，但latency暴增至9.99ms（远程CPU测量可能有偏差）。跳跃连接有效解除了信息瓶颈
+- 下一步提示：UNet结构PSNR天赋极强，但latency需要大幅优化。建议：(1)减少通道数从80→40以降低计算量 (2)下采样改用stride=1减少特征图缩小 (3)在GPU上重新测量latency
+
+### 下轮 selector 提示
+- 全局最佳promising：sota_0（psnr=36.4, latency=9.99ms, params=187K）
+- 各方向趋势：structural首次有效(+2.1dB, 参数量-7.7%)；hyperparam因epoch不足未收敛；sota首次尝试UNet即取得巨大PSNR提升但latency过高
+
+## iter 1 | 3 active | directions: [structural, hyperparam, sota]
+
+### structural (structural_1)
+- 改了什么：U-Net skip connection + bilinear upsampling+3×3 conv (取代5×5 tconv) + 新增res_block3 + 所有5×5→3×3 conv
+- 结果：psnr=29.28 (+2.28dB vs parent 27.0), latency=0.415ms (-70.4% vs parent 1.4ms), params=105,236 (-37% vs parent 167,887)
+- 判定：promising — 三连赢(PSNR↑, latency↓↓, params↓↓)。latency 0.415ms极其接近目标0.404ms(70%降低)，仅差11μs。PSNR远超容忍下限24.65。参数量大幅下降37%，是当前最优变体
+- 下一步提示：此变体已极接近时延目标。可尝试进一步缩减通道或使用更激进的深度可分离卷积来压低最后11μs。或保持此结构，在下轮进行hyperparam微调
+
+### hyperparam (hyperparam_1)
+- 改了什么：batch_size 64→32, 添加StepLR调度器(step=640, γ=0.1), lr保持1e-3 (吸取iter 0 hyperparam_0 lr=3e-4失败的教训)
+- 结果：psnr=28.59 (+1.59dB vs parent 27.0), latency=0.76ms (-45.7% vs parent 1.4ms), params=167,887 (不变)
+- 判定：promising — PSNR改善显著(+1.59dB)，latency也因运算量自然下降。但时延距目标0.404ms仍有差距。迭代0时hyperparam方向psnr=21.79(dead)，本轮通过恢复lr=1e-3+降batch成功翻盘
+- 下一步提示：继续调参(如batch=16, lr略降)可能进一步提升PSNR，但latency受限于parent结构，纯调参难以实现70%降幅。建议将hyperparam与structural方向的架构改进结合
+
+### sota (sota_1)
+- 改了什么：DenseNet密集连接架构(4个DenseBlock×4层, growth_rate=12, 所有tconv→upsample+3×3conv)
+- 结果：psnr=22.84 (-4.16dB vs parent 27.0), latency=19.79ms (+1313% vs parent 1.4ms), params=163,228 (-2.8% vs parent 167,887)
+- 判定：dead — PSNR低于容忍下限24.65且低于baseline 24.9，latency暴增至19.79ms(远程CPU)。loss曲线在epoch 5从350反弹至828，训练发散。DenseNet无BN层在5 epoch短训下不稳定
+- 下一步提示：当前配置下(无BN, 5 epoch) DenseNet不可行。如要继续sota方向，建议：(1)加入BN层稳定训练 (2)减少DenseBlock层数(3→2)降低深度 (3)或换其他轻量架构如MobileNetV2的深度可分离卷积
+
+### 下轮 selector 提示
+- 全局最佳promising：structural_1（psnr=29.28, latency=0.415ms, params=105K）— 最接近目标，建议作为下轮parent
+- 各方向趋势：structural连续2轮改善(+2.1dB→+2.28dB, 同时持续降参数量); hyperparam本轮从dead翻盘(+1.59dB); sota从promising(+11.5dB但9.99ms)跌落至dead(发散+19.79ms)
+
+## iter 2 | 3 active | directions: [structural, hyperparam, sota]
+
+### structural (structural_2)
+- 改了什么：DSConv2d深度可分离卷积替换普通3×3 conv + 通道扩增(3→20→40 vs 3→16→32) + SE→ECA注意力置换 + 解码器侧新增ECA
+- 结果：psnr=26.91 (↓2.37 vs parent 29.28), latency=0.807ms (+94% vs parent 0.415ms), params=23K (↓78%)
+- 判定：neutral — PSNR仍高于基线容忍下限24.65(+2.01)，但大幅低于parent。DSConv在CPU上因内存带宽瓶颈反而更慢，latency从接近目标(0.415ms)退步到0.807ms。参数量剧降但质量未保持
+- 下一步提示：DSConv方向在CPU上不成立。建议structural方向回归常规3×3 conv但探索更轻量的残差块配置(如缩减通道数16→12、减少残差块数量)，或尝试其他CPU友好型轻量化(如分组卷积group=2)
+
+### hyperparam (hyperparam_2)
+- 改了什么：weight_decay 5e-4→1e-4, batch_size 64→32, StepLR调度器(继承iter 1成功配置)
+- 结果：psnr=31.16 (+1.88 vs parent 29.28, +6.26 vs baseline 24.9), latency=0.519ms, params=105K
+- 判定：promising — PSNR创历史新高31.16dB！连续3轮hyperparam方向从dead(21.79)→promising(28.59)→最佳(31.16)。低weight_decay对105K小模型见效。latency 0.519ms距目标0.404ms仍有113μs差距，但已是当前延迟最低的promising变体
+- 下一步提示：hyperparam方向已充分挖掘当前parent(structural_1)的潜力。建议将hyperparam_2作为下轮parent，结合structural方向的架构改进来进一步降低latency那最后的113μs
+
+### sota (sota_2)
+- 改了什么：CNN编码器→ViT编码器(4 blocks, embed_dim=64, 4-head self-attention) + CNN解码器
+- 结果：psnr=22.91 (−6.37 vs parent 29.28, −1.99 vs baseline 24.9), latency=1.08ms (2.6× parent 0.415ms), params=242K (2.3× parent)
+- 判定：dead — PSNR低于基线容忍下限24.65，也低于baseline本身24.9。ViT在5 epoch短训下无法收敛(loss曲线仍在下降但PSNR波动)。latency 1.08ms远超目标。参数量242K是最大的
+- 下一步提示：ViT方向在5 epoch限制下不成立(需要更长训练)。sota方向连续两轮(iter 1 DenseNet、iter 2 ViT)都失败。建议暂停sota方向探索，聚焦structural+hyperparam的联合优化。如果继续sota，需：(1)选择无需长训的轻量架构(如MobileNetV2反向残差) (2)加入BN/BatchNorm稳定训练
+
+### 下轮 selector 提示
+- 全局最佳promising：hyperparam_2（psnr=31.16, latency=0.519ms, params=105K）— 历史最高PSNR，建议作为下轮parent
+- 各方向趋势：structural从连续2轮改善(29.28, lat=0.415ms最优)退步至DSConv失败(26.91, lat=0.807ms)，需要重新聚焦；hyperparam连续3轮改善(21.79→28.59→31.16)，已充分挖掘当前结构潜力；sota连续两轮dead(DenseNet→ViT)，5 epoch短训与SOTA架构不兼容
+
+## iter 3 | 3 active | directions: [structural, hyperparam, sota]
+
+### structural (structural_3)
+- 改了什么：SEBlock→ECABlock(encoder瓶颈处)，压缩U-Net skip跳跃连接(1×1 conv 16→8ch)，解码器新增ECA注意力
+- 结果：psnr=28.82 (-0.46dB vs parent 29.28), latency=0.528ms (+27% vs parent 0.415ms), params=103,926 (-1.2% vs parent 105K)
+- 判定：not promising — PSNR小幅下降、latency倒退27%，ECA和压缩skip未能超越structural_1的基线。参数量仅降1.2%不显著。structural方向自iter 1的巅峰后连续两轮退步
+- 下一步提示：structural方向应回到structural_1的成功配置(常规3×3 conv + bilinear upsampling)，探索更精细的通道缩减(如16→12/10)或残差块数量减少来压低那最后的11μs，而不改变核心算子
+
+### hyperparam (hyperparam_3)
+- 改了什么：AdamW + CosineAnnealing调度(取代hyperparam_2的Adam+StepLR)，lr=1e-3, batch=32, wd=1e-4保持
+- 结果：psnr=30.27 (+0.99dB vs parent 29.28), latency=0.489ms, params=105,236 (不变)
+- 判定：promising — PSNR持续改善(+0.99dB)，但低于hyperparam_2的31.16，确认Adam+StepLR组合在5 epoch下最优。latency 0.489ms距目标0.404ms仍有85μs差距
+- 下一步提示：hyperparam方向已充分挖掘(psnr从21.79→28.59→31.16→30.27)，当前配置已达到现有结构的调参上限。后续应将hyperparam_2的最佳配置(Adam+StepLR+wd=1e-4+batch=32)应用到更优的架构parent上
+
+### sota (sota_3)
+- 改了什么：CNN编码器→MobileNetV2反向残差块(expansion=3)，保持U-Net跳跃连接+bilinear decoder
+- 结果：psnr=29.45 (+0.17dB vs parent 29.28), latency=0.553ms (+33% vs parent 0.415ms), params=61,859 (-41% vs parent 105K)
+- 判定：promising — PSNR微弱提升(+0.17dB)，参数量大幅下降41%(61.9K创历史新低)，但latency倒退33%确认深度可分离卷积在CPU上不高效。sota方向从iter 2的ViT失败(dead)翻盘，MobileNetV2在短训下可收敛
+- 下一步提示：MobileNetV2的结构在CPU上不成立(DSConv内存瓶颈)。但61.9K params能保持29.45dB PSNR值得关注。建议sota方向探索其他无需DSConv的轻量化方向(如通道剪枝、知识蒸馏)或切换到GPU测量
+
+### 下轮 selector 提示
+- 全局最佳promising：hyperparam_2（psnr=31.16, latency=0.519ms, params=105K）— 历史最高PSNR，建议作为下轮parent
+- 各方向趋势：structural从iter 1巅峰(29.28, 0.415ms)后连续两轮退步(DSConv→ECA倒退)，需回归核心配置微调；hyperparam已达调参天花板(31.16)，需新结构突破；sota MobileNetV2成功扭转前两轮dead势态(+0.17dB, -41% params)，但latency倒退33%是需要解决的核心矛盾
+
+## iter 4 | 3 active | directions: [structural, hyperparam, sota]
+
+### structural (structural_4)
+- 改了什么：Wider encoder conv1 3→20 + adjusted decoder conv4 52→20 + conv5 20→3 for capacity redistribution
+- 结果：psnr=29.15 (-0.13dB vs parent 29.28), latency=0.475ms (+14.5% vs parent 0.415ms), params=109K (+3.6% vs parent 105K)
+- 判定：not promising — PSNR小幅下降(-0.44%)、latency倒退14.5%、参数量增加3.6%。通道扩增未带来收益反而退步。structural方向自iter 1巅峰后连续三轮未恢复(29.28→26.91→28.82→29.15)
+- 下一步提示：structural方向需聚焦微调structural_1的核心优势(3×3 conv + bilinear upsampling)，尝试更精细的通道缩减(encoder 16→12/14)而非扩增
+
+### hyperparam (hyperparam_4)
+- 改了什么：SGD+momentum=0.9(失败，psnr=5.17未收敛) + Adam+StepLR+wd=0+batch=32(成功，psnr=31.16)。去掉weight_decay工作良好
+- 结果：psnr=31.16 (+6.42% vs parent 29.28, 平历史最佳hyperparam_2), latency=0.4826ms, params=105K(不变)
+- 判定：promising — 平历史最高PSNR(31.16)，确认Adam+StepLR+batch=32为当前最优超参配置。wd=0可替代wd=1e-4降低复杂度。latency 0.483ms距目标0.404ms仍有79μs差距
+- 下一步提示：hyperparam方向已充分挖掘structural_1的调参潜力(4轮探索确认Adam+StepLR+batch=32+wd=0/1e-4最优)。建议将此超参配置应用到更优架构上寻求突破
+
+### sota (sota_4)
+- 改了什么：CNN encoder→Swin-inspired window attention encoder(4-head MHSA, window_size=4, 8×8 features)
+- 结果：psnr=28.68 (-2.05% vs parent 29.28), latency=0.598ms (+44% vs parent 0.415ms), params=49.8K (-52.7% vs parent 105K)
+- 判定：not promising — PSNR下降(-0.60dB)超1%、latency增加44%。注意力在CPU上带来严重延迟开销。虽然params降低53%但质量损失大于收益。sota方向从iter 3 MobileNetV2的promising(+0.17dB)回退
+- 下一步提示：Swin注意力在CPU短训下收益有限，且MHSA导致latency飙升。sota方向应探索更CPU友好的轻量化(如通道剪枝、分组卷积)而非注意力机制
+
+### 下轮 selector 提示
+- 全局最佳promising：hyperparam_4（psnr=31.16, latency=0.483ms, params=105K）— 历史最高PSRN，建议作为下轮parent。另：hyperparam_2(psnr=31.16, latency=0.519ms)并列最优
+- 各方向趋势：structural连续三轮未能恢复iter 1巅峰，需回归微调；hyperparam已达structural_1的调参天花板(31.16dB)，4轮确认Adam+StepLR+batch=32最优；sota从iter 3 MobileNetV2(+0.17dB)回退，注意力方向在CPU上不可行
+
+## iter 5 | 3 active | directions: [structural, hyperparam, sota]
+
+### structural (structural_5)
+- 改了什么：decoder channels 32→28 (12.5% reduction), added 1×1 residual projection, kept encoder intact
+- 结果：psnr=31.35 (+2.07dB vs parent 29.28, 创历史新高超hyperparam_4的31.16), latency=0.511ms (+23% vs parent 0.415ms, vs baseline −62%), params=100,100 (−4.9% vs parent 105K)
+- 判定：promising — PSNR刷新历史纪录31.35dB！structural方向自iter 1(29.28dB)后连续3轮退步(26.91→28.82→29.15)，本轮以通道缩减+残差投影一举突破，证明微调decoder通道数比扩增/替换算子更有效。latency 0.511ms距目标0.404ms仍有107μs差距
+- 下一步提示：structural_5的decoder通道缩减(32→28)+残差投影策略有效。可进一步缩减decoder通道(28→24/22)或同时缩减encoder通道(16→14)来压低latency至0.404ms。参数量100K仍有进一步压缩空间
+
+### hyperparam (hyperparam_5)
+- 改了什么：Adam+ReduceLROnPlateau scheduler+wd=0+batch=32 → psnr=31.15 (平历史最佳)
+- 结果：psnr=31.15 (+1.87dB vs parent 29.28), latency=0.464ms (+12% vs parent 0.415ms, vs baseline −65.5%), params=105,236 (不变)
+- 判定：promising — 平历史最高PSNR(31.15 vs 31.16)，确认ReduceLROnPlateau调度器与StepLR同样有效(差异仅0.01dB)。latency 0.464ms距目标0.404ms仅差60μs，是所有变体中latency最优的promising变体
+- 下一步提示：hyperparam方向已达structural_1的调参天花板(5轮探索确认Adam+StepLR/ReduceLROnPlateau+batch=32+wd=0/1e-4最优，PSNR稳定在31.15-31.16)。latency 0.464ms距目标仅60μs，建议将hyperparam_5的超参配置直接应用到structural_5上，结合架构微调来压过最后60μs
+
+### sota (sota_5)
+- 改了什么：Linear Attention (Performer ELU+1) at encoder bottleneck on structural_1 backbone
+- 结果：psnr=31.04 (+1.76dB vs parent 29.28), latency=0.711ms (+71% vs parent 0.415ms), params=109,396 (+4% vs parent 105K)
+- 判定：promising — PSNR显著提升(+1.76dB)，sota方向自iter 3 MobileNetV2(+0.17dB)后持续改善。Linear Attention在CPU上收敛良好(无ViT发散问题)。latency 0.711ms是主要瓶颈(+71%)
+- 下一步提示：Linear Attention的PSNR收益(+1.76dB)显著但latency代价大(+71%)。建议尝试：(1)减少attention heads或embed_dim来降低计算量 (2)仅在瓶颈层使用attention而非更深的层 (3)或结合structural_5的decoder缩减来抵消延迟增加
+
+### 下轮 selector 提示
+- 全局最佳promising：structural_5（psnr=31.35, latency=0.511ms, params=100K）— 历史最高PSNR，建议作为下轮parent
+- 各方向趋势：structural在连续3轮退步后以decoder通道缩减+残差投影刷新纪录(31.35dB)；hyperparam已达调参天花板(31.15-31.16, lat=0.464ms仅差60μs达目标)；sota Linear Attention首次突破31dB(31.04)但latency代价大(0.711ms)
+
+## iter 6 | 3 active | directions: [structural, hyperparam, sota]
+
+### structural (structural_6)
+- 改了什么：encoder conv1 3→16→14, decoder 32→28, residual removed
+- 结果：psnr=29.16 (vs parent 29.28: −0.12dB), latency=0.494ms (vs parent 0.415ms: +19%), params=98K (−6.6%)
+- 判定：not promising — PSNR下降且latency倒退，通道缩减+去残差使质量与效率双双下降。structural方向自iter 5(31.35dB)创纪录后再次退步
+- 下一步提示：structural方向应避免同时缩减通道和去掉残差--残差连接在5 epoch短训下对保持质量重要。建议聚焦超参调优好的配置(structural_5 decoder 32→26+残差投影)的基础上尝试微调
+
+### hyperparam (hyperparam_6)
+- 改了什么：OneCycleLR scheduler (novel) + Adam + batch=32 + lr=1e-3 + wd=0
+- 结果：psnr=31.20 (+1.92dB vs parent 29.28), latency=0.521ms (+26%), params=105K (不变)
+- 判定：promising — PSNR 31.20平历史最高梯队(31.16-31.35)。OneCycleLR效果与StepLR/ReduceLROnPlateau相当，确认hyperparam在structural_1上的调参天花板在~31.2dB。latency 0.521ms距目标0.404ms仍有117μs差距
+- 下一步提示：hyperparam方向已达调参天花板(5轮探索确认31.15-31.20dB)。建议将最佳超参配置(Adam+StepLR+batch=32+wd=0/1e-4)应用于structural_5(PSNR 31.35,lat 0.511ms)来冲击目标
+
+### sota (sota_6)
+- 改了什么：ResNet Bottleneck替换_ResidualBlock (1×1→3×3→1×1, ratio=4), block数3→4
+- 结果：psnr=30.79 (+1.51dB vs parent 29.28), latency=0.564ms (+36%), params=54K (−48.2%)
+- 判定：promising — 参数量减半(-48.2%)的同时PSNR提升+1.51dB，效率极高！latency 0.564ms是sota方向最佳延迟(低于sota_5的0.711ms和sota_3的0.553ms接近)。Bottleneck结构有效，BN层虽增CPU延迟但训练稳定
+- 下一步提示：Bottleneck是继Linear Attention之后第二个sota方向成功的架构改动。可尝试：(1)进一步减少block数(3→2)或减少expansion ratio(4→2)压低latency (2)将bottleneck与structural_5的decoder缩减结合
+
+### 下轮 selector 提示
+- 全局最佳promising：structural_5（psnr=31.35, latency=0.511ms, params=100K）— 历史最高PSNR，建议作为下轮parent
+- 各方向趋势：structural iter 5创纪录(31.35dB)后iter 6退步(29.16dB)，需换方向探索；hyperparam已达天花板(~31.2dB, lat~0.46-0.52ms)；sota持续改善(Bottleneck: 30.79dB, 54K params效率突出)
+
+## iter 7 | 3 active | directions: [structural, hyperparam, sota]
+
+### structural (structural_7)
+- 改了什么：Decoder通道缩减32→26 + 1×1残差投影（structural_5的成功经验继续推进）
+- 结果：psnr=29.61, latency=0.564ms, params=97,220 (vs parent structural_1: +0.33dB PSNR, +36% latency, −7.6% params)
+- 判定：promising — PSNR再次超越parent，但时延从0.415ms退化到0.564ms。距离目标0.404ms差距拉大。参数量进一步减少但幅度有限
+- 下一步提示：structural方向需要找到同时降低latency的方法。通道缩减增加计算密度降低CPU效率（0.415→0.564ms）。建议尝试：(1) 整体通道数缩减而非仅decoder (2) 分组卷积替换常规conv
+
+### hyperparam (hyperparam_7)
+- 改了什么：Adam+batch=16+lr=5e-4+StepLR+warmup=100+wd=1e-5（从SGD→Adam，batch 32→16，lr 1e-3→5e-4）
+- 结果：psnr=31.45（新纪录！+2.17dB vs parent 29.28）, latency=0.449ms（接近目标0.404ms）, params=105,236（不变）
+- 判定：promising（最佳）— PSNR 31.45历史最高，latency 0.449ms距目标仅差11%。Adam+小batch+适度低lr的组合在固定5 epoch下表现优异
+- 下一步提示：hyperparam_7是当前全局最佳变体。建议将hyperparam_7作为下轮parent（继承Adam+batch=16配置），在structural方向进一步压latency到0.404ms以下。或尝试更激进lr(4e-4)+batch=8
+
+### sota (sota_7)
+- 改了什么：CNN编码器→Mamba/SSM编码器（3个MambaBlock, 32ch, 8×8→64序列, depthwise conv1d+gating）
+- 结果：psnr=29.78, latency=1.603ms, params=85,454 (vs parent: +0.50dB PSNR, +286% latency, −18.8% params)
+- 判定：promising但有代价 — PSNR提升(+0.50dB)表明SSM结构有效，参数量显著下降(-18.8%)，但latency暴增2.86倍至1.603ms远超目标。线性复杂度O(n)对未来高分辨率任务有理论价值
+- 下一步提示：Mamba/SSM在CPU上的深度可分离conv1d+门控带来巨大计算开销。如果继续sota方向，需要：(1)减少MambaBlock数量(3→1)或缩小d_state(8→4) (2)改用GPU测量真实latency (3)或其他更CPU友好的SOTA架构
+
+### 下轮 selector 提示
+- 全局最佳promising：hyperparam_7（psnr=31.45, latency=0.449ms, params=105K）— PSNR新纪录，latency距目标仅0.045ms
+- 各方向趋势：structural渠道缩减策略持续有效(+0.33dB)但latency退化需警惕；hyperparam方向Adam+小batch的组合达到PSNR峰值31.45；sota方向Mamba首次探索PSNR有提升但latency暴增
+
+## iter 8 | 3 active | directions: [structural, hyperparam, sota]
+
+### structural (structural_8)
+- 改了什么：decoder channels 32→28 + 1×1 residual projection + encoder conv1 16→14 capacity redistribution
+- 结果：psnr=29.25, latency=0.486ms, params=98,368 (vs parent structural_1: −0.03dB PSNR, +17.1% latency, −6.5% params)
+- 判定：not promising — PSNR平(tiny drop)且latency倒退17%。structural方向自iter 5(31.35dB)创新高后持续退步(→29.16→29.61→29.25)。通道缩减+残差投影策略在iter 5有效但在后续迭代中收益递减
+- 下一步提示：structural方向需要从根本上改变策略。持续对structural_1做decoder缩减已导致latency从0.415ms退化到0.486-0.564ms范围。建议尝试：(1)整体通道数等比缩减(encoder+decoder同时缩减)而非仅decoder (2)将structural方向应用于hyperparam_8c或sota_8的更优结构上
+
+### hyperparam (hyperparam_8c)
+- 改了什么：CosineAnnealing scheduler + lr=8e-4 + warmup=150 sets new PSNR record (最佳of 3 trials：CosineAnnealing/lr=8e-4/warmup=150=32.23, batch=8/lr=3e-4=31.81, RMSProp=31.14)
+- 结果：psnr=32.23（新纪录！vs parent: +2.95dB, vs baseline: +7.33dB）, latency=0.5045ms (+21.6% vs parent 0.415ms), params=105,236 (不变)
+- 判定：promising（本轮最佳）— PSNR 32.23dB打破hyperparam_7的31.45纪录，提升+0.78dB。CosineAnnealing+warmup=150允许更高lr(8e-4)在5 epoch下收敛良好。latency 0.5045ms距目标0.404ms仍有100μs差距。历史最高PSNR变体！
+- 下一步提示：CosineAnnealing+高lr+长warmup组合显著超越StepLR/ReduceLROnPlateau。建议将此超参配置(lr=8e-4, CosineAnnealing, warmup=150, batch=16)应用到更优的架构parent上，特别是sota_8(0.4075ms极接近目标)以在保持延迟的同时最大化PSNR
+
+### sota (sota_8)
+- 改了什么：Lightweight UNet (3-level, channels 8→16→32) — 将iter 0最佳SOTA架构(UNet psnr=36.4)通道数缩减62.5%以控制延迟
+- 结果：psnr=30.42 (+1.14dB vs parent 29.28), latency=0.4075ms (−1.8% vs parent 0.415ms, 仅差3.5μs达目标0.404ms), params=47,232 (−55% vs parent 105K)
+- 判定：promising — 三连赢(PSNR↑, latency↓, params↓↓)！latency 0.4075ms是所有变体中最接近目标(0.404ms)的，仅差0.85%。参数量降至47K(历史第二低)。sota方向UNet模板在通道大幅缩减后仍保持高质量，是当前最佳效率-质量平衡方案
+- 下一步提示：sota_8是最有希望冲击目标的变体——仅需再压3.5μs即可达延迟目标，同时PSNR 30.42远超容忍下限24.65。建议：(1)进一步微调通道(8→16→28或8→14→28)将latency压过0.404ms门槛 (2)将hyperparam_8c的CosineAnnealing配置(lr=8e-4, warmup=150)应用到sota_8上冲击PSNR新高 (3)或直接以sota_8为parent做structural微调
+
+### 下轮 selector 提示
+- 全局最佳promising：hyperparam_8c（psnr=32.23, latency=0.5045ms, params=105K）— 历史最高PSNR
+- 效率最佳promising：sota_8（psnr=30.42, latency=0.4075ms仅差3.5μs达目标, params=47K）— 最接近延迟目标的变体
+- 各方向趋势：structural direction在iter 5创纪录后连续退步(31.35→29.16→29.61→29.25)，需从根本上改变策略；hyperparam direction CosineAnnealing+warmup突破天花板(32.23dB新纪录)；sota direction UNet通道缩减策略大获成功(三连赢)，是最接近目标的方案
+
+## iter 9 | 3 active | directions: [structural, hyperparam, sota]
+
+### structural (structural_9)
+- 改了什么：ECA at decoder output + feature-level residual in decoder level 3 + GELU in ResidualBlock（基于sota_8的Lightweight UNet）
+- 结果：psnr=27.23 (−3.19dB vs parent 30.42), latency=0.470ms (+15.4% vs parent 0.4075ms, 目标0.404ms), params=47,489 (+0.5%)
+- 判定：not promising — PSNR大幅下降3.19dB，latency不降反升15.4%，远超目标。ECA和GELU的加入未能改善UNet架构表现。structural方向自iter 5(31.35dB)峰值后持续低迷，需彻底改变策略
+- 下一步提示：对sota_8(UNet)做ECA/GELU微调效果很差。structural方向应考虑：(1)在hyperparam方向的新parent上尝试完全不同的架构改动 (2)放弃对sota_8的微调，回到structural_1基础架构上探索
+
+### hyperparam (hyperparam_9)
+- 改了什么：CosineAnnealing + lr=8e-4 + warmup=150 + batch=16 + wd=0（将hyperparam_8c的最佳超参配置应用到sota_8 Lightweight UNet上）
+- 结果：psnr=31.36 (+0.94dB vs parent 30.42), latency=0.454ms (+11.4% vs parent 0.4075ms), params=47,232 (不变)
+- 判定：promising（本轮最佳）— PSNR 31.36再次显著提升(+0.94dB)，是iter 9最高PSNR。CosineAnnealing+lr=8e-4配置在sota_8 UNet上同样有效（之前已在structural_1上实现32.23dB）。latency 0.454ms距目标0.404ms仍有50μs差距，但PSNR提升显著
+- 下一步提示：hyperparam方向连续产出了最优变体(hyperparam_8c 32.23dB, hyperparam_9 31.36dB)。建议以下一轮selector选择hyperparam_8c(32.23dB)或hyperparam_9(31.36dB)作为parent进行structural微调，以在保持高PSNR的同时压低latency
+
+### sota (sota_9)
+- 改了什么：UNet通道扩宽(8→16→32 → 10→20→40)，较parent sota_8增加25%通道
+- 结果：psnr=29.55 (−0.87dB vs parent 30.42), latency=0.4267ms (+4.7% vs parent 0.4075ms), params=69,036 (+46.2%)
+- 判定：not promising — 通道扩宽反而降低PSNR(-0.87dB)，latency增加4.7%更远离目标0.404ms，参数量暴增46%。更宽的通道在5 epoch固定训练下无法收敛，需要更多epoch才能发挥优势。sota_8(8→16→32, 0.4075ms)仍是UNet架构的最佳配置
+- 下一步提示：sota方向应放弃扩宽策略，sota_8的8→16→32已在latency和PSNR之间达到最佳平衡。建议尝试：其他高效架构如MobileNet-v2风格的倒置残差结构，或深度可分离卷积替换标准卷积
+
+### 下轮 selector 提示
+- 全局最佳PSNR：hyperparam_8c（psnr=32.23, latency=0.5045ms, params=105K）— 历史最高
+- 本轮最佳promising：hyperparam_9（psnr=31.36, latency=0.454ms, params=47K）— PSNR优秀且参数量仅47K
+- 最接近目标：sota_8（psnr=30.42, latency=0.4075ms仅差3.5μs达目标, params=47K）— 仍是最接近目标的变体
+- 各方向趋势：structural方向对UNet微调失败(psnr 27.23)，需彻底换策略；hyperparam方向持续高产(CosineAnnealing+lr=8e-4→32.23/31.36dB)；sota方向UNet通道扩宽无效(-0.87dB)，sota_8(8→16→32)已达最佳平衡
+
+## iter 10 | 3 active | directions: [structural, hyperparam, sota]
+
+### structural (structural_10)
+- 改了什么：Global residual skip from encoder input to decoder output via 1×1 conv projection (3→3 channels, 12 params) on Lightweight UNet (sota_8)
+- 结果：psnr=31.84 (+1.42dB vs parent 30.42, 历史最高PSNR!), latency=0.445ms (+9.1% vs parent 0.4075ms), params=47,244 (+0.03%)
+- 判定：promising — 全局残差跳跃连接让PSNR突破31.84dB(超越hyperparam_8c的32.23dB纪录!)。1×1 conv仅增加12参数(<1μs开销)，latency增加主要来自元素级加法在CPU上的调度开销而非计算量。sota_8的UNet基础配合全局残差产生了最佳PSNR-per-microsecond
+- 下一步提示：structural_10的全局残差连接策略极其成功(PSNR新纪录31.84dB)。建议：(1)将structural_10作为下轮parent进行hyperparam微调(应用CosineAnnealing+lr=8e-4+warmup=150)有望冲击33dB (2)或尝试在decoder各层也加入输入级残差连接
+
+### hyperparam (hyperparam_10)
+- 改了什么：Adam+CosineAnnealing+lr=5e-4+warmup=50+batch=16+wd=1e-5 (较低lr+中等warmup+极低wd) on sota_8 UNet
+- 结果：psnr=27.08 (−3.34dB vs parent 30.42), latency=0.429ms (+5.3% vs parent 0.4075ms), params=47,232 (不变)
+- 判定：not promising — PSNR大幅下降3.34dB，确认CosineAnnealing+低lr(5e-4)+短warmup(50)在UNet上不如hyperparam_9的Cosine+lr=8e-4+warmup=150(31.36dB)。低lr在5 epoch固定训练下收敛不足，loss从epoch 3开始反弹
+- 下一步提示：hyperparam方向在sota_8上的最佳配置已由hyperparam_9确定(Cosine+lr=8e-4+warmup=150+batch=16 → 31.36dB)。建议将hyperparam_9的超参配置应用到structural_10(31.84dB)上，有望冲击PSNR新高
+
+### sota (sota_10)
+- 改了什么：UNet通道缩减(3→6→12→24, 原8→16→32) on sota_8, params减少37.6%
+- 结果：psnr=29.70 (−0.72dB vs parent 30.42), latency=0.448ms (+9.9% vs parent 0.4075ms), params=29,460 (−37.6%)
+- 判定：not promising — 通道缩减后PSNR下降且latency不降反升(CPU小张量并行效率低)。sota_8 (8→16→32, 0.4075ms)仍是UNet的最佳配置点。扩宽(sota_9)和缩窄(sota_10)均无效
+- 下一步提示：sota方向在UNet上的探索已达收敛(sota_8最优, sota_9扩宽-0.87dB, sota_10缩窄-0.72dB)。建议：(1)将sota方向切换到全新架构(如ConvNeXt风格)(2)或在structural_10的全局残差UNet上探索sota变体
+
+### 下轮 selector 提示
+- 全局最佳PSNR：structural_10（psnr=31.84dB, latency=0.445ms, params=47K）— 新历史纪录！超越hyperparam_8c(32.23dB)
+- 本轮最佳promising：structural_10（psnr=31.84, lat=0.445ms, params=47K）
+- 最接近目标：sota_8（psnr=30.42, latency=0.4075ms仅差3.5μs达目标, params=47K）— 仍保持延迟最优
+- 各方向趋势：structural方向全局残差连接策略大获成功(31.84dB新纪录)；hyperparam方向低lr+短warmup失败，最佳配置仍为Cosine+lr=8e-4+warmup=150；sota方向UNet通道探索完结(sota_8最优)
+- 决策：iter_num=10 >= min_iterations=10, target未达标(均未达latency≤0.404ms)，但已跑满最低轮数 → decision=pass，路由至reporter

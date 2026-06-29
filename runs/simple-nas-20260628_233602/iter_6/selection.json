@@ -1,0 +1,27 @@
+{
+  "iter_num": 6,
+  "parent_id": "structural_1",
+  "parent": {
+    "model_file": "/Users/mozzie/Desktop/Projects/AgentHarness/projects/Deep-JSCC-PyTorch/runs/simple-nas-20260628_233602/variants/structural_1/model.py",
+    "model_class": "DeepJSCC",
+    "metrics": {
+      "psnr": 29.28,
+      "val_loss": 76.7388,
+      "train_loss": 85.1952
+    },
+    "latency_ms": 0.415,
+    "params": 105236,
+    "direction": "structural"
+  },
+  "active_directions": [
+    "structural",
+    "hyperparam",
+    "sota"
+  ],
+  "info_paths": {
+    "baseline_understanding": "/Users/mozzie/Desktop/Projects/AgentHarness/projects/Deep-JSCC-PyTorch/runs/simple-nas-20260628_233602/baseline_understanding.md",
+    "experience": "/Users/mozzie/Desktop/Projects/AgentHarness/projects/Deep-JSCC-PyTorch/runs/simple-nas-20260628_233602/experience.md",
+    "setup": "/Users/mozzie/Desktop/Projects/AgentHarness/projects/Deep-JSCC-PyTorch/runs/simple-nas-20260628_233602/setup.json",
+    "parent_model": "/Users/mozzie/Desktop/Projects/AgentHarness/projects/Deep-JSCC-PyTorch/runs/simple-nas-20260628_233602/variants/structural_1/model.py"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "optimizer": "adamw",
+  "lr": 0.001,
+  "batch_size": 32,
+  "epochs": 5,
+  "lr_scheduler": "cosine",
+  "warmup_steps": 0,
+  "weight_decay": 1e-4,
+  "momentum": 0.9,
+  "bottleneck_multiplier": 2.0,
+  "parent": "structural_1",
+  "variant": "hyperparam_3_subA"
+}

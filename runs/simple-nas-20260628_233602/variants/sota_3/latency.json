@@ -1,0 +1,8 @@
+{
+  "latency_ms_median": 0.5527734999999367,
+  "latency_ms_p95": 0.6606279999998854,
+  "latency_ms_mean": 0.5474289300000001,
+  "latency_ms_stddev": 0.08344392850692887,
+  "n_runs": 100,
+  "warmup": 10
+}

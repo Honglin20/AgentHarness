@@ -1,0 +1,15 @@
+[NAS] Device: cuda:0 (CUDA available: True)
+[NAS] Data dir: /root/autodl-tmp/dataset
+[NAS] Loading cifar10 from /root/autodl-tmp/dataset
+[NAS] Dataset loaded: 50000 train, 10000 test samples
+[NAS] Model: DeepJSCC(c=16, channel=AWGN, snr=7.0, multiplier=2.0)
+[NAS] Parameters: 105,236
+Epoch   1: train_loss=275.5089, val_loss=114.0798, PSNR=27.56 dB
+Epoch   2: train_loss=95.6983, val_loss=83.3108, PSNR=28.92 dB
+Epoch   3: train_loss=75.5865, val_loss=69.6657, PSNR=29.70 dB
+Epoch   4: train_loss=66.4667, val_loss=63.9131, PSNR=30.07 dB
+Epoch   5: train_loss=62.2574, val_loss=61.0553, PSNR=30.27 dB
+[NAS] Training complete: best_PSNR=30.27 dB, time=73.6s
+[NAS] Checkpoint saved: /root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_out/ckpt.pt
+[NAS] Metrics saved: /root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_out/metrics.json
+[NAS] Done. Status: /root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_out/status.json

@@ -8,7 +8,6 @@ build/
 profiles.json
 node_modules/
 .DS_Store
-runs/
 .backup_pre_migration/
 .eval_cache/
 .next/
@@ -116,3 +115,4 @@ sessions/
 
 # Quantization baseline experiment output (regenerable from the model)
 /benchmarks/mxint-quant-baseline/
+projects/dataset/

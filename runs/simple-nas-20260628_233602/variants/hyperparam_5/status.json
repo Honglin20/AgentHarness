@@ -1,0 +1,6 @@
+{
+  "ok": true,
+  "vid": "hyperparam_5",
+  "metrics_path": "metrics.json",
+  "best_subvariant": "hyperparam_5_c (ReduceLROnPlateau, psnr=31.15)"
+}

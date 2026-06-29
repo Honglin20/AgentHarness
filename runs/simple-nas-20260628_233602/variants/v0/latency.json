@@ -1,0 +1,15 @@
+{
+  "latency_ms_median": 1.3468395918607712,
+  "latency_ms_p95": 81.36361092329025,
+  "latency_ms_mean": 6.86439149081707,
+  "latency_ms_stddev": 20.153080178475186,
+  "n_runs": 100,
+  "warmup": 10,
+  "onnx_path": "_out/model.onnx",
+  "input_schema": {
+    "kind": "fallback",
+    "input_names": [
+      "input"
+    ]
+  }
+}

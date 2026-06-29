@@ -1,0 +1,15 @@
+{
+  "latency_ms_median": 0.5975315000000814,
+  "latency_ms_p95": 0.7577779999998757,
+  "latency_ms_mean": 0.6057691600000048,
+  "latency_ms_stddev": 0.08635450835916743,
+  "n_runs": 100,
+  "warmup": 10,
+  "onnx_path": "/Users/mozzie/Desktop/Projects/AgentHarness/projects/Deep-JSCC-PyTorch/runs/simple-nas-20260628_233602/variants/sota_4/model.onnx",
+  "input_schema": {
+    "kind": "tensor",
+    "input_names": [
+      "input"
+    ]
+  }
+}

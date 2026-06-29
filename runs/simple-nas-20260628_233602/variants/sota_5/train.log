@@ -1,0 +1,12 @@
+Traceback (most recent call last):
+  File "/root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_nas_variant_1/model.py", line 315, in <module>
+    main()
+  File "/root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_nas_variant_1/model.py", line 229, in main
+    ckpt = torch.load(args.checkpoint,  map_location="cpu")
+  File "/root/miniconda3/envs/asi/lib/python3.10/site-packages/torch/serialization.py", line 1530, in load
+    with _open_file_like(f, "rb") as opened_file:
+  File "/root/miniconda3/envs/asi/lib/python3.10/site-packages/torch/serEpoch   5: train_loss=55.7804, val_loss=51.1763, PSNR=31.04 dB
+[NAS] Training complete: best_PSNR=31.04 dB, time=80.5s
+[NAS] Checkpoint saved: /root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_out/ckpt.pt
+[NAS] Metrics saved: /root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_out/metrics.json
+[NAS] Done. Status: /root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_out/status.json

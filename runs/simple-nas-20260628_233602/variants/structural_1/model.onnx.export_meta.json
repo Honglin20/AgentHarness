@@ -1,0 +1,5 @@
+{
+  "onnx_path": "/Users/mozzie/Desktop/Projects/AgentHarness/projects/Deep-JSCC-PyTorch/runs/simple-nas-20260628_233602/variants/structural_1/model.onnx",
+  "params": 105236,
+  "opset_version": 11
+}

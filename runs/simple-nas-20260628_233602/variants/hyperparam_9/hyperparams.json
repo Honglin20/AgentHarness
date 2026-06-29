@@ -1,0 +1,10 @@
+{
+  "batch_size": 16,
+  "epochs": 5,
+  "optimizer": "adam",
+  "lr": 0.0008,
+  "lr_scheduler": "cosine",
+  "warmup_steps": 150,
+  "weight_decay": 0,
+  "momentum": 0.9
+}

@@ -1,0 +1,9 @@
+{
+  "latency_ms_median": 0.44466000000004113,
+  "latency_ms_mean": 0.4512016699999976,
+  "latency_ms_p95": 0.5670930000000185,
+  "latency_ms_stddev": 0.07408581309563131,
+  "n_runs": 100,
+  "warmup": 20,
+  "onnx_path": "/Users/mozzie/Desktop/Projects/AgentHarness/projects/Deep-JSCC-PyTorch/runs/simple-nas-20260628_233602/variants/structural_10/model.onnx"
+}

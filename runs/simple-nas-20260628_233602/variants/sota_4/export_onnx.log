@@ -1,0 +1,18 @@
+Config: {'c': 16, 'channel_type': 'AWGN', 'snr': 7.0}
+/root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_out/export_onnx_remote.py:25: UserWarning: # 'dynamic_axes' is not recommended when dynamo=True, and may lead to 'torch._dynamo.exc.UserError: Constraints violated.' Supply the 'dynamic_shapes' argument instead if export is unsuccessful.
+  torch.onnx.export(model, dummy, '_out/model.onnx',
+W0628 23:43:13.396000 75713 site-packages/torch/onnx/_internal/exporter/_compat.py:133] Setting ONNX exporter to use operator set version 18 because the requested opset_version 17 is a lower version than we have implementations for. Automatic version conversion will be performed, which may not be successful at converting to the requested version. If version conversion is unsuccessful, the opset version of the exported model will be kept at 18. Please consider setting opset_version >=18 to leverage latest ONNX features
+/root/miniconda3/envs/asi/lib/python3.10/copyreg.py:101: FutureWarning: `isinstance(treespec, LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.
+  return cls.__new__(cls, *args)
+The model version conversion is not supported by the onnxscript version converter and fallback is enabled. The model will be converted using the onnx C API (target version: 17).
+Evaluation failed: Issues with types [<class 'numpy.ndarray'>] and attributes ['axes', 'keepdims', 'noop_with_empty_axes'] and linked attributes=[] (operator 'ReduceProd_1').
+Evaluation failed: Issues with types [<class 'numpy.ndarray'>] and attributes ['axes', 'keepdims', 'noop_with_empty_axes'] and linked attributes=[] (operator 'ReduceProd_1').
+[torch.onnx] Obtain model graph for `DeepJSCC([...]` with `torch.export.export(..., strict=False)`...
+[torch.onnx] Obtain model graph for `DeepJSCC([...]` with `torch.export.export(..., strict=False)`... ✅
+[torch.onnx] Run decompositions...
+[torch.onnx] Run decompositions... ✅
+[torch.onnx] Translate the graph into ONNX...
+[torch.onnx] Translate the graph into ONNX... ✅
+[torch.onnx] Optimize the ONNX graph...
+[torch.onnx] Optimize the ONNX graph... ✅
+{"onnx_path": "_out/model.onnx", "params": 181865, "size_bytes": 10769}

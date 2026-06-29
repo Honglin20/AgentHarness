@@ -1,0 +1,18 @@
+Traceback (most recent call last):
+  File "/root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/export_onnx.py", line 310, in <module>
+    main()
+  File "/root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/export_onnx.py", line 240, in main
+    model.load_state_dict(ckpt["model_state"])
+  File "/root/miniconda3/envs/asi/lib/python3.10/site-packages/torch/nn/modules/module.py", line 2638, in load_state_dict
+    raise RuntimeError(
+RuntimeError: Error(s) in loading state_dict for DeepJSCC:
+	Missing key(s) in state_dict: "encoder.conv3.conv.weigEpoch   5: train_loss=52.1165, val_loss=47.6771, PSNR=31.35 dB
+[NAS] Training complete: best_PSNR=31.35 dB, time=70.9s
+[NAS] Checkpoint saved: /root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_out/ckpt.pt
+[NAS] Metrics saved: /root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_out/metrics.json
+[NAS] Done. Status: /root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_out/status.json
+v.weight", "decoder.tconv3.transconv.bias", "decoder.tconv3.activate.weight", "decoder.tconv4.transconv.weight", "decoder.tconv4.transconv.bias", "decoder.tconv4.activate.weight", "decoder.tconv5.transconv.weight", "decoder.tconv5.transconv.bias". 
+	Unexpected key(s) in state_dict: "encoder.res_block1.conv1.weight", "encoder.res_block1.conv1.bias", "encoder.res_block1.prelu1.weight", "encoder.res_block1.conv2.weight", "encoder.res_block1.conv2.bias", "encoder.res_block1.prelu2.weight", "encoder.res_block2.conv1.weight", "encoder.res_block2.conv1.bias", "encoder.res_block2.prelu1.weight", "encoder.res_block2.conv2.weight", "encoder.res_block2.conv2.bias", "encoder.res_block2.prelu2.weight", "encoder.res_block3.conv1.weight", "encoder.res_block3.conv1.bias", "encoder.res_block3.prelu1.weight", "encoder.res_block3.conv2.weight", "encoder.res_block3.conv2.bias", "encoder.res_block3.prelu2.weight", "encoder.linear_attn.to_qkv.weight", "encoder.linear_attn.to_out.weight", "encoder.attn_norm.weight", "encoder.attn_norm.bias", "encoder.se.fc1.weight", "encoder.se.fc1.bias", "encoder.se.fc2.weight", "encoder.se.fc2.bias", "decoder.conv1.conv.weight", "decoder.conv1.conv.bias", "decoder.conv1.prelu.weight", "decoder.conv2.conv.weight", "decoder.conv2.conv.bias", "decoder.conv2.prelu.weight", "decoder.conv3.conv.weight", "decoder.conv3.conv.bias", "decoder.conv3.prelu.weight", "decoder.conv4.conv.weight", "decoder.conv4.conv.bias", "decoder.conv4.prelu.weight", "decoder.conv5.0.weight", "decoder.conv5.0.bias". 
+	size mismatch for encoder.conv1.conv.weight: copying a param with shape torch.Size([16, 3, 3, 3]) from checkpoint, the shape in current model is torch.Size([16, 3, 5, 5]).
+	size mismatch for encoder.conv2.conv.weight: copying a param with shape torch.Size([32, 16, 3, 3]) from checkpoint, the shape in current model is torch.Size([32, 16, 5, 5]).
+	size mismatch for encoder.conv5.conv.weight: copying a param with shape torch.Size([32, 32, 3, 3]) from checkpoint, the shape in current model is torch.Size([32, 32, 5, 5]).

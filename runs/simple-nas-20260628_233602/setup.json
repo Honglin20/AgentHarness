@@ -1,0 +1,31 @@
+{
+  "entry": "_nas_entry.py",
+  "entry_run_cmd_template": "python /Users/mozzie/Desktop/Projects/AgentHarness/workflows/simple-nas/helpers/dispatch_train.py --work-dir /Users/mozzie/Desktop/Projects/AgentHarness/projects/Deep-JSCC-PyTorch --log {log_path} --metrics {metrics_out} --timeout 1800 -- python _nas_entry.py --lr {lr} --epochs {epochs} --batch-size {batch_size} --bottleneck-multiplier {bottleneck_multiplier} --model-path {model_path} --out_dir {out_dir} --data-dir /root/autodl-tmp/dataset",
+  "bottleneck_multiplier": 2.0,
+  "entry_metrics_out": "{out_dir}/metrics.json#psnr",
+  "baseline_model_file": "model.py",
+  "baseline_model_class": "DeepJSCC",
+  "init_hyperparams": {
+    "lr": 0.001,
+    "batch_size": 64,
+    "epochs": 5,
+    "optimizer": "adam",
+    "scheduler": "steplr",
+    "weight_decay": 5e-4
+  },
+  "metric_name": "psnr",
+  "metric_direction": "higher",
+  "care_about_latency": true,
+  "latency_reduction_target_pct": 70.0,
+  "metric_tolerance_pct": 1.0,
+  "min_iterations": 10,
+  "dummy_input_shape": [1, 3, 32, 32],
+  "variant_naming": {
+    "variants_dir": "/Users/mozzie/Desktop/Projects/AgentHarness/projects/Deep-JSCC-PyTorch/runs/simple-nas-20260628_233602/variants",
+    "filename_pattern": "<vid>/model.py",
+    "how_entry_loads_it": "--model-path flag"
+  },
+  "directions": ["structural", "hyperparam", "sota"],
+  "active_directions": ["structural", "hyperparam", "sota"],
+  "wallclock_budget_sec": 43200
+}

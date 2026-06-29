@@ -1,0 +1,15 @@
+{
+  "latency_ms_median": 0.4289310000000768,
+  "latency_ms_p95": 0.5297490000000238,
+  "latency_ms_mean": 0.4458792700000025,
+  "latency_ms_stddev": 0.05352448890293959,
+  "n_runs": 100,
+  "warmup": 10,
+  "onnx_path": "/Users/mozzie/Desktop/Projects/AgentHarness/projects/Deep-JSCC-PyTorch/runs/simple-nas-20260628_233602/variants/hyperparam_10/model.onnx",
+  "input_schema": {
+    "kind": "fallback",
+    "input_names": [
+      "input"
+    ]
+  }
+}

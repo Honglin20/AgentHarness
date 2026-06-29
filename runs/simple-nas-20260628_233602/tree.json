@@ -1,0 +1,639 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "v0",
+      "parent_id": null,
+      "direction": "baseline",
+      "metrics": {
+        "psnr": 24.9
+      },
+      "latency_ms": 1.3468,
+      "params": 181865,
+      "promising": null,
+      "dead": false,
+      "depth": 0,
+      "model_file": "variants/v0/model.py",
+      "onnx_path": "variants/v0/model.onnx",
+      "status": "done"
+    },
+    {
+      "id": "structural_0",
+      "parent_id": "v0",
+      "direction": "structural",
+      "metrics": {
+        "psnr": 27.0
+      },
+      "latency_ms": 1.4,
+      "params": 167887,
+      "onnx_path": "variants/structural_0/model.onnx",
+      "promising": true,
+      "dead": false,
+      "depth": 1,
+      "model_file": "variants/structural_0/model.py",
+      "status": "done"
+    },
+    {
+      "id": "hyperparam_0",
+      "parent_id": "v0",
+      "direction": "hyperparam",
+      "metrics": {
+        "psnr": 21.79
+      },
+      "latency_ms": 1.3468,
+      "params": 181865,
+      "onnx_path": "variants/hyperparam_0/model.onnx",
+      "promising": false,
+      "dead": false,
+      "depth": 1,
+      "model_file": "variants/hyperparam_0/model.py",
+      "status": "done"
+    },
+    {
+      "id": "sota_0",
+      "parent_id": "v0",
+      "direction": "sota",
+      "metrics": {
+        "psnr": 36.4
+      },
+      "latency_ms": 9.9992,
+      "params": 187265,
+      "onnx_path": "variants/sota_0/model.onnx",
+      "promising": true,
+      "dead": false,
+      "depth": 1,
+      "model_file": "variants/sota_0/model.py",
+      "status": "done"
+    },
+    {
+      "id": "structural_1",
+      "parent_id": "structural_0",
+      "direction": "structural",
+      "metrics": {
+        "psnr": 29.28,
+        "val_loss": 76.7388,
+        "train_loss": 85.1952,
+        "params": 105236
+      },
+      "latency_ms": 0.415,
+      "params": 105236,
+      "onnx_path": "variants/structural_1/model.onnx",
+      "promising": true,
+      "dead": false,
+      "depth": 2,
+      "model_file": "variants/structural_1/model.py",
+      "status": "done"
+    },
+    {
+      "id": "hyperparam_1",
+      "parent_id": "structural_0",
+      "direction": "hyperparam",
+      "metrics": {
+        "psnr": 28.59,
+        "val_loss": 89.8714,
+        "train_loss": 95.3746,
+        "params": 167887
+      },
+      "latency_ms": 0.76,
+      "params": 167887,
+      "onnx_path": "variants/hyperparam_1/model.onnx",
+      "promising": true,
+      "dead": false,
+      "depth": 2,
+      "model_file": "variants/hyperparam_1/model.py",
+      "status": "done"
+    },
+    {
+      "id": "sota_1",
+      "parent_id": "structural_0",
+      "direction": "sota",
+      "metrics": {
+        "psnr": 22.84,
+        "val_loss": 338.1276,
+        "train_loss": 827.943,
+        "params": 163228
+      },
+      "latency_ms": 19.79,
+      "params": 163228,
+      "onnx_path": "variants/sota_1/model.onnx",
+      "promising": false,
+      "dead": false,
+      "depth": 2,
+      "model_file": "variants/sota_1/model.py",
+      "status": "done"
+    },
+    {
+      "id": "structural_2",
+      "parent_id": "structural_1",
+      "direction": "structural",
+      "metrics": {
+        "psnr": 26.91,
+        "val_loss": 132.556,
+        "train_loss": 143.1453,
+        "params": 23191
+      },
+      "latency_ms": 0.807,
+      "params": 23191,
+      "onnx_path": "variants/structural_2/model.onnx",
+      "promising": false,
+      "dead": false,
+      "depth": 3,
+      "model_file": "variants/structural_2/model.py",
+      "status": "done"
+    },
+    {
+      "id": "hyperparam_2",
+      "parent_id": "structural_1",
+      "direction": "hyperparam",
+      "metrics": {
+        "psnr": 31.16,
+        "val_loss": 49.7849,
+        "train_loss": 51.3141,
+        "params": 105236
+      },
+      "latency_ms": 0.519,
+      "params": 105236,
+      "onnx_path": "variants/hyperparam_2/model.onnx",
+      "promising": true,
+      "dead": false,
+      "depth": 3,
+      "model_file": "variants/hyperparam_2/model.py",
+      "status": "done"
+    },
+    {
+      "id": "sota_2",
+      "parent_id": "structural_1",
+      "direction": "sota",
+      "metrics": {
+        "psnr": 22.91,
+        "val_loss": 333.0948,
+        "train_loss": 257.2149,
+        "params": 242183
+      },
+      "latency_ms": 1.08042,
+      "params": 242183,
+      "onnx_path": "variants/sota_2/model.onnx",
+      "promising": false,
+      "dead": true,
+      "depth": 3,
+      "model_file": "variants/sota_2/model.py",
+      "status": "done"
+    },
+    {
+      "id": "structural_3",
+      "parent_id": "structural_1",
+      "direction": "structural",
+      "metrics": {
+        "psnr": 28.82,
+        "val_loss": 85.3903,
+        "train_loss": 90.5391,
+        "params": 103926
+      },
+      "latency_ms": 0.5279,
+      "params": 103926,
+      "onnx_path": "variants/structural_3/model.onnx",
+      "promising": false,
+      "dead": false,
+      "depth": 3,
+      "model_file": "variants/structural_3/model.py",
+      "status": "done"
+    },
+    {
+      "id": "hyperparam_3",
+      "parent_id": "structural_1",
+      "direction": "hyperparam",
+      "metrics": {
+        "psnr": 30.27,
+        "val_loss": 61.0553,
+        "train_loss": 62.2574,
+        "params": 105236
+      },
+      "latency_ms": 0.4891455,
+      "params": 105236,
+      "onnx_path": "variants/hyperparam_3/model.onnx",
+      "promising": true,
+      "dead": false,
+      "depth": 3,
+      "model_file": "variants/hyperparam_3/model.py",
+      "status": "done"
+    },
+    {
+      "id": "sota_3",
+      "parent_id": "structural_1",
+      "direction": "sota",
+      "metrics": {
+        "psnr": 29.45,
+        "val_loss": 73.7294,
+        "train_loss": 78.1367,
+        "params": 61859
+      },
+      "latency_ms": 0.553,
+      "params": 61859,
+      "onnx_path": "variants/sota_3/model.onnx",
+      "promising": true,
+      "dead": false,
+      "depth": 3,
+      "model_file": "variants/sota_3/model.py",
+      "status": "done"
+    },
+    {
+      "id": "structural_4",
+      "parent_id": "structural_1",
+      "direction": "structural",
+      "metrics": {
+        "psnr": 29.15,
+        "val_loss": 78.9976,
+        "train_loss": 81.2602,
+        "params": 109060
+      },
+      "latency_ms": 0.475,
+      "params": 109060,
+      "onnx_path": "variants/structural_4/model.onnx",
+      "promising": false,
+      "dead": false,
+      "depth": 3,
+      "model_file": "variants/structural_4/model.py",
+      "status": "done"
+    },
+    {
+      "id": "hyperparam_4",
+      "parent_id": "structural_1",
+      "direction": "hyperparam",
+      "metrics": {
+        "psnr": 31.16,
+        "val_loss": 49.7841,
+        "train_loss": 52.9826,
+        "params": 105236
+      },
+      "latency_ms": 0.4826,
+      "params": 105236,
+      "onnx_path": "variants/hyperparam_4/model.onnx",
+      "promising": true,
+      "dead": false,
+      "depth": 3,
+      "model_file": "variants/hyperparam_4/model.py",
+      "status": "done"
+    },
+    {
+      "id": "sota_4",
+      "parent_id": "structural_1",
+      "direction": "sota",
+      "metrics": {
+        "psnr": 28.68,
+        "val_loss": 88.0301,
+        "train_loss": 93.2345,
+        "params": 49802
+      },
+      "latency_ms": 0.598,
+      "params": 49802,
+      "onnx_path": "variants/sota_4/model.onnx",
+      "promising": false,
+      "dead": false,
+      "depth": 3,
+      "model_file": "variants/sota_4/model.py",
+      "status": "done"
+    },
+    {
+      "id": "structural_5",
+      "parent_id": "structural_1",
+      "direction": "structural",
+      "metrics": {
+        "psnr": 31.35,
+        "val_loss": 47.6771,
+        "train_loss": 52.1165,
+        "params": 100100
+      },
+      "latency_ms": 0.511373,
+      "params": 100100,
+      "onnx_path": "variants/structural_5/model.onnx",
+      "promising": true,
+      "dead": false,
+      "depth": 3,
+      "model_file": "variants/structural_5/model.py",
+      "status": "done"
+    },
+    {
+      "id": "hyperparam_5",
+      "parent_id": "structural_1",
+      "direction": "hyperparam",
+      "metrics": {
+        "psnr": 31.15,
+        "val_loss": 49.9283,
+        "train_loss": 54.1959,
+        "params": 105236
+      },
+      "latency_ms": 0.464,
+      "params": 105236,
+      "onnx_path": "variants/hyperparam_5/model.onnx",
+      "promising": true,
+      "dead": false,
+      "depth": 3,
+      "model_file": "variants/hyperparam_5/model.py",
+      "status": "done"
+    },
+    {
+      "id": "sota_5",
+      "parent_id": "structural_1",
+      "direction": "sota",
+      "metrics": {
+        "psnr": 31.04,
+        "val_loss": 51.1763,
+        "train_loss": 55.7804,
+        "params": 109396
+      },
+      "latency_ms": 0.711,
+      "params": 109396,
+      "onnx_path": "variants/sota_5/model.onnx",
+      "promising": true,
+      "dead": false,
+      "depth": 3,
+      "model_file": "variants/sota_5/model.py",
+      "status": "done"
+    },
+    {
+      "id": "structural_6",
+      "parent_id": "structural_1",
+      "direction": "structural",
+      "metrics": {
+        "psnr": 29.16,
+        "val_loss": 78.8446,
+        "train_loss": 84.5552,
+        "params": 98256
+      },
+      "latency_ms": 0.4936,
+      "params": 98256,
+      "onnx_path": "variants/structural_6/model.onnx",
+      "promising": false,
+      "dead": false,
+      "depth": 3,
+      "model_file": "variants/structural_6/model.py",
+      "status": "done"
+    },
+    {
+      "id": "hyperparam_6",
+      "parent_id": "structural_1",
+      "direction": "hyperparam",
+      "metrics": {
+        "psnr": 31.2,
+        "val_loss": 49.3391,
+        "train_loss": 53.5964,
+        "params": 105236
+      },
+      "latency_ms": 0.5209,
+      "params": 105236,
+      "onnx_path": "variants/hyperparam_6/model.onnx",
+      "promising": true,
+      "dead": false,
+      "depth": 3,
+      "model_file": "variants/hyperparam_6/model.py",
+      "status": "done"
+    },
+    {
+      "id": "sota_6",
+      "parent_id": "structural_1",
+      "direction": "sota",
+      "metrics": {
+        "psnr": 30.79,
+        "val_loss": 54.1941,
+        "train_loss": 57.9421,
+        "params": 54490
+      },
+      "latency_ms": 0.564,
+      "params": 54490,
+      "onnx_path": "variants/sota_6/model.onnx",
+      "promising": true,
+      "dead": false,
+      "depth": 3,
+      "model_file": "variants/sota_6/model.py",
+      "status": "done"
+    },
+    {
+      "id": "structural_7",
+      "parent_id": "structural_1",
+      "direction": "structural",
+      "metrics": {
+        "psnr": 29.61,
+        "val_loss": 71.1218,
+        "train_loss": 76.3861,
+        "params": 97220
+      },
+      "latency_ms": 0.564,
+      "params": 97220,
+      "onnx_path": "variants/structural_7/model.onnx",
+      "promising": true,
+      "dead": false,
+      "depth": 3,
+      "model_file": "variants/structural_7/model.py",
+      "status": "done"
+    },
+    {
+      "id": "hyperparam_7",
+      "parent_id": "structural_1",
+      "direction": "hyperparam",
+      "metrics": {
+        "psnr": 31.45,
+        "val_loss": 46.6106,
+        "train_loss": 49.2354,
+        "params": 105236
+      },
+      "latency_ms": 0.449,
+      "params": 105236,
+      "onnx_path": "variants/hyperparam_7/model.onnx",
+      "promising": true,
+      "dead": false,
+      "depth": 3,
+      "model_file": "variants/hyperparam_7/model.py",
+      "status": "done"
+    },
+    {
+      "id": "sota_7",
+      "parent_id": "structural_1",
+      "direction": "sota",
+      "metrics": {
+        "psnr": 29.78,
+        "val_loss": 68.4077,
+        "train_loss": 72.5133,
+        "params": 85454
+      },
+      "latency_ms": 1.6032,
+      "params": 85454,
+      "onnx_path": "variants/sota_7/model.onnx",
+      "promising": true,
+      "dead": false,
+      "depth": 3,
+      "model_file": "variants/sota_7/model.py",
+      "status": "done"
+    },
+    {
+      "id": "structural_8",
+      "parent_id": "structural_1",
+      "direction": "structural",
+      "metrics": {
+        "psnr": 29.25,
+        "val_loss": 77.3407,
+        "train_loss": 83.1683,
+        "params": 98368
+      },
+      "latency_ms": 0.486,
+      "params": 98368,
+      "onnx_path": "variants/structural_8/model.onnx",
+      "promising": false,
+      "dead": false,
+      "depth": 3,
+      "model_file": "variants/structural_8/model.py",
+      "status": "done"
+    },
+    {
+      "id": "hyperparam_8c",
+      "parent_id": "structural_1",
+      "direction": "hyperparam",
+      "metrics": {
+        "psnr": 32.23,
+        "val_loss": 38.8683,
+        "train_loss": 42.1684,
+        "params": 105236
+      },
+      "latency_ms": 0.5045,
+      "params": 105236,
+      "onnx_path": "variants/hyperparam_8c/model.onnx",
+      "promising": true,
+      "dead": false,
+      "depth": 3,
+      "model_file": "variants/hyperparam_8c/model.py",
+      "status": "done"
+    },
+    {
+      "id": "sota_8",
+      "parent_id": "structural_1",
+      "direction": "sota",
+      "metrics": {
+        "psnr": 30.42,
+        "val_loss": 58.9701,
+        "train_loss": 63.2529,
+        "params": 47232
+      },
+      "latency_ms": 0.4075,
+      "params": 47232,
+      "onnx_path": "variants/sota_8/model.onnx",
+      "promising": true,
+      "dead": false,
+      "depth": 3,
+      "model_file": "variants/sota_8/model.py",
+      "status": "done"
+    },
+    {
+      "id": "structural_9",
+      "parent_id": "sota_8",
+      "direction": "structural",
+      "metrics": {
+        "psnr": 27.23,
+        "val_loss": 122.9479,
+        "train_loss": 124.072,
+        "params": 47489
+      },
+      "latency_ms": 0.4700565,
+      "params": 47489,
+      "onnx_path": "variants/structural_9/model.onnx",
+      "promising": false,
+      "dead": false,
+      "depth": 4,
+      "model_file": "variants/structural_9/model.py",
+      "status": "done"
+    },
+    {
+      "id": "hyperparam_9",
+      "parent_id": "sota_8",
+      "direction": "hyperparam",
+      "metrics": {
+        "psnr": 31.36,
+        "val_loss": 47.5589,
+        "train_loss": 49.7107,
+        "params": 47232
+      },
+      "latency_ms": 0.454,
+      "params": 47232,
+      "onnx_path": "variants/hyperparam_9/model.onnx",
+      "promising": true,
+      "dead": false,
+      "depth": 4,
+      "model_file": "variants/hyperparam_9/model.py",
+      "status": "done"
+    },
+    {
+      "id": "sota_9",
+      "parent_id": "sota_8",
+      "direction": "sota",
+      "metrics": {
+        "psnr": 29.55,
+        "val_loss": 72.0758,
+        "train_loss": 77.5706,
+        "params": 69036
+      },
+      "latency_ms": 0.4267,
+      "params": 69036,
+      "onnx_path": "variants/sota_9/model.onnx",
+      "promising": false,
+      "dead": false,
+      "depth": 4,
+      "model_file": "variants/sota_9/model.py",
+      "status": "done"
+    },
+    {
+      "id": "structural_10",
+      "parent_id": "sota_8",
+      "direction": "structural",
+      "metrics": {
+        "psnr": 31.84,
+        "val_loss": 42.5297,
+        "train_loss": 48.3315,
+        "params": 47244
+      },
+      "latency_ms": 0.44466,
+      "params": 47244,
+      "onnx_path": "variants/structural_10/model.onnx",
+      "promising": true,
+      "dead": false,
+      "depth": 4,
+      "model_file": "variants/structural_10/model.py",
+      "status": "done"
+    },
+    {
+      "id": "hyperparam_10",
+      "parent_id": "sota_8",
+      "direction": "hyperparam",
+      "metrics": {
+        "psnr": 27.08,
+        "val_loss": 127.4311,
+        "train_loss": 129.4205,
+        "params": 47232
+      },
+      "latency_ms": 0.428931,
+      "params": 47232,
+      "onnx_path": "variants/hyperparam_10/model.onnx",
+      "promising": false,
+      "dead": false,
+      "depth": 4,
+      "model_file": "variants/hyperparam_10/model.py",
+      "status": "done"
+    },
+    {
+      "id": "sota_10",
+      "parent_id": "sota_8",
+      "direction": "sota",
+      "metrics": {
+        "psnr": 29.7,
+        "val_loss": 69.7424,
+        "train_loss": 73.4793,
+        "params": 29460
+      },
+      "latency_ms": 0.4478,
+      "params": 29460,
+      "onnx_path": "variants/sota_10/model.onnx",
+      "promising": false,
+      "dead": false,
+      "depth": 4,
+      "model_file": "variants/sota_10/model.py",
+      "status": "done"
+    }
+  ]
+}

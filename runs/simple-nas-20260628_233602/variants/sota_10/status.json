@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "vid": "sota_10",
+  "metrics_path": "/root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_out/metrics.json",
+  "iter_num": 10,
+  "parent_id": "sota_8",
+  "direction": "sota"
+}

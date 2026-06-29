@@ -1,0 +1,10 @@
+{
+  "batch_size": 32,
+  "epochs": 5,
+  "optimizer": "adam",
+  "lr": 0.001,
+  "lr_scheduler": "onecycle",
+  "warmup_steps": 0,
+  "weight_decay": 0,
+  "momentum": 0.9
+}

@@ -1,0 +1,14 @@
+Traceback (most recent call last):
+  File "/root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_helpers/measure_onnx_latency.py", line 197, in <module>
+    main()
+  File "/root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_helpers/measure_onnx_latency.py", line 179, in main
+    result = measure_latency(
+  File "/root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_helpers/measure_onnx_latency.py", line 130, in measure_latency
+    feeds, sess, schema = _build_feeds(onnx_path, Path(model_dir), input_shape)
+  File "/root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_helpers/measure_onnx_latency.py", line 49, in _build_feeds
+    sess = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+  File "/root/miniconda3/envs/asi/lib/python3.10/site-packages/onnxruntime/capi/onnxruntime_inference_collection.py", line 485, in __init__
+    self._create_inference_session(providers, provider_options, disabled_optimizers)
+  File "/root/miniconda3/envs/asi/lib/python3.10/site-packages/onnxruntime/capi/onnxruntime_inference_collection.py", line 573, in _create_inference_session
+    sess = C.InferenceSession(session_options, self._model_path, True, self._read_config_from_model)
+onnxruntime.capi.onnxruntime_pybind11_state.NoSuchFile: [ONNXRuntimeError] : 3 : NO_SUCHFILE : Load model from _out/model.onnx failed:Load model _out/model.onnx failed. File doesn't exist

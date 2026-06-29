@@ -1,0 +1,9 @@
+{
+  "vid": "v0",
+  "metrics": {"psnr": 24.9, "train_loss": 221.7194, "val_loss": 210.2948},
+  "latency_ms": 1.3468,
+  "params": 181865,
+  "hyperparams": {"lr": 0.001, "batch_size": 64, "epochs": 5, "bottleneck_multiplier": 2.0},
+  "model_file": "variants/v0/model.py",
+  "onnx_path": "variants/v0/model.onnx"
+}

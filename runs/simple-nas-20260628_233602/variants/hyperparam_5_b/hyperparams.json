@@ -1,0 +1,10 @@
+{
+  "batch_size": 32,
+  "epochs": 5,
+  "optimizer": "rmsprop",
+  "lr": 0.001,
+  "lr_scheduler": "steplr",
+  "warmup_steps": 0,
+  "weight_decay": 0.0001,
+  "momentum": 0.9
+}

@@ -1,0 +1,9 @@
+{
+  "latency_mean_ms": 0.4197,
+  "latency_median_ms": 0.4075,
+  "latency_std_ms": 0.0682,
+  "latency_min_ms": 0.315,
+  "latency_max_ms": 0.7727,
+  "n_runs": 100,
+  "provider": "CPUExecutionProvider"
+}

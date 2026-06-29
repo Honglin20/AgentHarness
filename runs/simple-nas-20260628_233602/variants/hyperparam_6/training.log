@@ -1,0 +1,33 @@
+[NAS] Device: cuda:0 (CUDA available: True)
+[NAS] Data dir: /root/autodl-tmp/dataset
+[NAS] Loading cifar10 from /root/autodl-tmp/dataset
+[NAS] Dataset loaded: 50000 train, 10000 test samples
+Traceback (most recent call last):
+  File "/root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_nas_entry.py", line 245, in <module>
+    main()
+  File "/root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_nas_entry.py", line 116, in main
+    c = ratio2filtersize(image_first, args.ratio)
+  File "/root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/runs/simple-Epoch   5: train_loss=53.5964, val_loss=49.3391, PSNR=31.20 dB
+[NAS] Training complete: best_PSNR=31.20 dB, time=69.7s
+[NAS] Checkpoint saved: /root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_out/ckpt.pt
+[NAS] Metrics saved: /root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_out/metrics.json
+[NAS] Done. Status: /root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/_out/status.json
+ in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/runs/simple-nas-20260628_233602/variants/sota_6/model.py", line 144, in forward
+    x = self.bottleneck1(x)
+  File "/root/miniconda3/envs/asi/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/root/miniconda3/envs/asi/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/root/autodl-tmp/AgentHarness/Deep-JSCC-PyTorch/runs/simple-nas-20260628_233602/variants/sota_6/model.py", line 70, in forward
+    out = self.bn1(out)
+  File "/root/miniconda3/envs/asi/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/root/miniconda3/envs/asi/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/root/miniconda3/envs/asi/lib/python3.10/site-packages/torch/nn/modules/batchnorm.py", line 177, in forward
+    self._check_input_dim(input)
+  File "/root/miniconda3/envs/asi/lib/python3.10/site-packages/torch/nn/modules/batchnorm.py", line 496, in _check_input_dim
+    raise ValueError(f"expected 4D input (got {input.dim()}D input)")
+ValueError: expected 4D input (got 3D input)

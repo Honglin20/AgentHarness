@@ -1,0 +1,29 @@
+{
+  "iter_num": 10,
+  "parent_id": "sota_8",
+  "parent": {
+    "id": "sota_8",
+    "model_file": "/Users/mozzie/Desktop/Projects/AgentHarness/projects/Deep-JSCC-PyTorch/runs/simple-nas-20260628_233602/variants/sota_8/model.py",
+    "model_class": "DeepJSCC",
+    "metrics": {
+      "psnr": 30.42,
+      "val_loss": 58.9701,
+      "train_loss": 63.2529,
+      "params": 47232
+    },
+    "latency_ms": 0.4075,
+    "params": 47232,
+    "direction": "sota"
+  },
+  "active_directions": [
+    "structural",
+    "hyperparam",
+    "sota"
+  ],
+  "info_paths": {
+    "baseline_understanding": "/Users/mozzie/Desktop/Projects/AgentHarness/projects/Deep-JSCC-PyTorch/runs/simple-nas-20260628_233602/baseline_understanding.md",
+    "experience": "/Users/mozzie/Desktop/Projects/AgentHarness/projects/Deep-JSCC-PyTorch/runs/simple-nas-20260628_233602/experience.md",
+    "setup": "/Users/mozzie/Desktop/Projects/AgentHarness/projects/Deep-JSCC-PyTorch/runs/simple-nas-20260628_233602/setup.json",
+    "parent_model": "/Users/mozzie/Desktop/Projects/AgentHarness/projects/Deep-JSCC-PyTorch/runs/simple-nas-20260628_233602/variants/sota_8/model.py"
+  }
+}
